@@ -3,12 +3,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sst dev",
+    "build": "tsc",
+    "dev:mcp": "tsx watch vault-mcp/server.ts",
+    "start": "node dist/vault-mcp/server.js",
+    "dev:sst": "sst dev",
     "deploy": "sst deploy",
     "remove": "sst remove"
   },
-  "devDependencies": {
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.9.0",
+    "chokidar": "^4.0.3",
+    "express": "^5.1.0",
+    "gray-matter": "^4.0.3",
     "sst": "^4.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
 }

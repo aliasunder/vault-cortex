@@ -4,6 +4,4 @@ dist/
 .env
 *.db
 *.sqlite
-.DS_Store
-tmp/
-coverage/
+*.log
