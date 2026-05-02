@@ -1,0 +1,14 @@
+{
+  "name": "vault-cortex",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sst dev",
+    "deploy": "sst deploy",
+    "remove": "sst remove"
+  },
+  "devDependencies": {
+    "sst": "^4.12.0",
+    "typescript": "^5.8.0"
+  }
+}
