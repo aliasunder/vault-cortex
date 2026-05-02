@@ -11,23 +11,27 @@ export default $config({
   },
 
   async run() {
-    // -- Secrets --------------------------------------------------------
-    // Set once per stage:
-    //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
-    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>"
-    //   sst secret set ObsidianVaultName "My Vault"
+    // ── Secrets ────────────────────────────────────────────────────
+    // Set once per stage, then deploy:
+    //   sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
+    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>" --stage production
+    //   sst secret set ObsidianVaultName "My Vault" --stage production
+    //   sst deploy --stage production
     //
-    // PascalCase required. Encrypted in SST-managed S3.
-    // -------------------------------------------------------------------
+    // SST encrypts to S3 in your account. Names MUST be PascalCase.
+    // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken");
     const obsidianAuthToken = new sst.Secret("ObsidianAuthToken");
     const obsidianVaultName = new sst.Secret("ObsidianVaultName");
 
-    // -- Lightsail ------------------------------------------------------
-    // Small = 2 vCPU, 2 GB RAM, 60 GB SSD, $12/mo.
-    // GOTCHA: Changing userData or bundleId REPLACES the instance.
-    // GOTCHA: userData is visible in console — don't put secrets here.
-    // -------------------------------------------------------------------
+    // ── Lightsail ─────────────────────────────────────────────────
+    // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
+    //
+    // GOTCHA: Changing userData or bundleId REPLACES the instance —
+    //         all data on the old instance is lost.
+    // GOTCHA: userData is visible via get-instance API/console.
+    //         Don't bake secrets here — pull from SSM at boot instead.
+    // ──────────────────────────────────────────────────────────────
     const instance = new aws.lightsail.Instance("VaultCortexVm", {
       name: `vault-cortex-${$app.stage}`,
       availabilityZone: "us-east-1a",
@@ -56,27 +60,37 @@ export default $config({
       instanceName: instance.name,
     });
 
-    // GOTCHA: InstancePublicPorts is DECLARATIVE — replaces ALL rules.
-    // Omitting port 22 locks you out of SSH.
+    // GOTCHA: InstancePublicPorts is DECLARATIVE — it replaces ALL
+    // existing rules on every deploy. If you omit port 22 here,
+    // you lock yourself out of SSH permanently.
     new aws.lightsail.InstancePublicPorts("VaultCortexPorts", {
       instanceName: instance.name,
       portInfos: [
-        { protocol: "tcp", fromPort: 22, toPort: 22, cidrs: ["0.0.0.0/0"] }, // TODO: restrict to admin IP
+        // TODO: Restrict SSH to your admin IP (e.g. "203.0.113.42/32")
+        { protocol: "tcp", fromPort: 22, toPort: 22, cidrs: ["0.0.0.0/0"] },
+        // API Gateway calls Lightsail on this port. Bearer token is
+        // enforced upstream by the Lambda authorizer, so 0.0.0.0/0
+        // is acceptable — the token is the real security boundary.
         { protocol: "tcp", fromPort: 8000, toPort: 8000, cidrs: ["0.0.0.0/0"] },
       ],
     });
 
-    // -- API Gateway HTTP API --------------------------------------------
-    // No custom domain — auto-generated HTTPS URL.
-    // Free tier: 1M req/mo for 12 months, then $1/M.
-    // -------------------------------------------------------------------
+    // ── API Gateway HTTP API ──────────────────────────────────────
+    // No custom domain — you get a free HTTPS URL:
+    //   https://<id>.execute-api.us-east-1.amazonaws.com
+    //
+    // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
+    // MCP clients point at this URL with their bearer token.
+    // ──────────────────────────────────────────────────────────────
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi");
 
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
-          handler: "packages/functions/src/authorizer.handler",
+          // SST bundles this with esbuild — only authorizer.ts and
+          // its imports end up in the Lambda. vault-mcp/ is excluded.
+          handler: "functions/authorizer.handler",
           link: [mcpAuthToken],
           runtime: "nodejs22.x",
           timeout: "5 seconds",
@@ -85,13 +99,21 @@ export default $config({
       },
     });
 
-    // GOTCHA: {proxy+} matches 1+ segments, not bare "/". Need both routes.
-    api.routeUrl("ANY /{proxy+}", $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`, {
-      auth: { lambda: authorizer.id },
-    });
-    api.routeUrl("ANY /", $interpolate`http://${staticIp.ipAddress}:8000`, {
-      auth: { lambda: authorizer.id },
-    });
+    // routeUrl() creates an HTTP_PROXY integration — API Gateway
+    // forwards the request as-is to the Lightsail backend.
+    //
+    // GOTCHA: {proxy+} matches one-or-more path segments but NOT
+    // the bare root "/". You need both routes.
+    api.routeUrl(
+      "ANY /{proxy+}",
+      $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`,
+      { auth: { lambda: authorizer.id } },
+    );
+    api.routeUrl(
+      "ANY /",
+      $interpolate`http://${staticIp.ipAddress}:8000`,
+      { auth: { lambda: authorizer.id } },
+    );
 
     return {
       apiUrl: api.url,
