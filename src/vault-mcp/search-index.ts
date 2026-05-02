@@ -23,39 +23,39 @@
 
 import type Database from "better-sqlite3";
 
-// ── Types ───────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────
 
-export interface SearchResult {
+export type SearchResult = {
   path: string;
   title: string;
   snippet: string;
   score: number;
   tags: string[];
   folder: string;
-}
+};
 
-export interface NoteMetadata {
+export type NoteMetadata = {
   path: string;
   title: string;
   tags: string[];
   folder: string;
   type: string | null;
   mtime: number;
-}
+};
 
-export interface TagCount {
+export type TagCount = {
   tag: string;
   count: number;
-}
+};
 
-export interface SearchFilters {
+export type SearchFilters = {
   folder?: string;     // restrict to notes under this folder
   tags?: string[];     // require ALL of these tags
   type?: string;       // match frontmatter `type` field
   limit?: number;      // max results (default 20)
-}
+};
 
-// ── Factory ─────────────────────────────────────────────────────────
+// ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (dbPath: string) => {
   // TODO: implement

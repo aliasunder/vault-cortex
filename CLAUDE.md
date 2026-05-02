@@ -8,6 +8,13 @@ Remote MCP server exposing an Obsidian vault over HTTPS. Two containers on
 Lightsail (obsidian-headless for sync, vault-mcp for MCP tools), fronted by
 API Gateway with a Lambda bearer-token authorizer. IaC via SST v4.
 
+**Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
+About Me/ memory layer — enough to make any MCP client personalized.
+
+**Phase 2** adds LightRAG for semantic/knowledge-graph queries over the
+vault. The file watcher gains a second hook for LightRAG ingestion,
+and a new `vault_query_kb` tool is added. Additive — not a rewrite.
+
 See `ARCHITECTURE.md` for the full design.
 
 ## Structure
@@ -28,13 +35,15 @@ src/
     vault-filesystem.ts                # Read/write/list .md files
     memory-store.ts                    # About Me/ read/append/list
     search-index.ts                    # SQLite FTS5 factory (tags, folders, etc)
-    file-watcher.ts                    # chokidar -> keeps search index current
+    file-watcher.ts                    # chokidar -> keeps index current
+                                       # Phase 2: gains LightRAG ingestion hook
 ```
 
 ## Code style
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
+- `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
 - No `any`. Prefer `async/await`.
