@@ -121,3 +121,4 @@ See `sst.config.ts` for full IaC. Auth is a static bearer token — no Cognito, 
 | chokidar | Node-native, same process as SQLite. |
 | Streamable HTTP | Current MCP spec. SSE is deprecated. |
 | GHCR over ECR | GITHUB_TOKEN auth, no AWS IAM for images. |
+| Factory over class | Functional style. Closure holds db ref, no `this`. |
