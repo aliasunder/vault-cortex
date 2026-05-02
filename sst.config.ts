@@ -90,7 +90,7 @@ export default $config({
         function: {
           // SST bundles this with esbuild — only authorizer.ts and
           // its imports end up in the Lambda. vault-mcp/ is excluded.
-          handler: "functions/authorizer.handler",
+          handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
           runtime: "nodejs22.x",
           timeout: "5 seconds",
