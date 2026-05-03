@@ -144,6 +144,17 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 See `sst.config.ts` for full IaC. Auth is a static bearer token — no Cognito, no JWT, no re-auth.
 
+### Auth: defense in depth
+
+The bearer token is validated at **two layers**, against the same secret:
+
+1. **API Gateway → Lambda authorizer** (`src/functions/authorizer.ts`) — reads the SST secret `McpAuthToken`. Rejects unauthenticated requests at the edge.
+2. **vault-mcp → Express middleware** (`requireBearerToken` in `src/vault-mcp/server.ts`) — reads `MCP_AUTH_TOKEN` from the container env (sourced from Lightsail `.env`). Rejects unauthenticated requests at the application layer.
+
+Why both: the Lightsail container's port 8000 is publicly bound. If the API Gateway authorizer is misconfigured, or someone discovers the Lightsail public IP and connects directly, the in-process middleware still rejects. The `/healthz` endpoint bypasses the middleware so docker-compose's healthcheck works.
+
+Rotation: update the SST secret AND the Lightsail `.env`, then redeploy both.
+
 ## Cost
 
 | Component | Phase 1 | Phase 2 |

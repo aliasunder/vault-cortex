@@ -4,8 +4,10 @@
 #   1. obsidian-sync: keeps /vault in sync with Obsidian Sync (bidirectional)
 #   2. vault-mcp: MCP server with FTS5 search, listens on :8000
 #
-# API Gateway handles TLS + auth upstream — port 8000 receives
-# pre-authenticated HTTP requests.
+# API Gateway handles TLS + auth upstream. vault-mcp ALSO validates
+# the bearer token in-process (Express middleware) as defense in
+# depth — see src/vault-mcp/server.ts. Port 8000 is publicly bound
+# but unauthenticated requests are rejected at the application layer.
 
 name: vault-cortex
 
@@ -50,6 +52,7 @@ services:
       HOST: "0.0.0.0"
       VAULT_PATH: /vault
       INDEX_DB_PATH: /data/index.db
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-Etc/UTC}
     volumes:
