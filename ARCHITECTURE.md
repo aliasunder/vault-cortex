@@ -106,25 +106,31 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | Tool | Input | Annotation |
 |------|-------|------------|
 | `vault_read_note` | `path` | readOnlyHint |
-| `vault_write_note` | `path, content` | destructiveHint |
+| `vault_write_note` | `path, body, frontmatter?` | destructiveHint |
 | `vault_list_notes` | `folder?, glob?` | readOnlyHint |
+| `vault_delete_note` | `path` | destructiveHint |
+
+`vault_delete_note` refuses paths under `About Me/` or `Daily Notes/` as a server-side guardrail; use `vault_delete_memory` for individual entries in those files.
 
 ### Phase 1: Search (R4)
 
 | Tool | Input | Annotation |
 |------|-------|------------|
-| `vault_search` | `query, folder?, tags?, type?, limit?` | readOnlyHint |
+| `vault_search` | `query, filters?` | readOnlyHint |
 | `vault_search_by_tag` | `tag, exact?` | readOnlyHint |
 | `vault_list_tags` | — | readOnlyHint |
-| `vault_recent_notes` | `limit?` | readOnlyHint |
+| `vault_recent_notes` | `sort_by?, limit?` | readOnlyHint |
+
+`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), and `limit`. `sort_by` is `"created" | "mtime"` (default `"mtime"`).
 
 ### Phase 1: Memory (R5)
 
 | Tool | Input | Annotation |
 |------|-------|------------|
-| `vault_get_memory` | `file?` | readOnlyHint |
-| `vault_update_memory` | `file, entry` | destructiveHint |
-| `vault_list_memories` | — | readOnlyHint |
+| `vault_get_memory` | `file?, section?` | readOnlyHint |
+| `vault_update_memory` | `file, section, entry, options?` | destructiveHint |
+| `vault_delete_memory` | `file, section, date, entry` | destructiveHint |
+| `vault_list_memory_files` | — | readOnlyHint |
 
 ### Phase 2: Knowledge Base (R8)
 

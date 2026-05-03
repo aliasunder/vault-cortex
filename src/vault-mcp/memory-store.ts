@@ -51,7 +51,7 @@ export type MemoryHeading = {
   entryCount?: number;   // number of `- **YYYY-MM-DD**: ...` bullets in section
 };
 
-export type MemoryFileSummary = {
+export type MemoryFileOutline = {
   file: string;          // base name without .md (e.g. "Principles")
   title: string;         // from frontmatter `title` (falls back to file)
   headings: MemoryHeading[];
@@ -97,7 +97,7 @@ export const getMemory = async (
  * bullet list (newest-first), and re-serializes losslessly.
  *
  * Errors if file or section doesn't exist — agent must call
- * `listMemories` first to discover valid section names.
+ * `listMemoryFiles` first to discover valid section names.
  *
  * Example call:
  *   updateMemory("/vault", "Principles", "Decision heuristics",
@@ -132,12 +132,14 @@ export const updateMemory = async (
 };
 
 /**
- * List all memory files with their headings.
- * Distinguishes H1 (file title) from H2 (sections) so the agent
- * can pick the right section name for `updateMemory`.
+ * Discovery / outline tool — does NOT return memory entries.
+ * Returns one entry per About Me/ file with its title and heading
+ * structure (H1 file title + H2 sections, with per-section entry
+ * counts). Call this first to discover valid section names before
+ * `updateMemory`, `getMemory`, or `deleteMemory`.
  *
  * Example call:
- *   listMemories("/vault")
+ *   listMemoryFiles("/vault")
  *
  * Example response:
  *   [
@@ -154,9 +156,9 @@ export const updateMemory = async (
  *     { file: "Career", title: "Career", headings: [...] }
  *   ]
  */
-export const listMemories = async (
+export const listMemoryFiles = async (
   _vaultPath: string,
-): Promise<MemoryFileSummary[]> => {
+): Promise<MemoryFileOutline[]> => {
   // TODO: implement
   // - readdir About Me/, filter to .md
   // - For each: parse with gray-matter
@@ -166,4 +168,54 @@ export const listMemories = async (
   //     - `## X` → push { level: 2, text: "X", entryCount: <count of
   //                      `- **YYYY-MM-DD**:` bullets until next heading> }
   return [];
+};
+
+/**
+ * Delete a single dated entry from a memory file's section.
+ *
+ * Identification is by exact `(date, entry)` pair to avoid ambiguity.
+ * The agent should call `getMemory(file, section)` first to see what's
+ * there, then pass the exact text back.
+ *
+ * Errors on:
+ *   - file not found
+ *   - section not found
+ *   - no bullet matching `- **{date}**: {entry}`
+ *   - more than one bullet matching (shouldn't happen given date+text,
+ *     but guard anyway — surface "ambiguous match" rather than
+ *     silently picking one)
+ *
+ * Example call:
+ *   deleteMemory("/vault", "Principles", "Decision heuristics",
+ *                "2026-04-21",
+ *                "ship the smallest thing that proves the idea")
+ *
+ * Example file diff:
+ *   ## Decision heuristics
+ *   - **2026-05-03**: prefer reversible decisions when context is thin
+ *  -- **2026-04-21**: ship the smallest thing that proves the idea
+ *
+ * Example error:
+ *   deleteMemory(..., "2026-04-21", "nonexistent text")
+ *   // → Error: no entry matching (2026-04-21, "nonexistent text")
+ *   //   under ## Decision heuristics in About Me/Principles.md
+ */
+export const deleteMemory = async (
+  _vaultPath: string,
+  _file: string,
+  _section: string,
+  _date: string,        // ISO YYYY-MM-DD
+  _entry: string,       // exact entry text (no date prefix)
+): Promise<void> => {
+  // TODO: implement
+  // - Read About Me/{file}.md
+  // - Parse with gray-matter
+  // - Locate `## {section}` H2 (case-insensitive trim match)
+  // - Find bullets matching `- **{date}**: {entry}` (exact text match)
+  //   - 0 matches → throw "no entry matching ..."
+  //   - >1 matches → throw "ambiguous: N entries match ..."
+  //   - 1 match → remove that line
+  // - matter.stringify(newBody, frontmatter) → write back
+  // - Frontmatter must round-trip verbatim
+  throw new Error("Not implemented");
 };

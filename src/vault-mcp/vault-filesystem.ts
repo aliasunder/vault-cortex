@@ -14,9 +14,20 @@
 // TODO: implement all functions below
 //
 // Key imports needed:
-//   readFile, writeFile, readdir, mkdir from "node:fs/promises"
+//   readFile, writeFile, readdir, mkdir, unlink from "node:fs/promises"
 //   join, dirname, relative, resolve from "node:path"
 //   matter from "gray-matter"
+
+/**
+ * Top-level folders whose files cannot be deleted via MCP. Enforced
+ * server-side as a hard guardrail — `destructiveHint: true` alone
+ * isn't sufficient protection for journal-style files where bulk
+ * loss would be catastrophic.
+ *
+ * To delete a file under one of these, use the Obsidian app directly.
+ * To remove individual memory entries, use `vault_delete_memory`.
+ */
+const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const;
 
 /**
  * Read a note's raw content by relative path. Throws if not found.
@@ -84,6 +95,41 @@ export const writeNote = async (
   // - If new: matter.stringify(body, frontmatter ?? {})
   // - writeFile(fullPath, serialized, "utf8")
   // - obsidian-headless will detect the write and sync it
+  throw new Error("Not implemented");
+};
+
+/**
+ * Delete a note. Throws if the path is protected, escapes the vault
+ * root, or doesn't exist.
+ *
+ * The file watcher's unlink handler picks up the deletion and calls
+ * `searchIndex.removeNote()` to keep the index in sync. Obsidian Sync
+ * propagates the deletion to all connected devices.
+ *
+ * Refuses to delete any path starting with a `PROTECTED_PATHS` prefix
+ * (currently `About Me/` and `Daily Notes/`). To remove memories, use
+ * `vault_delete_memory` at the entry level.
+ *
+ * Example call:
+ *   deleteNote("/vault", "Projects/scratch/typo.md")
+ *
+ * Example response: void (throws on protected path, missing file,
+ * or path-traversal attempt).
+ *
+ * Example error:
+ *   deleteNote("/vault", "About Me/Principles.md")
+ *   // → Error: cannot delete protected path "About Me/Principles.md"
+ *   //   (use vault_delete_memory for individual entries)
+ */
+export const deleteNote = async (
+  _vaultPath: string,
+  _notePath: string,
+): Promise<void> => {
+  // TODO: implement
+  // - Validate path doesn't escape vault root (resolve + startsWith)
+  // - Reject if notePath starts with any PROTECTED_PATHS prefix
+  // - unlink(fullPath) — fs.promises throws ENOENT cleanly if missing
+  // - File watcher unlink handler calls searchIndex.removeNote()
   throw new Error("Not implemented");
 };
 

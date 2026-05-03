@@ -69,6 +69,20 @@ export const registerTools = (
   //       ["About Me/Principles.md","About Me/Career.md",
   //        "About Me/Routines.md","About Me/Preferences.md"]) }] }
   //
+  // vault_delete_note(path)          → vault-filesystem.deleteNote()
+  //   destructiveHint: true
+  //   Refuses paths under "About Me/" or "Daily Notes/" — for memory
+  //   entries, use vault_delete_memory.
+  //   Example call:
+  //     { path: "Projects/scratch/typo.md" }
+  //   Example response:
+  //     { content: [{ type: "text", text:
+  //       "Deleted Projects/scratch/typo.md" }] }
+  //   Example error:
+  //     { path: "About Me/Principles.md" }
+  //     → "Error: cannot delete protected path \"About Me/Principles.md\"
+  //        (use vault_delete_memory for individual entries)"
+  //
   // ────────────────────────────────────────────────────────────────
   // ── Search (R4) ────────────────────────────────────────────────
   // ────────────────────────────────────────────────────────────────
@@ -165,10 +179,12 @@ export const registerTools = (
   //     { content: [{ type: "text", text:
   //       "Added entry to About Me/Principles.md → ## Decision heuristics" }] }
   //
-  // vault_list_memories()            → memory-store.listMemories()
+  // vault_list_memory_files()        → memory-store.listMemoryFiles()
   //   readOnlyHint: true
-  //   Discovery tool — call before vault_update_memory to find valid
-  //   section names.
+  //   Discovery / outline tool — does NOT return memory entries.
+  //   Returns files + their H1/H2 headings with per-section entry
+  //   counts. Call before vault_update_memory, vault_get_memory, or
+  //   vault_delete_memory to find valid section names.
   //   Example call: {}
   //   Example response:
   //     { content: [{ type: "text", text: JSON.stringify([
@@ -179,4 +195,19 @@ export const registerTools = (
   //       ]},
   //       { file: "Career", title: "Career", headings: [...] }
   //     ]) }] }
+  //
+  // vault_delete_memory(file, section, date, entry)
+  //                                  → memory-store.deleteMemory()
+  //   destructiveHint: true
+  //   Both date and entry required to disambiguate. Call
+  //   vault_get_memory(file, section) first to see the exact entry
+  //   text. Errors on no match or ambiguous match.
+  //   Example call:
+  //     { file: "Principles",
+  //       section: "Decision heuristics",
+  //       date: "2026-04-21",
+  //       entry: "ship the smallest thing that proves the idea" }
+  //   Example response:
+  //     { content: [{ type: "text", text:
+  //       "Deleted entry from About Me/Principles.md → ## Decision heuristics" }] }
 };
