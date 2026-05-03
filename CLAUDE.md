@@ -64,3 +64,10 @@ sst secret set ObsidianAuthToken "<token>" --stage production
 sst secret set ObsidianVaultName "My Vault" --stage production
 sst deploy --stage production
 ```
+
+## Before going public
+
+Before this repo is made public, work through the pre-public hardening
+checklist (SSH `0.0.0.0/0` → admin IP, API Gateway throttling, full
+git-history secret scan, etc). See `ARCHITECTURE.md` for the full list
+once it's written.
