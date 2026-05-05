@@ -6,3 +6,5 @@ sst-env.d.ts
 *.db
 *.sqlite
 *.log
+CLAUDE.local.md
+.serena/
