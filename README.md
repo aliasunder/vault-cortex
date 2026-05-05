@@ -23,7 +23,7 @@ SST defaults to a personal stage based on your username (run `npx sst secret lis
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
 - A GitHub PAT with `write:packages` scope, exported as `$GHCR_TOKEN`, for pushing the vault-mcp image to GHCR
-- The Lightsail default SSH key for your region (download from AWS console → Lightsail → Account → SSH keys), saved at `~/.ssh/LightsailDefaultKey-<region>.pem` with `chmod 600`
+- An SSH keypair at `~/.ssh/id_ed25519.pub` (or `~/.ssh/id_rsa.pub`). If you don't have one yet: `ssh-keygen -t ed25519`. SST uploads the public key to Lightsail so SCP/SSH work with your default identity. Override the path via `SSH_PUBKEY_PATH`, or pass the key contents directly via `SSH_PUBKEY` (used in CI).
 
 ### One-time setup
 
