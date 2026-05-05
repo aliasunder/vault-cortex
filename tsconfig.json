@@ -13,6 +13,6 @@
     "isolatedModules": true,
     "declaration": true
   },
-  "include": ["src/vault-mcp/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", ".sst"]
 }

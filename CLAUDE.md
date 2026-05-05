@@ -56,6 +56,25 @@ src/
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
 - SST bundles Lambda handlers with esbuild from entry file.
 
+## Local development
+
+`Resource.McpAuthToken` (used by `src/functions/authorizer.ts`) is
+typed via `.sst/types.generated.ts`, which SST emits only when it
+runs the resource graph. On a fresh clone, `npm run build` fails
+with `Property 'McpAuthToken' does not exist on type 'Resource'`
+until you bootstrap SST once.
+
+```bash
+npm install
+sst dev --stage <yourname>      # generates .sst/ types; leave running
+# in another shell:
+npm run build                   # tsc now sees Resource.McpAuthToken
+```
+
+`sst dev` keeps types fresh as you edit `sst.config.ts`. For a CI /
+non-dev build, `sst deploy --stage <ci>` also generates the types as
+a side effect.
+
 ## Deployment
 
 ```bash
