@@ -70,13 +70,23 @@ export default $config({
     // with the default identity — no `-i` flag, no per-region
     // LightsailDefaultKey.pem download.
     //
-    // GOTCHA: Changing keyPairName on an existing Lightsail Instance
-    //         FORCES A REPLACE. The VM is destroyed and recreated,
-    //         wiping its local disk (Docker volumes, /opt/vault-cortex
-    //         contents). The StaticIp stays (separate resource).
+    // GOTCHA #1: Changing keyPairName on an existing Lightsail Instance
+    //            FORCES A REPLACE. The VM is destroyed and recreated,
+    //            wiping its local disk (Docker volumes,
+    //            /opt/vault-cortex contents). The StaticIp stays
+    //            (separate resource).
+    // GOTCHA #2: AWS Lightsail's ImportKeyPair API validates against
+    //            a wider namespace than `get-key-pairs` surfaces
+    //            (default region keypairs, soft-deleted tombstones).
+    //            And `aws.lightsail.KeyPair` cannot be imported into
+    //            Pulumi state — so once a name collides, refresh sees
+    //            something but deploy still plans Create and fails.
+    //            See pulumi/pulumi-aws#4502. We use a key-specific
+    //            suffix (`-key`) to stay clear of the instance name's
+    //            namespace and reduce collision risk.
     // ──────────────────────────────────────────────────────────────
     const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
-      name: `vault-cortex-${$app.stage}`,
+      name: `vault-cortex-key-${$app.stage}`,
       publicKey: readSshPublicKey(),
     });
 
