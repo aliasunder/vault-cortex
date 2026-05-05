@@ -75,15 +75,16 @@ export default $config({
     //            wiping its local disk (Docker volumes,
     //            /opt/vault-cortex contents). The StaticIp stays
     //            (separate resource).
-    // GOTCHA #2: AWS Lightsail's ImportKeyPair API validates against
-    //            a wider namespace than `get-key-pairs` surfaces
-    //            (default region keypairs, soft-deleted tombstones).
-    //            And `aws.lightsail.KeyPair` cannot be imported into
-    //            Pulumi state — so once a name collides, refresh sees
-    //            something but deploy still plans Create and fails.
-    //            See pulumi/pulumi-aws#4502. We use a key-specific
-    //            suffix (`-key`) to stay clear of the instance name's
-    //            namespace and reduce collision risk.
+    // GOTCHA #2: Lightsail resource names are unique ACROSS RESOURCE
+    //            TYPES within a region — not just within a type. So
+    //            naming the keypair `vault-cortex-${stage}` conflicts
+    //            with the instance below (same name, different type),
+    //            and AWS rejects with `Some names are already in use`
+    //            on ImportKeyPair, while `get-key-pairs` returns empty
+    //            and `delete-key-pair` 404s — because there's no
+    //            keypair, the namespace is held by the instance.
+    //            The `-key` suffix keeps us clear of every other
+    //            Lightsail resource in the stack.
     // ──────────────────────────────────────────────────────────────
     const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
       name: `vault-cortex-key-${$app.stage}`,
