@@ -25,7 +25,7 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
-      TZ: ${TZ:-Etc/UTC}
+      TZ: ${TZ:-America/New_York}
     volumes:
       - vault_data:/vault
       - obsidian_config:/config
@@ -54,7 +54,7 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      TZ: ${TZ:-Etc/UTC}
+      TZ: ${TZ:-America/New_York}
     volumes:
       - vault_data:/vault:ro
       - mcp_index_data:/data
