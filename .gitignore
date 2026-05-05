@@ -1,9 +1,8 @@
 node_modules/
 dist/
 .sst/
+sst-env.d.ts
 .env
 *.db
 *.sqlite
-.DS_Store
-tmp/
-coverage/
+*.log

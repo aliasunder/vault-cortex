@@ -1,0 +1,76 @@
+# Runs on the Lightsail instance at /opt/vault-cortex/docker-compose.yml
+#
+# Two services sharing the vault volume:
+#   1. obsidian-sync: keeps /vault in sync with Obsidian Sync (bidirectional)
+#   2. vault-mcp: MCP server with FTS5 search, listens on :8000
+#
+# API Gateway handles TLS + auth upstream. vault-mcp ALSO validates
+# the bearer token in-process (Express middleware) as defense in
+# depth — see src/vault-mcp/server.ts. Port 8000 is publicly bound
+# but unauthenticated requests are rejected at the application layer.
+
+name: vault-cortex
+
+services:
+  obsidian-sync:
+    image: ghcr.io/belphemur/obsidian-headless-sync-docker:latest
+    container_name: obsidian-sync
+    restart: unless-stopped
+    environment:
+      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}
+      VAULT_NAME: ${VAULT_NAME}
+      VAULT_PASSWORD: ${VAULT_PASSWORD:-}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
+      CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
+      SYNC_MODE: ${SYNC_MODE:-bidirectional}
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - vault_data:/vault
+      - obsidian_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /vault && pgrep -f 'ob sync' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  vault-mcp:
+    image: ghcr.io/${GHCR_USER:-aliasunder}/vault-mcp:${VAULT_MCP_TAG:-latest}
+    container_name: vault-mcp
+    restart: unless-stopped
+    depends_on:
+      obsidian-sync:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      VAULT_PATH: /vault
+      INDEX_DB_PATH: /data/index.db
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - vault_data:/vault:ro
+      - mcp_index_data:/data
+    ports:
+      - "0.0.0.0:8000:8000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  vault_data:       { name: vault-cortex_vault_data }
+  mcp_index_data:   { name: vault-cortex_mcp_index_data }
+  obsidian_config:  { name: vault-cortex_obsidian_config }
