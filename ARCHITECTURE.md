@@ -34,36 +34,36 @@ container, a new watcher callback, and a new tool.
 
 ```mermaid
 graph TB
-    subgraph "Your Devices"
+    subgraph devices ["Your Devices"]
         OBS_PHONE["Obsidian Mobile"]
         OBS_LAPTOP["Obsidian Desktop"]
     end
 
-    subgraph "Obsidian Cloud"
+    subgraph cloud ["Obsidian Cloud"]
         SYNC["Obsidian Sync"]
     end
 
-    subgraph "AWS — API Gateway"
+    subgraph apigw_grp ["AWS - API Gateway"]
         APIGW["API Gateway HTTP API<br/>HTTPS + auto URL"]
         AUTH_FN["Lambda Authorizer<br/>bearer token"]
         APIGW -->|validate| AUTH_FN
     end
 
-    subgraph "AWS — Lightsail $12/mo"
-        subgraph "Docker Compose"
+    subgraph lightsail ["AWS - Lightsail (12 USD/mo)"]
+        subgraph compose ["Docker Compose"]
             OB_HEADLESS["obsidian-sync<br/>ob sync --continuous"]
-            VAULT_FS[(" /vault<br/>SOURCE OF TRUTH")]
-            MCP_SERVER["vault-mcp :8000<br/>MCP streamable-http"]
+            VAULT_FS[("/vault<br/>SOURCE OF TRUTH")]
+            MCP_SERVER["vault-mcp:8000<br/>MCP streamable-http"]
             SQLITE[("SQLite FTS5")]
             WATCHER["chokidar watcher"]
         end
     end
 
-    subgraph "Phase 2"
-        LIGHTRAG["LightRAG :9621<br/>graph + vector retrieval"]
+    subgraph phase2 ["Phase 2"]
+        LIGHTRAG["LightRAG:9621<br/>graph + vector retrieval"]
     end
 
-    subgraph "MCP Clients"
+    subgraph clients ["MCP Clients"]
         CC["Claude Code"]
         CD["Claude Desktop"]
         CU["Cursor / OpenCode"]

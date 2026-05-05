@@ -2,6 +2,9 @@
   "name": "vault-cortex",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "dev:mcp": "tsx watch src/vault-mcp/server.ts",
