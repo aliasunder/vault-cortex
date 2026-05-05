@@ -66,22 +66,23 @@ until you bootstrap SST once.
 
 ```bash
 npm install
-sst dev --stage <yourname>      # generates .sst/ types; leave running
+npx sst dev --stage <yourname>  # generates .sst/ types; leave running
 # in another shell:
 npm run build                   # tsc now sees Resource.McpAuthToken
 ```
 
+`sst` is a local devDependency (not global), so prefix with `npx`.
 `sst dev` keeps types fresh as you edit `sst.config.ts`. For a CI /
-non-dev build, `sst deploy --stage <ci>` also generates the types as
-a side effect.
+non-dev build, `npx sst deploy --stage <ci>` also generates the types
+as a side effect.
 
 ## Deployment
 
 ```bash
-sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
-sst secret set ObsidianAuthToken "<token>" --stage production
-sst secret set ObsidianVaultName "My Vault" --stage production
-sst deploy --stage production
+npx sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
+npx sst secret set ObsidianAuthToken "<token>" --stage production
+npx sst secret set ObsidianVaultName "My Vault" --stage production
+npx sst deploy --stage production
 ```
 
 ## Before going public
