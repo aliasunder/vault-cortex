@@ -8,7 +8,12 @@
     "start": "node dist/vault-mcp/server.js",
     "dev:sst": "sst dev",
     "deploy": "sst deploy",
-    "remove": "sst remove"
+    "remove": "sst remove",
+    "docker:build": "tsx scripts/dev.mts docker:build",
+    "docker:push": "tsx scripts/dev.mts docker:push",
+    "docker:publish": "tsx scripts/dev.mts docker:publish",
+    "lightsail:up": "tsx scripts/dev.mts lightsail:up",
+    "deploy:dev": "npm run deploy && npm run docker:publish && npm run lightsail:up"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -56,43 +56,23 @@ src/
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
 - SST bundles Lambda handlers with esbuild from entry file.
 
-## Local development
+## Build pipeline gotcha
 
 `Resource.McpAuthToken` (used by `src/functions/authorizer.ts`) is
 typed via `sst-env.d.ts` at the project root, which SST writes when
 it runs the resource graph. The file is gitignored (auto-generated)
 so on a fresh clone, `npm run build` fails with
 `Property 'McpAuthToken' does not exist on type 'Resource'` until
-you generate it.
+you've run `npx sst deploy` (or `sst dev`) once for your stage.
 
-```bash
-npm install
-# Set placeholder secrets once per stage (real values only matter
-# for production):
-npx sst secret set McpAuthToken      "dev-placeholder" --stage <yourname>
-npx sst secret set ObsidianAuthToken "dev-placeholder" --stage <yourname>
-npx sst secret set ObsidianVaultName "dev-placeholder" --stage <yourname>
-# Generate sst-env.d.ts:
-npx sst dev --stage <yourname>  # leave running, OR run once and Ctrl+C
-                                # after types appear at ./sst-env.d.ts
-# In another shell (or after Ctrl+C):
-npm run build                   # tsc now sees Resource.McpAuthToken
-```
+If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
+(or `sst dev`) to regenerate `sst-env.d.ts`.
 
-`sst` is a local devDependency (not global), so prefix with `npx`.
-`sst dev` keeps `sst-env.d.ts` fresh as you edit `sst.config.ts`. If
-you change a secret name there, re-run `sst dev` (or `sst deploy`)
-to regenerate. For a CI / non-dev build, `npx sst deploy --stage <ci>`
-also generates the types as a side effect.
+## Operational docs
 
-## Deployment
-
-```bash
-npx sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
-npx sst secret set ObsidianAuthToken "<token>" --stage production
-npx sst secret set ObsidianVaultName "My Vault" --stage production
-npx sst deploy --stage production
-```
+Personal-stage and production deployment walkthroughs live in
+`README.md` (it's the front door — humans land there first). Keep
+this file focused on conventions; don't duplicate procedure here.
 
 ## Before going public
 
