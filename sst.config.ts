@@ -1,37 +1,8 @@
 /// <reference path="./.sst/platform/config.d.ts" />
 
-import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-
-const expandHome = (p: string): string =>
-  p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
-
-const readSshPublicKey = (): string => {
-  // Resolution order:
-  //   1. SSH_PUBKEY env var (literal key contents) — for CI / GitHub Actions
-  //      where the key comes from a secret, not the filesystem.
-  //   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
-  //   3. ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub — defaults for
-  //      local dev.
-  if (process.env.SSH_PUBKEY?.trim()) {
-    return process.env.SSH_PUBKEY.trim();
-  }
-  const candidates = process.env.SSH_PUBKEY_PATH
-    ? [expandHome(process.env.SSH_PUBKEY_PATH)]
-    : [
-        expandHome("~/.ssh/id_ed25519.pub"),
-        expandHome("~/.ssh/id_rsa.pub"),
-      ];
-  for (const path of candidates) {
-    if (existsSync(path)) return readFileSync(path, "utf8").trim();
-  }
-  throw new Error(
-    `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-      `${candidates.join(", ")}. Either generate a key ` +
-      `(\`ssh-keygen -t ed25519\`), set SSH_PUBKEY_PATH to a ` +
-      `.pub file, or pass SSH_PUBKEY directly (CI).`,
-  );
-};
+// SST 4 forbids top-level imports in sst.config.ts — everything has
+// to be dynamically imported inside `run()`. See readSshPublicKey
+// below for the only filesystem access we need.
 
 export default $config({
   app(input) {
@@ -44,6 +15,42 @@ export default $config({
   },
 
   async run() {
+    // SST 4 forbids static `import` at the top of sst.config.ts —
+    // everything has to be dynamic and inside this function.
+    const { readFileSync, existsSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+
+    const expandHome = (p: string): string =>
+      p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
+
+    /**
+     * Resolve the SSH public key to upload to Lightsail.
+     * Resolution order:
+     *   1. SSH_PUBKEY env var (literal key contents) — for CI / GH Actions.
+     *   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
+     *   3. ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub — local defaults.
+     */
+    const readSshPublicKey = (): string => {
+      if (process.env.SSH_PUBKEY?.trim()) {
+        return process.env.SSH_PUBKEY.trim();
+      }
+      const candidates = process.env.SSH_PUBKEY_PATH
+        ? [expandHome(process.env.SSH_PUBKEY_PATH)]
+        : [
+            expandHome("~/.ssh/id_ed25519.pub"),
+            expandHome("~/.ssh/id_rsa.pub"),
+          ];
+      for (const path of candidates) {
+        if (existsSync(path)) return readFileSync(path, "utf8").trim();
+      }
+      throw new Error(
+        `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
+          `${candidates.join(", ")}. Either generate a key ` +
+          `(\`ssh-keygen -t ed25519\`), set SSH_PUBKEY_PATH to a ` +
+          `.pub file, or pass SSH_PUBKEY directly (CI).`,
+      );
+    };
+
     // ── Secrets ────────────────────────────────────────────────────
     // Set once per stage, then deploy:
     //   sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
