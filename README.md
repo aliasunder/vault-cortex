@@ -103,6 +103,50 @@ Infra changes (anything in `sst.config.ts`): `npm run deploy:dev` (full chain) o
 npx sst remove   # removes Lightsail, API Gateway, Lambda — frees the ~$12/mo
 ```
 
+## CI / GitHub Actions
+
+The deploy chain (`npm run deploy:dev`) runs unchanged on a CI runner; you just have to give it the inputs it needs from secrets:
+
+| What it needs | Where to get it in GH Actions |
+|---|---|
+| AWS credentials | `aws-actions/configure-aws-credentials@v4` (use OIDC if possible, else `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` secrets) |
+| GHCR auth | `docker/login-action@v3` with `username: ${{ github.actor }}` and `password: ${{ secrets.GITHUB_TOKEN }}` (the built-in token has `write:packages` for the repo owner) |
+| Lightsail public key | repo secret `SSH_PUBKEY` containing the **public** key. `sst.config.ts` reads `process.env.SSH_PUBKEY` directly — no filesystem write needed. |
+| Lightsail private key | repo secret `SSH_PRIVATE_KEY` for the matching key, loaded via `webfactory/ssh-agent@v0.9` so `scp`/`ssh` find it without an `-i` flag. |
+| `.env` for the VM | generated in the workflow from per-secret values, then SCP'd by `npm run lightsail:up`. |
+
+Sketch:
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+    aws-region: us-east-1
+- uses: docker/login-action@v3
+  with:
+    registry: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
+- uses: webfactory/ssh-agent@v0.9
+  with:
+    ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+- run: npm ci
+- env:
+    SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
+    GHCR_USER: ${{ github.repository_owner }}
+    VAULT_MCP_TAG: ${{ github.sha }}
+    MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
+    OBSIDIAN_AUTH_TOKEN: ${{ secrets.OBSIDIAN_AUTH_TOKEN }}
+    VAULT_NAME: ${{ secrets.VAULT_NAME }}
+  run: |
+    # Materialize .env for lightsail:up
+    printenv MCP_AUTH_TOKEN OBSIDIAN_AUTH_TOKEN VAULT_NAME GHCR_USER VAULT_MCP_TAG \
+      | sed 's/=/=/' > .env
+    npm run deploy:dev -- --stage production
+```
+
+Important: keep one keypair per stage. If your personal stage and CI both deploy to `production` with different `SSH_PUBKEY` values, the Lightsail KeyPair resource will flap on every alternating deploy, replacing the VM each time. Pick one source of truth per stage.
+
 ## Production deployment
 
 Same as personal, with `--stage production` and real secrets:

@@ -59,16 +59,14 @@ const lightsailIp = (): string => {
   return outs.lightsailIp;
 };
 
+// Returns `-i <path>` when LIGHTSAIL_SSH_KEY is set, else "".
+// Default deploys provision a Lightsail KeyPair from the developer's
+// local public key (see sst.config.ts), so SSH/SCP work with the
+// default identity. Set LIGHTSAIL_SSH_KEY only if you're connecting
+// to an instance provisioned with a different keypair (e.g. the
+// regional LightsailDefaultKey for a pre-existing VM).
 const sshIdentity = (): string => {
-  if (!env.LIGHTSAIL_SSH_KEY) {
-    console.error(
-      "✕  LIGHTSAIL_SSH_KEY not set. Download the Lightsail default key\n" +
-        "   from AWS console → Account → SSH keys, save it to ~/.ssh/,\n" +
-        "   chmod 600 it, and add to .env:\n" +
-        "     LIGHTSAIL_SSH_KEY=~/.ssh/LightsailDefaultKey-us-east-1.pem",
-    );
-    process.exit(1);
-  }
+  if (!env.LIGHTSAIL_SSH_KEY) return "";
   const path = expandHome(env.LIGHTSAIL_SSH_KEY);
   if (!existsSync(path)) {
     console.error(`✕  LIGHTSAIL_SSH_KEY path does not exist: ${path}`);

@@ -1,5 +1,38 @@
 /// <reference path="./.sst/platform/config.d.ts" />
 
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+
+const expandHome = (p: string): string =>
+  p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
+
+const readSshPublicKey = (): string => {
+  // Resolution order:
+  //   1. SSH_PUBKEY env var (literal key contents) — for CI / GitHub Actions
+  //      where the key comes from a secret, not the filesystem.
+  //   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
+  //   3. ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub — defaults for
+  //      local dev.
+  if (process.env.SSH_PUBKEY?.trim()) {
+    return process.env.SSH_PUBKEY.trim();
+  }
+  const candidates = process.env.SSH_PUBKEY_PATH
+    ? [expandHome(process.env.SSH_PUBKEY_PATH)]
+    : [
+        expandHome("~/.ssh/id_ed25519.pub"),
+        expandHome("~/.ssh/id_rsa.pub"),
+      ];
+  for (const path of candidates) {
+    if (existsSync(path)) return readFileSync(path, "utf8").trim();
+  }
+  throw new Error(
+    `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
+      `${candidates.join(", ")}. Either generate a key ` +
+      `(\`ssh-keygen -t ed25519\`), set SSH_PUBKEY_PATH to a ` +
+      `.pub file, or pass SSH_PUBKEY directly (CI).`,
+  );
+};
+
 export default $config({
   app(input) {
     return {
@@ -24,11 +57,27 @@ export default $config({
     const obsidianAuthToken = new sst.Secret("ObsidianAuthToken");
     const obsidianVaultName = new sst.Secret("ObsidianVaultName");
 
+    // ── SSH key pair ──────────────────────────────────────────────
+    // Uploads the developer's local public key (id_ed25519.pub by
+    // default; override via SSH_PUBKEY_PATH) so SCP/SSH "just work"
+    // with the default identity — no `-i` flag, no per-region
+    // LightsailDefaultKey.pem download.
+    //
+    // GOTCHA: Changing keyPairName on an existing Lightsail Instance
+    //         FORCES A REPLACE. The VM is destroyed and recreated,
+    //         wiping its local disk (Docker volumes, /opt/vault-cortex
+    //         contents). The StaticIp stays (separate resource).
+    // ──────────────────────────────────────────────────────────────
+    const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
+      name: `vault-cortex-${$app.stage}`,
+      publicKey: readSshPublicKey(),
+    });
+
     // ── Lightsail ─────────────────────────────────────────────────
     // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
     //
-    // GOTCHA: Changing userData or bundleId REPLACES the instance —
-    //         all data on the old instance is lost.
+    // GOTCHA: Changing userData, bundleId, or keyPairName REPLACES
+    //         the instance — all data on the old instance is lost.
     // GOTCHA: userData is visible via get-instance API/console.
     //         Don't bake secrets here — pull from SSM at boot instead.
     // ──────────────────────────────────────────────────────────────
@@ -37,6 +86,7 @@ export default $config({
       availabilityZone: "us-east-1a",
       blueprintId: "ubuntu_22_04",
       bundleId: "small_3_0",
+      keyPairName: keyPair.name,
       userData: [
         "#!/bin/bash",
         "set -euo pipefail",
