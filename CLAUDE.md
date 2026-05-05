@@ -59,22 +59,31 @@ src/
 ## Local development
 
 `Resource.McpAuthToken` (used by `src/functions/authorizer.ts`) is
-typed via `.sst/types.generated.ts`, which SST emits only when it
-runs the resource graph. On a fresh clone, `npm run build` fails
-with `Property 'McpAuthToken' does not exist on type 'Resource'`
-until you bootstrap SST once.
+typed via `sst-env.d.ts` at the project root, which SST writes when
+it runs the resource graph. The file is gitignored (auto-generated)
+so on a fresh clone, `npm run build` fails with
+`Property 'McpAuthToken' does not exist on type 'Resource'` until
+you generate it.
 
 ```bash
 npm install
-npx sst dev --stage <yourname>  # generates .sst/ types; leave running
-# in another shell:
+# Set placeholder secrets once per stage (real values only matter
+# for production):
+npx sst secret set McpAuthToken      "dev-placeholder" --stage <yourname>
+npx sst secret set ObsidianAuthToken "dev-placeholder" --stage <yourname>
+npx sst secret set ObsidianVaultName "dev-placeholder" --stage <yourname>
+# Generate sst-env.d.ts:
+npx sst dev --stage <yourname>  # leave running, OR run once and Ctrl+C
+                                # after types appear at ./sst-env.d.ts
+# In another shell (or after Ctrl+C):
 npm run build                   # tsc now sees Resource.McpAuthToken
 ```
 
 `sst` is a local devDependency (not global), so prefix with `npx`.
-`sst dev` keeps types fresh as you edit `sst.config.ts`. For a CI /
-non-dev build, `npx sst deploy --stage <ci>` also generates the types
-as a side effect.
+`sst dev` keeps `sst-env.d.ts` fresh as you edit `sst.config.ts`. If
+you change a secret name there, re-run `sst dev` (or `sst deploy`)
+to regenerate. For a CI / non-dev build, `npx sst deploy --stage <ci>`
+also generates the types as a side effect.
 
 ## Deployment
 

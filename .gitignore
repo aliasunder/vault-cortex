@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .sst/
+sst-env.d.ts
 .env
 *.db
 *.sqlite
