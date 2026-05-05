@@ -23,6 +23,7 @@ SST defaults to a personal stage based on your username (run `npx sst secret lis
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
 - A GitHub PAT with `write:packages` scope, exported as `$GHCR_TOKEN`, for pushing the vault-mcp image to GHCR
+- The Lightsail default SSH key for your region (download from AWS console → Lightsail → Account → SSH keys), saved at `~/.ssh/LightsailDefaultKey-<region>.pem` with `chmod 600`
 
 ### One-time setup
 
@@ -125,6 +126,7 @@ Before making this repo public, work through the pre-public hardening checklist 
 - **`sst dev` errors with `SecretMissingError`** — set the three secrets first (step 2 above).
 - **`curl <lightsailIp>` hangs** — port 80 isn't open. Use `:8000`. The security group only allows 22 (SSH) and 8000 (vault-mcp).
 - **`Could not resolve host`** — your machine's network/VPN. Lightsail issue this is not.
+- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key isn't authorized on the Lightsail VM. The instance was provisioned with the regional default Lightsail key. Download it from AWS console → Lightsail → Account → SSH keys, save to `~/.ssh/LightsailDefaultKey-us-east-1.pem`, `chmod 600`, and set `LIGHTSAIL_SSH_KEY` in `.env` to that path.
 
 ## Project structure
 

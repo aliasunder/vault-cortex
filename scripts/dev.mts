@@ -17,6 +17,7 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 
 type SstOutputs = { lightsailIp?: string; apiUrl?: string };
 
@@ -29,6 +30,9 @@ const loadDotEnv = (): Record<string, string> => {
   }
   return out;
 };
+
+const expandHome = (p: string): string =>
+  p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
 
 const env: NodeJS.ProcessEnv = { ...process.env, ...loadDotEnv() };
 const ghcrUser = env.GHCR_USER ?? "aliasunder";
@@ -55,6 +59,24 @@ const lightsailIp = (): string => {
   return outs.lightsailIp;
 };
 
+const sshIdentity = (): string => {
+  if (!env.LIGHTSAIL_SSH_KEY) {
+    console.error(
+      "✕  LIGHTSAIL_SSH_KEY not set. Download the Lightsail default key\n" +
+        "   from AWS console → Account → SSH keys, save it to ~/.ssh/,\n" +
+        "   chmod 600 it, and add to .env:\n" +
+        "     LIGHTSAIL_SSH_KEY=~/.ssh/LightsailDefaultKey-us-east-1.pem",
+    );
+    process.exit(1);
+  }
+  const path = expandHome(env.LIGHTSAIL_SSH_KEY);
+  if (!existsSync(path)) {
+    console.error(`✕  LIGHTSAIL_SSH_KEY path does not exist: ${path}`);
+    process.exit(1);
+  }
+  return `-i ${path}`;
+};
+
 const sshOpts = "-o StrictHostKeyChecking=accept-new";
 
 const sub = process.argv[2];
@@ -79,10 +101,11 @@ switch (sub) {
       process.exit(1);
     }
     const ip = lightsailIp();
-    run(`scp ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`);
-    run(`scp ${sshOpts} .env ubuntu@${ip}:/opt/vault-cortex/`);
+    const id = sshIdentity();
+    run(`scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`);
+    run(`scp ${id} ${sshOpts} .env ubuntu@${ip}:/opt/vault-cortex/`);
     run(
-      `ssh ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d'`,
+      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d'`,
     );
     console.log(`✓ vault-mcp deployed to ${ip}:8000`);
     break;
