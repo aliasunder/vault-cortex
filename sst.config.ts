@@ -107,7 +107,7 @@ export default $config({
       keyPairName: keyPair.name,
       userData: [
         "#!/bin/bash",
-        "set -euo pipefail",
+        "set -eu",
         "export DEBIAN_FRONTEND=noninteractive",
         "apt-get update -y",
         "apt-get install -y docker.io docker-compose-v2 curl jq",
