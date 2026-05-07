@@ -1,166 +1,131 @@
-/**
- * Vault filesystem operations.
- *
- * All file reads/writes go through this module — tool-definitions.ts
- * and other callers never touch the filesystem directly. This keeps
- * the vault-as-source-of-truth invariant in one place and makes it
- * easy to add path validation, logging, or write hooks later.
- *
- * When vault-mcp writes a file, obsidian-headless detects the change
- * and syncs it to all devices via Obsidian Sync. The file watcher
- * also picks it up and updates the search index.
- */
+import { readFile, writeFile, readdir, mkdir, unlink } from "node:fs/promises"
+import { join, dirname, relative, resolve } from "node:path"
+import type { Dirent } from "node:fs"
+import matter from "gray-matter"
+import picomatch from "picomatch"
+import { logger as rootLogger } from "../logger.js"
 
-// TODO: implement all functions below
-//
-// Key imports needed:
-//   readFile, writeFile, readdir, mkdir, unlink from "node:fs/promises"
-//   join, dirname, relative, resolve from "node:path"
-//   matter from "gray-matter"
+const logger = rootLogger.child({ module: "vault-filesystem" })
 
-/**
- * Top-level folders whose files cannot be deleted via MCP. Enforced
- * server-side as a hard guardrail — `destructiveHint: true` alone
- * isn't sufficient protection for journal-style files where bulk
- * loss would be catastrophic.
- *
- * To delete a file under one of these, use the Obsidian app directly.
- * To remove individual memory entries, use `vault_delete_memory`.
- */
-const _PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
+const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
 
-/**
- * Read a note's raw content by relative path. Throws if not found.
- *
- * Example call:
- *   readNote("/vault", "About Me/Principles.md")
- *
- * Example response (string):
- *   "---\ntitle: Principles\ntype: about-me\ntags: [principles, self]\n
- *    created: 2025-08-12T09:00:00-07:00\nrelated: [Routines, Career]\n---\n
- *    \n# Principles\n\n## Decision heuristics\n
- *    - **2026-05-03**: prefer reversible decisions when context is thin\n..."
- */
-export const readNote = async (
-  _vaultPath: string,
-  _notePath: string,
+/** Resolves a note path within the vault, throwing on traversal attempts. */
+const resolveSafePath = (vaultPath: string, notePath: string): string => {
+  const normalizedVault = resolve(vaultPath)
+  const resolved = resolve(normalizedVault, notePath)
+  if (!resolved.startsWith(normalizedVault + "/")) {
+    throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
+  }
+  return resolved
+}
+
+/** Reads a file, returning null instead of throwing on ENOENT. */
+const readFileOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await readFile(path, "utf8")
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw err
+  }
+}
+
+/** Reads a directory recursively, returning null instead of throwing on ENOENT. */
+const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
+  try {
+    return await readdir(path, { recursive: true, withFileTypes: true })
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw err
+  }
+}
+
+/** Combines body + frontmatter into a gray-matter serialized string. Merges frontmatter if file already exists. */
+const serializeNote = (
+  existing: string | null,
+  body: string,
+  frontmatter?: Record<string, unknown>,
+): string => {
+  if (!existing) return matter.stringify(body, frontmatter ?? {})
+
+  const parsed = matter(existing)
+  const mergedData = frontmatter
+    ? { ...parsed.data, ...frontmatter }
+    : parsed.data
+  return matter.stringify(body, mergedData)
+}
+
+/** Reads a .md note by relative path. Returns raw content including frontmatter. */
+const readNote = async (
+  vaultPath: string,
+  notePath: string,
 ): Promise<string> => {
-  // TODO: implement
-  // - Resolve full path: join(vaultPath, notePath)
-  // - IMPORTANT: validate the resolved path doesn't escape vault root
-  //   (e.g. "../../etc/passwd" — use resolve() + startsWith() check)
-  // - Return file content as utf-8 string
-  throw new Error("Not implemented")
+  const fullPath = resolveSafePath(vaultPath, notePath)
+  const content = await readFileOrNull(fullPath)
+  if (content === null) {
+    throw new Error(`note not found: "${notePath}"`)
+  }
+  return content
 }
 
-/**
- * Create or overwrite a note. Creates parent dirs if needed.
- *
- * IMPORTANT: `body` is the markdown body only — NEVER raw markdown
- * including frontmatter. Frontmatter must round-trip losslessly:
- * accepting a raw string from the agent risks YAML quoting drift,
- * key-order changes, or comment loss that would corrupt the file.
- *
- * Implementation:
- *   - For new files: write `matter.stringify(body, frontmatter ?? {})`
- *   - For existing files: read, parse with gray-matter, replace
- *     `.content` with the new body, keep `.data` (frontmatter)
- *     verbatim, then `matter.stringify(...)` and write.
- *   - If the agent passes `frontmatter`, MERGE it onto the existing
- *     frontmatter (don't replace) — preserves keys the agent didn't
- *     touch (created, related, etc).
- *
- * Example call (update body, leave frontmatter alone):
- *   writeNote("/vault", "About Me/Principles.md",
- *             "# Principles\n\n## Decision heuristics\n- ...\n")
- *
- * Example call (update one frontmatter key + body):
- *   writeNote("/vault", "Projects/vault-cortex/notes.md",
- *             "# vault-cortex notes\n...",
- *             { status: "active" })
- *
- * Example response: void (throws on validation or I/O failure).
- */
-export const writeNote = async (
-  _vaultPath: string,
-  _notePath: string,
-  _body: string,
-  _frontmatter?: Record<string, unknown>,
+/** Creates or updates a note. Merges frontmatter losslessly if the file exists. */
+const writeNote = async (
+  vaultPath: string,
+  notePath: string,
+  body: string,
+  frontmatter?: Record<string, unknown>,
 ): Promise<void> => {
-  // TODO: implement
-  // - Validate path doesn't escape vault root
-  // - mkdir(dirname(fullPath), { recursive: true })
-  // - If file exists: parse with gray-matter, merge frontmatter,
-  //   replace body, matter.stringify(...)
-  // - If new: matter.stringify(body, frontmatter ?? {})
-  // - writeFile(fullPath, serialized, "utf8")
-  // - obsidian-headless will detect the write and sync it
-  throw new Error("Not implemented")
+  const fullPath = resolveSafePath(vaultPath, notePath)
+  await mkdir(dirname(fullPath), { recursive: true })
+
+  const existing = await readFileOrNull(fullPath)
+  const serialized = serializeNote(existing, body, frontmatter)
+  await writeFile(fullPath, serialized, "utf8")
+  logger.debug("wrote note", { path: notePath })
 }
 
-/**
- * Delete a note. Throws if the path is protected, escapes the vault
- * root, or doesn't exist.
- *
- * The file watcher's unlink handler picks up the deletion and calls
- * `searchIndex.removeNote()` to keep the index in sync. Obsidian Sync
- * propagates the deletion to all connected devices.
- *
- * Refuses to delete any path starting with a `PROTECTED_PATHS` prefix
- * (currently `About Me/` and `Daily Notes/`). To remove memories, use
- * `vault_delete_memory` at the entry level.
- *
- * Example call:
- *   deleteNote("/vault", "Projects/scratch/typo.md")
- *
- * Example response: void (throws on protected path, missing file,
- * or path-traversal attempt).
- *
- * Example error:
- *   deleteNote("/vault", "About Me/Principles.md")
- *   // → Error: cannot delete protected path "About Me/Principles.md"
- *   //   (use vault_delete_memory for individual entries)
- */
-export const deleteNote = async (
-  _vaultPath: string,
-  _notePath: string,
+/** Deletes a note. Rejects paths under PROTECTED_PATHS. */
+const deleteNote = async (
+  vaultPath: string,
+  notePath: string,
 ): Promise<void> => {
-  // TODO: implement
-  // - Validate path doesn't escape vault root (resolve + startsWith)
-  // - Reject if notePath starts with any PROTECTED_PATHS prefix
-  // - unlink(fullPath) — fs.promises throws ENOENT cleanly if missing
-  // - File watcher unlink handler calls searchIndex.removeNote()
-  throw new Error("Not implemented")
+  if (PROTECTED_PATHS.some((p) => notePath.startsWith(p))) {
+    throw new Error(
+      `cannot delete protected path "${notePath}" (use vault_delete_memory for individual entries)`,
+    )
+  }
+
+  const fullPath = resolveSafePath(vaultPath, notePath)
+  await unlink(fullPath)
+  logger.debug("deleted note", { path: notePath })
 }
 
-/**
- * List .md files under a folder. Returns relative paths from vault root.
- * If no folder specified, lists from vault root.
- *
- * Example call:
- *   listNotes("/vault", "About Me")
- *
- * Example response:
- *   ["About Me/Principles.md", "About Me/Career.md",
- *    "About Me/Routines.md", "About Me/Preferences.md"]
- *
- * Example call (with glob):
- *   listNotes("/vault", "Projects", "vault-*\/**\/*.md")
- *
- * Example response:
- *   ["Projects/vault-cortex/notes.md",
- *    "Projects/vault-cortex/architecture.md"]
- */
-export const listNotes = async (
-  _vaultPath: string,
-  _folder?: string,
-  _glob?: string,
+/** Lists .md files under a folder (or vault root). Supports glob filtering. */
+const listNotes = async (
+  vaultPath: string,
+  folder?: string,
+  glob?: string,
 ): Promise<string[]> => {
-  // TODO: implement
-  // - Validate folder doesn't escape vault root
-  // - readdir with { recursive: true, withFileTypes: true }
-  // - Filter to .md files; skip hidden dirs (.obsidian, .git)
-  // - Optionally apply glob pattern (consider using micromatch or picomatch)
-  // - Return relative paths from vault root
-  return []
+  const searchRoot = folder
+    ? resolveSafePath(vaultPath, folder)
+    : resolve(vaultPath)
+  const entries = await readdirOrNull(searchRoot)
+  if (!entries) return []
+
+  const normalizedVault = resolve(vaultPath)
+
+  const paths = entries
+    .reduce<string[]>((acc, entry) => {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) return acc
+      const rel = relative(normalizedVault, join(entry.parentPath, entry.name))
+      if (rel.split("/").some((seg) => seg.startsWith("."))) return acc
+      acc.push(rel)
+      return acc
+    }, [])
+    .sort()
+
+  if (!glob) return paths
+  const isMatch = picomatch(glob)
+  return paths.filter((p) => isMatch(p))
 }
+
+export const vaultFs = { readNote, writeNote, deleteNote, listNotes }

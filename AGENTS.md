@@ -27,6 +27,7 @@ Dockerfile                             # vault-mcp Docker image
 docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
 .env.example                           # template for Lightsail .env
 src/
+  logger.ts                            # Root logger (child pattern + extensions)
   functions/
     authorizer.ts                      # Lambda: bearer-token auth (implemented)
   vault-mcp/
@@ -38,6 +39,45 @@ src/
     file-watcher.ts                    # chokidar -> keeps index current
                                        # Phase 2: gains LightRAG ingestion hook
 ```
+
+## Logging
+
+Single root logger at `src/logger.ts`, extended via `.child()` per module.
+
+```typescript
+// src/logger.ts exports the root instance
+export const logger = createLogger("vault-cortex")
+
+// each module creates a child with carried properties
+import { logger as rootLogger } from "../logger.js"
+const logger = rootLogger.child({ module: "search-index" })
+```
+
+**Key concepts:**
+
+- **Child loggers are immutable** — `.child({ key: value })` returns a new
+  logger that carries those properties in every log call. The parent is
+  never mutated. No need to "unset" properties.
+- **Extensions** — pure functions `(entry: LogEntry) => void` attached at
+  the root. They receive every log entry and can forward it (Sentry,
+  external log drain, etc). Extensions propagate to all children.
+- **Module-level loggers** are for startup and background work
+  (`rebuildFromVault`, file-watcher events).
+- **Per-request loggers** — when `server.ts` handles an MCP request,
+  create a child with `{ requestId }` and pass it to data-layer functions
+  as a parameter. This keeps request tracing explicit without
+  AsyncLocalStorage indirection.
+
+```typescript
+// in a tool handler (Session 2)
+const reqLogger = logger.child({ requestId: crypto.randomUUID() })
+reqLogger.info("vault_read_note", { path: notePath })
+const content = await readNote(vaultPath, notePath, reqLogger)
+```
+
+Data-layer functions that need per-request tracing accept an optional
+`logger` parameter, falling back to the module-level logger for calls
+outside a request context (startup, file-watcher).
 
 ## Code style
 

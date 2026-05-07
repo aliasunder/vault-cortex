@@ -56,7 +56,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-America/New_York}
     volumes:
-      - vault_data:/vault:ro
+      - vault_data:/vault:rw
       - mcp_index_data:/data
     ports:
       - "0.0.0.0:8000:8000"
