@@ -28,10 +28,10 @@ RUN apk add --no-cache tini libstdc++ \
  && addgroup -S app && adduser -S app -G app
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
 COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=build /app/dist/vault-mcp ./dist/vault-mcp
+COPY --from=build /app/dist/src/vault-mcp ./dist/src/vault-mcp
 COPY package.json ./
 RUN mkdir -p /data && chown -R app:app /data /app
 USER app
 EXPOSE 8000
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "dist/vault-mcp/server.js"]
+CMD ["node", "dist/src/vault-mcp/server.js"]

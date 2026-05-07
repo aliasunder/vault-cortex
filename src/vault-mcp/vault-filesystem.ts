@@ -27,7 +27,7 @@
  * To delete a file under one of these, use the Obsidian app directly.
  * To remove individual memory entries, use `vault_delete_memory`.
  */
-const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const;
+const _PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
 
 /**
  * Read a note's raw content by relative path. Throws if not found.
@@ -50,8 +50,8 @@ export const readNote = async (
   // - IMPORTANT: validate the resolved path doesn't escape vault root
   //   (e.g. "../../etc/passwd" — use resolve() + startsWith() check)
   // - Return file content as utf-8 string
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}
 
 /**
  * Create or overwrite a note. Creates parent dirs if needed.
@@ -95,8 +95,8 @@ export const writeNote = async (
   // - If new: matter.stringify(body, frontmatter ?? {})
   // - writeFile(fullPath, serialized, "utf8")
   // - obsidian-headless will detect the write and sync it
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}
 
 /**
  * Delete a note. Throws if the path is protected, escapes the vault
@@ -130,8 +130,8 @@ export const deleteNote = async (
   // - Reject if notePath starts with any PROTECTED_PATHS prefix
   // - unlink(fullPath) — fs.promises throws ENOENT cleanly if missing
   // - File watcher unlink handler calls searchIndex.removeNote()
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}
 
 /**
  * List .md files under a folder. Returns relative paths from vault root.
@@ -162,5 +162,5 @@ export const listNotes = async (
   // - Filter to .md files; skip hidden dirs (.obsidian, .git)
   // - Optionally apply glob pattern (consider using micromatch or picomatch)
   // - Return relative paths from vault root
-  return [];
-};
+  return []
+}

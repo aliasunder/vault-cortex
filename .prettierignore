@@ -1,0 +1,5 @@
+dist/
+.sst/
+node_modules/
+*.db
+*.sqlite

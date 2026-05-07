@@ -12,7 +12,7 @@
  * same watcher, additional hook. That's the R8 extensibility.
  */
 
-import type { SearchIndex } from "./search-index.js";
+import type { SearchIndex } from "./search-index.js"
 
 export const startFileWatcher = (
   _vaultPath: string,
@@ -45,4 +45,4 @@ export const startFileWatcher = (
   //
   // handleChange: read file content, call search.upsertNote(relativePath, content)
   // handleDelete: call search.removeNote(relativePath)
-};
+}

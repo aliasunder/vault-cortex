@@ -27,8 +27,8 @@ container, a new watcher callback, and a new tool.
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.             |
 | R5  | Memory tools                    | 1     | Read/append to `About Me/` semantic memory files.                     |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. Bearer token auth. No re-authentication flows. |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.             |
-| R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                 |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.              |
+| R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                  |
 
 ## Component Diagram
 
@@ -103,39 +103,39 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ### Phase 1: Vault Read/Write (R2, R3)
 
-| Tool | Input | Annotation |
-|------|-------|------------|
-| `vault_read_note` | `path` | readOnlyHint |
-| `vault_write_note` | `path, body, frontmatter?` | destructiveHint |
-| `vault_list_notes` | `folder?, glob?` | readOnlyHint |
-| `vault_delete_note` | `path` | destructiveHint |
+| Tool                | Input                      | Annotation      |
+| ------------------- | -------------------------- | --------------- |
+| `vault_read_note`   | `path`                     | readOnlyHint    |
+| `vault_write_note`  | `path, body, frontmatter?` | destructiveHint |
+| `vault_list_notes`  | `folder?, glob?`           | readOnlyHint    |
+| `vault_delete_note` | `path`                     | destructiveHint |
 
 `vault_delete_note` refuses paths under `About Me/` or `Daily Notes/` as a server-side guardrail; use `vault_delete_memory` for individual entries in those files.
 
 ### Phase 1: Search (R4)
 
-| Tool | Input | Annotation |
-|------|-------|------------|
-| `vault_search` | `query, filters?` | readOnlyHint |
-| `vault_search_by_tag` | `tag, exact?` | readOnlyHint |
-| `vault_list_tags` | — | readOnlyHint |
-| `vault_recent_notes` | `sort_by?, limit?` | readOnlyHint |
+| Tool                  | Input              | Annotation   |
+| --------------------- | ------------------ | ------------ |
+| `vault_search`        | `query, filters?`  | readOnlyHint |
+| `vault_search_by_tag` | `tag, exact?`      | readOnlyHint |
+| `vault_list_tags`     | —                  | readOnlyHint |
+| `vault_recent_notes`  | `sort_by?, limit?` | readOnlyHint |
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), and `limit`. `sort_by` is `"created" | "mtime"` (default `"mtime"`).
 
 ### Phase 1: Memory (R5)
 
-| Tool | Input | Annotation |
-|------|-------|------------|
-| `vault_get_memory` | `file?, section?` | readOnlyHint |
-| `vault_update_memory` | `file, section, entry, options?` | destructiveHint |
-| `vault_delete_memory` | `file, section, date, entry` | destructiveHint |
-| `vault_list_memory_files` | — | readOnlyHint |
+| Tool                      | Input                            | Annotation      |
+| ------------------------- | -------------------------------- | --------------- |
+| `vault_get_memory`        | `file?, section?`                | readOnlyHint    |
+| `vault_update_memory`     | `file, section, entry, options?` | destructiveHint |
+| `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint |
+| `vault_list_memory_files` | —                                | readOnlyHint    |
 
 ### Phase 2: Knowledge Base (R8)
 
-| Tool | Input | Annotation |
-|------|-------|------------|
+| Tool             | Input          | Annotation   |
+| ---------------- | -------------- | ------------ |
 | `vault_query_kb` | `query, mode?` | readOnlyHint |
 
 `mode` options: `hybrid` (default), `local` (entity-centric), `global` (conceptual), `naive` (vector-only).
@@ -157,24 +157,24 @@ Rotation: update the SST secret AND the Lightsail `.env`, then redeploy both.
 
 ## Cost
 
-| Component | Phase 1 | Phase 2 |
-|-----------|---------|----------|
-| Lightsail | $12/mo (2 GB) | $24/mo (4 GB) |
-| API Gateway | ~$0 | ~$0 |
-| Obsidian Sync | existing | same |
-| LightRAG (OpenAI embeddings) | — | ~$1–2/mo |
-| **Total** | **~$12/mo** | **~$26/mo** |
+| Component                    | Phase 1       | Phase 2       |
+| ---------------------------- | ------------- | ------------- |
+| Lightsail                    | $12/mo (2 GB) | $24/mo (4 GB) |
+| API Gateway                  | ~$0           | ~$0           |
+| Obsidian Sync                | existing      | same          |
+| LightRAG (OpenAI embeddings) | —             | ~$1–2/mo      |
+| **Total**                    | **~$12/mo**   | **~$26/mo**   |
 
 ## Key Decisions
 
-| Decision | Rationale |
-|----------|----------|
-| Lightsail over ECS | $12 vs ~$50+. Single-user server. |
-| API Gateway over Caddy | Free HTTPS URL, no domain needed, SST native. |
-| Bearer token over Cognito | No re-auth flows. Set once, works forever. |
-| SQLite FTS5 | Zero services, embedded, personal scale. |
-| chokidar | Node-native, same process as SQLite. Phase 2: adds LightRAG hook. |
-| Streamable HTTP | Current MCP spec (2025-11-25). SSE is deprecated. |
-| GHCR over ECR | GITHUB_TOKEN auth, no AWS IAM for images. |
-| Factory over class | Functional style. Closure holds db ref, no `this`. |
-| `type` over `interface` | Preferred unless `interface` specifically required. |
+| Decision                  | Rationale                                                         |
+| ------------------------- | ----------------------------------------------------------------- |
+| Lightsail over ECS        | $12 vs ~$50+. Single-user server.                                 |
+| API Gateway over Caddy    | Free HTTPS URL, no domain needed, SST native.                     |
+| Bearer token over Cognito | No re-auth flows. Set once, works forever.                        |
+| SQLite FTS5               | Zero services, embedded, personal scale.                          |
+| chokidar                  | Node-native, same process as SQLite. Phase 2: adds LightRAG hook. |
+| Streamable HTTP           | Current MCP spec (2025-11-25). SSE is deprecated.                 |
+| GHCR over ECR             | GITHUB_TOKEN auth, no AWS IAM for images.                         |
+| Factory over class        | Functional style. Closure holds db ref, no `this`.                |
+| `type` over `interface`   | Preferred unless `interface` specifically required.               |

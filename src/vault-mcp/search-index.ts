@@ -51,55 +51,55 @@
  *   const tagged = index.searchByTag("project/vault-mcp");
  */
 
-import type Database from "better-sqlite3";
+import type _Database from "better-sqlite3"
 
 // ── Types ───────────────────────────────────────────────────────
 
 export type SearchResult = {
-  path: string;
-  title: string;
-  snippet: string;            // FTS5 snippet() with <mark>…</mark> highlights
-  score: number;              // BM25 rank (higher = better, after negation)
-  tags: string[];
-  folder: string;
-  created: string | null;     // ISO 8601 with TZ, or null if absent
-  mtime: number;              // epoch ms
-};
+  path: string
+  title: string
+  snippet: string // FTS5 snippet() with <mark>…</mark> highlights
+  score: number // BM25 rank (higher = better, after negation)
+  tags: string[]
+  folder: string
+  created: string | null // ISO 8601 with TZ, or null if absent
+  mtime: number // epoch ms
+}
 
 export type NoteMetadata = {
-  path: string;
-  title: string;
-  tags: string[];
-  related: string[];
-  folder: string;
-  type: string | null;
-  created: string | null;
-  mtime: number;
-  properties: Record<string, unknown>;  // full frontmatter as parsed
-};
+  path: string
+  title: string
+  tags: string[]
+  related: string[]
+  folder: string
+  type: string | null
+  created: string | null
+  mtime: number
+  properties: Record<string, unknown> // full frontmatter as parsed
+}
 
 export type TagCount = {
-  tag: string;
-  count: number;
-};
+  tag: string
+  count: number
+}
 
 export type SearchFilters = {
-  folder?: string;            // restrict to notes under this folder
-  tags?: string[];            // require ALL of these tags
-  related?: string[];         // require ALL of these wikilink targets
-  type?: string;              // match frontmatter `type` field
+  folder?: string // restrict to notes under this folder
+  tags?: string[] // require ALL of these tags
+  related?: string[] // require ALL of these wikilink targets
+  type?: string // match frontmatter `type` field
   /**
    * Match arbitrary frontmatter keys — translated into
    * `json_extract(properties, '$.<key>') = ?` clauses (AND-joined).
    * Example: `{ status: "open", area: "work" }`.
    */
-  properties?: Record<string, string | number | boolean>;
-  limit?: number;             // max results (default 20)
-};
+  properties?: Record<string, string | number | boolean>
+  limit?: number // max results (default 20)
+}
 
 // ── Factory ─────────────────────────────────────────────────────
 
-export const createSearchIndex = (dbPath: string) => {
+export const createSearchIndex = (_dbPath: string) => {
   // TODO: implement
   //
   // 1. Open database with better-sqlite3
@@ -127,25 +127,25 @@ export const createSearchIndex = (dbPath: string) => {
    *   - INSERT ... ON CONFLICT(path) DO UPDATE
    *   - FTS triggers handle the rest automatically
    */
-  const upsertNote = (filePath: string, rawContent: string): void => {
+  const upsertNote = (_filePath: string, _rawContent: string): void => {
     // TODO: implement
-  };
+  }
 
   /** Remove a deleted note from the index. */
-  const removeNote = (filePath: string): void => {
+  const removeNote = (_filePath: string): void => {
     // TODO: implement
-  };
+  }
 
   /** Drop all rows and reindex every .md file in the vault. */
-  const rebuildFromVault = async (vaultPath: string): Promise<number> => {
+  const rebuildFromVault = async (_vaultPath: string): Promise<number> => {
     // TODO: implement
     // - Walk the vault directory recursively
     // - Skip hidden dirs (.obsidian, .git, etc)
     // - Read each .md file
     // - Wrap all upserts in a transaction for speed
     // - Return count of indexed notes
-    return 0;
-  };
+    return 0
+  }
 
   // ── Query methods ──────────────────────────────────────────────
   // These are the queries an Obsidian user actually needs.
@@ -175,8 +175,8 @@ export const createSearchIndex = (dbPath: string) => {
    *   fullTextSearch("Q3 plan", { properties: { status: "open" } })
    */
   const fullTextSearch = (
-    query: string,
-    filters?: SearchFilters,
+    _query: string,
+    _filters?: SearchFilters,
   ): SearchResult[] => {
     // TODO: implement
     // - FTS5 MATCH with porter stemming
@@ -187,8 +187,8 @@ export const createSearchIndex = (dbPath: string) => {
     // - type filter:      WHERE type = ?
     // - properties:       WHERE json_extract(properties,'$.<key>') = ? AND ...
     // - ORDER BY rank (BM25), LIMIT
-    return [];
-  };
+    return []
+  }
 
   /**
    * Find notes with a specific tag. Obsidian tags are hierarchical
@@ -214,14 +214,14 @@ export const createSearchIndex = (dbPath: string) => {
    *   ]
    */
   const searchByTag = (
-    tag: string,
-    options?: { exactMatch?: boolean; limit?: number },
+    _tag: string,
+    _options?: { exactMatch?: boolean; limit?: number },
   ): NoteMetadata[] => {
     // TODO: implement
     // - exact:  json_each(tags) WHERE value = ?
     // - prefix: json_each(tags) WHERE value = ? OR value LIKE ?||'/%'
-    return [];
-  };
+    return []
+  }
 
   /**
    * List notes in a folder (and optionally subfolders).
@@ -233,14 +233,14 @@ export const createSearchIndex = (dbPath: string) => {
    * `About Me/` (Principles.md, Career.md, Routines.md, ...).
    */
   const searchByFolder = (
-    folder: string,
-    options?: { recursive?: boolean; limit?: number },
+    _folder: string,
+    _options?: { recursive?: boolean; limit?: number },
   ): NoteMetadata[] => {
     // TODO: implement
     // - Recursive: WHERE path LIKE 'folder/%'
     // - Non-recursive: WHERE folder = 'folder'
-    return [];
-  };
+    return []
+  }
 
   /**
    * Find notes by frontmatter `type` field (e.g. "task-note", "reference").
@@ -251,13 +251,10 @@ export const createSearchIndex = (dbPath: string) => {
    * Example response: every NoteMetadata under About Me/ where
    * frontmatter.type === "about-me".
    */
-  const searchByType = (
-    type: string,
-    limit?: number,
-  ): NoteMetadata[] => {
+  const searchByType = (_type: string, _limit?: number): NoteMetadata[] => {
     // TODO: implement
-    return [];
-  };
+    return []
+  }
 
   /**
    * List all tags in the vault with note counts. Useful for discovery.
@@ -276,8 +273,8 @@ export const createSearchIndex = (dbPath: string) => {
     // TODO: implement
     // - json_each(tags) across all notes
     // - GROUP BY value, COUNT(*), ORDER BY count DESC
-    return [];
-  };
+    return []
+  }
 
   /**
    * Recently-touched notes. `sort_by` chooses semantic vs filesystem time.
@@ -294,16 +291,17 @@ export const createSearchIndex = (dbPath: string) => {
    * Example response: 5 most recently filesystem-touched notes
    * (e.g. notes you opened to fix a typo this morning).
    */
-  const recentNotes = (
-    options?: { sort_by?: "created" | "mtime"; limit?: number },
-  ): NoteMetadata[] => {
+  const recentNotes = (_options?: {
+    sort_by?: "created" | "mtime"
+    limit?: number
+  }): NoteMetadata[] => {
     // TODO: implement
     // - Default sort_by = "mtime"
     // - "created":  ORDER BY created DESC NULLS LAST
     // - "mtime":    ORDER BY mtime DESC
     // - LIMIT (default 20)
-    return [];
-  };
+    return []
+  }
 
   return {
     // Index maintenance
@@ -318,8 +316,8 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
-  };
-};
+  }
+}
 
 /** Type of the search index returned by createSearchIndex. */
-export type SearchIndex = ReturnType<typeof createSearchIndex>;
+export type SearchIndex = ReturnType<typeof createSearchIndex>

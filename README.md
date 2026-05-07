@@ -4,7 +4,7 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 > **Status:** Phase 1 scaffolding — infrastructure and authorizer are deployed; MCP tool surface is contract-only (stubs with Zod schemas and example call/response blocks). See `ARCHITECTURE.md` for the full design.
 
-## Architecture (one-pager)
+## Architecture
 
 - **Edge:** API Gateway HTTP API + Lambda bearer-token authorizer
 - **Backend:** Lightsail (~$12/mo) running Docker Compose with two services:
@@ -18,14 +18,15 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 The `MCP_AUTH_TOKEN` is validated at two layers (defense in depth), each fed by a different channel:
 
-| Channel | What it feeds | Where it's stored | How to set |
-|---------|--------------|-------------------|------------|
-| **SST secrets** | Lambda authorizer (API Gateway layer) | AWS SSM Parameter Store (encrypted) | `npx sst secret set McpAuthToken "<value>"` |
-| **`.env` file** | Docker containers on Lightsail (Express middleware layer) | `~/.config/vault-cortex/.env` locally; `/opt/vault-cortex/.env` on the VM | Edit the file directly |
+| Channel         | What it feeds                                             | Where it's stored                                                         | How to set                                  |
+| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
+| **SST secrets** | Lambda authorizer (API Gateway layer)                     | AWS SSM Parameter Store (encrypted)                                       | `npx sst secret set McpAuthToken "<value>"` |
+| **`.env` file** | Docker containers on Lightsail (Express middleware layer) | `~/.config/vault-cortex/.env` locally; `/opt/vault-cortex/.env` on the VM | Edit the file directly                      |
 
 Both values **must match** — they're the same token stored in two places because SST (serverless) and Docker Compose (VM) have no shared secrets mechanism.
 
 **Rotation procedure:**
+
 ```bash
 # 1. Generate a new token
 NEW_TOKEN=$(openssl rand -hex 32)
@@ -104,14 +105,14 @@ curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 
 ### Command reference
 
-| Command | What it does |
-|---------|-------------|
-| `npm run deploy` | `npx sst deploy` — creates/updates AWS infra. First run provisions everything; subsequent runs are incremental. |
-| `npm run docker:publish` | Builds the vault-mcp image (linux/amd64) and pushes to GHCR. |
-| `npm run lightsail:up` | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist. |
-| `npm run deploy:dev` | Full chain: `deploy` → `docker:publish` → `lightsail:up`. |
-| `npm run dev:mcp` | Runs the MCP server locally with `tsx watch` (hot reload). Requires `MCP_AUTH_TOKEN` in env. |
-| `npx sst remove` | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12/mo. |
+| Command                  | What it does                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `npm run deploy`         | `npx sst deploy` — creates/updates AWS infra. First run provisions everything; subsequent runs are incremental. |
+| `npm run docker:publish` | Builds the vault-mcp image (linux/amd64) and pushes to GHCR.                                                    |
+| `npm run lightsail:up`   | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist.  |
+| `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                       |
+| `npm run dev:mcp`        | Runs the MCP server locally with `tsx watch` (hot reload). Requires `MCP_AUTH_TOKEN` in env.                    |
+| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12/mo.                                 |
 
 `deploy`, `docker:publish`, `lightsail:up`, `deploy:dev` are all idempotent and safe to run repeatedly.
 

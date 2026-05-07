@@ -11,17 +11,17 @@ export default $config({
       removal: input?.stage === "production" ? "retain" : "remove",
       home: "aws",
       providers: { aws: { region: "us-east-1" } },
-    };
+    }
   },
 
   async run() {
     // SST 4 forbids static `import` at the top of sst.config.ts —
     // everything has to be dynamic and inside this function.
-    const { readFileSync, existsSync } = await import("node:fs");
-    const { homedir } = await import("node:os");
+    const { readFileSync, existsSync } = await import("node:fs")
+    const { homedir } = await import("node:os")
 
     const expandHome = (p: string): string =>
-      p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p;
+      p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
@@ -32,24 +32,21 @@ export default $config({
      */
     const readSshPublicKey = (): string => {
       if (process.env.SSH_PUBKEY?.trim()) {
-        return process.env.SSH_PUBKEY.trim();
+        return process.env.SSH_PUBKEY.trim()
       }
       const candidates = process.env.SSH_PUBKEY_PATH
         ? [expandHome(process.env.SSH_PUBKEY_PATH)]
-        : [
-            expandHome("~/.ssh/id_ed25519.pub"),
-            expandHome("~/.ssh/id_rsa.pub"),
-          ];
+        : [expandHome("~/.ssh/id_ed25519.pub"), expandHome("~/.ssh/id_rsa.pub")]
       for (const path of candidates) {
-        if (existsSync(path)) return readFileSync(path, "utf8").trim();
+        if (existsSync(path)) return readFileSync(path, "utf8").trim()
       }
       throw new Error(
         `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
           `${candidates.join(", ")}. Either generate a key ` +
           `(\`ssh-keygen -t ed25519\`), set SSH_PUBKEY_PATH to a ` +
           `.pub file, or pass SSH_PUBKEY directly (CI).`,
-      );
-    };
+      )
+    }
 
     // ── Secrets ────────────────────────────────────────────────────
     // Set once per stage, then deploy:
@@ -60,9 +57,9 @@ export default $config({
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
     // ──────────────────────────────────────────────────────────────
-    const mcpAuthToken = new sst.Secret("McpAuthToken");
-    const obsidianAuthToken = new sst.Secret("ObsidianAuthToken");
-    const obsidianVaultName = new sst.Secret("ObsidianVaultName");
+    const mcpAuthToken = new sst.Secret("McpAuthToken")
+    const _obsidianAuthToken = new sst.Secret("ObsidianAuthToken")
+    const _obsidianVaultName = new sst.Secret("ObsidianVaultName")
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uploads the developer's local public key (id_ed25519.pub by
@@ -89,7 +86,7 @@ export default $config({
     const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
       name: `vault-cortex-key-${$app.stage}`,
       publicKey: readSshPublicKey(),
-    });
+    })
 
     // ── Lightsail ─────────────────────────────────────────────────
     // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
@@ -117,16 +114,16 @@ export default $config({
         "chown ubuntu:ubuntu /opt/vault-cortex",
       ].join("\n"),
       tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
-    });
+    })
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {
       name: `vault-cortex-ip-${$app.stage}`,
-    });
+    })
 
     new aws.lightsail.StaticIpAttachment("VaultCortexIpAttach", {
       staticIpName: staticIp.name,
       instanceName: instance.name,
-    });
+    })
 
     // GOTCHA: InstancePublicPorts is DECLARATIVE — it replaces ALL
     // existing rules on every deploy. If you omit port 22 here,
@@ -141,7 +138,7 @@ export default $config({
         // is acceptable — the token is the real security boundary.
         { protocol: "tcp", fromPort: 8000, toPort: 8000, cidrs: ["0.0.0.0/0"] },
       ],
-    });
+    })
 
     // ── API Gateway HTTP API ──────────────────────────────────────
     // No custom domain — you get a free HTTPS URL:
@@ -150,7 +147,7 @@ export default $config({
     // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
     // MCP clients point at this URL with their bearer token.
     // ──────────────────────────────────────────────────────────────
-    const api = new sst.aws.ApiGatewayV2("VaultCortexApi");
+    const api = new sst.aws.ApiGatewayV2("VaultCortexApi")
 
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
@@ -165,7 +162,7 @@ export default $config({
           memory: "128 MB",
         },
       },
-    });
+    })
 
     // routeUrl() creates an HTTP_PROXY integration — API Gateway
     // forwards the request as-is to the Lightsail backend.
@@ -176,16 +173,14 @@ export default $config({
       "ANY /{proxy+}",
       $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`,
       { auth: { lambda: authorizer.id } },
-    );
-    api.routeUrl(
-      "ANY /",
-      $interpolate`http://${staticIp.ipAddress}:8000`,
-      { auth: { lambda: authorizer.id } },
-    );
+    )
+    api.routeUrl("ANY /", $interpolate`http://${staticIp.ipAddress}:8000`, {
+      auth: { lambda: authorizer.id },
+    })
 
     return {
       apiUrl: api.url,
       lightsailIp: staticIp.ipAddress,
-    };
+    }
   },
-});
+})

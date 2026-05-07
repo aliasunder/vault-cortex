@@ -12,42 +12,42 @@
  *     making `Resource.McpAuthToken.value` available at runtime.
  */
 
-import { timingSafeEqual } from "node:crypto";
-import { Resource } from "sst";
-import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda";
+import { timingSafeEqual } from "node:crypto"
+import { Resource } from "sst"
+import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 
 const safeEqual = (a: string, b: string): boolean => {
-  const aBuf = Buffer.from(a, "utf8");
-  const bBuf = Buffer.from(b, "utf8");
+  const aBuf = Buffer.from(a, "utf8")
+  const bBuf = Buffer.from(b, "utf8")
   if (aBuf.length !== bBuf.length) {
-    timingSafeEqual(aBuf, aBuf);
-    return false;
+    timingSafeEqual(aBuf, aBuf)
+    return false
   }
-  return timingSafeEqual(aBuf, bBuf);
-};
+  return timingSafeEqual(aBuf, bBuf)
+}
 
 const parseBearer = (header: string | undefined): string | null => {
-  if (!header) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  return match?.[1]?.trim() || null;
-};
+  if (!header) return null
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim())
+  return match?.[1]?.trim() || null
+}
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
 ): Promise<{ isAuthorized: boolean }> => {
-  const token = parseBearer(event.headers?.authorization);
+  const token = parseBearer(event.headers?.authorization)
 
   if (!token) {
-    console.warn("auth_failed: missing or malformed Authorization header");
-    return { isAuthorized: false };
+    console.warn("auth_failed: missing or malformed Authorization header")
+    return { isAuthorized: false }
   }
 
-  const expected = Resource.McpAuthToken.value;
+  const expected = Resource.McpAuthToken.value
 
   if (!expected || !safeEqual(token, expected)) {
-    console.warn("auth_failed: token mismatch");
-    return { isAuthorized: false };
+    console.warn("auth_failed: token mismatch")
+    return { isAuthorized: false }
   }
 
-  return { isAuthorized: true };
-};
+  return { isAuthorized: true }
+}

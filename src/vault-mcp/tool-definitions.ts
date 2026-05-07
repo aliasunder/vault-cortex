@@ -19,8 +19,8 @@
  * check the contract end-to-end before code is written.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SearchIndex } from "./search-index.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { SearchIndex } from "./search-index.js"
 
 export const registerTools = (
   _server: McpServer,
@@ -210,4 +210,4 @@ export const registerTools = (
   //   Example response:
   //     { content: [{ type: "text", text:
   //       "Deleted entry from About Me/Principles.md → ## Decision heuristics" }] }
-};
+}

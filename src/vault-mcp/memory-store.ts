@@ -43,19 +43,19 @@
 //   join from "node:path"
 //   matter from "gray-matter"
 
-const MEMORY_DIR = "About Me";
+const _MEMORY_DIR = "About Me"
 
 export type MemoryHeading = {
-  level: 1 | 2;          // H1 = file title, H2 = section
-  text: string;          // heading text (no leading "#")
-  entryCount?: number;   // number of `- **YYYY-MM-DD**: ...` bullets in section
-};
+  level: 1 | 2 // H1 = file title, H2 = section
+  text: string // heading text (no leading "#")
+  entryCount?: number // number of `- **YYYY-MM-DD**: ...` bullets in section
+}
 
 export type MemoryFileOutline = {
-  file: string;          // base name without .md (e.g. "Principles")
-  title: string;         // from frontmatter `title` (falls back to file)
-  headings: MemoryHeading[];
-};
+  file: string // base name without .md (e.g. "Principles")
+  title: string // from frontmatter `title` (falls back to file)
+  headings: MemoryHeading[]
+}
 
 /**
  * Read a memory file (or all of them concatenated if `file` omitted).
@@ -85,8 +85,8 @@ export const getMemory = async (
   // - If !file:      readdir, concat all files (frontmatter stripped),
   //                  separated by `\n\n---\n\n`
   // - Errors with a clear message if file or section not found
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}
 
 /**
  * Append a dated entry to a section of a memory file.
@@ -114,8 +114,8 @@ export const updateMemory = async (
   _section: string,
   _entry: string,
   _options?: {
-    date?: string;                // ISO YYYY-MM-DD; defaults to today
-    position?: "top" | "bottom";  // defaults to "top"
+    date?: string // ISO YYYY-MM-DD; defaults to today
+    position?: "top" | "bottom" // defaults to "top"
   },
 ): Promise<void> => {
   // TODO: implement
@@ -128,8 +128,8 @@ export const updateMemory = async (
   // - Insert `- **{date}**: {entry}` at top (default) or bottom
   // - matter.stringify(newBody, frontmatter) → write back
   // - Frontmatter must round-trip verbatim (key order, quoting)
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}
 
 /**
  * Discovery / outline tool — does NOT return memory entries.
@@ -167,8 +167,8 @@ export const listMemoryFiles = async (
   //     - `# X`  → push { level: 1, text: "X" }
   //     - `## X` → push { level: 2, text: "X", entryCount: <count of
   //                      `- **YYYY-MM-DD**:` bullets until next heading> }
-  return [];
-};
+  return []
+}
 
 /**
  * Delete a single dated entry from a memory file's section.
@@ -204,8 +204,8 @@ export const deleteMemory = async (
   _vaultPath: string,
   _file: string,
   _section: string,
-  _date: string,        // ISO YYYY-MM-DD
-  _entry: string,       // exact entry text (no date prefix)
+  _date: string, // ISO YYYY-MM-DD
+  _entry: string, // exact entry text (no date prefix)
 ): Promise<void> => {
   // TODO: implement
   // - Read About Me/{file}.md
@@ -217,5 +217,5 @@ export const deleteMemory = async (
   //   - 1 match → remove that line
   // - matter.stringify(newBody, frontmatter) → write back
   // - Frontmatter must round-trip verbatim
-  throw new Error("Not implemented");
-};
+  throw new Error("Not implemented")
+}

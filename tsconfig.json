@@ -4,7 +4,6 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,6 +12,6 @@
     "isolatedModules": true,
     "declaration": true
   },
-  "include": ["src/**/*.ts", "sst-env.d.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "sst-env.d.ts"],
   "exclude": ["node_modules", "dist", ".sst"]
 }
