@@ -95,7 +95,7 @@ const startServer = async (): Promise<void> => {
 
   const rateLimit = {
     keyGenerator: rateLimitKeyGenerator,
-    validate: { trustProxy: false, forwardedHeader: false },
+    validate: false as const,
   }
 
   // OAuth routes (unauthenticated) — /.well-known/*, /authorize, /token, /register, /revoke
