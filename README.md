@@ -171,6 +171,22 @@ npm run dev:docker
 
 Test with the same curl commands above. The hardcoded token is `local-dev-token`.
 
+### MCP Inspector
+
+Test all 12 tools interactively in a browser UI. The server must be running first:
+
+```bash
+# Terminal 1 — start the server
+MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+
+# Terminal 2 — launch the inspector
+npx @modelcontextprotocol/inspector
+```
+
+In the inspector UI, enter `http://localhost:8000/mcp` as the server URL and `local-dev-token` as the Bearer token. It discovers all tools with their schemas, lets you call any tool with custom inputs, and shows the response.
+
+To test against the deployed Lightsail instance instead, point the inspector at the API Gateway URL with the real token (no local server needed).
+
 ### Type checking and linting
 
 ```bash
