@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "declaration": true
+    "declaration": true,
+    "rootDir": "."
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "sst-env.d.ts"],
   "exclude": ["node_modules", "dist", ".sst"]
