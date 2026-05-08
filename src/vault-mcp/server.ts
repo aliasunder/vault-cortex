@@ -206,6 +206,7 @@ const startServer = async (): Promise<void> => {
         registerTools({ server, vaultPath, search, logger: sessionLogger })
 
         await server.connect(transport)
+        await transport.handleRequest(req, res, body)
         if (transport.sessionId) {
           transports.set(transport.sessionId, transport)
         }
@@ -215,7 +216,6 @@ const startServer = async (): Promise<void> => {
           status: 200,
           outcome: "session created",
         })
-        await transport.handleRequest(req, res, body)
         return
       }
       logger.warn("mcp_response", {
