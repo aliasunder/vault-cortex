@@ -198,10 +198,12 @@ const startServer = async (): Promise<void> => {
           {
             name: "vault-cortex",
             version: "1.0.0",
+            description:
+              "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
           },
           {
             instructions:
-              "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+              "Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.",
           },
         )
 
