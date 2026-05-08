@@ -194,12 +194,16 @@ const startServer = async (): Promise<void> => {
             })
           }
         }
-        const server = new McpServer({
-          name: "vault-cortex",
-          version: "1.0.0",
-          description:
-            "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
-        })
+        const server = new McpServer(
+          {
+            name: "vault-cortex",
+            version: "1.0.0",
+          },
+          {
+            instructions:
+              "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+          },
+        )
 
         const sessionLogger = logger.child({
           sessionId: transport.sessionId,
