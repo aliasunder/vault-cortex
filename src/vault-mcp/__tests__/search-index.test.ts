@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
+import { logger } from "../../logger.js"
 
 let index: SearchIndex
 
@@ -39,7 +40,7 @@ describe("schema creation", () => {
 
   it("creates notes and notes_fts tables", () => {
     index.upsertNote("test.md", "# Test\n", Date.now())
-    const results = index.fullTextSearch("Test")
+    const results = index.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
   })
 })
@@ -47,7 +48,7 @@ describe("schema creation", () => {
 describe("upsertNote", () => {
   it("indexes a note with full frontmatter", () => {
     index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    const results = index.fullTextSearch("burnout")
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
     expect(results[0].title).toBe("Principles")
@@ -74,28 +75,28 @@ describe("upsertNote", () => {
 
   it("stores empty folder for root-level notes", () => {
     index.upsertNote("root.md", NOTE_MINIMAL, 1000)
-    const recent = index.recentNotes()
+    const recent = index.recentNotes({}, logger)
     expect(recent[0].folder).toBe("")
   })
 
   it("updates existing note on re-index", () => {
     index.upsertNote("test.md", "---\ntitle: V1\n---\nold\n", 1000)
     index.upsertNote("test.md", "---\ntitle: V2\n---\nnew content\n", 2000)
-    const results = index.fullTextSearch("new content")
+    const results = index.fullTextSearch({ query: "new content" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].title).toBe("V2")
   })
 
   it("handles notes with no frontmatter", () => {
     index.upsertNote("bare.md", "Just plain text\n", 1000)
-    const results = index.fullTextSearch("plain text")
+    const results = index.fullTextSearch({ query: "plain text" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].tags).toEqual([])
   })
 
   it("normalizes tags to array when given as string", () => {
     index.upsertNote("t.md", "---\ntags: single-tag\n---\nbody\n", 1000)
-    const tags = index.listAllTags()
+    const tags = index.listAllTags(logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
 })
@@ -104,7 +105,7 @@ describe("removeNote", () => {
   it("removes an indexed note", () => {
     index.upsertNote("test.md", "# Removable\n", 1000)
     index.removeNote("test.md")
-    const results = index.fullTextSearch("Removable")
+    const results = index.fullTextSearch({ query: "Removable" }, logger)
     expect(results).toHaveLength(0)
   })
 
@@ -125,51 +126,63 @@ describe("fullTextSearch", () => {
   })
 
   it("finds notes by content keyword", () => {
-    const results = index.fullTextSearch("burnout")
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })
 
   it("finds notes by title", () => {
-    const results = index.fullTextSearch("Principles")
+    const results = index.fullTextSearch({ query: "Principles" }, logger)
     expect(results).toHaveLength(1)
   })
 
   it("returns highlighted snippets", () => {
-    const results = index.fullTextSearch("burnout")
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results[0].snippet).toContain("<mark>")
   })
 
   it("respects folder filter", () => {
-    const results = index.fullTextSearch("notes", { folder: "Projects" })
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects" } },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("Projects/notes.md")
   })
 
   it("respects tags filter", () => {
-    const results = index.fullTextSearch("notes", { tags: ["project"] })
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { tags: ["project"] } },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("Projects/notes.md")
   })
 
   it("respects type filter", () => {
-    const results = index.fullTextSearch("notes", { type: "project" })
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { type: "project" } },
+      logger,
+    )
     expect(results).toHaveLength(1)
   })
 
   it("respects limit", () => {
-    const results = index.fullTextSearch("notes", { limit: 1 })
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { limit: 1 } },
+      logger,
+    )
     expect(results).toHaveLength(1)
   })
 
   it("returns empty for no matches", () => {
-    const results = index.fullTextSearch("xyznonexistent")
+    const results = index.fullTextSearch({ query: "xyznonexistent" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("handles porter stemming", () => {
     index.upsertNote("stem.md", "The runners were running quickly\n", 4000)
-    const results = index.fullTextSearch("run")
+    const results = index.fullTextSearch({ query: "run" }, logger)
     expect(results.length).toBeGreaterThan(0)
     expect(results.some((r) => r.path === "stem.md")).toBe(true)
   })
@@ -187,23 +200,29 @@ describe("searchByTag", () => {
   })
 
   it("prefix match: parent tag matches children", () => {
-    const results = index.searchByTag("project")
+    const results = index.searchByTag({ tag: "project" }, logger)
     expect(results).toHaveLength(2)
   })
 
   it("exact match mode", () => {
-    const results = index.searchByTag("project", { exactMatch: true })
+    const results = index.searchByTag(
+      { tag: "project", exactMatch: true },
+      logger,
+    )
     expect(results).toHaveLength(0)
   })
 
   it("exact match finds specific tag", () => {
-    const results = index.searchByTag("project/vault-mcp", { exactMatch: true })
+    const results = index.searchByTag(
+      { tag: "project/vault-mcp", exactMatch: true },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("a.md")
   })
 
   it("returns empty for non-existent tag", () => {
-    const results = index.searchByTag("nope")
+    const results = index.searchByTag({ tag: "nope" }, logger)
     expect(results).toHaveLength(0)
   })
 })
@@ -256,7 +275,7 @@ describe("listAllTags", () => {
   })
 
   it("returns tags with counts ordered by count desc", () => {
-    const tags = index.listAllTags()
+    const tags = index.listAllTags(logger)
     expect(tags[0]).toEqual({ tag: "principles", count: 2 })
     expect(tags.find((t) => t.tag === "self")).toEqual({
       tag: "self",
@@ -266,7 +285,7 @@ describe("listAllTags", () => {
 
   it("handles notes with no tags", () => {
     index.upsertNote("bare.md", "no tags\n", 3000)
-    const tags = index.listAllTags()
+    const tags = index.listAllTags(logger)
     expect(tags.length).toBeGreaterThan(0)
   })
 })
@@ -279,25 +298,25 @@ describe("recentNotes", () => {
   })
 
   it("sorts by mtime by default", () => {
-    const results = index.recentNotes()
+    const results = index.recentNotes({}, logger)
     expect(results[0].path).toBe("new.md")
     expect(results[1].path).toBe("no-created.md")
     expect(results[2].path).toBe("old.md")
   })
 
   it("sorts by created date", () => {
-    const results = index.recentNotes({ sort_by: "created" })
+    const results = index.recentNotes({ sort_by: "created" }, logger)
     expect(results[0].path).toBe("new.md")
     expect(results[1].path).toBe("old.md")
   })
 
   it("puts nulls last for created sort", () => {
-    const results = index.recentNotes({ sort_by: "created" })
+    const results = index.recentNotes({ sort_by: "created" }, logger)
     expect(results[results.length - 1].path).toBe("no-created.md")
   })
 
   it("respects limit", () => {
-    const results = index.recentNotes({ limit: 1 })
+    const results = index.recentNotes({ limit: 1 }, logger)
     expect(results).toHaveLength(1)
   })
 })
@@ -329,20 +348,20 @@ describe("rebuildFromVault", () => {
 
   it("skips hidden directories", async () => {
     await index.rebuildFromVault(vaultDir)
-    const results = index.fullTextSearch("hidden")
+    const results = index.fullTextSearch({ query: "hidden" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("clears existing data before rebuilding", async () => {
     index.upsertNote("stale.md", "stale content\n", 1000)
     await index.rebuildFromVault(vaultDir)
-    const results = index.fullTextSearch("stale")
+    const results = index.fullTextSearch({ query: "stale" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("makes indexed notes searchable", async () => {
     await index.rebuildFromVault(vaultDir)
-    const results = index.fullTextSearch("burnout")
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })

@@ -17,7 +17,7 @@ RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY tsconfig.json ./
-COPY src/vault-mcp ./src/vault-mcp
+COPY src/ ./src/
 RUN npm run build
 
 FROM node:22-alpine AS runtime
@@ -28,7 +28,7 @@ RUN apk add --no-cache tini libstdc++ \
  && addgroup -S app && adduser -S app -G app
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
 COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=build /app/dist/src/vault-mcp ./dist/src/vault-mcp
+COPY --from=build /app/dist/src ./dist/src
 COPY package.json ./
 RUN mkdir -p /data && chown -R app:app /data /app
 USER app

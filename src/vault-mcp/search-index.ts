@@ -3,9 +3,7 @@ import matter from "gray-matter"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, relative, resolve } from "node:path"
-import { logger as rootLogger } from "../logger.js"
-
-const logger = rootLogger.child({ module: "search-index" })
+import { logger, type Logger } from "../logger.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -15,7 +13,7 @@ const isDate = (value: unknown): value is Date => value instanceof Date
 
 // ── Types ───────────────────────────────────────────────────────
 
-export type SearchResult = {
+type SearchResult = {
   path: string
   title: string
   snippet: string
@@ -26,7 +24,7 @@ export type SearchResult = {
   mtime: number
 }
 
-export type NoteMetadata = {
+type NoteMetadata = {
   path: string
   title: string
   tags: string[]
@@ -38,12 +36,12 @@ export type NoteMetadata = {
   properties: Record<string, unknown>
 }
 
-export type TagCount = {
+type TagCount = {
   tag: string
   count: number
 }
 
-export type SearchFilters = {
+type SearchFilters = {
   folder?: string
   tags?: string[]
   related?: string[]
@@ -134,7 +132,7 @@ export const createSearchIndex = (dbPath: string) => {
       content: parsed.content,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
-      folder: filePath.includes("/") ? filePath.split("/")[0] : "", // top-level vault folder
+      folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(data.type) ? data.type : null,
       created: isDate(data.created)
         ? DateTime.fromJSDate(data.created).toISO()
@@ -142,7 +140,7 @@ export const createSearchIndex = (dbPath: string) => {
           ? DateTime.fromISO(data.created).toISO()
           : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(data), // full frontmatter bag for ad-hoc json_extract queries
+      properties: JSON.stringify(data),
     }
 
     deleteFtsStmt.run(note.path)
@@ -214,53 +212,53 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Full-text search with BM25 ranking. Supports folder, tag, type, and property filters. */
   const fullTextSearch = (
-    query: string,
-    filters?: SearchFilters,
+    params: { query: string; filters?: SearchFilters },
+    logger: Logger,
   ): SearchResult[] => {
     const conditions: string[] = []
-    const params: unknown[] = []
+    const queryParams: unknown[] = []
 
     // Wrap in double quotes to treat as literal phrase, not FTS5 operators (AND, OR, NOT, *)
     conditions.push("notes_fts MATCH ?")
-    params.push(`"${query.replace(/"/g, '""')}"`) // escape internal quotes by doubling them
+    queryParams.push(`"${params.query.replace(/"/g, '""')}"`)
 
-    if (filters?.folder) {
+    if (params.filters?.folder) {
       conditions.push("n.path LIKE ?")
-      params.push(`${filters.folder}/%`)
+      queryParams.push(`${params.filters.folder}/%`)
     }
 
-    if (filters?.tags) {
-      for (const tag of filters.tags) {
+    if (params.filters?.tags) {
+      for (const tag of params.filters.tags) {
         conditions.push(
           "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)",
         )
-        params.push(tag)
+        queryParams.push(tag)
       }
     }
 
-    if (filters?.related) {
-      for (const rel of filters.related) {
+    if (params.filters?.related) {
+      for (const rel of params.filters.related) {
         conditions.push(
           "EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)",
         )
-        params.push(rel)
+        queryParams.push(rel)
       }
     }
 
-    if (filters?.type) {
+    if (params.filters?.type) {
       conditions.push("n.type = ?")
-      params.push(filters.type)
+      queryParams.push(params.filters.type)
     }
 
-    if (filters?.properties) {
-      for (const [key, value] of Object.entries(filters.properties)) {
+    if (params.filters?.properties) {
+      for (const [key, value] of Object.entries(params.filters.properties)) {
         conditions.push(`json_extract(n.properties, '$.' || ?) = ?`)
-        params.push(key, value)
+        queryParams.push(key, value)
       }
     }
 
-    const limit = filters?.limit ?? 20
-    params.push(limit)
+    const limit = params.filters?.limit ?? 20
+    queryParams.push(limit)
 
     const sql = `
       SELECT n.path, n.title,
@@ -275,7 +273,7 @@ export const createSearchIndex = (dbPath: string) => {
     // rank * -1: FTS5 rank is negative (lower = better), negated for human-friendly scoring
 
     try {
-      const rows = db.prepare(sql).all(...params) as Array<
+      const rows = db.prepare(sql).all(...queryParams) as Array<
         Pick<
           NoteRow,
           "path" | "title" | "tags" | "folder" | "created" | "mtime"
@@ -285,10 +283,15 @@ export const createSearchIndex = (dbPath: string) => {
         }
       >
 
-      return rows.map((row) => ({
+      const results = rows.map((row) => ({
         ...row,
         tags: JSON.parse(row.tags) as string[],
       }))
+      logger.info("full text search", {
+        query: params.query,
+        resultCount: results.length,
+      })
+      return results
     } catch {
       return []
     }
@@ -296,18 +299,18 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Finds notes with a specific tag. Supports hierarchical prefix matching. */
   const searchByTag = (
-    tag: string,
-    options?: { exactMatch?: boolean; limit?: number },
+    params: { tag: string; exactMatch?: boolean; limit?: number },
+    logger: Logger,
   ): NoteMetadata[] => {
-    const limit = options?.limit ?? 20
+    const limit = params.limit ?? 20
 
-    const condition = options?.exactMatch
+    const condition = params.exactMatch
       ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
       : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%')"
 
-    const params: unknown[] = options?.exactMatch
-      ? [tag, limit]
-      : [tag, tag, limit]
+    const queryParams: unknown[] = params.exactMatch
+      ? [params.tag, limit]
+      : [params.tag, params.tag, limit]
 
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
@@ -316,8 +319,13 @@ export const createSearchIndex = (dbPath: string) => {
       LIMIT ?
     `
 
-    const rows = db.prepare(sql).all(...params) as NoteRow[]
-    return rows.map(rowToMetadata)
+    const rows = db.prepare(sql).all(...queryParams) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("search by tag", {
+      tag: params.tag,
+      resultCount: results.length,
+    })
+    return results
   }
 
   /** Lists notes in a folder, optionally including subfolders. */
@@ -332,7 +340,7 @@ export const createSearchIndex = (dbPath: string) => {
       ? "path LIKE ? || '/%'"
       : "path LIKE ? || '/%' AND path NOT LIKE ? || '/%/%'"
 
-    const params: unknown[] = recursive
+    const queryParams: unknown[] = recursive
       ? [folder, limit]
       : [folder, folder, limit]
 
@@ -343,7 +351,7 @@ export const createSearchIndex = (dbPath: string) => {
       LIMIT ?
     `
 
-    const rows = db.prepare(sql).all(...params) as NoteRow[]
+    const rows = db.prepare(sql).all(...queryParams) as NoteRow[]
     return rows.map(rowToMetadata)
   }
 
@@ -361,23 +369,25 @@ export const createSearchIndex = (dbPath: string) => {
   }
 
   /** Returns all tags in the vault with their note counts. */
-  const listAllTags = (): TagCount[] => {
+  const listAllTags = (logger: Logger): TagCount[] => {
     const sql = `
       SELECT value as tag, COUNT(*) as count
       FROM notes, json_each(notes.tags)
       GROUP BY value
       ORDER BY count DESC
     `
-    return db.prepare(sql).all() as TagCount[]
+    const results = db.prepare(sql).all() as TagCount[]
+    logger.info("listed all tags", { count: results.length })
+    return results
   }
 
   /** Returns recently modified or created notes, sorted by chosen timestamp. */
-  const recentNotes = (options?: {
-    sort_by?: "created" | "mtime"
-    limit?: number
-  }): NoteMetadata[] => {
-    const sortBy = options?.sort_by ?? "mtime"
-    const limit = options?.limit ?? 20
+  const recentNotes = (
+    params: { sort_by?: "created" | "mtime"; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const sortBy = params.sort_by ?? "mtime"
+    const limit = params.limit ?? 20
 
     // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
     const orderClause =
@@ -393,7 +403,9 @@ export const createSearchIndex = (dbPath: string) => {
     `
 
     const rows = db.prepare(sql).all(limit) as NoteRow[]
-    return rows.map(rowToMetadata)
+    const results = rows.map(rowToMetadata)
+    logger.info("recent notes", { sortBy, resultCount: results.length })
+    return results
   }
 
   return {

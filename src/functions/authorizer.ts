@@ -12,25 +12,9 @@
  *     making `Resource.McpAuthToken.value` available at runtime.
  */
 
-import { timingSafeEqual } from "node:crypto"
 import { Resource } from "sst"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
-
-const safeEqual = (a: string, b: string): boolean => {
-  const aBuf = Buffer.from(a, "utf8")
-  const bBuf = Buffer.from(b, "utf8")
-  if (aBuf.length !== bBuf.length) {
-    timingSafeEqual(aBuf, aBuf)
-    return false
-  }
-  return timingSafeEqual(aBuf, bBuf)
-}
-
-const parseBearer = (header: string | undefined): string | null => {
-  if (!header) return null
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim())
-  return match?.[1]?.trim() || null
-}
+import { safeEqual, parseBearer } from "../auth.js"
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,

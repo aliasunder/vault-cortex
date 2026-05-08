@@ -1,221 +1,350 @@
-/**
- * About Me/ memory store (R5).
- *
- * Reads and appends to markdown files in the `About Me/` folder.
- * Each file represents a semantic category:
- *   Principles.md, Career.md, Opinions.md, Routines.md, Preferences.md, etc.
- *
- * About Me/ files have a specific structure that this module preserves:
- *
- *   ---
- *   title: Principles
- *   type: about-me
- *   tags: [principles, self]
- *   created: 2025-08-12T09:00:00-07:00
- *   related: [Routines, Career]
- *   ---
- *
- *   # Principles
- *
- *   ## Decision heuristics
- *   - **2026-05-03**: prefer reversible decisions when context is thin
- *   - **2026-04-21**: ship the smallest thing that proves the idea
- *
- *   ## Working style
- *   - **2026-05-01**: deep work in the morning, meetings after lunch
- *
- * Invariants:
- *   - Frontmatter is preserved verbatim (parse with gray-matter; never
- *     reserialize via raw string concat).
- *   - Sections are H2 (`##`).
- *   - Entries are bullet-list items: `- **YYYY-MM-DD**: {entry text}`.
- *   - Newest-first within each section by default.
- *
- * This is the "who am I" layer — any AI agent with vault-cortex
- * connected can read these files to understand who you are across
- * conversations and tools.
- */
+/** About Me/ memory store — heading-aware parser/writer for semantic memory files. */
 
-// TODO: implement all functions below
-//
-// Key imports needed:
-//   readFile, writeFile, readdir from "node:fs/promises"
-//   join from "node:path"
-//   matter from "gray-matter"
+import { readFile, writeFile, readdir } from "node:fs/promises"
+import { join, basename } from "node:path"
+import matter from "gray-matter"
+import { DateTime } from "luxon"
+import type { Logger } from "../logger.js"
 
-const _MEMORY_DIR = "About Me"
+const MEMORY_DIR = "About Me"
 
-export type MemoryHeading = {
-  level: 1 | 2 // H1 = file title, H2 = section
-  text: string // heading text (no leading "#")
-  entryCount?: number // number of `- **YYYY-MM-DD**: ...` bullets in section
-}
+// Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
+// The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
+const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
-export type MemoryFileOutline = {
-  file: string // base name without .md (e.g. "Principles")
-  title: string // from frontmatter `title` (falls back to file)
+const isString = (value: unknown): value is string => typeof value === "string"
+
+// ── Types ───────────────────────────────────────────────────────
+
+type MemoryHeading = Readonly<{
+  level: 1 | 2
+  text: string
+  entryCount?: number
+}>
+
+type MemoryFileOutline = Readonly<{
+  file: string
+  title: string
   headings: MemoryHeading[]
-}
+}>
+
+type ParsedSection = Readonly<{
+  heading: string
+  level: 1 | 2
+  startLine: number
+  bodyStartLine: number
+  bodyEndLine: number
+  entryCount: number
+}>
+
+// ── Internal helpers ────────────────────────────────────────────
 
 /**
- * Read a memory file (or all of them concatenated if `file` omitted).
- * If `section` is given, returns only the body under that H2 heading.
+ * Single-pass section parser. Walks lines to identify H1/H2 headings and
+ * count dated bullets within each section.
  *
- * Example call:
- *   getMemory("/vault", "Principles", "Decision heuristics")
- *
- * Example response (string):
- *   "- **2026-05-03**: prefer reversible decisions when context is thin\n
- *    - **2026-04-21**: ship the smallest thing that proves the idea"
- *
- * Example call (no args):
- *   getMemory("/vault")
- *
- * Example response (string): all About Me/*.md concatenated with
- *   `\n\n---\n\n` separators between files, frontmatter stripped.
+ * Two-phase approach: the reduce collects heading metadata (startLine, entryCount),
+ * then the .map() computes bodyEndLine for each section — this requires the *next*
+ * section's startLine, which isn't available during the reduce pass.
  */
-export const getMemory = async (
-  _vaultPath: string,
-  _file?: string,
-  _section?: string,
+const parseSections = (lines: readonly string[]): ParsedSection[] => {
+  // Phase 1: collect headings and count entries under each
+  const raw = lines.reduce<
+    Array<{
+      heading: string
+      level: 1 | 2
+      startLine: number
+      entryCount: number
+    }>
+  >((acc, line, i) => {
+    const h1 = /^# (.+)$/.exec(line)
+    if (h1) {
+      acc.push({ heading: h1[1].trim(), level: 1, startLine: i, entryCount: 0 })
+      return acc
+    }
+    const h2 = /^## (.+)$/.exec(line)
+    if (h2) {
+      acc.push({ heading: h2[1].trim(), level: 2, startLine: i, entryCount: 0 })
+      return acc
+    }
+    // Count dated bullets under the most recently seen heading
+    if (acc.length > 0 && ENTRY_PATTERN.test(line)) {
+      acc[acc.length - 1].entryCount++
+    }
+    return acc
+  }, [])
+
+  // Phase 2: compute body ranges — each section's body ends where the next heading starts
+  return raw.map((section, i) => ({
+    heading: section.heading,
+    level: section.level,
+    startLine: section.startLine,
+    bodyStartLine: section.startLine + 1,
+    bodyEndLine: i + 1 < raw.length ? raw[i + 1].startLine : lines.length,
+    entryCount: section.entryCount,
+  }))
+}
+
+/** Case-insensitive section lookup by heading text. */
+const findSection = (
+  sections: readonly ParsedSection[],
+  sectionName: string,
+  level: 1 | 2,
+): ParsedSection | undefined => {
+  const needle = sectionName.trim().toLowerCase()
+  return sections.find(
+    (s) => s.level === level && s.heading.toLowerCase() === needle,
+  )
+}
+
+/** Resolves the full path to a memory file in the About Me/ directory. */
+const memoryFilePath = (vaultPath: string, file: string): string =>
+  join(vaultPath, MEMORY_DIR, `${file}.md`)
+
+/** Reads a memory file, throwing a descriptive error if not found. */
+const readMemoryFile = async (
+  vaultPath: string,
+  file: string,
 ): Promise<string> => {
-  // TODO: implement
-  // - If file:       read About Me/{file}.md, strip frontmatter
-  //   - If section:  parse markdown, return body under matching H2
-  // - If !file:      readdir, concat all files (frontmatter stripped),
-  //                  separated by `\n\n---\n\n`
-  // - Errors with a clear message if file or section not found
-  throw new Error("Not implemented")
+  try {
+    return await readFile(memoryFilePath(vaultPath, file), "utf8")
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`memory file not found: "About Me/${file}.md"`, {
+        cause: err,
+      })
+    }
+    throw err
+  }
 }
 
-/**
- * Append a dated entry to a section of a memory file.
- *
- * Server prefixes the date — callers pass raw entry text only.
- * The server parses with gray-matter, locates the matching H2,
- * inserts `- **{date}**: {entry}` at the top of that section's
- * bullet list (newest-first), and re-serializes losslessly.
- *
- * Errors if file or section doesn't exist — agent must call
- * `listMemoryFiles` first to discover valid section names.
- *
- * Example call:
- *   updateMemory("/vault", "Principles", "Decision heuristics",
- *                "prefer reversible decisions when context is thin")
- *
- * Example file diff:
- *   ## Decision heuristics
- *  +- **2026-05-03**: prefer reversible decisions when context is thin
- *   - **2026-04-21**: ship the smallest thing that proves the idea
- */
-export const updateMemory = async (
-  _vaultPath: string,
-  _file: string,
-  _section: string,
-  _entry: string,
-  _options?: {
-    date?: string // ISO YYYY-MM-DD; defaults to today
-    position?: "top" | "bottom" // defaults to "top"
+// ── Exported functions ──────────────────────────────────────────
+
+/** Reads memory content — all files concatenated, one file, or one section. */
+const getMemory = async (
+  params: { vaultPath: string; file?: string; section?: string },
+  logger: Logger,
+): Promise<string> => {
+  if (!params.file) {
+    const dir = join(params.vaultPath, MEMORY_DIR)
+    const entries = await readdir(dir).catch((err) => {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error("About Me directory not found")
+      }
+      throw err
+    })
+    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
+    const contents = await Promise.all(
+      mdFiles.map(async (f) => {
+        const raw = await readFile(join(dir, f), "utf8")
+        return matter(raw).content.trim()
+      }),
+    )
+    logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
+    return contents.join("\n\n---\n\n")
+  }
+
+  const raw = await readMemoryFile(params.vaultPath, params.file)
+  const parsed = matter(raw)
+
+  if (!params.section) {
+    logger.info("get memory", { mode: "file", file: params.file })
+    return parsed.content.trim()
+  }
+
+  const lines = parsed.content.split("\n")
+  const sections = parseSections(lines)
+  const match = findSection(sections, params.section, 2)
+  if (!match) {
+    throw new Error(
+      `section not found: "${params.section}" in About Me/${params.file}.md`,
+    )
+  }
+
+  // Extract only the lines between this heading and the next
+  const body = lines
+    .slice(match.bodyStartLine, match.bodyEndLine)
+    .join("\n")
+    .trim()
+  logger.info("get memory", {
+    mode: "section",
+    file: params.file,
+    section: params.section,
+  })
+  return body
+}
+
+/** Appends a dated entry to a section of a memory file. */
+const updateMemory = async (
+  params: {
+    vaultPath: string
+    file: string
+    section: string
+    entry: string
+    date?: string
+    position?: "top" | "bottom"
   },
+  logger: Logger,
 ): Promise<void> => {
-  // TODO: implement
-  // - Read About Me/{file}.md
-  // - Parse with gray-matter → { data: frontmatter, content: body }
-  // - Walk body lines, locate `## {section}` (case-insensitive trim match)
-  //   - Throw if not found
-  // - Find the bullet list directly under that heading (consecutive
-  //   lines starting with `- `; stops at next heading or blank-then-non-bullet)
-  // - Insert `- **{date}**: {entry}` at top (default) or bottom
-  // - matter.stringify(newBody, frontmatter) → write back
-  // - Frontmatter must round-trip verbatim (key order, quoting)
-  throw new Error("Not implemented")
+  const raw = await readMemoryFile(params.vaultPath, params.file)
+  const parsed = matter(raw)
+  const lines = parsed.content.split("\n")
+  const sections = parseSections(lines)
+  const match = findSection(sections, params.section, 2)
+  if (!match) {
+    throw new Error(
+      `section not found: "${params.section}" in About Me/${params.file}.md`,
+    )
+  }
+
+  const date = params.date ?? DateTime.now().toISODate()
+  const position = params.position ?? "top"
+  const bullet = `- **${date}**: ${params.entry}`
+
+  // Find the first and last dated bullet within the section body to determine
+  // where to insert. Offsets are relative to the section's bodyStartLine.
+  const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
+  const firstBulletOffset = bodyLines.findIndex((l) => ENTRY_PATTERN.test(l))
+  const lastBulletOffset = bodyLines.reduce(
+    (last, l, i) => (ENTRY_PATTERN.test(l) ? i : last),
+    -1,
+  )
+
+  // Compute the absolute line index in the full content array for insertion.
+  // "top" inserts before the first existing bullet (newest-first ordering).
+  // "bottom" inserts after the last existing bullet.
+  // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+  const insertIndex =
+    position === "top"
+      ? firstBulletOffset >= 0
+        ? match.bodyStartLine + firstBulletOffset
+        : match.bodyEndLine
+      : lastBulletOffset >= 0
+        ? match.bodyStartLine + lastBulletOffset + 1
+        : match.bodyEndLine
+
+  // Splice the new bullet into the content lines
+  const updatedLines = [
+    ...lines.slice(0, insertIndex),
+    bullet,
+    ...lines.slice(insertIndex),
+  ]
+
+  const newContent = updatedLines.join("\n")
+  const serialized = matter.stringify(newContent, parsed.data)
+  await writeFile(
+    memoryFilePath(params.vaultPath, params.file),
+    serialized,
+    "utf8",
+  )
+  logger.info("updated memory", {
+    file: params.file,
+    section: params.section,
+    date,
+  })
 }
 
-/**
- * Discovery / outline tool — does NOT return memory entries.
- * Returns one entry per About Me/ file with its title and heading
- * structure (H1 file title + H2 sections, with per-section entry
- * counts). Call this first to discover valid section names before
- * `updateMemory`, `getMemory`, or `deleteMemory`.
- *
- * Example call:
- *   listMemoryFiles("/vault")
- *
- * Example response:
- *   [
- *     {
- *       file: "Principles",
- *       title: "Principles",
- *       headings: [
- *         { level: 1, text: "Principles" },
- *         { level: 2, text: "Decision heuristics", entryCount: 12 },
- *         { level: 2, text: "Working style",       entryCount: 7  },
- *         { level: 2, text: "Communication",       entryCount: 4  }
- *       ]
- *     },
- *     { file: "Career", title: "Career", headings: [...] }
- *   ]
- */
-export const listMemoryFiles = async (
-  _vaultPath: string,
+/** Returns outlines of all About Me/ files — headings and entry counts, no content. */
+const listMemoryFiles = async (
+  params: { vaultPath: string },
+  logger: Logger,
 ): Promise<MemoryFileOutline[]> => {
-  // TODO: implement
-  // - readdir About Me/, filter to .md
-  // - For each: parse with gray-matter
-  //   - title = frontmatter.title ?? base filename
-  //   - Walk body lines:
-  //     - `# X`  → push { level: 1, text: "X" }
-  //     - `## X` → push { level: 2, text: "X", entryCount: <count of
-  //                      `- **YYYY-MM-DD**:` bullets until next heading> }
-  return []
+  const dir = join(params.vaultPath, MEMORY_DIR)
+  const entries = await readdir(dir).catch((err) => {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw err
+  })
+
+  const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
+
+  const outlines = await Promise.all(
+    mdFiles.map(async (f) => {
+      const raw = await readFile(join(dir, f), "utf8")
+      const parsed = matter(raw)
+      const name = basename(f, ".md")
+      const title = isString(parsed.data.title) ? parsed.data.title : name
+      const lines = parsed.content.split("\n")
+      const sections = parseSections(lines)
+
+      const headings: MemoryHeading[] = sections.map((s) =>
+        s.level === 1
+          ? { level: 1 as const, text: s.heading }
+          : { level: 2 as const, text: s.heading, entryCount: s.entryCount },
+      )
+
+      return { file: name, title, headings }
+    }),
+  )
+
+  logger.info("listed memory files", { count: outlines.length })
+  return outlines
 }
 
-/**
- * Delete a single dated entry from a memory file's section.
- *
- * Identification is by exact `(date, entry)` pair to avoid ambiguity.
- * The agent should call `getMemory(file, section)` first to see what's
- * there, then pass the exact text back.
- *
- * Errors on:
- *   - file not found
- *   - section not found
- *   - no bullet matching `- **{date}**: {entry}`
- *   - more than one bullet matching (shouldn't happen given date+text,
- *     but guard anyway — surface "ambiguous match" rather than
- *     silently picking one)
- *
- * Example call:
- *   deleteMemory("/vault", "Principles", "Decision heuristics",
- *                "2026-04-21",
- *                "ship the smallest thing that proves the idea")
- *
- * Example file diff:
- *   ## Decision heuristics
- *   - **2026-05-03**: prefer reversible decisions when context is thin
- *  -- **2026-04-21**: ship the smallest thing that proves the idea
- *
- * Example error:
- *   deleteMemory(..., "2026-04-21", "nonexistent text")
- *   // → Error: no entry matching (2026-04-21, "nonexistent text")
- *   //   under ## Decision heuristics in About Me/Principles.md
- */
-export const deleteMemory = async (
-  _vaultPath: string,
-  _file: string,
-  _section: string,
-  _date: string, // ISO YYYY-MM-DD
-  _entry: string, // exact entry text (no date prefix)
+/** Removes a single dated entry from a memory file by exact match. */
+const deleteMemory = async (
+  params: {
+    vaultPath: string
+    file: string
+    section: string
+    date: string
+    entry: string
+  },
+  logger: Logger,
 ): Promise<void> => {
-  // TODO: implement
-  // - Read About Me/{file}.md
-  // - Parse with gray-matter
-  // - Locate `## {section}` H2 (case-insensitive trim match)
-  // - Find bullets matching `- **{date}**: {entry}` (exact text match)
-  //   - 0 matches → throw "no entry matching ..."
-  //   - >1 matches → throw "ambiguous: N entries match ..."
-  //   - 1 match → remove that line
-  // - matter.stringify(newBody, frontmatter) → write back
-  // - Frontmatter must round-trip verbatim
-  throw new Error("Not implemented")
+  const raw = await readMemoryFile(params.vaultPath, params.file)
+  const parsed = matter(raw)
+  const lines = parsed.content.split("\n")
+  const sections = parseSections(lines)
+  const match = findSection(sections, params.section, 2)
+  if (!match) {
+    throw new Error(
+      `section not found: "${params.section}" in About Me/${params.file}.md`,
+    )
+  }
+
+  // Build the exact bullet string and find matching lines within the section
+  const needle = `- **${params.date}**: ${params.entry}`
+  const matchingIndices = lines.reduce<number[]>((acc, line, i) => {
+    if (i >= match.bodyStartLine && i < match.bodyEndLine && line === needle) {
+      acc.push(i)
+    }
+    return acc
+  }, [])
+
+  if (matchingIndices.length === 0) {
+    throw new Error(
+      `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in About Me/${params.file}.md`,
+    )
+  }
+  if (matchingIndices.length > 1) {
+    throw new Error(
+      `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in About Me/${params.file}.md`,
+    )
+  }
+
+  // Remove the single matched line, preserving everything before and after it
+  const updatedLines = [
+    ...lines.slice(0, matchingIndices[0]),
+    ...lines.slice(matchingIndices[0] + 1),
+  ]
+
+  const newContent = updatedLines.join("\n")
+  const serialized = matter.stringify(newContent, parsed.data)
+  await writeFile(
+    memoryFilePath(params.vaultPath, params.file),
+    serialized,
+    "utf8",
+  )
+  logger.info("deleted memory entry", {
+    file: params.file,
+    section: params.section,
+    date: params.date,
+  })
+}
+
+export const memoryStore = {
+  getMemory,
+  updateMemory,
+  listMemoryFiles,
+  deleteMemory,
 }
