@@ -286,6 +286,9 @@ const startServer = async (): Promise<void> => {
   app.post("/mcp", bearerAuth, handleMcpPost)
   app.get("/mcp", bearerAuth, handleMcpGet)
   app.delete("/mcp", bearerAuth, handleMcpDelete)
+  app.post("/", bearerAuth, handleMcpPost)
+  app.get("/", bearerAuth, handleMcpGet)
+  app.delete("/", bearerAuth, handleMcpDelete)
 
   app.use(createErrorMiddleware())
 
