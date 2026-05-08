@@ -53,6 +53,7 @@ services:
       VAULT_PATH: /vault
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
+      PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-America/New_York}
     volumes:

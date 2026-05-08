@@ -19,16 +19,16 @@ container, a new watcher callback, and a new tool.
 
 ## User Requirements
 
-| ID  | Requirement                     | Phase | Summary                                                               |
-| --- | ------------------------------- | ----- | --------------------------------------------------------------------- |
-| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.         |
-| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.   |
-| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.           |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.             |
-| R5  | Memory tools                    | 1     | Read/append to `About Me/` semantic memory files.                     |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. Bearer token auth. No re-authentication flows. |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.              |
-| R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                  |
+| ID  | Requirement                     | Phase | Summary                                                             |
+| --- | ------------------------------- | ----- | ------------------------------------------------------------------- |
+| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.       |
+| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder. |
+| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.         |
+| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.           |
+| R5  | Memory tools                    | 1     | Read/append to `About Me/` semantic memory files.                   |
+| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.0 + static bearer token.             |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.            |
+| R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                |
 
 ## Component Diagram
 
@@ -45,7 +45,7 @@ graph TB
 
     subgraph apigw_grp ["AWS — API Gateway"]
         APIGW["API Gateway HTTP API<br/>HTTPS + auto URL"]
-        AUTH_FN["Lambda Authorizer<br/>bearer token"]
+        AUTH_FN["Lambda Authorizer<br/>path-aware: OAuth pass-through,<br/>/mcp validates static + JWT"]
         APIGW -->|validate| AUTH_FN
     end
 
@@ -80,7 +80,7 @@ graph TB
     MCP_SERVER -->|query| SQLITE
     MCP_SERVER -.->|Phase 2: semantic query| LIGHTRAG
     CC -->|Bearer token| APIGW
-    CD -->|Bearer token| APIGW
+    CD -->|OAuth 2.0| APIGW
     CU -->|Bearer token| APIGW
     APIGW -->|proxy| MCP_SERVER
 ```
@@ -142,20 +142,58 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ## Infrastructure
 
-See `sst.config.ts` for full IaC. Auth is a static bearer token — no Cognito, no JWT, no re-auth.
+See `sst.config.ts` for full IaC.
 
-### Auth: defense in depth
+### Auth: OAuth 2.0 + defense in depth
 
-The bearer token is validated at **two layers**, against the same secret:
+Two authentication methods, both validated at two layers:
 
-1. **API Gateway → Lambda authorizer** (`src/functions/authorizer.ts`) — reads the SST secret `McpAuthToken`. Rejects unauthenticated requests at the edge.
-2. **vault-mcp → Express middleware** (`createBearerMiddleware` in `src/auth.ts`, wired in `server.ts`) — reads `MCP_AUTH_TOKEN` from the container env (sourced from Lightsail `.env`). Rejects unauthenticated requests at the application layer.
+| Method                                | Used by                                      | Token format                | Lifetime              |
+| ------------------------------------- | -------------------------------------------- | --------------------------- | --------------------- |
+| Static bearer token                   | Claude Code, MCP Inspector, curl             | Raw string (MCP_AUTH_TOKEN) | No expiry             |
+| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Perplexity, any OAuth client | JWT (HS256)                 | 1h access, 7d refresh |
 
-Both layers share `safeEqual` and `parseBearer` from `src/auth.ts` — constant-time comparison, identical validation logic.
+**Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
+Path-aware. OAuth discovery paths (`/.well-known/*`, `/authorize`, `/token`,
+`/register`, `/oauth/decide`, `/healthz`) pass through unauthenticated
+(required by the OAuth/MCP spec). `/mcp` validates the bearer token —
+accepts both the static `MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access
+tokens signed with it (via `verifyJwt`).
 
-Why both: the Lightsail container's port 8000 is publicly bound. If the API Gateway authorizer is misconfigured, or someone discovers the Lightsail public IP and connects directly, the in-process middleware still rejects. The `/healthz` endpoint bypasses the middleware so docker-compose's healthcheck works.
+**Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth` in `server.ts`):
+The OAuth provider's `verifyAccessToken()` accepts both static tokens and
+JWTs. Same validation as the Lambda, independent second check.
 
-Rotation: update the SST secret AND the Lightsail `.env`, then redeploy both.
+Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
+and `safeEqual`/`parseBearer` from `src/auth.ts`.
+
+**OAuth flow:**
+
+```
+1. Client → GET /.well-known/oauth-protected-resource    → discover auth server
+2. Client → GET /.well-known/oauth-authorization-server   → discover endpoints
+3. Client → POST /register                                → dynamic client registration
+4. Client → GET /authorize?...&code_challenge=...         → consent page in browser
+5. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
+6. Client → POST /token (code + code_verifier)            → JWT access token + refresh token
+7. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
+8. Token expires → POST /token (refresh_token)             → new JWT (silent, no browser)
+```
+
+**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "vault-cortex" }`
+Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
+authorizer and Express can verify independently — no shared state needed.
+
+**Token storage:** Auth codes, refresh tokens, and revoked access tokens are
+stored in-memory in the Express process. Container restart clears them —
+clients re-authorize (acceptable for single-user).
+
+**Why both layers:** Lightsail port 8000 is publicly bound. If the API Gateway
+authorizer is misconfigured, or someone hits the public IP directly, Express
+still rejects. `/healthz` bypasses auth for docker-compose healthchecks.
+
+**Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
+both. Existing JWTs signed with the old key become invalid immediately.
 
 ## Cost
 
@@ -169,14 +207,15 @@ Rotation: update the SST secret AND the Lightsail `.env`, then redeploy both.
 
 ## Key Decisions
 
-| Decision                  | Rationale                                                         |
-| ------------------------- | ----------------------------------------------------------------- |
-| Lightsail over ECS        | $12 vs ~$50+. Single-user server.                                 |
-| API Gateway over Caddy    | Free HTTPS URL, no domain needed, SST native.                     |
-| Bearer token over Cognito | No re-auth flows. Set once, works forever.                        |
-| SQLite FTS5               | Zero services, embedded, personal scale.                          |
-| chokidar                  | Node-native, same process as SQLite. Phase 2: adds LightRAG hook. |
-| Streamable HTTP           | Current MCP spec (2025-11-25). SSE is deprecated.                 |
-| GHCR over ECR             | GITHUB_TOKEN auth, no AWS IAM for images.                         |
-| Factory over class        | Functional style. Closure holds db ref, no `this`.                |
-| `type` over `interface`   | Preferred unless `interface` specifically required.               |
+| Decision                 | Rationale                                                                  |
+| ------------------------ | -------------------------------------------------------------------------- |
+| Lightsail over ECS       | $12 vs ~$50+. Single-user server.                                          |
+| API Gateway over Caddy   | Free HTTPS URL, no domain needed, SST native.                              |
+| OAuth 2.0 + static token | OAuth for GUI clients (Claude Desktop, Perplexity). Static token for CLI.  |
+| JWT over opaque tokens   | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN. |
+| SQLite FTS5              | Zero services, embedded, personal scale.                                   |
+| chokidar                 | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.          |
+| Streamable HTTP          | Current MCP spec (2025-11-25). SSE is deprecated.                          |
+| GHCR over ECR            | GITHUB_TOKEN auth, no AWS IAM for images.                                  |
+| Factory over class       | Functional style. Closure holds db ref, no `this`.                         |
+| `type` over `interface`  | Preferred unless `interface` specifically required.                        |

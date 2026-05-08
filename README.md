@@ -11,34 +11,60 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
   - `obsidian-sync` — bidirectional Obsidian Sync
   - `vault-mcp` — Express MCP server with SQLite FTS5 search
 - **IaC:** SST v4
-- **Auth:** the bearer token is validated at TWO layers (Lambda authorizer + in-process Express middleware) — defense in depth
+- **Auth:** OAuth 2.0 (Authorization Code + PKCE) for GUI clients, static bearer token for CLI. Dual-layer validation: Lambda authorizer + Express middleware. JWT access tokens signed with HMAC-SHA256.
 - **Source of truth:** the vault `.md` files. SQLite (and Phase 2 LightRAG) is rebuildable derived state.
 
-## Secrets: two channels, one token
+## Authentication
 
-The `MCP_AUTH_TOKEN` is validated at two layers (defense in depth), each fed by a different channel:
+Two auth methods — both validated at two layers (defense in depth):
 
-| Channel         | What it feeds                                             | Where it's stored                                                         | How to set                                  |
-| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
-| **SST secrets** | Lambda authorizer (API Gateway layer)                     | AWS SSM Parameter Store (encrypted)                                       | `npx sst secret set McpAuthToken "<value>"` |
-| **`.env` file** | Docker containers on Lightsail (Express middleware layer) | `~/.config/vault-cortex/.env` locally; `/opt/vault-cortex/.env` on the VM | Edit the file directly                      |
+| Method                  | Used by                                      | Token format                |
+| ----------------------- | -------------------------------------------- | --------------------------- |
+| **Static bearer token** | Claude Code, MCP Inspector, curl             | Raw `MCP_AUTH_TOKEN` string |
+| **OAuth 2.0**           | Claude Desktop, Perplexity, any OAuth client | JWT access token (HS256)    |
 
-Both values **must match** — they're the same token stored in two places because SST (serverless) and Docker Compose (VM) have no shared secrets mechanism.
+**How it works:** The Lambda authorizer (edge) is path-aware. OAuth discovery endpoints (`/.well-known/*`, `/authorize`, `/token`, `/register`) pass through unauthenticated. `/mcp` requires a valid bearer token — either the static `MCP_AUTH_TOKEN` or a JWT signed with it. Express validates again in-process (second layer).
 
-**Rotation procedure:**
+### Connecting Claude Desktop or Perplexity
+
+1. Add a custom connector / MCP server with the API Gateway URL
+2. Select OAuth authentication
+3. The client auto-discovers endpoints via `/.well-known/oauth-protected-resource`
+4. A consent page opens in your browser — enter your `MCP_AUTH_TOKEN` to approve
+5. The client receives a JWT access token (1h) + refresh token (7d)
+6. Token refresh is automatic — no re-authentication unless the container restarts
+
+### Connecting CLI tools (Claude Code, MCP Inspector, curl)
+
+Use the static bearer token directly:
 
 ```bash
-# 1. Generate a new token
-NEW_TOKEN=$(openssl rand -hex 32)
-
-# 2. Update SST (Lambda side)
-npx sst secret set McpAuthToken "$NEW_TOKEN"
-npm run deploy  # redeploys Lambda with new value
-
-# 3. Update .env (Docker side)
-# Edit ~/.config/vault-cortex/.env → set MCP_AUTH_TOKEN=$NEW_TOKEN
-npm run lightsail:up  # pushes new .env + restarts containers
+curl -H "Authorization: Bearer <MCP_AUTH_TOKEN>" <apiUrl>/mcp
 ```
+
+### Secrets: two channels, one token
+
+`MCP_AUTH_TOKEN` is shared between two systems:
+
+| Channel         | Feeds                                        | Where                                       |
+| --------------- | -------------------------------------------- | ------------------------------------------- |
+| **SST secret**  | Lambda authorizer + JWT verification         | `npx sst secret set McpAuthToken "<value>"` |
+| **`.env` file** | Docker containers (Express + OAuth provider) | `~/.config/vault-cortex/.env`               |
+
+Both **must match**. The token is also the HMAC key for JWT signing/verification and the password for the OAuth consent page.
+
+**Rotation:**
+
+```bash
+NEW_TOKEN=$(openssl rand -hex 32)
+npx sst secret set McpAuthToken "$NEW_TOKEN"
+npm run deploy
+# Edit ~/.config/vault-cortex/.env → MCP_AUTH_TOKEN=$NEW_TOKEN
+# Also set PUBLIC_URL if not already set
+npm run lightsail:up
+```
+
+Existing JWTs signed with the old key become invalid immediately.
 
 ## Deployment
 
@@ -69,6 +95,7 @@ cp .env.example ~/.config/vault-cortex/.env
 chmod 600 ~/.config/vault-cortex/.env
 # Fill in at minimum:
 #   MCP_AUTH_TOKEN      — must match the SST McpAuthToken from step 2
+#   PUBLIC_URL          — API Gateway URL (from `sst deploy` output)
 #   GHCR_USER           — your GitHub username
 #   GHCR_TOKEN          — the GitHub PAT from prerequisites
 #   OBSIDIAN_AUTH_TOKEN, VAULT_NAME — placeholders OK if just smoke-testing
@@ -145,7 +172,7 @@ npm run test:watch  # vitest in watch mode
 Run the MCP server against your local vault (no Docker, no Lightsail):
 
 ```bash
-MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
 ```
 
 This starts `tsx watch` with hot reload on port 8000. Test with:
@@ -153,6 +180,9 @@ This starts `tsx watch` with hot reload on port 8000. Test with:
 ```bash
 # Health check (no auth):
 curl http://localhost:8000/healthz
+
+# OAuth discovery (no auth):
+curl http://localhost:8000/.well-known/oauth-protected-resource
 
 # Authenticated MCP call:
 curl -H "Authorization: Bearer local-dev-token" http://localhost:8000/mcp
@@ -177,7 +207,7 @@ Test all 12 tools interactively in a browser UI. The server must be running firs
 
 ```bash
 # Terminal 1 — start the server
-MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
 
 # Terminal 2 — launch the inspector
 npx @modelcontextprotocol/inspector

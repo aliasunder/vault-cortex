@@ -149,12 +149,14 @@ export default $config({
     // ──────────────────────────────────────────────────────────────
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi")
 
+    // Smart Lambda authorizer — path-aware, defense in depth:
+    //   - OAuth paths (/.well-known/*, /authorize, /token, etc.) → pass through
+    //   - /mcp → validates Bearer token (static MCP_AUTH_TOKEN or JWT)
+    // Express also validates in-process via requireBearerAuth (second layer).
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
-          // SST bundles this with esbuild — only authorizer.ts and
-          // its imports end up in the Lambda. vault-mcp/ is excluded.
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
           runtime: "nodejs22.x",
@@ -164,9 +166,6 @@ export default $config({
       },
     })
 
-    // routeUrl() creates an HTTP_PROXY integration — API Gateway
-    // forwards the request as-is to the Lightsail backend.
-    //
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
     // the bare root "/". You need both routes.
     api.routeUrl(

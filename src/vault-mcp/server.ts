@@ -8,10 +8,14 @@ import { fileURLToPath } from "node:url"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import { createSearchIndex } from "./search-index.js"
 import { registerTools } from "./tool-definitions.js"
 import { startFileWatcher } from "./file-watcher.js"
-import { createBearerMiddleware } from "../auth.js"
+import { createOAuthProvider } from "./oauth-provider.js"
+import { renderConsentPage } from "./consent-page.js"
+import { safeEqual } from "../auth.js"
 import { logger } from "../logger.js"
 
 /** Catch-all error handler for unhandled errors from async route handlers. */
@@ -44,15 +48,29 @@ const startServer = async (): Promise<void> => {
     throw new Error("VAULT_PATH environment variable is required")
   }
 
-  const dbPath = process.env.INDEX_DB_PATH ?? "/data/search.db"
+  const publicUrl = process.env.PUBLIC_URL
+  if (!publicUrl) {
+    logger.error("missing required env", { var: "PUBLIC_URL" })
+    throw new Error("PUBLIC_URL environment variable is required")
+  }
+
+  const dataDir = process.env.INDEX_DB_PATH
+    ? process.env.INDEX_DB_PATH.replace(/\/[^/]+$/, "")
+    : "/data"
+  const searchDbPath = process.env.INDEX_DB_PATH ?? `${dataDir}/search.db`
+  const oauthDbPath = `${dataDir}/oauth.db`
   const port = parseInt(process.env.PORT ?? "8000", 10)
   const host = process.env.HOST ?? "0.0.0.0"
 
-  const search = createSearchIndex(dbPath)
+  const search = createSearchIndex(searchDbPath)
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
 
   startFileWatcher(vaultPath, search)
+
+  const serverUrl = new URL(publicUrl)
+  const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
+    createOAuthProvider({ authToken, serverUrl, dbPath: oauthDbPath })
 
   const app = express()
   app.set("trust proxy", true)
@@ -62,11 +80,69 @@ const startServer = async (): Promise<void> => {
     res.json({ ok: true })
   })
 
-  app.use(createBearerMiddleware(authToken))
+  // OAuth routes (unauthenticated) — /.well-known/*, /authorize, /token, /register, /revoke
+  app.use(
+    mcpAuthRouter({
+      provider,
+      issuerUrl: serverUrl,
+      serviceDocumentationUrl: new URL(
+        "https://github.com/aliasunder/vault-cortex",
+      ),
+      scopesSupported: ["vault"],
+    }),
+  )
+
+  // Consent form submission (unauthenticated — part of authorize flow)
+  app.post(
+    "/oauth/decide",
+    express.urlencoded({ extended: false }),
+    (req: Request, res: Response) => {
+      const { request_id, token, action } = req.body as Record<string, string>
+      const pending = getPendingRequest(request_id)
+
+      if (!pending) {
+        res.status(400).send("Authorization request expired or invalid.")
+        return
+      }
+
+      if (action !== "approve") {
+        deletePendingRequest(request_id)
+        const redirectUrl = new URL(pending.params.redirectUri)
+        redirectUrl.searchParams.set("error", "access_denied")
+        if (pending.params.state)
+          redirectUrl.searchParams.set("state", pending.params.state)
+        res.redirect(redirectUrl.toString())
+        return
+      }
+
+      if (!token || !safeEqual(token, authToken)) {
+        res.type("html").send(
+          renderConsentPage({
+            clientName: pending.client.client_name ?? pending.client.client_id,
+            clientId: pending.client.client_id,
+            scopes: pending.params.scopes ?? [],
+            requestId: request_id,
+            error: "Invalid token. Please try again.",
+          }),
+        )
+        return
+      }
+
+      const code = approveRequest(request_id)
+      const redirectUrl = new URL(pending.params.redirectUri)
+      redirectUrl.searchParams.set("code", code)
+      if (pending.params.state)
+        redirectUrl.searchParams.set("state", pending.params.state)
+      res.redirect(redirectUrl.toString())
+    },
+  )
+
+  // MCP routes — protected by OAuth bearer auth
+  const bearerAuth = requireBearerAuth({ verifier: provider })
 
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
-  app.post("/mcp", async (req: Request, res: Response) => {
+  app.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
@@ -138,7 +214,7 @@ const startServer = async (): Promise<void> => {
     res.status(404).json({ error: "session not found" })
   })
 
-  app.get("/mcp", async (req: Request, res: Response) => {
+  app.get("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
@@ -155,7 +231,7 @@ const startServer = async (): Promise<void> => {
     await transports.get(sessionId)!.handleRequest(req, res)
   })
 
-  app.delete("/mcp", async (req: Request, res: Response) => {
+  app.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })

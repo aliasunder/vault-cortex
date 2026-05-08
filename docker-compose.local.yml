@@ -18,6 +18,7 @@ services:
       VAULT_PATH: /vault
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: local-dev-token
+      PUBLIC_URL: http://localhost:8000
       LOG_LEVEL: debug
     volumes:
       - ~/Vault:/vault:ro

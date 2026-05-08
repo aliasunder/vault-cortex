@@ -6,7 +6,7 @@ Project conventions for AI-assisted development on vault-cortex — for Claude C
 
 Remote MCP server exposing an Obsidian vault over HTTPS. Two containers on
 Lightsail (obsidian-headless for sync, vault-mcp for MCP tools), fronted by
-API Gateway with a Lambda bearer-token authorizer. IaC via SST v4.
+API Gateway with a smart Lambda authorizer (path-aware, JWT + static token). IaC via SST v4.
 
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.
@@ -28,11 +28,14 @@ docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
 .env.example                           # template for Lightsail .env
 src/
   logger.ts                            # Root logger (structured JSON, source location)
-  auth.ts                              # Shared bearer-token auth (safeEqual, parseBearer, middleware)
+  auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
+  jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   functions/
-    authorizer.ts                      # Lambda: bearer-token auth (imports from auth.ts)
+    authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
-    server.ts                          # Express + MCP transport entry
+    server.ts                          # Express + MCP transport + OAuth router entry
+    oauth-provider.ts                  # OAuthServerProvider — JWT tokens, SQLite persistence
+    consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
     vault-filesystem.ts                # Read/write/list/delete .md files
     memory-store.ts                    # About Me/ heading-aware read/append/delete
