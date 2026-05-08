@@ -159,13 +159,12 @@ const startServer = async (): Promise<void> => {
     },
   )
 
-  // MCP routes — protected by OAuth bearer auth.
-  // Served at both /mcp (MCP Inspector, Claude Code) and / (Claude Desktop).
+  // MCP routes — protected by OAuth bearer auth
   const bearerAuth = requireBearerAuth({ verifier: provider })
 
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
-  const handleMcpPost = async (req: Request, res: Response): Promise<void> => {
+  app.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
@@ -235,9 +234,9 @@ const startServer = async (): Promise<void> => {
       outcome: "session not found",
     })
     res.status(404).json({ error: "session not found" })
-  }
+  })
 
-  const handleMcpGet = async (req: Request, res: Response): Promise<void> => {
+  app.get("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
@@ -252,12 +251,9 @@ const startServer = async (): Promise<void> => {
       return
     }
     await transports.get(sessionId)!.handleRequest(req, res)
-  }
+  })
 
-  const handleMcpDelete = async (
-    req: Request,
-    res: Response,
-  ): Promise<void> => {
+  app.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
@@ -281,14 +277,7 @@ const startServer = async (): Promise<void> => {
       outcome: "session deleted",
     })
     res.status(200).json({ ok: true })
-  }
-
-  app.post("/mcp", bearerAuth, handleMcpPost)
-  app.get("/mcp", bearerAuth, handleMcpGet)
-  app.delete("/mcp", bearerAuth, handleMcpDelete)
-  app.post("/", bearerAuth, handleMcpPost)
-  app.get("/", bearerAuth, handleMcpGet)
-  app.delete("/", bearerAuth, handleMcpDelete)
+  })
 
   app.use(createErrorMiddleware())
 
