@@ -28,7 +28,7 @@ services:
       TZ: ${TZ:-America/New_York}
     volumes:
       - vault_data:/vault
-      - obsidian_config:/config
+      - obsidian_config:/home/obsidian/.config
     healthcheck:
       test: ["CMD-SHELL", "test -d /vault && pgrep -f 'ob sync' >/dev/null"]
       interval: 30s
