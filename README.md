@@ -2,7 +2,7 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 scaffolding — infrastructure and authorizer are deployed; MCP tool surface is contract-only (stubs with Zod schemas and example call/response blocks). See `ARCHITECTURE.md` for the full design.
+> **Status:** Phase 1 complete — all 12 MCP tools implemented and tested (151 tests). Infrastructure deployed. See `ARCHITECTURE.md` for the full design.
 
 ## Architecture
 
@@ -187,6 +187,68 @@ npm run prettier:check  # formatting
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/id_ed25519.pub` exists and redeploy, or set `SSH_PUBKEY_PATH` to the correct `.pub` file.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` or `keyPairName` changed in `sst.config.ts`). Run `ssh-keygen -R <lightsailIp>` and retry.
+
+## Monitoring
+
+### SSH into the server
+
+```bash
+ssh ubuntu@<lightsailIp>
+```
+
+`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the SSH key that SST uploaded to Lightsail during provisioning (`~/.ssh/id_ed25519` by default).
+
+### Tailing logs
+
+Both containers write structured JSON to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained per container).
+
+```bash
+# Follow vault-mcp logs in real time
+docker logs -f vault-mcp
+
+# With timestamps
+docker logs -f --timestamps vault-mcp
+
+# Last 50 lines + follow
+docker logs -f --tail 50 vault-mcp
+
+# obsidian-sync logs (for cross-referencing file sync activity)
+docker logs -f obsidian-sync
+```
+
+### Filtering with jq
+
+vault-mcp logs are structured JSON with `timestamp`, `level`, `message`, `source` (file:line), plus contextual properties like `requestId`, `sessionId`, `tool`, `clientIp`.
+
+```bash
+# Errors only (token mismatch, watcher failures — things that need fixing)
+docker logs vault-mcp 2>&1 | jq 'select(.level == "error")'
+
+# Trace a single request across all layers
+docker logs vault-mcp 2>&1 | jq 'select(.requestId == "1")'
+
+# All activity from a specific client IP
+docker logs vault-mcp 2>&1 | jq 'select(.clientIp == "73.48.22.1")'
+
+# All tool calls
+docker logs vault-mcp 2>&1 | jq 'select(.message == "tool_call")'
+
+# Auth failures
+docker logs vault-mcp 2>&1 | jq 'select(.message | startswith("auth_failed"))'
+```
+
+Note: `2>&1` is needed because error-level logs go to stderr — piping to jq requires combining both streams.
+
+### Log levels
+
+| Level   | Meaning                           | Examples                                                  |
+| ------- | --------------------------------- | --------------------------------------------------------- |
+| `error` | Something is broken — investigate | Token mismatch, file watcher failure, unhandled exception |
+| `warn`  | Unexpected but not broken         | Malformed auth header, stale session ID, tool input error |
+| `info`  | Normal operations                 | Tool calls, reads, writes, searches, session lifecycle    |
+| `debug` | Verbose tracing (dev only)        | File watcher indexing individual files                    |
+
+Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 
 ## Further reading
 

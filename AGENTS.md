@@ -27,14 +27,15 @@ Dockerfile                             # vault-mcp Docker image
 docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
 .env.example                           # template for Lightsail .env
 src/
-  logger.ts                            # Root logger (child pattern + extensions)
+  logger.ts                            # Root logger (structured JSON, source location)
+  auth.ts                              # Shared bearer-token auth (safeEqual, parseBearer, middleware)
   functions/
-    authorizer.ts                      # Lambda: bearer-token auth (implemented)
+    authorizer.ts                      # Lambda: bearer-token auth (imports from auth.ts)
   vault-mcp/
     server.ts                          # Express + MCP transport entry
     tool-definitions.ts                # MCP tool registrations + Zod schemas
-    vault-filesystem.ts                # Read/write/list .md files
-    memory-store.ts                    # About Me/ read/append/list
+    vault-filesystem.ts                # Read/write/list/delete .md files
+    memory-store.ts                    # About Me/ heading-aware read/append/delete
     search-index.ts                    # SQLite FTS5 factory (tags, folders, etc)
     file-watcher.ts                    # chokidar -> keeps index current
                                        # Phase 2: gains LightRAG ingestion hook
@@ -42,42 +43,69 @@ src/
 
 ## Logging
 
-Single root logger at `src/logger.ts`, extended via `.child()` per module.
+Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
 
-```typescript
-// src/logger.ts exports the root instance
-export const logger = createLogger("vault-cortex")
+**Log format:**
 
-// each module creates a child with carried properties
-import { logger as rootLogger } from "../logger.js"
-const logger = rootLogger.child({ module: "search-index" })
+```json
+{
+  "timestamp": "...",
+  "level": "info",
+  "name": "vault-cortex",
+  "message": "read note",
+  "source": "vault-filesystem.ts:67",
+  "requestId": "1",
+  "sessionId": "abc",
+  "tool": "vault_read_note",
+  "clientIp": "73.48.22.1",
+  "path": "About Me/Principles.md"
+}
 ```
 
-**Key concepts:**
+- `timestamp` — ISO 8601
+- `source` — `filename.ts:line` (auto-captured via V8 `prepareStackTrace`
+  on info/warn/error; skipped at debug level for performance)
+- Contextual properties (`requestId`, `sessionId`, `tool`, `clientIp`)
+  are carried by child loggers, not passed per call
 
-- **Child loggers are immutable** — `.child({ key: value })` returns a new
-  logger that carries those properties in every log call. The parent is
-  never mutated. No need to "unset" properties.
-- **Extensions** — pure functions `(entry: LogEntry) => void` attached at
-  the root. They receive every log entry and can forward it (Sentry,
-  external log drain, etc). Extensions propagate to all children.
-- **Module-level loggers** are for startup and background work
-  (`rebuildFromVault`, file-watcher events).
-- **Per-request loggers** — when `server.ts` handles an MCP request,
-  create a child with `{ requestId }` and pass it to data-layer functions
-  as a parameter. This keeps request tracing explicit without
-  AsyncLocalStorage indirection.
+**Logger chain — context flows via `.child()`:**
 
-```typescript
-// in a tool handler (Session 2)
-const reqLogger = logger.child({ requestId: crypto.randomUUID() })
-reqLogger.info("vault_read_note", { path: notePath })
-const content = await readNote(vaultPath, notePath, reqLogger)
+```
+root logger (src/logger.ts)
+  → session logger: logger.child({ sessionId, clientIp })
+    → request logger: sessionLogger.child({ requestId, tool })
+      → passed to data-layer functions as required `logger` param
 ```
 
-Data-layer functions that need per-request tracing accept an optional
-`logger` parameter, falling back to the module-level logger for calls
-outside a request context (startup, file-watcher).
+- `server.ts` creates a **session logger** when a new MCP session
+  initializes, adding `sessionId` + `clientIp`
+- `tool-definitions.ts` creates a **request logger** per tool call,
+  adding `requestId` + `tool` name from the MCP SDK's
+  `RequestHandlerExtra`
+- Data-layer functions (`vault-filesystem`, `memory-store`,
+  `search-index`) take the logger as a **required** second argument
+  (two-arg pattern: `(params, logger)`)
+- Background callers (file-watcher, startup) use the root logger
+  directly — no request context available
+
+**Two-arg `(params, logger)` pattern:**
+
+All data-layer functions use named params + required logger:
+
+```typescript
+vaultFs.readNote({ vaultPath, path }, reqLogger)
+memoryStore.getMemory({ vaultPath, file, section }, reqLogger)
+search.fullTextSearch({ query, filters }, reqLogger)
+```
+
+**Log levels:**
+
+| Level   | Meaning                                       | Alert-worthy? |
+| ------- | --------------------------------------------- | ------------- |
+| `error` | Something is broken — needs investigation     | Yes           |
+| `warn`  | Unexpected but not broken (bad client input)  | No            |
+| `info`  | Normal operations (tool calls, reads, writes) | No            |
+| `debug` | Verbose tracing (file watcher, dev only)      | No            |
 
 ## Code style
 

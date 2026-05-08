@@ -149,7 +149,9 @@ See `sst.config.ts` for full IaC. Auth is a static bearer token — no Cognito, 
 The bearer token is validated at **two layers**, against the same secret:
 
 1. **API Gateway → Lambda authorizer** (`src/functions/authorizer.ts`) — reads the SST secret `McpAuthToken`. Rejects unauthenticated requests at the edge.
-2. **vault-mcp → Express middleware** (`requireBearerToken` in `src/vault-mcp/server.ts`) — reads `MCP_AUTH_TOKEN` from the container env (sourced from Lightsail `.env`). Rejects unauthenticated requests at the application layer.
+2. **vault-mcp → Express middleware** (`createBearerMiddleware` in `src/auth.ts`, wired in `server.ts`) — reads `MCP_AUTH_TOKEN` from the container env (sourced from Lightsail `.env`). Rejects unauthenticated requests at the application layer.
+
+Both layers share `safeEqual` and `parseBearer` from `src/auth.ts` — constant-time comparison, identical validation logic.
 
 Why both: the Lightsail container's port 8000 is publicly bound. If the API Gateway authorizer is misconfigured, or someone discovers the Lightsail public IP and connects directly, the in-process middleware still rejects. The `/healthz` endpoint bypasses the middleware so docker-compose's healthcheck works.
 
