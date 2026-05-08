@@ -163,6 +163,7 @@ export default $config({
           timeout: "5 seconds",
           memory: "128 MB",
         },
+        identitySources: [],
       },
     })
 
