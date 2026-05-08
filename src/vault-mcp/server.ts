@@ -80,6 +80,10 @@ const startServer = async (): Promise<void> => {
     res.json({ ok: true })
   })
 
+  // Rate limiting for OAuth endpoints (SDK default: 5 req/min per IP).
+  // API Gateway sends the real client IP in the Forwarded header, but
+  // express-rate-limit doesn't parse it by default — so we extract it
+  // here. Validation suppressed because we handle proxy headers ourselves.
   const rateLimitKeyGenerator = (req: Request): string => {
     const forwarded = req.headers["forwarded"]
     if (forwarded) {
