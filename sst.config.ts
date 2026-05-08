@@ -5,10 +5,10 @@
 // below for the only filesystem access we need.
 
 export default $config({
-  app(input) {
+  app() {
     return {
       name: "vault-cortex",
-      removal: input?.stage === "production" ? "retain" : "remove",
+      removal: "retain",
       home: "aws",
       providers: { aws: { region: "us-east-1" } },
     }
@@ -49,11 +49,11 @@ export default $config({
     }
 
     // ── Secrets ────────────────────────────────────────────────────
-    // Set once per stage, then deploy:
-    //   sst secret set McpAuthToken "$(openssl rand -hex 32)" --stage production
-    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>" --stage production
-    //   sst secret set ObsidianVaultName "My Vault" --stage production
-    //   sst deploy --stage production
+    // Set once, then deploy:
+    //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
+    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>"
+    //   sst secret set ObsidianVaultName "My Vault"
+    //   sst deploy
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
     // ──────────────────────────────────────────────────────────────

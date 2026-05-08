@@ -40,9 +40,9 @@ npm run deploy  # redeploys Lambda with new value
 npm run lightsail:up  # pushes new .env + restarts containers
 ```
 
-## Personal stage deployment
+## Deployment
 
-SST defaults to a personal stage based on your username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use it.
+SST uses a stage name based on your OS username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use the default.
 
 ### Prerequisites
 
@@ -71,7 +71,6 @@ chmod 600 ~/.config/vault-cortex/.env
 #   MCP_AUTH_TOKEN      — must match the SST McpAuthToken from step 2
 #   GHCR_USER           — your GitHub username
 #   GHCR_TOKEN          — the GitHub PAT from prerequisites
-#   VAULT_MCP_TAG       — "dev" is fine
 #   OBSIDIAN_AUTH_TOKEN, VAULT_NAME — placeholders OK if just smoke-testing
 
 # 4. Authenticate to GHCR locally (once per machine):
@@ -132,21 +131,53 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 npx sst remove   # removes Lightsail, API Gateway, Lambda
 ```
 
-## Production deployment
+## Local development
 
-Same as personal, with `--stage production` and real secrets. Run each step individually since `npm run deploy:dev` doesn't pass `--stage` through:
+### Tests
 
 ```bash
-npx sst secret set McpAuthToken      "$(openssl rand -hex 32)" --stage production
-npx sst secret set ObsidianAuthToken "<real Obsidian token>"   --stage production
-npx sst secret set ObsidianVaultName "My Vault"                --stage production
-
-npx sst deploy --stage production
-GHCR_USER=<you> VAULT_MCP_TAG=prod npm run docker:publish
-GHCR_USER=<you> VAULT_MCP_TAG=prod npm run lightsail:up
+npm test            # vitest one-shot
+npm run test:watch  # vitest in watch mode
 ```
 
-Shell env vars override `.env` file values, so the inline overrides above work without editing the file.
+### MCP server (no Docker)
+
+Run the MCP server against your local vault (no Docker, no Lightsail):
+
+```bash
+MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+```
+
+This starts `tsx watch` with hot reload on port 8000. Test with:
+
+```bash
+# Health check (no auth):
+curl http://localhost:8000/healthz
+
+# Authenticated MCP call:
+curl -H "Authorization: Bearer local-dev-token" http://localhost:8000/mcp
+```
+
+The token is only validated locally — it doesn't need to match the SST secret.
+
+### Docker (local)
+
+`docker-compose.local.yml` runs vault-mcp against your local vault without Lightsail or `obsidian-sync` (not needed — `~/Vault` is bind-mounted directly). It builds from source instead of pulling from GHCR.
+
+```bash
+npm run dev:docker
+# or: docker compose -f docker-compose.local.yml up --build
+```
+
+Test with the same curl commands above. The hardcoded token is `local-dev-token`.
+
+### Type checking and linting
+
+```bash
+npm run build           # tsc — type check
+npm run lint            # eslint
+npm run prettier:check  # formatting
+```
 
 ## Troubleshooting
 

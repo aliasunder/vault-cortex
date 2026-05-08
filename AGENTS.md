@@ -110,8 +110,8 @@ If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 
 ## Operational docs
 
-Personal-stage and production deployment walkthroughs live in
-`README.md` (it's the front door — humans land there first). Keep
+Deployment walkthrough lives in `README.md` (it's the front door —
+humans land there first). Keep
 this file focused on conventions; don't duplicate procedure here.
 
 ## Before going public

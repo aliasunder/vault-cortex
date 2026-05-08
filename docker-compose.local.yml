@@ -1,0 +1,29 @@
+# Local development — run vault-mcp against ~/Vault without Lightsail.
+# obsidian-sync is not needed locally (your Mac already has the vault).
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up --build
+#   npm run dev:docker  (same thing)
+
+name: vault-cortex-local
+
+services:
+  vault-mcp:
+    build: .
+    container_name: vault-mcp-local
+    environment:
+      NODE_ENV: development
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      VAULT_PATH: /vault
+      INDEX_DB_PATH: /data/index.db
+      MCP_AUTH_TOKEN: local-dev-token
+      LOG_LEVEL: debug
+    volumes:
+      - ~/Vault:/vault:ro
+      - mcp_local_data:/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  mcp_local_data:

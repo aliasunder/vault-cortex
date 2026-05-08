@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "dev:mcp": "tsx watch src/vault-mcp/server.ts",
+    "dev:docker": "docker compose -f docker-compose.local.yml up --build",
     "start": "node dist/src/vault-mcp/server.js",
     "dev:sst": "sst dev",
     "deploy": "sst deploy",

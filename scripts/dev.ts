@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Personal-stage deployment helper.
+ * Deployment helper.
  *
  * Subcommands:
  *   docker:build    Build the vault-mcp image locally
@@ -9,8 +9,7 @@
  *   lightsail:up    SCP docker-compose.yml + ~/.config/vault-cortex/.env
  *                   to the VM, then `docker compose pull && up -d` over SSH
  *
- * The image tag is `ghcr.io/${GHCR_USER}/vault-mcp:${VAULT_MCP_TAG}`,
- * sourced from `~/.config/vault-cortex/.env` (or process env). The
+ * The image is always `ghcr.io/${GHCR_USER}/vault-mcp:latest`. The
  * Lightsail IP is read from `.sst/outputs.json`, which SST writes
  * after a successful `sst deploy` (or `sst dev`).
  */
@@ -39,8 +38,7 @@ const expandHome = (p: string): string =>
 
 const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
 const ghcrUser = env.GHCR_USER ?? "aliasunder"
-const tag = env.VAULT_MCP_TAG ?? "dev"
-const image = `ghcr.io/${ghcrUser}/vault-mcp:${tag}`
+const image = `ghcr.io/${ghcrUser}/vault-mcp:latest`
 
 const run = (cmd: string): void => {
   console.log(`> ${cmd}`)
