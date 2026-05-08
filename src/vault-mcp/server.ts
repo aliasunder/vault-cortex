@@ -73,7 +73,7 @@ const startServer = async (): Promise<void> => {
     createOAuthProvider({ authToken, serverUrl, dbPath: oauthDbPath })
 
   const app = express()
-  app.set("trust proxy", true)
+  app.set("trust proxy", 1)
   app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
