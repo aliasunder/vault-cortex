@@ -80,6 +80,20 @@ const startServer = async (): Promise<void> => {
     res.json({ ok: true })
   })
 
+  const rateLimitKeyGenerator = (req: Request): string => {
+    const forwarded = req.headers["forwarded"]
+    if (forwarded) {
+      const match = /for="?([^";,]+)"?/i.exec(forwarded)
+      if (match?.[1]) return match[1]
+    }
+    return req.ip ?? "unknown"
+  }
+
+  const rateLimit = {
+    keyGenerator: rateLimitKeyGenerator,
+    validate: { trustProxy: false, forwardedHeader: false },
+  }
+
   // OAuth routes (unauthenticated) — /.well-known/*, /authorize, /token, /register, /revoke
   app.use(
     mcpAuthRouter({
@@ -89,10 +103,10 @@ const startServer = async (): Promise<void> => {
         "https://github.com/aliasunder/vault-cortex",
       ),
       scopesSupported: ["vault"],
-      authorizationOptions: { rateLimit: false },
-      clientRegistrationOptions: { rateLimit: false },
-      revocationOptions: { rateLimit: false },
-      tokenOptions: { rateLimit: false },
+      authorizationOptions: { rateLimit },
+      clientRegistrationOptions: { rateLimit },
+      revocationOptions: { rateLimit },
+      tokenOptions: { rateLimit },
     }),
   )
 
