@@ -148,10 +148,10 @@ See `sst.config.ts` for full IaC.
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                      | Token format                | Lifetime              |
-| ------------------------------------- | -------------------------------------------- | --------------------------- | --------------------- |
-| Static bearer token                   | Claude Code, MCP Inspector, curl             | Raw string (MCP_AUTH_TOKEN) | No expiry             |
-| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Perplexity, any OAuth client | JWT (HS256)                 | 1h access, 7d refresh |
+| Method                                | Used by                                      | Token format                | Lifetime                               |
+| ------------------------------------- | -------------------------------------------- | --------------------------- | -------------------------------------- |
+| Static bearer token                   | Claude Code, MCP Inspector, curl             | Raw string (MCP_AUTH_TOKEN) | No expiry                              |
+| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Perplexity, any OAuth client | JWT (HS256)                 | 24h access, no-expiry refresh (SQLite) |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Path-aware. OAuth discovery paths (`/.well-known/*`, `/authorize`, `/token`,
