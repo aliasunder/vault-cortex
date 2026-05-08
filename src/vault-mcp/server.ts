@@ -89,6 +89,10 @@ const startServer = async (): Promise<void> => {
         "https://github.com/aliasunder/vault-cortex",
       ),
       scopesSupported: ["vault"],
+      authorizationOptions: { rateLimit: false },
+      clientRegistrationOptions: { rateLimit: false },
+      revocationOptions: { rateLimit: false },
+      tokenOptions: { rateLimit: false },
     }),
   )
 
