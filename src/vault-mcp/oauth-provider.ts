@@ -52,7 +52,7 @@ export type OAuthProviderOptions = {
 
 const initDb = (dbPath: string): Database.Database => {
   const db = new Database(dbPath)
-  db.pragma("journal_mode = WAL")
+  db.pragma("journal_mode = WAL") // concurrent reads during writes
   db.exec(`
     CREATE TABLE IF NOT EXISTS clients (
       client_id TEXT PRIMARY KEY,
@@ -140,6 +140,8 @@ export const createOAuthProvider = ({
     ).run(token, clientId, scopes.join(" "))
   }
 
+  /** Refresh token rotation: consume (delete) on use, caller issues a new one.
+   *  Single-use tokens prevent replay attacks — a stolen token can only be used once. */
   const consumeRefreshToken = (
     token: string,
   ): { clientId: string; scopes: string[] } | null => {
@@ -154,6 +156,9 @@ export const createOAuthProvider = ({
   const isRevoked = (token: string): boolean =>
     !!db.prepare("SELECT 1 FROM revoked_tokens WHERE token = ?").get(token)
 
+  // Methods below implement OAuthServerProvider from the MCP SDK.
+  // They appear unused locally but are called by mcpAuthRouter() and
+  // requireBearerAuth() in server.ts during the OAuth lifecycle.
   const provider: OAuthServerProvider = {
     get clientsStore(): OAuthRegisteredClientsStore {
       return store
@@ -244,6 +249,7 @@ export const createOAuthProvider = ({
       }
     },
 
+    /** Three-tier verification: static token (fast path for CLI) → revocation check → JWT. */
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
         return { token, clientId: "static", scopes: ["vault"] }

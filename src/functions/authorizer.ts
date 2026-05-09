@@ -16,6 +16,7 @@ import { Resource } from "sst"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer } from "../auth.js"
 import { verifyJwt } from "../jwt.js"
+import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
   "/.well-known/",
@@ -34,6 +35,9 @@ export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
 ): Promise<{ isAuthorized: boolean }> => {
   const path = event.rawPath ?? "/"
+  const requestId = event.requestContext?.requestId
+  const sourceIp = event.requestContext?.http?.sourceIp
+  const logger = rootLogger.child({ requestId, sourceIp, path })
 
   if (isOpenPath(path)) {
     return { isAuthorized: true }
@@ -41,26 +45,26 @@ export const handler = async (
 
   const token = parseBearer(event.headers?.authorization)
   if (!token) {
-    console.warn("auth_failed: missing or malformed Authorization header", {
-      path,
-    })
+    logger.warn("auth_failed: missing or malformed Authorization header")
     return { isAuthorized: false }
   }
 
   const secret = Resource.McpAuthToken.value
   if (!secret) {
-    console.error("auth_failed: McpAuthToken secret is empty")
+    logger.error("auth_failed: McpAuthToken secret is empty")
     return { isAuthorized: false }
   }
 
   if (safeEqual(token, secret)) {
+    logger.info("auth_success", { method: "static" })
     return { isAuthorized: true }
   }
 
   if (verifyJwt(token, secret)) {
+    logger.info("auth_success", { method: "jwt" })
     return { isAuthorized: true }
   }
 
-  console.warn("auth_failed: token invalid", { path })
+  logger.warn("auth_failed: token invalid")
   return { isAuthorized: false }
 }

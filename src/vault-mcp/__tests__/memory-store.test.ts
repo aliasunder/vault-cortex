@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -242,25 +242,30 @@ describe("updateMemory", () => {
   })
 
   it("uses today's date when no date option provided", async () => {
-    await updateMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Working style (newest first)",
-        entry: "today entry",
-      },
-      logger,
-    )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Working style (newest first)",
-      },
-      logger,
-    )
-    const today = new Date().toISOString().slice(0, 10)
-    expect(result).toContain(`- **${today}**: today entry`)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-15T14:00:00"))
+    try {
+      await updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working style (newest first)",
+          entry: "today entry",
+        },
+        logger,
+      )
+      const result = await getMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working style (newest first)",
+        },
+        logger,
+      )
+      expect(result).toContain("- **2026-07-15**: today entry")
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("case-insensitive section matching", async () => {

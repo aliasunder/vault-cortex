@@ -2,7 +2,17 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 complete — all 12 MCP tools implemented and tested (151 tests). Infrastructure deployed. See `ARCHITECTURE.md` for the full design.
+> **Status:** Phase 1 complete — all 12 MCP tools implemented and tested (151 tests). Infrastructure deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+
+## Contents
+
+- [Architecture](#architecture)
+- [Authentication](#authentication)
+- [Deployment](#deployment)
+- [Local development](#local-development)
+- [Troubleshooting](#troubleshooting)
+- [Monitoring](#monitoring)
+- [Further reading](#further-reading)
 
 ## Architecture
 
@@ -11,21 +21,23 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
   - `obsidian-sync` — bidirectional Obsidian Sync
   - `vault-mcp` — Express MCP server with SQLite FTS5 search
 - **IaC:** SST v4
-- **Auth:** OAuth 2.0 (Authorization Code + PKCE) for GUI clients, static bearer token for CLI. Dual-layer validation: Lambda authorizer + Express middleware. JWT access tokens signed with HMAC-SHA256.
+- **Auth:** OAuth 2.0 (Authorization Code + PKCE) for all clients, static bearer token as CLI alternative. Dual-layer validation: Lambda authorizer + Express middleware. JWT access tokens signed with HMAC-SHA256.
 - **Source of truth:** the vault `.md` files. SQLite (and Phase 2 LightRAG) is rebuildable derived state.
 
 ## Authentication
 
-Two auth methods — both validated at two layers (defense in depth):
+Two auth methods — both validated at two layers (defense in depth). See [ARCHITECTURE.md § Auth](./ARCHITECTURE.md#auth-oauth-20--defense-in-depth) for the full flow diagram.
 
-| Method                  | Used by                                      | Token format                |
-| ----------------------- | -------------------------------------------- | --------------------------- |
-| **Static bearer token** | Claude Code, MCP Inspector, curl             | Raw `MCP_AUTH_TOKEN` string |
-| **OAuth 2.0**           | Claude Desktop, Perplexity, any OAuth client | JWT access token (HS256)    |
+| Method                  | Used by                                                      | Token format                |
+| ----------------------- | ------------------------------------------------------------ | --------------------------- |
+| **OAuth 2.0**           | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT access token (HS256)    |
+| **Static bearer token** | Claude Code, MCP Inspector, curl                             | Raw `MCP_AUTH_TOKEN` string |
 
 **How it works:** The Lambda authorizer (edge) is path-aware. OAuth discovery endpoints (`/.well-known/*`, `/authorize`, `/token`, `/register`) pass through unauthenticated. `/mcp` requires a valid bearer token — either the static `MCP_AUTH_TOKEN` or a JWT signed with it. Express validates again in-process (second layer).
 
-### Connecting Claude Desktop or Perplexity
+### Connecting via OAuth (all clients)
+
+OAuth is the primary auth method. All MCP clients that support OAuth 2.0 — Claude Desktop, Claude Code, Claude Mobile, claude.ai, Perplexity — can connect this way. Remote connectors configured at [claude.ai/customize/connectors](https://claude.ai/customize/connectors) sync automatically across Claude Desktop, Claude Code, and Claude Mobile.
 
 1. Add a custom connector / MCP server with the API Gateway URL + `/mcp` (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com/mcp`)
 2. Leave OAuth Client ID and Secret empty (dynamic registration handles it)
@@ -34,9 +46,9 @@ Two auth methods — both validated at two layers (defense in depth):
 5. The client receives a JWT access token (24h) + refresh token (no expiry, persisted in SQLite)
 6. Token refresh is automatic — no re-authentication unless the server's data volume is wiped
 
-### Connecting CLI tools (Claude Code, MCP Inspector, curl)
+### Connecting with a static bearer token
 
-Use the static bearer token directly:
+An alternative for CLI tools (Claude Code, MCP Inspector, curl) that don't need the OAuth flow. Claude Code can also connect via OAuth above.
 
 ```bash
 curl -H "Authorization: Bearer <MCP_AUTH_TOKEN>" <apiUrl>/mcp
@@ -119,7 +131,7 @@ That runs, in order:
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
 3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, SCPs `docker-compose.yml` + `.env`, then `docker compose pull && up -d`
 
-On startup, docker-compose runs three services in order: `init-config-perms` (chowns the obsidian config volume — workaround for an upstream bug) → `obsidian-sync` (syncs your vault) → `vault-mcp` (MCP server). Both `obsidian-sync` and `vault-mcp` run as UID 1000 to share the `/vault` volume.
+On startup, docker-compose runs three services in order: `init-config-perms` (chowns the obsidian config volume — workaround for an upstream bug) → `obsidian-sync` (syncs your vault) → `vault-mcp` (MCP server). Both `obsidian-sync` and `vault-mcp` run as UID 1000 to share the `/vault` volume. See [ARCHITECTURE.md § Docker Compose Startup](./ARCHITECTURE.md#docker-compose-startup) for the full diagram.
 
 ### Verify
 

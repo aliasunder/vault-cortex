@@ -9,7 +9,7 @@ export const safeEqual = (a: string, b: string): boolean => {
   const aBuf = Buffer.from(a, "utf8")
   const bBuf = Buffer.from(b, "utf8")
   if (aBuf.length !== bBuf.length) {
-    timingSafeEqual(aBuf, aBuf)
+    timingSafeEqual(aBuf, aBuf) // burn the same CPU time to prevent length-based timing leaks
     return false
   }
   return timingSafeEqual(aBuf, bBuf)

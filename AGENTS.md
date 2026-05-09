@@ -21,7 +21,7 @@ This repo will be made **public**. All solutions must be portable — they
 can't rely on one-off manual fixes, hardcoded paths, or user-specific
 configuration. If it works only on the author's machine, it's not done.
 
-See `ARCHITECTURE.md` for the full design.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
@@ -155,5 +155,5 @@ this file focused on conventions; don't duplicate procedure here.
 
 Before this repo is made public, work through the pre-public hardening
 checklist (SSH `0.0.0.0/0` → admin IP, API Gateway throttling, full
-git-history secret scan, etc). See `ARCHITECTURE.md` for the full list
+git-history secret scan, etc). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full list
 once it's written.

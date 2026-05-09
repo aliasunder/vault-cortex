@@ -1,4 +1,9 @@
-/** Minimal JWT (HS256) sign/verify — shared by Lambda authorizer and Express. */
+/**
+ * Minimal JWT (HS256) sign/verify — shared by Lambda authorizer and Express.
+ * Custom instead of a library (e.g. jose): ~50 lines using only node:crypto,
+ * keeps the Lambda esbuild bundle small, and avoids adding a dependency to
+ * two deployment targets. HS256-only — the only algorithm we need.
+ */
 
 import { createHmac } from "node:crypto"
 
@@ -36,6 +41,9 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   const expBuf = Buffer.from(expected, "base64url")
   if (sigBuf.length !== expBuf.length) return null
 
+  // Constant-time comparison: XOR each byte pair and accumulate.
+  // If any byte differs, `match` becomes non-zero — but every byte
+  // is always compared, preventing timing attacks that leak signature bytes.
   let match = 0
   for (let i = 0; i < sigBuf.length; i++) match |= sigBuf[i]! ^ expBuf[i]!
   if (match !== 0) return null
@@ -44,6 +52,7 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
     const decoded = JSON.parse(
       Buffer.from(payload, "base64url").toString(),
     ) as JwtPayload
+    // Reject expired tokens (exp is Unix seconds)
     if (typeof decoded.exp === "number" && decoded.exp < Date.now() / 1000) {
       return null
     }

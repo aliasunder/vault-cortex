@@ -6,13 +6,18 @@ import { relative } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../logger.js"
 
+export type FileWatcherOptions = Readonly<{
+  /** ms a file's size must stay unchanged before we index it (default 2000).
+   *  Prevents reading partial writes from Obsidian Sync. */
+  stabilityThreshold?: number
+  /** ms between file-size checks during the stability window (default 100). */
+  pollInterval?: number
+}>
+
 export const startFileWatcher = (
   vaultPath: string,
   search: SearchIndex,
-  options?: Readonly<{
-    stabilityThreshold?: number
-    pollInterval?: number
-  }>,
+  options?: FileWatcherOptions,
 ): void => {
   const handleChange = async (filePath: string): Promise<void> => {
     if (!filePath.endsWith(".md")) return
@@ -40,6 +45,7 @@ export const startFileWatcher = (
   }
 
   const watcher = watch(vaultPath, {
+    // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
       const rel = relative(vaultPath, path)
       if (!rel) return false
@@ -47,6 +53,8 @@ export const startFileWatcher = (
     },
     persistent: true,
     ignoreInitial: true,
+    // Obsidian Sync writes files in chunks — wait for write stability before
+    // indexing to avoid reading partial content
     awaitWriteFinish: {
       stabilityThreshold: options?.stabilityThreshold ?? 2000,
       pollInterval: options?.pollInterval ?? 100,

@@ -79,9 +79,9 @@ graph TB
     MCP_SERVER -->|read/write| VAULT_FS
     MCP_SERVER -->|query| SQLITE
     MCP_SERVER -.->|Phase 2: semantic query| LIGHTRAG
-    CC -->|Bearer token| APIGW
+    CC -->|OAuth 2.0 / Bearer token| APIGW
     CD -->|OAuth 2.0| APIGW
-    CU -->|Bearer token| APIGW
+    CU -->|OAuth 2.0 / Bearer token| APIGW
     APIGW -->|proxy| MCP_SERVER
 ```
 
@@ -207,10 +207,10 @@ See `sst.config.ts` for full IaC.
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                      | Token format                | Lifetime                               |
-| ------------------------------------- | -------------------------------------------- | --------------------------- | -------------------------------------- |
-| Static bearer token                   | Claude Code, MCP Inspector, curl             | Raw string (MCP_AUTH_TOKEN) | No expiry                              |
-| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Perplexity, any OAuth client | JWT (HS256)                 | 24h access, no-expiry refresh (SQLite) |
+| Method                                | Used by                                                      | Token format                | Lifetime                               |
+| ------------------------------------- | ------------------------------------------------------------ | --------------------------- | -------------------------------------- |
+| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT (HS256)                 | 24h access, no-expiry refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl                             | Raw string (MCP_AUTH_TOKEN) | No expiry                              |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Path-aware. OAuth discovery paths (`/.well-known/*`, `/authorize`, `/token`,
@@ -295,7 +295,7 @@ Three services run in order via `depends_on`:
 | ------------------------ | -------------------------------------------------------------------------- |
 | Lightsail over ECS       | $12 vs ~$50+. Single-user server.                                          |
 | API Gateway over Caddy   | Free HTTPS URL, no domain needed, SST native.                              |
-| OAuth 2.0 + static token | OAuth for GUI clients (Claude Desktop, Perplexity). Static token for CLI.  |
+| OAuth 2.0 + static token | OAuth for all clients. Static bearer token as CLI alternative.             |
 | JWT over opaque tokens   | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN. |
 | SQLite FTS5              | Zero services, embedded, personal scale.                                   |
 | chokidar                 | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.          |

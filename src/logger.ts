@@ -36,7 +36,7 @@ const getCallerSource = (): string => {
   Error.prepareStackTrace = (_err, stack) => stack
   const stack = new Error().stack as unknown as NodeJS.CallSite[]
   Error.prepareStackTrace = original
-  // Frame 0: getCallerSource, 1: emit, 2: debug/info/warn/error, 3: actual caller
+  // V8 stack: [0] getCallerSource → [1] emit → [2] debug/info/warn/error → [3] actual caller
   const frame = stack[3]
   if (!frame) return "unknown"
   const file = frame.getFileName()?.split("/").pop() ?? "unknown"
