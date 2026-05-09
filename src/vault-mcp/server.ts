@@ -1,30 +1,21 @@
-/** MCP server entry point — Express + StreamableHTTPServerTransport. */
+/** MCP server entry point — config, mount routes, listen. */
 
 import express from "express"
 import type { Request, Response, NextFunction } from "express"
-import { randomUUID } from "node:crypto"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
-import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
-import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import { createSearchIndex } from "./search-index.js"
-import { registerTools } from "./tool-definitions.js"
 import { startFileWatcher } from "./file-watcher.js"
 import { createOAuthProvider } from "./oauth-provider.js"
-import { renderConsentPage } from "./consent-page.js"
-import { safeEqual } from "../auth.js"
+import { createOAuthRoutes } from "./oauth-routes.js"
+import { createMcpRouter } from "./mcp-router.js"
 import { logger } from "../logger.js"
 
-/** Catch-all error handler for unhandled errors from async route handlers. */
 const createErrorMiddleware =
   () =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
     logger.error("unhandled_error", {
-      sessionId,
+      sessionId: req.headers["mcp-session-id"] as string | undefined,
       clientIp: req.ip,
       method: req.method,
       path: req.path,
@@ -35,24 +26,19 @@ const createErrorMiddleware =
     }
   }
 
+const requireEnv = (name: string): string => {
+  const value = process.env[name]
+  if (!value) {
+    logger.error("missing required env", { var: name })
+    throw new Error(`${name} environment variable is required`)
+  }
+  return value
+}
+
 const startServer = async (): Promise<void> => {
-  const authToken = process.env.MCP_AUTH_TOKEN
-  if (!authToken) {
-    logger.error("missing required env", { var: "MCP_AUTH_TOKEN" })
-    throw new Error("MCP_AUTH_TOKEN environment variable is required")
-  }
-
-  const vaultPath = process.env.VAULT_PATH
-  if (!vaultPath) {
-    logger.error("missing required env", { var: "VAULT_PATH" })
-    throw new Error("VAULT_PATH environment variable is required")
-  }
-
-  const publicUrl = process.env.PUBLIC_URL
-  if (!publicUrl) {
-    logger.error("missing required env", { var: "PUBLIC_URL" })
-    throw new Error("PUBLIC_URL environment variable is required")
-  }
+  const authToken = requireEnv("MCP_AUTH_TOKEN")
+  const vaultPath = requireEnv("VAULT_PATH")
+  const publicUrl = requireEnv("PUBLIC_URL")
 
   const dataDir = process.env.INDEX_DB_PATH
     ? process.env.INDEX_DB_PATH.replace(/\/[^/]+$/, "")
@@ -69,10 +55,15 @@ const startServer = async (): Promise<void> => {
   startFileWatcher(vaultPath, search)
 
   const serverUrl = new URL(publicUrl)
-  const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
-    createOAuthProvider({ authToken, serverUrl, dbPath: oauthDbPath })
+  const oauthProvider = createOAuthProvider({
+    authToken,
+    serverUrl,
+    dbPath: oauthDbPath,
+  })
 
   const app = express()
+  // Trust exactly one proxy hop (API Gateway). `true` would trust the entire
+  // X-Forwarded-For chain, letting clients spoof req.ip via injected headers.
   app.set("trust proxy", 1)
   app.use(express.json())
 
@@ -80,212 +71,14 @@ const startServer = async (): Promise<void> => {
     res.json({ ok: true })
   })
 
-  // Rate limiting for OAuth endpoints (SDK default: 5 req/min per IP).
-  // API Gateway sends the real client IP in the Forwarded header, but
-  // express-rate-limit doesn't parse it by default — so we extract it
-  // here. Validation suppressed because we handle proxy headers ourselves.
-  const rateLimitKeyGenerator = (req: Request): string => {
-    const forwarded = req.headers["forwarded"]
-    if (forwarded) {
-      const match = /for="?([^";,]+)"?/i.exec(forwarded)
-      if (match?.[1]) return match[1]
-    }
-    return req.ip ?? "unknown"
-  }
-
-  const rateLimit = {
-    keyGenerator: rateLimitKeyGenerator,
-    validate: false as const,
-  }
-
-  // OAuth routes (unauthenticated) — /.well-known/*, /authorize, /token, /register, /revoke
+  app.use(createOAuthRoutes({ authToken, serverUrl, oauthProvider }))
   app.use(
-    mcpAuthRouter({
-      provider,
-      issuerUrl: serverUrl,
-      serviceDocumentationUrl: new URL(
-        "https://github.com/aliasunder/vault-cortex",
-      ),
-      scopesSupported: ["vault"],
-      authorizationOptions: { rateLimit },
-      clientRegistrationOptions: { rateLimit },
-      revocationOptions: { rateLimit },
-      tokenOptions: { rateLimit },
+    createMcpRouter({
+      vaultPath,
+      search,
+      provider: oauthProvider.provider,
     }),
   )
-
-  // Consent form submission (unauthenticated — part of authorize flow)
-  app.post(
-    "/oauth/decide",
-    express.urlencoded({ extended: false }),
-    (req: Request, res: Response) => {
-      const { request_id, token, action } = req.body as Record<string, string>
-      const pending = getPendingRequest(request_id)
-
-      if (!pending) {
-        res.status(400).send("Authorization request expired or invalid.")
-        return
-      }
-
-      if (action !== "approve") {
-        deletePendingRequest(request_id)
-        const redirectUrl = new URL(pending.params.redirectUri)
-        redirectUrl.searchParams.set("error", "access_denied")
-        if (pending.params.state)
-          redirectUrl.searchParams.set("state", pending.params.state)
-        res.redirect(redirectUrl.toString())
-        return
-      }
-
-      if (!token || !safeEqual(token, authToken)) {
-        res.type("html").send(
-          renderConsentPage({
-            clientName: pending.client.client_name ?? pending.client.client_id,
-            clientId: pending.client.client_id,
-            scopes: pending.params.scopes ?? [],
-            requestId: request_id,
-            error: "Invalid token. Please try again.",
-          }),
-        )
-        return
-      }
-
-      const code = approveRequest(request_id)
-      const redirectUrl = new URL(pending.params.redirectUri)
-      redirectUrl.searchParams.set("code", code)
-      if (pending.params.state)
-        redirectUrl.searchParams.set("state", pending.params.state)
-      res.redirect(redirectUrl.toString())
-    },
-  )
-
-  // MCP routes — protected by OAuth bearer auth
-  const bearerAuth = requireBearerAuth({ verifier: provider })
-
-  const transports = new Map<string, StreamableHTTPServerTransport>()
-
-  app.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
-    const clientIp = req.ip
-    logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
-
-    if (sessionId && transports.has(sessionId)) {
-      logger.info("mcp_response", {
-        sessionId,
-        clientIp,
-        status: 200,
-        outcome: "routed to existing session",
-      })
-      await transports.get(sessionId)!.handleRequest(req, res, req.body)
-      return
-    }
-
-    if (!sessionId) {
-      const body = req.body
-      if (isInitializeRequest(body)) {
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-        })
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            transports.delete(transport.sessionId)
-            logger.info("session_closed", {
-              sessionId: transport.sessionId,
-            })
-          }
-        }
-        const server = new McpServer(
-          {
-            name: "vault-cortex",
-            version: "1.0.0",
-            description:
-              "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
-          },
-          {
-            instructions:
-              "Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.",
-          },
-        )
-
-        const sessionLogger = logger.child({
-          sessionId: transport.sessionId,
-          clientIp,
-        })
-        registerTools({ server, vaultPath, search, logger: sessionLogger })
-
-        await server.connect(transport)
-        await transport.handleRequest(req, res, body)
-        if (transport.sessionId) {
-          transports.set(transport.sessionId, transport)
-        }
-        logger.info("mcp_response", {
-          sessionId: transport.sessionId,
-          clientIp,
-          status: 200,
-          outcome: "session created",
-        })
-        return
-      }
-      logger.warn("mcp_response", {
-        clientIp,
-        status: 400,
-        outcome: "no session, non-initialize request",
-      })
-      res.status(400).json({ error: "no session" })
-      return
-    }
-
-    logger.warn("mcp_response", {
-      sessionId,
-      clientIp,
-      status: 404,
-      outcome: "session not found",
-    })
-    res.status(404).json({ error: "session not found" })
-  })
-
-  app.get("/mcp", bearerAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
-    const clientIp = req.ip
-    logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
-    if (!sessionId || !transports.has(sessionId)) {
-      logger.warn("mcp_response", {
-        sessionId,
-        clientIp,
-        status: 404,
-        outcome: "session not found",
-      })
-      res.status(404).json({ error: "session not found" })
-      return
-    }
-    await transports.get(sessionId)!.handleRequest(req, res)
-  })
-
-  app.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
-    const clientIp = req.ip
-    logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
-    if (!sessionId || !transports.has(sessionId)) {
-      logger.warn("mcp_response", {
-        sessionId,
-        clientIp,
-        status: 404,
-        outcome: "session not found",
-      })
-      res.status(404).json({ error: "session not found" })
-      return
-    }
-    const transport = transports.get(sessionId)!
-    await transport.close()
-    transports.delete(sessionId)
-    logger.info("mcp_response", {
-      sessionId,
-      clientIp,
-      status: 200,
-      outcome: "session deleted",
-    })
-    res.status(200).json({ ok: true })
-  })
 
   app.use(createErrorMiddleware())
 

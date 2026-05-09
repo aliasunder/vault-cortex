@@ -16,6 +16,8 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 ## Architecture
 
+> Full design, diagrams, and decisions: [ARCHITECTURE.md](./ARCHITECTURE.md)
+
 - **Edge:** API Gateway HTTP API + Lambda bearer-token authorizer
 - **Backend:** Lightsail (~$12/mo) running Docker Compose with two services:
   - `obsidian-sync` — bidirectional Obsidian Sync

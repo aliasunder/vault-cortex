@@ -39,7 +39,9 @@ src/
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
-    server.ts                          # Express + MCP transport + OAuth router entry
+    server.ts                          # Entry point — config, mount routes, listen
+    mcp-router.ts                      # /mcp session routes + transport lifecycle
+    oauth-routes.ts                    # SDK auth router + consent form handler
     oauth-provider.ts                  # OAuthServerProvider — JWT tokens, SQLite persistence
     consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas

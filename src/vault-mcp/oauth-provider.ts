@@ -31,7 +31,7 @@ import { renderConsentPage } from "./consent-page.js"
 const ACCESS_TOKEN_TTL_S = 24 * 3600
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000
 
-type PendingAuthRequest = {
+export type PendingAuthRequest = {
   client: OAuthClientInformationFull
   params: AuthorizationParams
   createdAt: number
@@ -103,15 +103,17 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   }
 }
 
-export const createOAuthProvider = ({
-  authToken,
-  dbPath,
-}: OAuthProviderOptions): {
+export type OAuthProvider = {
   provider: OAuthServerProvider
   getPendingRequest: (id: string) => PendingAuthRequest | undefined
   approveRequest: (id: string) => string
   deletePendingRequest: (id: string) => void
-} => {
+}
+
+export const createOAuthProvider = ({
+  authToken,
+  dbPath,
+}: OAuthProviderOptions): OAuthProvider => {
   const db = initDb(dbPath)
   const store = new SqliteClientsStore(db)
   const pendingRequests = new Map<string, PendingAuthRequest>()
