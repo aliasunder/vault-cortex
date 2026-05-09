@@ -4,9 +4,11 @@ Project conventions for AI-assisted development on vault-cortex — for Claude C
 
 ## What this project is
 
-Remote MCP server exposing an Obsidian vault over HTTPS. Two containers on
-Lightsail (obsidian-headless for sync, vault-mcp for MCP tools), fronted by
-API Gateway with a smart Lambda authorizer (path-aware, JWT + static token). IaC via SST v4.
+Remote MCP server exposing an Obsidian vault over HTTPS. Three services on
+Lightsail via Docker Compose: init-config-perms (one-shot volume fix),
+obsidian-sync (bidirectional Obsidian Sync), vault-mcp (MCP server, UID 1000).
+Fronted by API Gateway with a smart Lambda authorizer (path-aware: OAuth
+endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.

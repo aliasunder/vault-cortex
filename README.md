@@ -27,12 +27,12 @@ Two auth methods — both validated at two layers (defense in depth):
 
 ### Connecting Claude Desktop or Perplexity
 
-1. Add a custom connector / MCP server with the API Gateway URL
-2. Select OAuth authentication
+1. Add a custom connector / MCP server with the API Gateway URL + `/mcp` (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com/mcp`)
+2. Leave OAuth Client ID and Secret empty (dynamic registration handles it)
 3. The client auto-discovers endpoints via `/.well-known/oauth-protected-resource`
 4. A consent page opens in your browser — enter your `MCP_AUTH_TOKEN` to approve
-5. The client receives a JWT access token (1h) + refresh token (7d)
-6. Token refresh is automatic — no re-authentication unless the container restarts
+5. The client receives a JWT access token (24h) + refresh token (no expiry, persisted in SQLite)
+6. Token refresh is automatic — no re-authentication unless the server's data volume is wiped
 
 ### Connecting CLI tools (Claude Code, MCP Inspector, curl)
 
@@ -98,7 +98,9 @@ chmod 600 ~/.config/vault-cortex/.env
 #   PUBLIC_URL          — API Gateway URL (from `sst deploy` output)
 #   GHCR_USER           — your GitHub username
 #   GHCR_TOKEN          — the GitHub PAT from prerequisites
-#   OBSIDIAN_AUTH_TOKEN, VAULT_NAME — placeholders OK if just smoke-testing
+#   VAULT_NAME           — your Obsidian vault name (exact, case-sensitive)
+#   VAULT_PASSWORD       — only if vault has E2E encryption
+#   OBSIDIAN_AUTH_TOKEN  — generate with `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`
 
 # 4. Authenticate to GHCR locally (once per machine):
 docker login ghcr.io -u <your-github-username> --password-stdin
@@ -113,9 +115,11 @@ npm run deploy:dev
 
 That runs, in order:
 
-1. `npx sst deploy` — provisions Lightsail VM, API Gateway, Lambda authorizer
+1. `npx sst deploy` — provisions Lightsail VM, API Gateway, smart Lambda authorizer
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
 3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, SCPs `docker-compose.yml` + `.env`, then `docker compose pull && up -d`
+
+On startup, docker-compose runs three services in order: `init-config-perms` (chowns the obsidian config volume — workaround for an upstream bug) → `obsidian-sync` (syncs your vault) → `vault-mcp` (MCP server). Both `obsidian-sync` and `vault-mcp` run as UID 1000 to share the `/vault` volume.
 
 ### Verify
 

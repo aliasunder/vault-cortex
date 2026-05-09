@@ -85,6 +85,65 @@ graph TB
     APIGW -->|proxy| MCP_SERVER
 ```
 
+## Auth Flow
+
+```mermaid
+sequenceDiagram
+    participant C as MCP Client
+    participant AG as API Gateway
+    participant L as Lambda Authorizer
+    participant E as Express (vault-mcp)
+    participant DB as SQLite (oauth.db)
+
+    Note over C,E: First-time OAuth Authorization
+    C->>AG: GET /.well-known/oauth-protected-resource
+    AG->>L: Authorize request
+    L-->>AG: isAuthorized: true (open path)
+    AG->>E: Forward
+    E-->>C: {authorization_servers: [...]}
+
+    C->>E: POST /register (dynamic client registration)
+    E->>DB: Store client credentials
+    E-->>C: {client_id, client_secret}
+
+    C->>E: GET /authorize (opens browser)
+    E-->>C: Consent page HTML
+    Note over C: User enters MCP_AUTH_TOKEN
+    C->>E: POST /oauth/decide (token + approve)
+    E-->>C: 302 redirect with auth code
+
+    C->>E: POST /token (code + code_verifier)
+    E->>DB: Store refresh token
+    E-->>C: {access_token: JWT, refresh_token}
+
+    Note over C,E: Subsequent MCP Requests (dual-validated)
+    C->>AG: POST /mcp (Bearer JWT)
+    AG->>L: Authorize request
+    L->>L: Verify JWT signature (HMAC)
+    L-->>AG: isAuthorized: true
+    AG->>E: Forward
+    E->>E: requireBearerAuth (verify JWT again)
+    E-->>C: MCP response
+
+    Note over C,E: Silent Token Refresh (24h cycle)
+    C->>E: POST /token (refresh_token)
+    E->>DB: Consume old, store new refresh token
+    E-->>C: {access_token: new JWT, refresh_token: new}
+```
+
+## Docker Compose Startup
+
+```mermaid
+graph LR
+    A["init-config-perms<br/>(Alpine one-shot)<br/>chown config volume"] --> B["obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
+    B --> C["vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
+    B -.->|shared volume| D[("/vault<br/>source of truth")]
+    C -.->|shared volume| D
+    C -.->|index + OAuth| E[("/data<br/>search.db + oauth.db")]
+    A -.->|fixes perms| F[("config volume<br/>/home/obsidian/.config")]
+    B -.->|sync state| F
+```
+
 ## Data Flow
 
 **Read:** MCP client → API Gateway (TLS + auth) → vault-mcp → filesystem or SQLite → response.
@@ -184,9 +243,17 @@ and `safeEqual`/`parseBearer` from `src/auth.ts`.
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express can verify independently — no shared state needed.
 
-**Token storage:** Auth codes, refresh tokens, and revoked access tokens are
-stored in-memory in the Express process. Container restart clears them —
-clients re-authorize (acceptable for single-user).
+**Token storage:** Refresh tokens and registered clients are persisted in
+SQLite (`/data/oauth.db`) — survives container restarts, no re-authentication
+needed after deploys. Auth codes are in-memory (short-lived, 10 minutes).
+Access tokens are JWTs (stateless, no storage needed). Revoked tokens are
+tracked in SQLite.
+
+**Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
+`/revoke`) are rate-limited at 5 req/min per client IP. A custom key
+generator extracts the real client IP from API Gateway's `Forwarded` header
+(express-rate-limit's built-in validators are disabled — they assume
+direct-to-server traffic, not reverse-proxy deployments).
 
 **Why both layers:** Lightsail port 8000 is publicly bound. If the API Gateway
 authorizer is misconfigured, or someone hits the public IP directly, Express
@@ -194,6 +261,23 @@ still rejects. `/healthz` bypasses auth for docker-compose healthchecks.
 
 **Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
 both. Existing JWTs signed with the old key become invalid immediately.
+Refresh tokens in SQLite are unaffected — clients silently get new JWTs
+signed with the new key on their next token refresh.
+
+### Docker Compose: startup sequence
+
+Three services run in order via `depends_on`:
+
+1. **`init-config-perms`** (Alpine, one-shot) — chowns the obsidian config
+   volume to `PUID:PGID`. Workaround for an upstream bug: the
+   obsidian-headless Dockerfile creates `/home/obsidian/.config` as root,
+   so Docker named volumes inherit root ownership.
+2. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
+   the config volume at `/home/obsidian/.config` (persists across restarts
+   for incremental sync — critical for Phase 2 LightRAG ingestion).
+3. **`vault-mcp`** — MCP server. Runs as the `node` user (UID 1000),
+   matching obsidian-sync's `PUID` so both containers can read/write the
+   shared `/vault` volume.
 
 ## Cost
 
