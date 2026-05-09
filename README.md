@@ -92,36 +92,54 @@ SST uses a stage name based on your OS username (run `npx sst secret list` once 
 
 ### One-time setup
 
-```bash
-# 1. Install deps
-npm install
+**1. Install deps:**
 
-# 2. Generate MCP auth token and set SST secrets:
+```bash
+npm install
+```
+
+**2. Generate MCP auth token and set SST secrets** (placeholders are fine for smoke-testing infra):
+
+```bash
 MCP_AUTH_TOKEN=$(openssl rand -hex 32)
 npx sst secret set McpAuthToken      "$MCP_AUTH_TOKEN"
 npx sst secret set ObsidianAuthToken "dev-placeholder"
 npx sst secret set ObsidianVaultName "dev-placeholder"
+```
 
-# 3. Configure the deploy environment for Docker + Lightsail.
-#    Secrets live OUTSIDE the repo at ~/.config/vault-cortex/.env
+**3. Create the deploy `.env` file** (secrets live outside the repo at `~/.config/vault-cortex/.env`):
+
+```bash
 mkdir -p ~/.config/vault-cortex
 cp .env.example ~/.config/vault-cortex/.env
 chmod 600 ~/.config/vault-cortex/.env
-# Write the MCP token into .env (must match the SST secret from step 2):
-sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
-# Fill in the remaining values:
-#   PUBLIC_URL          — API Gateway URL (from `sst deploy` output, available after first deploy)
-#   GHCR_USER           — your GitHub username
-#   GHCR_TOKEN          — the GitHub PAT from prerequisites
-#   VAULT_NAME          — your Obsidian vault name (exact, case-sensitive)
-#   VAULT_PASSWORD      — only if vault has E2E encryption
-#   OBSIDIAN_AUTH_TOKEN — generate with:
-#     docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest
+```
 
-# 4. Authenticate to GHCR locally (once per machine).
-#    Reads the PAT from your .env so nothing appears in shell history:
-grep '^GHCR_TOKEN=' ~/.config/vault-cortex/.env | cut -d= -f2 \
-  | docker login ghcr.io -u "$(grep '^GHCR_USER=' ~/.config/vault-cortex/.env | cut -d= -f2)" --password-stdin
+Write the MCP token into `.env` (must match the SST secret from step 2):
+
+```bash
+sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
+```
+
+Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
+
+| Variable              | Value                                                                    |
+| --------------------- | ------------------------------------------------------------------------ |
+| `PUBLIC_URL`          | API Gateway URL (from `sst deploy` output, available after first deploy) |
+| `GHCR_USER`           | Your GitHub username                                                     |
+| `GHCR_TOKEN`          | The GitHub PAT from prerequisites                                        |
+| `VAULT_NAME`          | Your Obsidian vault name (exact, case-sensitive)                         |
+| `VAULT_PASSWORD`      | Only if vault has E2E encryption                                         |
+| `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                          |
+
+```bash
+docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest
+```
+
+**4. Authenticate to GHCR** (once per machine):
+
+```bash
+echo "<your-GHCR_TOKEN>" | docker login ghcr.io -u <your-github-username> --password-stdin
 ```
 
 ### Deploy
