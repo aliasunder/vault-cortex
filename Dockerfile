@@ -24,14 +24,17 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly.
 # libstdc++: required by better-sqlite3.node native addon on Alpine.
-RUN apk add --no-cache tini libstdc++ \
- && addgroup -S app && adduser -S app -G app
+# tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly.
+# libstdc++: required by better-sqlite3.node native addon on Alpine.
+# node:22-alpine ships a `node` user at UID 1000 — matches obsidian-sync's
+# PUID so both containers can read/write the shared /vault volume.
+RUN apk add --no-cache tini libstdc++
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
 COPY --from=deps  /app/node_modules ./node_modules
 COPY --from=build /app/dist/src ./dist/src
 COPY package.json ./
-RUN mkdir -p /data && chown -R app:app /data /app
-USER app
+RUN mkdir -p /data && chown -R node:node /data /app
+USER node
 EXPOSE 8000
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/src/vault-mcp/server.js"]
