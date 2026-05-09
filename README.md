@@ -9,6 +9,7 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 - [Architecture](#architecture)
 - [Authentication](#authentication)
 - [Deployment](#deployment)
+- [CI/CD](#cicd)
 - [Local development](#local-development)
 - [Troubleshooting](#troubleshooting)
 - [Monitoring](#monitoring)
@@ -196,6 +197,59 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 ```bash
 npx sst remove   # removes Lightsail, API Gateway, Lambda
 ```
+
+## CI/CD
+
+GitHub Actions runs lint/test/build on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo secret pins the SST stage).
+
+### Workflows
+
+| Workflow             | Trigger                          | What it does                                                                                                                                          |
+| -------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`             | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                             |
+| `auto_release.yml`   | `v*` tag push                    | Validates `package.json` version matches the tag → calls `deploy.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md` |
+| `manual_release.yml` | Actions UI (`workflow_dispatch`) | Bumps version (patch/minor/major), commits, tags, pushes — the tag triggers `auto_release.yml`                                                        |
+| `deploy.yml`         | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                        |
+
+### Required repo secrets
+
+| Secret                | Purpose                                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_ROLE_ARN`        | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy must scope to this repo. See the [action's docs](https://github.com/aws-actions/configure-aws-credentials#assuming-a-role) for trust-policy setup. |
+| `SST_STAGE`           | SST stage name (kept out of YAML so it isn't visible in commits). Must match the stage your laptop deploys to so CI lands on the same Lightsail instance.                                                                                    |
+| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair.                                                                                                                             |
+| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                              |
+| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                                                  |
+| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                                                                                                               |
+| `OBSIDIAN_VAULT_NAME` | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                  |
+| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                     |
+
+`GITHUB_TOKEN` is supplied automatically by Actions and is used for both build-time GHCR push and the on-instance `docker login` (job-scoped, so no long-lived `GHCR_TOKEN` lives on the Lightsail VM).
+
+### Cutting a release
+
+**Manual** — Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps `package.json`, commits, tags, and pushes. The tag push triggers `auto_release.yml` which deploys and creates the release.
+
+**Tag push** — Bump `package.json` locally, commit on `main`, then `git tag v<version> && git push --tags`. Same auto-release flow runs.
+
+### Rotating SSH keys
+
+`SSH_PUBKEY` and `SSH_PRIVATE_KEY` must be a matched pair. Generate a fresh ed25519 keypair (`ssh-keygen -t ed25519 -f /tmp/lightsail`), update both secrets, then `npm run deploy` once locally to upload the new public key to the Lightsail KeyPair. Note: changing `keyPairName` in `sst.config.ts` forces a VM replacement (named volumes are preserved by SST `removal: "retain"`, but plan around the downtime).
+
+### Rotating `MCP_AUTH_TOKEN`
+
+The token must stay in sync across three places: the SST secret (`sst secret set McpAuthToken`), the GitHub repo secret, and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
+
+```bash
+NEW_TOKEN=$(openssl rand -hex 32)
+npx sst secret set McpAuthToken "$NEW_TOKEN"
+gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
+# Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
+```
+
+### Don't fork-deploy without re-stagiing
+
+`SST_STAGE` and `AWS_ROLE_ARN` point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
 
 ## Local development
 
