@@ -17,6 +17,10 @@ About Me/ memory layer — enough to make any MCP client personalized.
 vault. The file watcher gains a second hook for LightRAG ingestion,
 and a new `vault_query_kb` tool is added. Additive — not a rewrite.
 
+This repo will be made **public**. All solutions must be portable — they
+can't rely on one-off manual fixes, hardcoded paths, or user-specific
+configuration. If it works only on the author's machine, it's not done.
+
 See `ARCHITECTURE.md` for the full design.
 
 ## Structure
