@@ -118,9 +118,10 @@ sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault
 #   OBSIDIAN_AUTH_TOKEN — generate with:
 #     docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest
 
-# 4. Authenticate to GHCR locally (once per machine):
-docker login ghcr.io -u <your-github-username> --password-stdin
-# paste your PAT and press Enter
+# 4. Authenticate to GHCR locally (once per machine).
+#    Reads the PAT from your .env so nothing appears in shell history:
+grep '^GHCR_TOKEN=' ~/.config/vault-cortex/.env | cut -d= -f2 \
+  | docker login ghcr.io -u "$(grep '^GHCR_USER=' ~/.config/vault-cortex/.env | cut -d= -f2)" --password-stdin
 ```
 
 ### Deploy
