@@ -74,9 +74,18 @@ jobs:
           git push origin main
 
       - name: Create GitHub release
+        timeout-minutes: 2
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file /tmp/release-notes.md
+          for i in 1 2 3; do
+            if gh release create "$GITHUB_REF_NAME" \
+                 --title "$GITHUB_REF_NAME" \
+                 --notes-file /tmp/release-notes.md; then
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Failed to create release after 3 attempts"
+          exit 1

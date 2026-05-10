@@ -211,18 +211,25 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 | `manual_release.yml` | Actions UI (`workflow_dispatch`) | Bumps version (patch/minor/major), commits, tags, pushes — the tag triggers `auto_release.yml`                                                        |
 | `deploy.yml`         | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                        |
 
-### Required repo secrets
+### Required repo configuration
 
-| Secret                | Purpose                                                                                                                                                                                                                                      |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy must scope to this repo. See the [action's docs](https://github.com/aws-actions/configure-aws-credentials#assuming-a-role) for trust-policy setup. |
-| `SST_STAGE`           | SST stage name (kept out of YAML so it isn't visible in commits). Must match the stage your laptop deploys to so CI lands on the same Lightsail instance.                                                                                    |
-| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair.                                                                                                                             |
-| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                              |
-| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                                                  |
-| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                                                                                                               |
-| `OBSIDIAN_VAULT_NAME` | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                  |
-| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                     |
+**Variables** (Settings → Secrets and variables → Actions → Variables tab):
+
+| Variable              | Purpose                                                                                                                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
+
+**Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
+
+| Secret                | Purpose                                                                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SST_STAGE`           | SST stage name (kept out of YAML so it isn't visible in commits). Must match the stage your laptop deploys to so CI lands on the same Lightsail instance. |
+| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair.                                          |
+| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                           |
+| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                               |
+| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                            |
+| `OBSIDIAN_VAULT_NAME` | Exact (case-sensitive) Obsidian vault name.                                                                                                               |
+| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                  |
 
 `GITHUB_TOKEN` is supplied automatically by Actions and is used for both build-time GHCR push and the on-instance `docker login` (job-scoped, so no long-lived `GHCR_TOKEN` lives on the Lightsail VM).
 
@@ -249,7 +256,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-`SST_STAGE` and `AWS_DEPLOY_ROLE_ARN` point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
+The `SST_STAGE` secret and `AWS_DEPLOY_ROLE_ARN` variable point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
 
 ## Local development
 
