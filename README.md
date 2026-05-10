@@ -200,7 +200,7 @@ npx sst remove   # removes Lightsail, API Gateway, Lambda
 
 ## CI/CD
 
-GitHub Actions runs lint/test/build on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo secret pins the SST stage).
+GitHub Actions runs lint/test/build on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
 
 ### Workflows
 
@@ -213,25 +213,53 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 ### Required repo configuration
 
-**Variables** (Settings → Secrets and variables → Actions → Variables tab):
+**Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
 
 | Variable              | Purpose                                                                                                                                                                                       |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
+| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
+| `PUBLIC_URL`          | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
+| `SST_STAGE`           | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
+| `VAULT_NAME`          | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
 
-**Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
+**Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
 
-| Secret                | Purpose                                                                                                                                                   |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SST_STAGE`           | SST stage name (kept out of YAML so it isn't visible in commits). Must match the stage your laptop deploys to so CI lands on the same Lightsail instance. |
-| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair.                                          |
-| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                           |
-| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                               |
-| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                            |
-| `OBSIDIAN_VAULT_NAME` | Exact (case-sensitive) Obsidian vault name.                                                                                                               |
-| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                  |
+| Secret                | Purpose                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_TOKEN`          | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale. |
+| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                       |
+| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                                                    |
+| `VAULT_PASSWORD`      | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                               |
+| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair. See "Generating the CI deploy keypair" below.                    |
+| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                   |
 
-`GITHUB_TOKEN` is supplied automatically by Actions and is used for both build-time GHCR push and the on-instance `docker login` (job-scoped, so no long-lived `GHCR_TOKEN` lives on the Lightsail VM).
+### Generating the CI deploy keypair
+
+A dedicated, passphrase-less ed25519 keypair for CI keeps blast radius away from your personal SSH key. Run on your laptop:
+
+```bash
+# 1. Generate the keypair (no passphrase — CI can't unlock one)
+ssh-keygen -t ed25519 -f /tmp/vault-cortex-deploy -N "" -C "vault-cortex CI deploy"
+
+# 2. Upload the public key to your Lightsail KeyPair via SST.
+#    readSshPublicKey() in sst.config.ts reads SSH_PUBKEY from env first.
+SSH_PUBKEY="$(cat /tmp/vault-cortex-deploy.pub)" npx sst deploy
+
+# 3. Add both halves to GitHub repo secrets:
+#    SSH_PUBKEY      ← single-line pubkey
+cat /tmp/vault-cortex-deploy.pub
+#    SSH_PRIVATE_KEY ← full multi-line block, including BEGIN/END markers
+cat /tmp/vault-cortex-deploy
+
+# 4. Securely delete the local copy
+shred -u /tmp/vault-cortex-deploy /tmp/vault-cortex-deploy.pub
+```
+
+Caveats:
+
+- Run step 2 BEFORE the next CI deploy, otherwise the new private key won't authenticate against the old Lightsail KeyPair.
+- If `keyPairName` in `sst.config.ts` encodes a hash of the pubkey, swapping keys forces a VM replacement. Named volumes survive due to SST `removal: "retain"`, but expect brief downtime.
 
 ### Cutting a release
 
@@ -256,7 +284,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-The `SST_STAGE` secret and `AWS_DEPLOY_ROLE_ARN` variable point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
+The `SST_STAGE` and `AWS_DEPLOY_ROLE_ARN` variables point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
 
 ## Local development
 
