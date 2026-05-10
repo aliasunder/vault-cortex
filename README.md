@@ -215,7 +215,7 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 | Secret                | Purpose                                                                                                                                                                                                                                      |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_ROLE_ARN`        | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy must scope to this repo. See the [action's docs](https://github.com/aws-actions/configure-aws-credentials#assuming-a-role) for trust-policy setup. |
+| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy must scope to this repo. See the [action's docs](https://github.com/aws-actions/configure-aws-credentials#assuming-a-role) for trust-policy setup. |
 | `SST_STAGE`           | SST stage name (kept out of YAML so it isn't visible in commits). Must match the stage your laptop deploys to so CI lands on the same Lightsail instance.                                                                                    |
 | `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair.                                                                                                                             |
 | `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                              |
@@ -247,9 +247,9 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 # Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
 ```
 
-### Don't fork-deploy without re-stagiing
+### Don't fork-deploy without re-staging
 
-`SST_STAGE` and `AWS_ROLE_ARN` point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
+`SST_STAGE` and `AWS_DEPLOY_ROLE_ARN` point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
 
 ## Local development
 
