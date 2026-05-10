@@ -52,7 +52,7 @@ const startServer = async (): Promise<void> => {
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
 
-  startFileWatcher(vaultPath, search)
+  await startFileWatcher(vaultPath, search)
 
   const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
