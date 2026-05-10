@@ -252,8 +252,10 @@ cat /tmp/vault-cortex-deploy.pub
 #    SSH_PRIVATE_KEY ← full multi-line block, including BEGIN/END markers
 cat /tmp/vault-cortex-deploy
 
-# 4. Securely delete the local copy
-shred -u /tmp/vault-cortex-deploy /tmp/vault-cortex-deploy.pub
+# 4. Delete the local copy. Plain rm is fine — APFS/SSD secure-delete
+#    doesn't actually overwrite the original blocks (copy-on-write), and
+#    the disk is encrypted at rest under FileVault.
+rm -f /tmp/vault-cortex-deploy /tmp/vault-cortex-deploy.pub
 ```
 
 Caveats:
