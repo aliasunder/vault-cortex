@@ -35,13 +35,10 @@ afterEach(async () => {
 
 describe("file-watcher", () => {
   it("indexes a new .md file", { timeout: 15000 }, async () => {
-    startFileWatcher(vault, index, {
+    await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
     })
-
-    // Let chokidar finish its initial scan before writing
-    await new Promise((r) => setTimeout(r, 500))
 
     await writeFile(
       join(vault, "test.md"),
@@ -58,13 +55,12 @@ describe("file-watcher", () => {
   })
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
-    await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
-
-    startFileWatcher(vault, index, {
+    await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
     })
 
+    await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
     await waitFor(
       () => index.fullTextSearch({ query: "original" }, logger).length > 0,
     )
@@ -79,13 +75,12 @@ describe("file-watcher", () => {
   })
 
   it("removes a deleted file from index", { timeout: 15000 }, async () => {
-    await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
-
-    startFileWatcher(vault, index, {
+    await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
     })
 
+    await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
     await waitFor(
       () => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0,
     )
@@ -100,7 +95,7 @@ describe("file-watcher", () => {
   })
 
   it("ignores non-.md files", { timeout: 15000 }, async () => {
-    startFileWatcher(vault, index, {
+    await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
     })
@@ -119,7 +114,7 @@ describe("file-watcher", () => {
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
 
-    startFileWatcher(vault, index, {
+    await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
     })

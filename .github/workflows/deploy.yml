@@ -1,0 +1,146 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version being deployed (used as Docker image tag)
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      SST_STAGE: ${{ vars.SST_STAGE }}
+      IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SST deploy
+        env:
+          SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
+        run: npx sst deploy --stage "$SST_STAGE"
+
+      - name: Read Lightsail IP from SST outputs
+        id: sst
+        run: |
+          if [ ! -f .sst/outputs.json ]; then
+            echo "::error::.sst/outputs.json missing after sst deploy"
+            exit 1
+          fi
+          ip=$(jq -er '.lightsailIp' .sst/outputs.json)
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR (build push)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ vars.GHCR_USER }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:v${{ inputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Wait for Docker on Lightsail
+        env:
+          IP: ${{ steps.sst.outputs.ip }}
+        run: |
+          deadline=$((SECONDS + 120))
+          until ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" 'docker --version' >/dev/null 2>&1; do
+            if [ $SECONDS -ge $deadline ]; then
+              echo "::error::Docker not ready on $IP after 120s"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Bootstrap deploy directory and GHCR login on instance
+        env:
+          IP: ${{ steps.sst.outputs.ip }}
+          GHCR_USER: ${{ vars.GHCR_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
+            'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'
+          printf '%s' "$GHCR_TOKEN" | ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
+            "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+
+      - name: Write Lightsail .env from secrets
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
+          OBSIDIAN_AUTH_TOKEN: ${{ secrets.OBSIDIAN_AUTH_TOKEN }}
+          VAULT_NAME: ${{ vars.VAULT_NAME }}
+          VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
+          GHCR_USER: ${{ vars.GHCR_USER }}
+        run: |
+          umask 077
+          cat > "$RUNNER_TEMP/lightsail.env" <<EOF
+          MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN
+          PUBLIC_URL=$PUBLIC_URL
+          OBSIDIAN_AUTH_TOKEN=$OBSIDIAN_AUTH_TOKEN
+          VAULT_NAME=$VAULT_NAME
+          VAULT_PASSWORD=$VAULT_PASSWORD
+          GHCR_USER=$GHCR_USER
+          PUID=1000
+          PGID=1000
+          DEVICE_NAME=vault-cortex-lightsail
+          CONFLICT_STRATEGY=merge
+          SYNC_MODE=bidirectional
+          LOG_LEVEL=info
+          TZ=America/New_York
+          EOF
+
+      - name: Ship compose + .env to instance
+        env:
+          IP: ${{ steps.sst.outputs.ip }}
+        run: |
+          scp -o StrictHostKeyChecking=accept-new docker-compose.yml ubuntu@"$IP":/opt/vault-cortex/docker-compose.yml
+          scp -o StrictHostKeyChecking=accept-new "$RUNNER_TEMP/lightsail.env" ubuntu@"$IP":/opt/vault-cortex/.env
+
+      - name: Pull and restart compose stack
+        env:
+          IP: ${{ steps.sst.outputs.ip }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
+            'cd /opt/vault-cortex && docker compose pull && docker compose up -d'
+
+      - name: Healthcheck
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: curl -fsS --retry 6 --retry-delay 5 "$PUBLIC_URL/healthz"

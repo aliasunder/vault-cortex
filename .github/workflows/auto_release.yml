@@ -1,0 +1,91 @@
+name: Auto Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract version from tag
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate package.json version matches tag
+        env:
+          TAG_VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          PKG_VERSION=$(jq -r '.version' package.json)
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag (v$TAG_VERSION)"
+            exit 1
+          fi
+          echo "package.json version matches tag v$TAG_VERSION"
+
+  deploy:
+    needs: validate
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  release:
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        run: bash .github/scripts/generate-notes.sh "$GITHUB_REF_NAME" > /tmp/release-notes.md
+
+      - name: Update changelog
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: bash .github/scripts/update-changelog.sh "$VERSION" /tmp/release-notes.md
+
+      - name: Commit changelog update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash
+          git checkout main
+          git stash pop
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No CHANGELOG.md changes to commit"
+            exit 0
+          fi
+          git commit -m "docs: update CHANGELOG.md for $GITHUB_REF_NAME"
+          git push origin main
+
+      - name: Create GitHub release
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if gh release create "$GITHUB_REF_NAME" \
+                 --title "$GITHUB_REF_NAME" \
+                 --notes-file /tmp/release-notes.md; then
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Failed to create release after 3 attempts"
+          exit 1

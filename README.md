@@ -9,6 +9,7 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 - [Architecture](#architecture)
 - [Authentication](#authentication)
 - [Deployment](#deployment)
+- [CI/CD](#cicd)
 - [Local development](#local-development)
 - [Troubleshooting](#troubleshooting)
 - [Monitoring](#monitoring)
@@ -196,6 +197,69 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 ```bash
 npx sst remove   # removes Lightsail, API Gateway, Lambda
 ```
+
+## CI/CD
+
+GitHub Actions runs lint/test/build on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
+
+### Workflows
+
+| Workflow             | Trigger                          | What it does                                                                                                                                          |
+| -------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`             | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                             |
+| `auto_release.yml`   | `v*` tag push                    | Validates `package.json` version matches the tag → calls `deploy.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md` |
+| `manual_release.yml` | Actions UI (`workflow_dispatch`) | Bumps version (patch/minor/major), commits, tags, pushes — the tag triggers `auto_release.yml`                                                        |
+| `deploy.yml`         | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                        |
+
+### Required repo configuration
+
+**Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
+
+| Variable              | Purpose                                                                                                                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
+| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
+| `PUBLIC_URL`          | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
+| `SST_STAGE`           | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
+| `VAULT_NAME`          | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
+
+**Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
+
+| Secret                | Purpose                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_TOKEN`          | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale. |
+| `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                       |
+| `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                                                    |
+| `VAULT_PASSWORD`      | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                               |
+| `SSH_PUBKEY`          | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                |
+| `SSH_PRIVATE_KEY`     | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                            |
+
+Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
+
+### Cutting a release
+
+**Manual** — Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps `package.json`, commits, tags, and pushes. The tag push triggers `auto_release.yml` which deploys and creates the release.
+
+**Tag push** — Bump `package.json` locally, commit on `main`, then `git tag v<version> && git push --tags`. Same auto-release flow runs.
+
+### Rotating SSH keys
+
+Regenerate the same path: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""` (overwrite when prompted). Run `npx sst deploy` locally to upload the new pubkey to the Lightsail KeyPair — this triggers a VM replacement (named volumes survive due to SST `removal: "retain"`, but the local disk is wiped). Then update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets to the new values. Both halves must change together — they're a matched pair.
+
+### Rotating `MCP_AUTH_TOKEN`
+
+The token must stay in sync across three places: the SST secret (`sst secret set McpAuthToken`), the GitHub repo secret, and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
+
+```bash
+NEW_TOKEN=$(openssl rand -hex 32)
+npx sst secret set McpAuthToken "$NEW_TOKEN"
+gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
+# Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
+```
+
+### Don't fork-deploy without re-staging
+
+The `SST_STAGE` and `AWS_DEPLOY_ROLE_ARN` variables point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
 
 ## Local development
 

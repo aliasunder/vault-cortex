@@ -18,7 +18,7 @@ export const startFileWatcher = (
   vaultPath: string,
   search: SearchIndex,
   options?: FileWatcherOptions,
-): void => {
+): Promise<void> => {
   const handleChange = async (filePath: string): Promise<void> => {
     if (!filePath.endsWith(".md")) return
     const relPath = relative(vaultPath, filePath)
@@ -71,5 +71,10 @@ export const startFileWatcher = (
       })
     })
 
-  logger.info("file watcher started", { vaultPath })
+  return new Promise((resolve) => {
+    watcher.on("ready", () => {
+      logger.info("file watcher started", { vaultPath })
+      resolve()
+    })
+  })
 }

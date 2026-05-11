@@ -52,6 +52,16 @@ src/
                                        # Phase 2: gains LightRAG ingestion hook
 ```
 
+## Tooling
+
+When working on this repo in Claude Code, the deployed `vault-cortex` MCP
+connector is typically loaded as deferred tools (names like
+`mcp__*__vault_*`). Before claiming inability to read or write the vault,
+check the deferred-tools list and load schemas via `ToolSearch`. The
+connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
+`vault_write_note`, and the rest of the API in
+`src/vault-mcp/tool-definitions.ts`.
+
 ## Logging
 
 Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
