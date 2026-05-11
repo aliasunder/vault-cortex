@@ -29,12 +29,14 @@ import { safeEqual } from "../auth.js"
 import { signJwt, verifyJwt } from "../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 
+// 24 hours
 const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
-// Sliding (inactivity) expiry on refresh tokens. Each use rotates the
-// token AND resets the 60-day countdown — a daily user never sees it,
-// a dormant client re-auths after 60 days. Bounds the blast radius of a
-// leaked refresh token without inconveniencing active sessions.
+// 60 days. Sliding (inactivity) expiry — each use rotates the token
+// AND resets the countdown, so a daily user never sees it and a
+// dormant client re-auths after 60 days. Bounds the blast radius of
+// a leaked refresh token without inconveniencing active sessions.
 const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
+// 10 minutes — OAuth spec recommends short auth code lifetimes.
 const AUTH_CODE_TTL_S = 10 * 60
 
 export type PendingAuthRequest = {
