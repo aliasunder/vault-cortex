@@ -89,7 +89,7 @@ SST uses a stage name based on your OS username (run `npx sst secret list` once 
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
 - A GitHub PAT with `read:packages` + `write:packages` scopes
-- An SSH keypair at `~/.ssh/id_ed25519.pub` (or `~/.ssh/id_rsa.pub`). If you don't have one: `ssh-keygen -t ed25519`. SST uploads the public key to Lightsail so SCP/SSH work with your default identity.
+- A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
 
 ### One-time setup
 
@@ -231,37 +231,10 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 | `MCP_AUTH_TOKEN`      | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                       |
 | `OBSIDIAN_AUTH_TOKEN` | Output of `docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest`.                                                                    |
 | `VAULT_PASSWORD`      | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                               |
-| `SSH_PUBKEY`          | Public key contents (literal). Read by `sst.config.ts:readSshPublicKey()` and uploaded to the Lightsail KeyPair. See "Generating the CI deploy keypair" below.                    |
-| `SSH_PRIVATE_KEY`     | Private half of the same keypair. Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                   |
+| `SSH_PUBKEY`          | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                |
+| `SSH_PRIVATE_KEY`     | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                            |
 
-### Generating the CI deploy keypair
-
-A dedicated, passphrase-less ed25519 keypair for CI keeps blast radius away from your personal SSH key. Run on your laptop:
-
-```bash
-# 1. Generate the keypair (no passphrase — CI can't unlock one)
-ssh-keygen -t ed25519 -f /tmp/vault-cortex-deploy -N "" -C "vault-cortex CI deploy"
-
-# 2. Upload the public key to your Lightsail KeyPair via SST.
-#    readSshPublicKey() in sst.config.ts reads SSH_PUBKEY from env first.
-SSH_PUBKEY="$(cat /tmp/vault-cortex-deploy.pub)" npx sst deploy
-
-# 3. Add both halves to GitHub repo secrets:
-#    SSH_PUBKEY      ← single-line pubkey
-cat /tmp/vault-cortex-deploy.pub
-#    SSH_PRIVATE_KEY ← full multi-line block, including BEGIN/END markers
-cat /tmp/vault-cortex-deploy
-
-# 4. Delete the local copy. Plain rm is fine — APFS/SSD secure-delete
-#    doesn't actually overwrite the original blocks (copy-on-write), and
-#    the disk is encrypted at rest under FileVault.
-rm -f /tmp/vault-cortex-deploy /tmp/vault-cortex-deploy.pub
-```
-
-Caveats:
-
-- Run step 2 BEFORE the next CI deploy, otherwise the new private key won't authenticate against the old Lightsail KeyPair.
-- If `keyPairName` in `sst.config.ts` encodes a hash of the pubkey, swapping keys forces a VM replacement. Named volumes survive due to SST `removal: "retain"`, but expect brief downtime.
+Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
 
 ### Cutting a release
 
@@ -271,7 +244,7 @@ Caveats:
 
 ### Rotating SSH keys
 
-`SSH_PUBKEY` and `SSH_PRIVATE_KEY` must be a matched pair. Generate a fresh ed25519 keypair (`ssh-keygen -t ed25519 -f /tmp/lightsail`), update both secrets, then `npm run deploy` once locally to upload the new public key to the Lightsail KeyPair. Note: changing `keyPairName` in `sst.config.ts` forces a VM replacement (named volumes are preserved by SST `removal: "retain"`, but plan around the downtime).
+Regenerate the same path: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""` (overwrite when prompted). Run `npx sst deploy` locally to upload the new pubkey to the Lightsail KeyPair — this triggers a VM replacement (named volumes survive due to SST `removal: "retain"`, but the local disk is wiped). Then update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets to the new values. Both halves must change together — they're a matched pair.
 
 ### Rotating `MCP_AUTH_TOKEN`
 
@@ -360,19 +333,19 @@ npm run prettier:check  # formatting
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the three secrets first (one-time setup step 2).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The security group only allows ports 22 and 8000.
-- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/id_ed25519.pub` exists and redeploy, or set `SSH_PUBKEY_PATH` to the correct `.pub` file.
+- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
-- **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` or `keyPairName` changed in `sst.config.ts`). Run `ssh-keygen -R <lightsailIp>` and retry.
+- **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.
 
 ## Monitoring
 
 ### SSH into the server
 
 ```bash
-ssh ubuntu@<lightsailIp>
+ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 ```
 
-`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the SSH key that SST uploaded to Lightsail during provisioning (`~/.ssh/id_ed25519` by default).
+`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision (see [Prerequisites](#prerequisites)).
 
 ### Tailing logs
 
