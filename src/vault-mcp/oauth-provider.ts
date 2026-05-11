@@ -29,6 +29,11 @@ import { signJwt, verifyJwt } from "../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 
 const ACCESS_TOKEN_TTL_S = 24 * 3600
+// Sliding (inactivity) expiry on refresh tokens. Each use rotates the
+// token AND resets the 60-day countdown — a daily user never sees it,
+// a dormant client re-auths after 60 days. Bounds the blast radius of a
+// leaked refresh token without inconveniencing active sessions.
+const REFRESH_TOKEN_TTL_S = 60 * 24 * 3600
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000
 
 export type PendingAuthRequest = {
@@ -61,13 +66,29 @@ const initDb = (dbPath: string): Database.Database => {
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       token TEXT PRIMARY KEY,
       client_id TEXT NOT NULL,
-      scopes TEXT NOT NULL
+      scopes TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS revoked_tokens (
       token TEXT PRIMARY KEY,
       revoked_at INTEGER NOT NULL
     );
   `)
+  // Migration for DBs created before sliding expiry: add expires_at
+  // with DEFAULT 0 so any pre-migration row is treated as expired on
+  // first read. Accepted trade-off — a one-time forced re-auth for any
+  // currently-active session — and it keeps the new column NOT NULL
+  // without an arbitrary backfill timestamp.
+  const hasExpiresAt = db
+    .prepare(
+      "SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'expires_at'",
+    )
+    .get()
+  if (!hasExpiresAt) {
+    db.exec(
+      "ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+    )
+  }
   return db
 }
 
@@ -138,20 +159,29 @@ export const createOAuthProvider = ({
     scopes: string[],
   ): void => {
     db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes) VALUES (?, ?, ?)",
-    ).run(token, clientId, scopes.join(" "))
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(token, clientId, scopes.join(" "), nowSec() + REFRESH_TOKEN_TTL_S)
   }
 
-  /** Refresh token rotation: consume (delete) on use, caller issues a new one.
-   *  Single-use tokens prevent replay attacks — a stolen token can only be used once. */
+  /** Refresh token rotation with sliding expiry. Tokens are single-use
+   *  (consumed on read to prevent replay) AND time-bounded (rejected
+   *  past expires_at). A successful refresh issues a new token whose
+   *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
+   *  countdown, so active clients never expire. Expired rows are still
+   *  deleted on read so the table self-cleans. */
   const consumeRefreshToken = (
     token: string,
   ): { clientId: string; scopes: string[] } | null => {
     const row = db
-      .prepare("SELECT client_id, scopes FROM refresh_tokens WHERE token = ?")
-      .get(token) as { client_id: string; scopes: string } | undefined
+      .prepare(
+        "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(token) as
+      | { client_id: string; scopes: string; expires_at: number }
+      | undefined
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
+    if (row.expires_at < nowSec()) return null
     return { clientId: row.client_id, scopes: row.scopes.split(" ") }
   }
 
