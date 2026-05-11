@@ -204,12 +204,14 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 ### Workflows
 
-| Workflow             | Trigger                          | What it does                                                                                                                                          |
-| -------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`             | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                             |
-| `auto_release.yml`   | `v*` tag push                    | Validates `package.json` version matches the tag → calls `deploy.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md` |
-| `manual_release.yml` | Actions UI (`workflow_dispatch`) | Bumps version (patch/minor/major), commits, tags, pushes — the tag triggers `auto_release.yml`                                                        |
-| `deploy.yml`         | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                        |
+| Workflow             | Trigger                          | What it does                                                                                                                                                                                         |
+| -------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`             | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                                                                            |
+| `auto_release.yml`   | `v*` tag push (from your laptop) | Validates `package.json` version matches the tag → calls `deploy.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md`                                                |
+| `manual_release.yml` | Actions UI (`workflow_dispatch`) | Bumps version, commits, tags, pushes, calls `deploy.yml`, creates the GitHub Release — all inline. Does NOT chain through `auto_release.yml` (a workflow-pushed tag can't trigger another workflow). |
+| `deploy.yml`         | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                                                                       |
+
+> **Why two release paths?** Tag pushes done by `GITHUB_TOKEN` from inside a workflow can't trigger other workflows (GitHub's anti-loop guard). So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
 
 ### Required repo configuration
 

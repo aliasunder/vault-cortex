@@ -18,11 +18,16 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  id-token: write
   contents: write
+  packages: write
 
 jobs:
   bump-and-tag:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: v${{ steps.next.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,6 +44,10 @@ jobs:
           BUMP: ${{ inputs.bump }}
         run: |
           CURRENT=$(jq -r '.version' package.json)
+          if [ "$CURRENT" = "null" ] || [ -z "$CURRENT" ]; then
+            echo "::error::package.json has no version field; cannot compute next version"
+            exit 1
+          fi
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
           case "$BUMP" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
@@ -64,3 +73,66 @@ jobs:
           git commit -m "release: v$NEXT"
           git tag "v$NEXT"
           git push origin HEAD --tags
+
+  deploy:
+    needs: bump-and-tag
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.bump-and-tag.outputs.version }}
+    secrets: inherit
+
+  release:
+    needs: [bump-and-tag, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.bump-and-tag.outputs.tag }}
+
+      - name: Generate release notes
+        env:
+          TAG: ${{ needs.bump-and-tag.outputs.tag }}
+        run: bash .github/scripts/generate-notes.sh "$TAG" > /tmp/release-notes.md
+
+      - name: Update changelog
+        env:
+          VERSION: ${{ needs.bump-and-tag.outputs.version }}
+        run: bash .github/scripts/update-changelog.sh "$VERSION" /tmp/release-notes.md
+
+      - name: Commit changelog update to main
+        env:
+          TAG: ${{ needs.bump-and-tag.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          git stash pop
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No CHANGELOG.md changes to commit"
+            exit 0
+          fi
+          git commit -m "docs: update CHANGELOG.md for $TAG"
+          git push origin main
+
+      - name: Create GitHub release
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.bump-and-tag.outputs.tag }}
+        run: |
+          for i in 1 2 3; do
+            if gh release create "$TAG" \
+                 --title "$TAG" \
+                 --notes-file /tmp/release-notes.md; then
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Failed to create release after 3 attempts"
+          exit 1
