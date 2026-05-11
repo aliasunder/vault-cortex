@@ -287,28 +287,51 @@ Three services run in order via `depends_on`:
    matching obsidian-sync's `PUID` so both containers can read/write the
    shared `/vault` volume.
 
+### Durability
+
+Four layers cover different failure classes:
+
+| Layer                                 | What it does                                                                                                                | Where                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| App-level `removal: "retain"`         | Blocks `sst remove` from destroying the stack                                                                               | `sst.config.ts` `app()`       |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST does decide to delete (stage rename), orphan the AWS resource instead of destroying                                  | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |
+
+The auto-snapshot is the only one that protects against AWS-side events
+(hardware failure, AZ outage) and against in-VM mistakes (fat-finger
+`rm -rf`, container compromise). The IaC seatbelts only protect against
+Pulumi-driven replacement.
+
+Restore procedures, the intentional-replace flow (unprotect → deploy →
+re-protect, e.g. for a Phase 2 bundle upgrade), SST state reconciliation,
+and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
+
 ## Cost
 
-| Component                    | Phase 1       | Phase 2       |
-| ---------------------------- | ------------- | ------------- |
-| Lightsail                    | $12/mo (2 GB) | $24/mo (4 GB) |
-| API Gateway                  | ~$0           | ~$0           |
-| Obsidian Sync                | existing      | same          |
-| LightRAG (OpenAI embeddings) | —             | ~$1–2/mo      |
-| **Total**                    | **~$12/mo**   | **~$26/mo**   |
+| Component                    | Phase 1                                    | Phase 2       |
+| ---------------------------- | ------------------------------------------ | ------------- |
+| Lightsail                    | $12/mo (2 GB)                              | $24/mo (4 GB) |
+| Lightsail auto-snapshots     | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same          |
+| API Gateway                  | ~$0                                        | ~$0           |
+| Obsidian Sync                | existing                                   | same          |
+| LightRAG (OpenAI embeddings) | —                                          | ~$1–2/mo      |
+| **Total**                    | **~$13/mo**                                | **~$27/mo**   |
 
 ## Key Decisions
 
-| Decision                 | Rationale                                                                     |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| Lightsail over ECS       | $12 vs ~$50+. Single-user server.                                             |
-| API Gateway over Caddy   | Free HTTPS URL, no domain needed, SST native.                                 |
-| OAuth 2.0 + static token | OAuth for all clients. Static bearer token as CLI alternative.                |
-| JWT over opaque tokens   | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.    |
-| 60-day sliding refresh   | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice. |
-| SQLite FTS5              | Zero services, embedded, personal scale.                                      |
-| chokidar                 | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.             |
-| Streamable HTTP          | Current MCP spec (2025-11-25). SSE is deprecated.                             |
-| GHCR over ECR            | GITHUB_TOKEN auth, no AWS IAM for images.                                     |
-| Factory over class       | Functional style. Closure holds db ref, no `this`.                            |
-| `type` over `interface`  | Preferred unless `interface` specifically required.                           |
+| Decision                            | Rationale                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Lightsail over ECS                  | $12 vs ~$50+. Single-user server.                                                                                                     |
+| API Gateway over Caddy              | Free HTTPS URL, no domain needed, SST native.                                                                                         |
+| OAuth 2.0 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                        |
+| JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                            |
+| 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                         |
+| Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state. |
+| Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.       |
+| SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                              |
+| chokidar                            | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.                                                                     |
+| Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                     |
+| GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                             |
+| Factory over class                  | Functional style. Closure holds db ref, no `this`.                                                                                    |
+| `type` over `interface`             | Preferred unless `interface` specifically required.                                                                                   |
