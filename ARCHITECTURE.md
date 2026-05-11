@@ -207,10 +207,10 @@ See `sst.config.ts` for full IaC.
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                                      | Token format                | Lifetime                               |
-| ------------------------------------- | ------------------------------------------------------------ | --------------------------- | -------------------------------------- |
-| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT (HS256)                 | 24h access, no-expiry refresh (SQLite) |
-| Static bearer token                   | Claude Code, MCP Inspector, curl                             | Raw string (MCP_AUTH_TOKEN) | No expiry                              |
+| Method                                | Used by                                                      | Token format                | Lifetime                                    |
+| ------------------------------------- | ------------------------------------------------------------ | --------------------------- | ------------------------------------------- |
+| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl                             | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Path-aware. OAuth discovery paths (`/.well-known/*`, `/authorize`, `/token`,
@@ -245,9 +245,17 @@ authorizer and Express can verify independently — no shared state needed.
 
 **Token storage:** Refresh tokens and registered clients are persisted in
 SQLite (`/data/oauth.db`) — survives container restarts, no re-authentication
-needed after deploys. Auth codes are in-memory (short-lived, 10 minutes).
-Access tokens are JWTs (stateless, no storage needed). Revoked tokens are
-tracked in SQLite.
+needed after deploys for active clients. Auth codes are in-memory (short-lived,
+10 minutes). Access tokens are JWTs (stateless, no storage needed). Revoked
+tokens are tracked in SQLite.
+
+**Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
+use rotates the token AND extends the window by another 60 days, so a daily
+client never sees expiry. A client dormant for >60 days is forced through the
+full OAuth flow on its next attempt. The schema column is `expires_at INTEGER
+NOT NULL`; rows past `expires_at` are deleted on read so the table self-cleans.
+This bounds the blast radius of a leaked refresh token without inconveniencing
+active sessions.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
 `/revoke`) are rate-limited at 5 req/min per client IP. A custom key
@@ -291,15 +299,16 @@ Three services run in order via `depends_on`:
 
 ## Key Decisions
 
-| Decision                 | Rationale                                                                  |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Lightsail over ECS       | $12 vs ~$50+. Single-user server.                                          |
-| API Gateway over Caddy   | Free HTTPS URL, no domain needed, SST native.                              |
-| OAuth 2.0 + static token | OAuth for all clients. Static bearer token as CLI alternative.             |
-| JWT over opaque tokens   | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN. |
-| SQLite FTS5              | Zero services, embedded, personal scale.                                   |
-| chokidar                 | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.          |
-| Streamable HTTP          | Current MCP spec (2025-11-25). SSE is deprecated.                          |
-| GHCR over ECR            | GITHUB_TOKEN auth, no AWS IAM for images.                                  |
-| Factory over class       | Functional style. Closure holds db ref, no `this`.                         |
-| `type` over `interface`  | Preferred unless `interface` specifically required.                        |
+| Decision                 | Rationale                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| Lightsail over ECS       | $12 vs ~$50+. Single-user server.                                             |
+| API Gateway over Caddy   | Free HTTPS URL, no domain needed, SST native.                                 |
+| OAuth 2.0 + static token | OAuth for all clients. Static bearer token as CLI alternative.                |
+| JWT over opaque tokens   | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.    |
+| 60-day sliding refresh   | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice. |
+| SQLite FTS5              | Zero services, embedded, personal scale.                                      |
+| chokidar                 | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.             |
+| Streamable HTTP          | Current MCP spec (2025-11-25). SSE is deprecated.                             |
+| GHCR over ECR            | GITHUB_TOKEN auth, no AWS IAM for images.                                     |
+| Factory over class       | Functional style. Closure holds db ref, no `this`.                            |
+| `type` over `interface`  | Preferred unless `interface` specifically required.                           |
