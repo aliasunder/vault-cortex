@@ -11,6 +11,7 @@
 
 import Database from "better-sqlite3"
 import { randomUUID, randomBytes } from "node:crypto"
+import { DateTime } from "luxon"
 import type { Response } from "express"
 import type {
   OAuthServerProvider,
@@ -28,20 +29,27 @@ import { safeEqual } from "../auth.js"
 import { signJwt, verifyJwt } from "../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 
-const ACCESS_TOKEN_TTL_S = 24 * 3600
-const AUTH_CODE_TTL_MS = 10 * 60 * 1000
+// 24 hours
+const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
+// 60 days. Sliding (inactivity) expiry — each use rotates the token
+// AND resets the countdown, so a daily user never sees it and a
+// dormant client re-auths after 60 days. Bounds the blast radius of
+// a leaked refresh token without inconveniencing active sessions.
+const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
+// 10 minutes — OAuth spec recommends short auth code lifetimes.
+const AUTH_CODE_TTL_S = 10 * 60
 
 export type PendingAuthRequest = {
   client: OAuthClientInformationFull
   params: AuthorizationParams
-  createdAt: number
+  createdAt: DateTime
 }
 
 type StoredAuthCode = {
   clientId: string
   codeChallenge: string
   params: AuthorizationParams
-  expiresAt: number
+  expiresAt: DateTime
 }
 
 export type OAuthProviderOptions = {
@@ -61,13 +69,29 @@ const initDb = (dbPath: string): Database.Database => {
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       token TEXT PRIMARY KEY,
       client_id TEXT NOT NULL,
-      scopes TEXT NOT NULL
+      scopes TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS revoked_tokens (
       token TEXT PRIMARY KEY,
       revoked_at INTEGER NOT NULL
     );
   `)
+  // Migration for DBs created before sliding expiry: add expires_at
+  // with DEFAULT 0 so any pre-migration row is treated as expired on
+  // first read. Accepted trade-off — a one-time forced re-auth for any
+  // currently-active session — and it keeps the new column NOT NULL
+  // without an arbitrary backfill timestamp.
+  const hasExpiresAt = db
+    .prepare(
+      "SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'expires_at'",
+    )
+    .get()
+  if (!hasExpiresAt) {
+    db.exec(
+      "ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+    )
+  }
   return db
 }
 
@@ -92,7 +116,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     const full: OAuthClientInformationFull = {
       ...client,
       client_id: randomUUID(),
-      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_id_issued_at: DateTime.now().toUnixInteger(),
       client_secret: randomBytes(32).toString("hex"),
       client_secret_expires_at: 0,
     }
@@ -119,14 +143,14 @@ export const createOAuthProvider = ({
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
 
-  const nowSec = (): number => Math.floor(Date.now() / 1000)
-
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
       {
         sub: clientId,
         scope: scopes.join(" "),
-        exp: nowSec() + ACCESS_TOKEN_TTL_S,
+        exp: DateTime.now()
+          .plus({ seconds: ACCESS_TOKEN_TTL_S })
+          .toUnixInteger(),
         iss: "vault-cortex",
       },
       authToken,
@@ -138,20 +162,34 @@ export const createOAuthProvider = ({
     scopes: string[],
   ): void => {
     db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes) VALUES (?, ?, ?)",
-    ).run(token, clientId, scopes.join(" "))
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      token,
+      clientId,
+      scopes.join(" "),
+      DateTime.now().plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
+    )
   }
 
-  /** Refresh token rotation: consume (delete) on use, caller issues a new one.
-   *  Single-use tokens prevent replay attacks — a stolen token can only be used once. */
+  /** Refresh token rotation with sliding expiry. Tokens are single-use
+   *  (consumed on read to prevent replay) AND time-bounded (rejected
+   *  past expires_at). A successful refresh issues a new token whose
+   *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
+   *  countdown, so active clients never expire. Expired rows are still
+   *  deleted on read so the table self-cleans. */
   const consumeRefreshToken = (
     token: string,
   ): { clientId: string; scopes: string[] } | null => {
     const row = db
-      .prepare("SELECT client_id, scopes FROM refresh_tokens WHERE token = ?")
-      .get(token) as { client_id: string; scopes: string } | undefined
+      .prepare(
+        "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(token) as
+      | { client_id: string; scopes: string; expires_at: number }
+      | undefined
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
+    if (row.expires_at < DateTime.now().toUnixInteger()) return null
     return { clientId: row.client_id, scopes: row.scopes.split(" ") }
   }
 
@@ -175,7 +213,7 @@ export const createOAuthProvider = ({
       pendingRequests.set(requestId, {
         client,
         params,
-        createdAt: Date.now(),
+        createdAt: DateTime.now(),
       })
 
       res.type("html").send(
@@ -193,7 +231,7 @@ export const createOAuthProvider = ({
       authorizationCode: string,
     ): Promise<string> {
       const stored = authCodes.get(authorizationCode)
-      if (!stored || stored.expiresAt < nowSec()) {
+      if (!stored || stored.expiresAt < DateTime.now()) {
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       return stored.codeChallenge
@@ -207,7 +245,7 @@ export const createOAuthProvider = ({
       _resource?: URL,
     ): Promise<OAuthTokens> {
       const stored = authCodes.get(authorizationCode)
-      if (!stored || stored.expiresAt < nowSec()) {
+      if (!stored || stored.expiresAt < DateTime.now()) {
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       authCodes.delete(authorizationCode)
@@ -284,7 +322,7 @@ export const createOAuthProvider = ({
     ): Promise<void> {
       db.prepare(
         "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-      ).run(request.token, nowSec())
+      ).run(request.token, DateTime.now().toUnixInteger())
       db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(
         request.token,
       )
@@ -294,7 +332,7 @@ export const createOAuthProvider = ({
   const getPendingRequest = (id: string): PendingAuthRequest | undefined => {
     const req = pendingRequests.get(id)
     if (!req) return undefined
-    if (Date.now() - req.createdAt > AUTH_CODE_TTL_MS) {
+    if (req.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
       return undefined
     }
@@ -311,7 +349,7 @@ export const createOAuthProvider = ({
       clientId: pending.client.client_id,
       codeChallenge: pending.params.codeChallenge,
       params: pending.params,
-      expiresAt: nowSec() + 600,
+      expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
     return code
   }

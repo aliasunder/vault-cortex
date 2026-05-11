@@ -46,8 +46,8 @@ OAuth is the primary auth method. All MCP clients that support OAuth 2.0 — Cla
 2. Leave OAuth Client ID and Secret empty (dynamic registration handles it)
 3. The client auto-discovers endpoints via `/.well-known/oauth-protected-resource`
 4. A consent page opens in your browser — enter your `MCP_AUTH_TOKEN` to approve
-5. The client receives a JWT access token (24h) + refresh token (no expiry, persisted in SQLite)
-6. Token refresh is automatic — no re-authentication unless the server's data volume is wiped
+5. The client receives a JWT access token (24h) + refresh token (60-day sliding expiry, persisted in SQLite)
+6. Token refresh is automatic — no re-authentication unless the data volume is wiped or the client is dormant for >60 days. Each refresh resets the 60-day countdown.
 
 ### Connecting with a static bearer token
 
