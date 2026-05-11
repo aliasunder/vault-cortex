@@ -3,17 +3,17 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
 
 const AUTH_TOKEN = "test-static-token"
-const SIXTY_DAYS_S = 60 * 24 * 3600
 
 const seedClient = (db: Database.Database): OAuthClientInformationFull => {
   const client = {
     client_id: "test-client",
-    client_id_issued_at: Math.floor(Date.now() / 1000),
+    client_id_issued_at: DateTime.now().toUnixInteger(),
     client_secret: "test-secret",
     client_secret_expires_at: 0,
     redirect_uris: ["https://example.com/cb"],
@@ -65,13 +65,12 @@ describe("OAuth refresh token sliding expiry", () => {
   })
 
   it("accepts a refresh token used within the 60-day window", async () => {
-    const now = Math.floor(Date.now() / 1000)
     seedRefreshToken(
       db,
       "fresh-token",
       client.client_id,
       ["vault"],
-      now + SIXTY_DAYS_S,
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
     const tokens = await oauth.provider.exchangeRefreshToken!(
@@ -85,8 +84,13 @@ describe("OAuth refresh token sliding expiry", () => {
   })
 
   it("rejects a refresh token past its expires_at", async () => {
-    const now = Math.floor(Date.now() / 1000)
-    seedRefreshToken(db, "expired-token", client.client_id, ["vault"], now - 1)
+    seedRefreshToken(
+      db,
+      "expired-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().minus({ seconds: 1 }).toUnixInteger(),
+    )
 
     await expect(
       oauth.provider.exchangeRefreshToken!(client, "expired-token"),
@@ -94,8 +98,13 @@ describe("OAuth refresh token sliding expiry", () => {
   })
 
   it("removes an expired token from the DB on read", async () => {
-    const now = Math.floor(Date.now() / 1000)
-    seedRefreshToken(db, "expired-token", client.client_id, ["vault"], now - 1)
+    seedRefreshToken(
+      db,
+      "expired-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().minus({ seconds: 1 }).toUnixInteger(),
+    )
 
     await expect(
       oauth.provider.exchangeRefreshToken!(client, "expired-token"),
@@ -108,13 +117,12 @@ describe("OAuth refresh token sliding expiry", () => {
   })
 
   it("rotates to a new token with a fresh 60-day window on use", async () => {
-    const now = Math.floor(Date.now() / 1000)
     seedRefreshToken(
       db,
       "first-token",
       client.client_id,
       ["vault"],
-      now + SIXTY_DAYS_S,
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
     const tokens = await oauth.provider.exchangeRefreshToken!(
@@ -131,19 +139,18 @@ describe("OAuth refresh token sliding expiry", () => {
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
     // a fresh window, not inherited from the old token's expires_at.
-    const expected = Math.floor(Date.now() / 1000) + SIXTY_DAYS_S
+    const expected = DateTime.now().plus({ days: 60 }).toUnixInteger()
     expect(row!.expires_at).toBeGreaterThanOrEqual(expected - 5)
     expect(row!.expires_at).toBeLessThanOrEqual(expected + 5)
   })
 
   it("invalidates the old token after rotation (single-use)", async () => {
-    const now = Math.floor(Date.now() / 1000)
     seedRefreshToken(
       db,
       "first-token",
       client.client_id,
       ["vault"],
-      now + SIXTY_DAYS_S,
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
     await oauth.provider.exchangeRefreshToken!(client, "first-token")

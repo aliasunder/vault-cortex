@@ -11,6 +11,7 @@
 
 import Database from "better-sqlite3"
 import { randomUUID, randomBytes } from "node:crypto"
+import { DateTime } from "luxon"
 import type { Response } from "express"
 import type {
   OAuthServerProvider,
@@ -28,25 +29,25 @@ import { safeEqual } from "../auth.js"
 import { signJwt, verifyJwt } from "../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 
-const ACCESS_TOKEN_TTL_S = 24 * 3600
+const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
 // Sliding (inactivity) expiry on refresh tokens. Each use rotates the
 // token AND resets the 60-day countdown — a daily user never sees it,
 // a dormant client re-auths after 60 days. Bounds the blast radius of a
 // leaked refresh token without inconveniencing active sessions.
-const REFRESH_TOKEN_TTL_S = 60 * 24 * 3600
-const AUTH_CODE_TTL_MS = 10 * 60 * 1000
+const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
+const AUTH_CODE_TTL_S = 10 * 60
 
 export type PendingAuthRequest = {
   client: OAuthClientInformationFull
   params: AuthorizationParams
-  createdAt: number
+  createdAt: DateTime
 }
 
 type StoredAuthCode = {
   clientId: string
   codeChallenge: string
   params: AuthorizationParams
-  expiresAt: number
+  expiresAt: DateTime
 }
 
 export type OAuthProviderOptions = {
@@ -113,7 +114,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     const full: OAuthClientInformationFull = {
       ...client,
       client_id: randomUUID(),
-      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_id_issued_at: DateTime.now().toUnixInteger(),
       client_secret: randomBytes(32).toString("hex"),
       client_secret_expires_at: 0,
     }
@@ -140,14 +141,14 @@ export const createOAuthProvider = ({
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
 
-  const nowSec = (): number => Math.floor(Date.now() / 1000)
-
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
       {
         sub: clientId,
         scope: scopes.join(" "),
-        exp: nowSec() + ACCESS_TOKEN_TTL_S,
+        exp: DateTime.now()
+          .plus({ seconds: ACCESS_TOKEN_TTL_S })
+          .toUnixInteger(),
         iss: "vault-cortex",
       },
       authToken,
@@ -160,7 +161,12 @@ export const createOAuthProvider = ({
   ): void => {
     db.prepare(
       "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-    ).run(token, clientId, scopes.join(" "), nowSec() + REFRESH_TOKEN_TTL_S)
+    ).run(
+      token,
+      clientId,
+      scopes.join(" "),
+      DateTime.now().plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
+    )
   }
 
   /** Refresh token rotation with sliding expiry. Tokens are single-use
@@ -181,7 +187,7 @@ export const createOAuthProvider = ({
       | undefined
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
-    if (row.expires_at < nowSec()) return null
+    if (row.expires_at < DateTime.now().toUnixInteger()) return null
     return { clientId: row.client_id, scopes: row.scopes.split(" ") }
   }
 
@@ -205,7 +211,7 @@ export const createOAuthProvider = ({
       pendingRequests.set(requestId, {
         client,
         params,
-        createdAt: Date.now(),
+        createdAt: DateTime.now(),
       })
 
       res.type("html").send(
@@ -223,7 +229,7 @@ export const createOAuthProvider = ({
       authorizationCode: string,
     ): Promise<string> {
       const stored = authCodes.get(authorizationCode)
-      if (!stored || stored.expiresAt < nowSec()) {
+      if (!stored || stored.expiresAt < DateTime.now()) {
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       return stored.codeChallenge
@@ -237,7 +243,7 @@ export const createOAuthProvider = ({
       _resource?: URL,
     ): Promise<OAuthTokens> {
       const stored = authCodes.get(authorizationCode)
-      if (!stored || stored.expiresAt < nowSec()) {
+      if (!stored || stored.expiresAt < DateTime.now()) {
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       authCodes.delete(authorizationCode)
@@ -314,7 +320,7 @@ export const createOAuthProvider = ({
     ): Promise<void> {
       db.prepare(
         "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-      ).run(request.token, nowSec())
+      ).run(request.token, DateTime.now().toUnixInteger())
       db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(
         request.token,
       )
@@ -324,7 +330,7 @@ export const createOAuthProvider = ({
   const getPendingRequest = (id: string): PendingAuthRequest | undefined => {
     const req = pendingRequests.get(id)
     if (!req) return undefined
-    if (Date.now() - req.createdAt > AUTH_CODE_TTL_MS) {
+    if (req.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
       return undefined
     }
@@ -341,7 +347,7 @@ export const createOAuthProvider = ({
       clientId: pending.client.client_id,
       codeChallenge: pending.params.codeChallenge,
       params: pending.params,
-      expiresAt: nowSec() + 600,
+      expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
     return code
   }
