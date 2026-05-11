@@ -11,6 +11,29 @@ const isString = (value: unknown): value is string => typeof value === "string"
 
 const isDate = (value: unknown): value is Date => value instanceof Date
 
+// ── FTS5 query sanitization ─────────────────────────────────────
+
+const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
+
+/** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
+ *  for exact-phrase matching; unquoted terms are left bare to preserve porter
+ *  stemming. FTS5 metacharacters and reserved words are stripped. */
+export const sanitizeFtsQuery = (raw: string): string => {
+  const phrases: string[] = []
+  const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
+    const cleaned = phrase.replace(/[*^():]/g, "").trim()
+    if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
+    return " "
+  })
+  const tokens = remaining
+    .replace(/["*^():]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 0 && !FTS5_RESERVED.has(t.toUpperCase()))
+
+  const parts = [...phrases, ...tokens]
+  return parts.length === 0 ? '""' : parts.join(" ")
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 type SearchResult = {
@@ -19,8 +42,10 @@ type SearchResult = {
   snippet: string
   score: number
   tags: string[]
+  related: string[]
   folder: string
-  created: string | null
+  type: string | null
+  created?: string
   mtime: number
 }
 
@@ -48,6 +73,7 @@ type SearchFilters = {
   type?: string
   properties?: Record<string, string | number | boolean>
   limit?: number
+  snippet_tokens?: number
 }
 
 type NoteRow = {
@@ -218,9 +244,8 @@ export const createSearchIndex = (dbPath: string) => {
     const conditions: string[] = []
     const queryParams: unknown[] = []
 
-    // Wrap in double quotes to treat as literal phrase, not FTS5 operators (AND, OR, NOT, *)
     conditions.push("notes_fts MATCH ?")
-    queryParams.push(`"${params.query.replace(/"/g, '""')}"`)
+    queryParams.push(sanitizeFtsQuery(params.query))
 
     if (params.filters?.folder) {
       conditions.push("n.path LIKE ?")
@@ -258,12 +283,13 @@ export const createSearchIndex = (dbPath: string) => {
     }
 
     const limit = params.filters?.limit ?? 20
+    const snippetTokens = params.filters?.snippet_tokens ?? 30
     queryParams.push(limit)
 
     const sql = `
       SELECT n.path, n.title,
-             snippet(notes_fts, 2, '<mark>', '</mark>', '...', 30) as snippet,
-             rank * -1 as score, n.tags, n.folder, n.created, n.mtime
+             snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
+             rank * -1 as score, n.tags, n.related, n.folder, n.type, n.created, n.mtime
       FROM notes_fts
       JOIN notes n ON n.path = notes_fts.path
       WHERE ${conditions.join(" AND ")}
@@ -276,16 +302,31 @@ export const createSearchIndex = (dbPath: string) => {
       const rows = db.prepare(sql).all(...queryParams) as Array<
         Pick<
           NoteRow,
-          "path" | "title" | "tags" | "folder" | "created" | "mtime"
+          | "path"
+          | "title"
+          | "tags"
+          | "related"
+          | "folder"
+          | "type"
+          | "created"
+          | "mtime"
         > & {
           snippet: string
           score: number
         }
       >
 
-      const results = rows.map((row) => ({
-        ...row,
+      const results: SearchResult[] = rows.map((row) => ({
+        path: row.path,
+        title: row.title,
+        snippet: row.snippet,
+        score: Number(Number(row.score).toPrecision(4)),
         tags: JSON.parse(row.tags) as string[],
+        related: JSON.parse(row.related) as string[],
+        folder: row.folder,
+        type: row.type,
+        ...(row.created !== null ? { created: row.created } : {}),
+        mtime: Math.round(row.mtime),
       }))
       logger.info("full text search", {
         query: params.query,
@@ -330,19 +371,19 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Lists notes in a folder, optionally including subfolders. */
   const searchByFolder = (
-    folder: string,
-    options?: { recursive?: boolean; limit?: number },
+    params: { folder: string; recursive?: boolean; limit?: number },
+    logger: Logger,
   ): NoteMetadata[] => {
-    const recursive = options?.recursive ?? true
-    const limit = options?.limit ?? 20
+    const recursive = params.recursive ?? true
+    const limit = params.limit ?? 20
 
     const condition = recursive
       ? "path LIKE ? || '/%'"
       : "path LIKE ? || '/%' AND path NOT LIKE ? || '/%/%'"
 
     const queryParams: unknown[] = recursive
-      ? [folder, limit]
-      : [folder, folder, limit]
+      ? [params.folder, limit]
+      : [params.folder, params.folder, limit]
 
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
@@ -352,11 +393,19 @@ export const createSearchIndex = (dbPath: string) => {
     `
 
     const rows = db.prepare(sql).all(...queryParams) as NoteRow[]
-    return rows.map(rowToMetadata)
+    const results = rows.map(rowToMetadata)
+    logger.info("search by folder", {
+      folder: params.folder,
+      resultCount: results.length,
+    })
+    return results
   }
 
   /** Finds notes by their frontmatter `type` field. */
-  const searchByType = (type: string, limit?: number): NoteMetadata[] => {
+  const searchByType = (
+    params: { type: string; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
       FROM notes
@@ -364,8 +413,15 @@ export const createSearchIndex = (dbPath: string) => {
       LIMIT ?
     `
 
-    const rows = db.prepare(sql).all(type, limit ?? 20) as NoteRow[]
-    return rows.map(rowToMetadata)
+    const rows = db
+      .prepare(sql)
+      .all(params.type, params.limit ?? 20) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("search by type", {
+      type: params.type,
+      resultCount: results.length,
+    })
+    return results
   }
 
   /** Returns all tags in the vault with their note counts. */
@@ -408,6 +464,30 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  /** Returns aggregate vault statistics for quick orientation. */
+  const getStats = (logger: Logger) => {
+    const { noteCount } = db
+      .prepare("SELECT COUNT(*) as noteCount FROM notes")
+      .get() as { noteCount: number }
+    const { tagCount } = db
+      .prepare(
+        "SELECT COUNT(DISTINCT value) as tagCount FROM notes, json_each(notes.tags)",
+      )
+      .get() as { tagCount: number }
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const { recentlyModified } = db
+      .prepare("SELECT COUNT(*) as recentlyModified FROM notes WHERE mtime > ?")
+      .get(sevenDaysAgo) as { recentlyModified: number }
+    const topTags = db
+      .prepare(
+        "SELECT value as tag, COUNT(*) as count FROM notes, json_each(notes.tags) GROUP BY value ORDER BY count DESC LIMIT 10",
+      )
+      .all() as Array<{ tag: string; count: number }>
+
+    logger.info("vault stats", { noteCount, tagCount })
+    return { noteCount, tagCount, recentlyModified, topTags }
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -418,6 +498,7 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
+    getStats,
   }
 }
 

@@ -11,8 +11,10 @@ const TOOL_NAMES = [
   "vault_delete_note",
   "vault_search",
   "vault_search_by_tag",
+  "vault_search_by_folder",
   "vault_list_tags",
   "vault_recent_notes",
+  "vault_stats",
   "vault_get_memory",
   "vault_update_memory",
   "vault_list_memory_files",
@@ -24,8 +26,10 @@ const READ_ONLY_TOOLS = [
   "vault_list_notes",
   "vault_search",
   "vault_search_by_tag",
+  "vault_search_by_folder",
   "vault_list_tags",
   "vault_recent_notes",
+  "vault_stats",
   "vault_get_memory",
   "vault_list_memory_files",
 ] as const
@@ -65,8 +69,8 @@ const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find((c) => c[0] === name)
 
 describe("registerTools", () => {
-  it("registers exactly 12 tools", () => {
-    expect(mockServer.registerTool).toHaveBeenCalledTimes(12)
+  it("registers exactly 14 tools", () => {
+    expect(mockServer.registerTool).toHaveBeenCalledTimes(14)
   })
 
   it.each(TOOL_NAMES)("registers %s", (name) => {
@@ -84,6 +88,18 @@ describe("registerTools", () => {
     for (const call of calls) {
       expect(call[1].description).toBeDefined()
       expect(call[1].description!.length).toBeGreaterThan(0)
+    }
+  })
+
+  it("every tool description includes an example", () => {
+    for (const call of calls) {
+      expect(call[1].description).toContain("Example:")
+    }
+  })
+
+  it("every tool description includes when to use guidance", () => {
+    for (const call of calls) {
+      expect(call[1].description).toContain("When to use")
     }
   })
 
