@@ -88,31 +88,58 @@ export default $config({
     // ── Lightsail ─────────────────────────────────────────────────
     // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
     //
-    // GOTCHA: Changing userData, bundleId, or keyPairName REPLACES
-    //         the instance. The deploy key convention above keeps
-    //         keyPairName stable across local and CI deploys.
-    // GOTCHA: userData is visible via get-instance API/console.
-    //         Don't bake secrets here — pull from SSM at boot instead.
+    // Auto-snapshot: daily disk-image backup retained 7 days by
+    // Lightsail. Captures everything on the boot disk (Docker volumes,
+    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). UTC time —
+    // 03:00 UTC = 23:00 ET. Restore path is in RECOVERY.md.
+    //
+    // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
+    // any Pulumi operation that would destroy or replace this resource;
+    // `retainOnDelete` orphans the AWS resource if SST ever does decide
+    // to delete it (e.g. stage rename) instead of actually destroying.
+    // These pair with `removal: "retain"` at the app level — that one
+    // only fires on `sst remove`; these fire on every operation.
+    //
+    // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
+    //            normally replace the instance. With protect:true,
+    //            Pulumi refuses and the deploy fails loudly. To
+    //            intentionally replace (e.g. bundle upgrade for
+    //            Phase 2), see the "Intentional replace" section
+    //            of RECOVERY.md — unprotect via state command,
+    //            deploy, then it re-protects on next regular deploy.
+    // GOTCHA #2: The deploy-key convention above keeps keyPairName
+    //            stable across local and CI deploys.
+    // GOTCHA #3: userData is visible via get-instance API/console.
+    //            Don't bake secrets here — pull from SSM at boot instead.
     // ──────────────────────────────────────────────────────────────
-    const instance = new aws.lightsail.Instance("VaultCortexVm", {
-      name: `vault-cortex-${$app.stage}`,
-      availabilityZone: "us-east-1a",
-      blueprintId: "ubuntu_22_04",
-      bundleId: "small_3_0",
-      keyPairName: keyPair.name,
-      userData: [
-        "#!/bin/bash",
-        "set -eu",
-        "export DEBIAN_FRONTEND=noninteractive",
-        "apt-get update -y",
-        "apt-get install -y docker.io docker-compose-v2 curl jq",
-        "systemctl enable --now docker",
-        "usermod -aG docker ubuntu",
-        "mkdir -p /opt/vault-cortex",
-        "chown ubuntu:ubuntu /opt/vault-cortex",
-      ].join("\n"),
-      tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
-    })
+    const instance = new aws.lightsail.Instance(
+      "VaultCortexVm",
+      {
+        name: `vault-cortex-${$app.stage}`,
+        availabilityZone: "us-east-1a",
+        blueprintId: "ubuntu_22_04",
+        bundleId: "small_3_0",
+        keyPairName: keyPair.name,
+        addOn: {
+          type: "AutoSnapshot",
+          snapshotTime: "03:00",
+          status: "Enabled",
+        },
+        userData: [
+          "#!/bin/bash",
+          "set -eu",
+          "export DEBIAN_FRONTEND=noninteractive",
+          "apt-get update -y",
+          "apt-get install -y docker.io docker-compose-v2 curl jq",
+          "systemctl enable --now docker",
+          "usermod -aG docker ubuntu",
+          "mkdir -p /opt/vault-cortex",
+          "chown ubuntu:ubuntu /opt/vault-cortex",
+        ].join("\n"),
+        tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
+      },
+      { protect: true, retainOnDelete: true },
+    )
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {
       name: `vault-cortex-ip-${$app.stage}`,
