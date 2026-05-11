@@ -81,20 +81,21 @@ const lightsailIp = (): string => {
   return outs.lightsailIp
 }
 
-// Returns `-i <path>` when LIGHTSAIL_SSH_KEY is set, else "".
-// Default deploys provision a Lightsail KeyPair from the developer's
-// local public key (see sst.config.ts), so SSH/SCP work with the
-// default identity. Set LIGHTSAIL_SSH_KEY only if you're connecting
-// to an instance provisioned with a different keypair (e.g. the
-// regional LightsailDefaultKey for a pre-existing VM).
+// Returns `-i <path>` for the SSH identity to use.
+// Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
+// matches the Lightsail KeyPair in sst.config.ts). Override with
+// LIGHTSAIL_SSH_KEY for a different keypair.
 const sshIdentity = (): string => {
-  if (!env.LIGHTSAIL_SSH_KEY) return ""
-  const path = expandHome(env.LIGHTSAIL_SSH_KEY)
-  if (!existsSync(path)) {
-    console.error(`✕  LIGHTSAIL_SSH_KEY path does not exist: ${path}`)
+  const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
+  if (!existsSync(keyPath)) {
+    console.error(
+      `✕  SSH key not found: ${keyPath}\n` +
+        `  Generate the deploy key:\n` +
+        `    ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy`,
+    )
     process.exit(1)
   }
-  return `-i ${path}`
+  return `-i ${keyPath}`
 }
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"

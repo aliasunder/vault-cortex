@@ -28,7 +28,7 @@ export default $config({
      * Resolution order:
      *   1. SSH_PUBKEY env var (literal key contents) — for CI / GH Actions.
      *   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
-     *   3. ~/.ssh/id_ed25519.pub, then ~/.ssh/id_rsa.pub — local defaults.
+     *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
       if (process.env.SSH_PUBKEY?.trim()) {
@@ -36,15 +36,15 @@ export default $config({
       }
       const candidates = process.env.SSH_PUBKEY_PATH
         ? [expandHome(process.env.SSH_PUBKEY_PATH)]
-        : [expandHome("~/.ssh/id_ed25519.pub"), expandHome("~/.ssh/id_rsa.pub")]
+        : [expandHome("~/.ssh/vault-cortex.pub")]
       for (const path of candidates) {
         if (existsSync(path)) return readFileSync(path, "utf8").trim()
       }
       throw new Error(
         `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-          `${candidates.join(", ")}. Either generate a key ` +
-          `(\`ssh-keygen -t ed25519\`), set SSH_PUBKEY_PATH to a ` +
-          `.pub file, or pass SSH_PUBKEY directly (CI).`,
+          `${candidates.join(", ")}. Generate a dedicated deploy key:\n` +
+          `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
+          `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
       )
     }
 
@@ -62,26 +62,23 @@ export default $config({
     const _obsidianVaultName = new sst.Secret("ObsidianVaultName")
 
     // ── SSH key pair ──────────────────────────────────────────────
-    // Uploads the developer's local public key (id_ed25519.pub by
-    // default; override via SSH_PUBKEY_PATH) so SCP/SSH "just work"
-    // with the default identity — no `-i` flag, no per-region
-    // LightsailDefaultKey.pem download.
+    // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
+    // by local dev and CI. Both sides use the same key so `sst
+    // deploy` never sees a key change and never replaces the VM.
     //
-    // GOTCHA #1: Changing keyPairName on an existing Lightsail Instance
-    //            FORCES A REPLACE. The VM is destroyed and recreated,
-    //            wiping its local disk (Docker volumes,
-    //            /opt/vault-cortex contents). The StaticIp stays
-    //            (separate resource).
+    // Setup: ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy
+    // CI:    store the public key as SSH_PUBKEY secret, private as SSH_PRIVATE_KEY.
+    //
+    // To also SSH with your personal key, add it post-provision:
+    //   ssh -i ~/.ssh/vault-cortex ubuntu@<IP> \
+    //     "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub
+    //
+    // GOTCHA #1: Changing the public key FORCES AN INSTANCE REPLACE.
+    //            The VM is destroyed and recreated, wiping Docker
+    //            volumes and /opt/vault-cortex. The StaticIp survives.
     // GOTCHA #2: Lightsail resource names are unique ACROSS RESOURCE
-    //            TYPES within a region — not just within a type. So
-    //            naming the keypair `vault-cortex-${stage}` conflicts
-    //            with the instance below (same name, different type),
-    //            and AWS rejects with `Some names are already in use`
-    //            on ImportKeyPair, while `get-key-pairs` returns empty
-    //            and `delete-key-pair` 404s — because there's no
-    //            keypair, the namespace is held by the instance.
-    //            The `-key` suffix keeps us clear of every other
-    //            Lightsail resource in the stack.
+    //            TYPES within a region. The `-key` suffix avoids
+    //            colliding with the instance name.
     // ──────────────────────────────────────────────────────────────
     const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
       name: `vault-cortex-key-${$app.stage}`,
@@ -92,7 +89,8 @@ export default $config({
     // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
     //
     // GOTCHA: Changing userData, bundleId, or keyPairName REPLACES
-    //         the instance — all data on the old instance is lost.
+    //         the instance. The deploy key convention above keeps
+    //         keyPairName stable across local and CI deploys.
     // GOTCHA: userData is visible via get-instance API/console.
     //         Don't bake secrets here — pull from SSM at boot instead.
     // ──────────────────────────────────────────────────────────────

@@ -88,7 +88,7 @@ SST uses a stage name based on your OS username (run `npx sst secret list` once 
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
 - A GitHub PAT with `read:packages` + `write:packages` scopes
-- An SSH keypair at `~/.ssh/id_ed25519.pub` (or `~/.ssh/id_rsa.pub`). If you don't have one: `ssh-keygen -t ed25519`. SST uploads the public key to Lightsail so SCP/SSH work with your default identity.
+- A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
 
 ### One-time setup
 
@@ -269,19 +269,19 @@ npm run prettier:check  # formatting
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the three secrets first (one-time setup step 2).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The security group only allows ports 22 and 8000.
-- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/id_ed25519.pub` exists and redeploy, or set `SSH_PUBKEY_PATH` to the correct `.pub` file.
+- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
-- **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` or `keyPairName` changed in `sst.config.ts`). Run `ssh-keygen -R <lightsailIp>` and retry.
+- **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.
 
 ## Monitoring
 
 ### SSH into the server
 
 ```bash
-ssh ubuntu@<lightsailIp>
+ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 ```
 
-`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the SSH key that SST uploaded to Lightsail during provisioning (`~/.ssh/id_ed25519` by default).
+`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision (see [Prerequisites](#prerequisites)).
 
 ### Tailing logs
 
