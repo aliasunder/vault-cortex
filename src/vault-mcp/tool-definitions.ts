@@ -30,6 +30,7 @@ export type ToolName =
 // so the response doesn't contain the same data twice.
 const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 
+/** Removes keys already present as top-level fields, returning the rest as `additional_properties`. */
 const stripPromotedProperties = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
