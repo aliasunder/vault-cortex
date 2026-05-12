@@ -183,9 +183,7 @@ describe("fullTextSearch", () => {
       { query: "burnout", filters: { snippet_tokens: 60 } },
       logger,
     )
-    expect(long[0].snippet.length).toBeGreaterThanOrEqual(
-      short[0].snippet.length,
-    )
+    expect(long[0].snippet.length).toBeGreaterThan(short[0].snippet.length)
   })
 
   it("respects folder filter", () => {
