@@ -25,17 +25,30 @@ const HEADING_RE = /^(#{1,6}) (.+)$/
  * Single-pass heading parser for H1–H6 with code-block awareness.
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
  */
+const FENCE_OPEN_RE = /^(`{3,}|~{3,})/
+
 const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
-  let inCodeBlock = false
+  let fence: { char: string; length: number } | null = null
 
   const raw = lines.reduce<
     Array<{ text: string; level: number; startLine: number }>
   >((acc, line, i) => {
-    if (/^```/.test(line)) {
-      inCodeBlock = !inCodeBlock
+    const fenceMatch = FENCE_OPEN_RE.exec(line)
+    if (fence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === fence.char &&
+        fenceMatch[1].length >= fence.length &&
+        line.trim() === fenceMatch[1]
+      ) {
+        fence = null
+      }
       return acc
     }
-    if (inCodeBlock) return acc
+    if (fenceMatch) {
+      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
+      return acc
+    }
 
     const match = HEADING_RE.exec(line)
     if (match) {
@@ -90,8 +103,12 @@ const findHeading = (
     const details = matches
       .map((h) => `${"#".repeat(h.level)} ${h.text} (line ${h.startLine + 1})`)
       .join(", ")
+    const allSameLevel = matches.every((h) => h.level === matches[0].level)
+    const hint = allSameLevel
+      ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
+      : "Use heading_level to disambiguate."
     throw new Error(
-      `ambiguous heading: "${needle}" matches ${matches.length} sections: ${details}. Use heading_level to disambiguate.`,
+      `ambiguous heading: "${needle}" matches ${matches.length} sections: ${details}. ${hint}`,
     )
   }
 
@@ -222,6 +239,11 @@ const replaceInNote = async (
   logger: Logger,
 ): Promise<string> => {
   const { path, oldText, newText, replaceAllOccurrences } = params
+
+  if (oldText.length === 0) {
+    throw new Error("old_text cannot be empty")
+  }
+
   const { fullPath, data, lines } = await readNoteForPatch(
     params.vaultPath,
     path,

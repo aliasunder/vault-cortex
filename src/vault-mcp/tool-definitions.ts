@@ -178,7 +178,7 @@ Returns: Confirmation message.`,
     "vault_patch_note",
     {
       title: "Patch Note",
-      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter is always preserved.
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
 
 Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })
 
@@ -191,7 +191,9 @@ Operations:
 - replace: replace section body (heading preserved; requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.`,
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
+
+Returns: Confirmation message.`,
       inputSchema: {
         path: z.string().describe("Vault-relative path to the note"),
         operation: z
@@ -206,6 +208,7 @@ Section boundaries: a section spans from its heading to the next heading of the 
           ),
         heading_level: z
           .number()
+          .int()
           .min(1)
           .max(6)
           .optional()
@@ -249,17 +252,22 @@ Section boundaries: a section spans from its heading to the next heading of the 
     "vault_replace_in_note",
     {
       title: "Replace in Note",
-      description: `Find and replace text in a markdown note. Matches exact text (case-sensitive). Frontmatter is always preserved.
+      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — frontmatter fields must be edited via vault_write_note's frontmatter parameter.
 
-Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "status: draft", new_text: "status: review" })
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
-When to use: Targeted text changes — fixing typos, updating values, renaming terms.
+When to use: Targeted text changes — fixing typos, updating values, renaming terms in the note body.
 Prefer vault_patch_note for heading-targeted structural edits.
 
-Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.`,
+Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
+
+Returns: Confirmation message with replacement count.`,
       inputSchema: {
         path: z.string().describe("Vault-relative path to the note"),
-        old_text: z.string().describe("Exact text to find (case-sensitive)"),
+        old_text: z
+          .string()
+          .min(1)
+          .describe("Exact text to find (case-sensitive, non-empty)"),
         new_text: z.string().describe("Replacement text"),
         replace_all_occurrences: z
           .boolean()
@@ -271,7 +279,7 @@ Limitation: Exact text match only (no regex). old_text must appear in the note b
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: false,
       },
     },

@@ -195,6 +195,84 @@ Content here.
     expect(newLineIdx).toBeGreaterThan(contentIdx)
   })
 
+  it("ignores headings inside nested fenced code blocks", async () => {
+    const content = `---
+title: Nested Fences
+---
+
+## Real Heading
+Real content.
+
+\`\`\`\`markdown
+\`\`\`
+## Fake Heading In Nested Block
+\`\`\`
+\`\`\`\`
+
+## Another Real Heading
+More content.
+`
+    await writeTestNote("nested-fence.md", content)
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "nested-fence.md",
+          operation: "append",
+          content: "text",
+          heading: "Fake Heading In Nested Block",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("heading not found")
+    // Real headings are still reachable
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "nested-fence.md",
+        operation: "append",
+        content: "appended to real",
+        heading: "Another Real Heading",
+      },
+      logger,
+    )
+    const updated = await readTestNote("nested-fence.md")
+    const lines = updated.split("\n")
+    const moreIdx = lines.findIndex((l) => l === "More content.")
+    const appendIdx = lines.findIndex((l) => l === "appended to real")
+    expect(appendIdx).toBeGreaterThan(moreIdx)
+  })
+
+  it("ignores headings inside tilde-fenced code blocks", async () => {
+    const content = `---
+title: Tilde Fence
+---
+
+## Before
+Content before.
+
+~~~
+## Fake Heading In Tilde Block
+~~~
+
+## After
+Content after.
+`
+    await writeTestNote("tilde.md", content)
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "tilde.md",
+          operation: "append",
+          content: "text",
+          heading: "Fake Heading In Tilde Block",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("heading not found")
+  })
+
   it("returns empty list for file with no headings", async () => {
     await writeTestNote("flat.md", "---\ntitle: Flat\n---\n\nJust text.\n")
     await expect(
@@ -270,7 +348,33 @@ Second content.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*2 sections.*heading_level/)
+    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/)
+  })
+
+  it("errors on cross-level ambiguity with heading_level hint", async () => {
+    const content = `---
+title: CrossLevel
+---
+
+# Overview
+Top-level.
+
+## Overview
+Sub-level.
+`
+    await writeTestNote("cross-level.md", content)
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "cross-level.md",
+          operation: "append",
+          content: "text",
+          heading: "Overview",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(/ambiguous.*heading_level/)
   })
 
   it("disambiguates with heading_level", async () => {
@@ -868,6 +972,21 @@ apple and apple and apple.
     const updated = await readTestNote("replace-all.md")
     expect(updated).toContain("orange and orange and orange.")
     expect(updated).not.toContain("apple")
+  })
+
+  it("errors on empty old_text", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      replaceInNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          oldText: "",
+          newText: "anything",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("old_text cannot be empty")
   })
 
   it("errors when old_text not found", async () => {
