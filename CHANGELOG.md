@@ -1,5 +1,16 @@
 # Changelog
 
+
+## [0.3.0] — 2026-05-12
+
+### Features
+
+- **mcp:** FTS5 fix, search response shape, tool descriptions, new tools (#9)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.2.0
+
 All notable changes to this project will be documented in this file.
 
 ## [0.2.0] — 2026-05-11
