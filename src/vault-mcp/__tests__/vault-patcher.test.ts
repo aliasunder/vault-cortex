@@ -81,41 +81,51 @@ More text.
 // ── parseHeadings (tested indirectly via patchNote) ─────────────
 
 describe("heading parsing", () => {
-  it("handles all 6 heading levels", async () => {
+  it.each([
+    { level: 1, heading: "H1" },
+    { level: 2, heading: "H2" },
+    { level: 3, heading: "H3" },
+    { level: 4, heading: "H4" },
+    { level: 5, heading: "H5" },
+    { level: 6, heading: "H6" },
+  ] as const)("appends to H$level heading", async ({ level, heading }) => {
     const content = `---
 title: Levels
 ---
 
 # H1
+Content under H1.
 ## H2
+Content under H2.
 ### H3
+Content under H3.
 #### H4
+Content under H4.
 ##### H5
+Content under H5.
 ###### H6
+Content under H6.
 `
-    await writeTestNote("levels.md", content)
-    // Verify we can target each level
-    for (const [level, text] of [
-      [1, "H1"],
-      [2, "H2"],
-      [3, "H3"],
-      [4, "H4"],
-      [5, "H5"],
-      [6, "H6"],
-    ] as const) {
-      const result = await patchNote(
-        {
-          vaultPath: vault,
-          path: "levels.md",
-          operation: "append",
-          content: `Level ${level} content`,
-          heading: text,
-          headingLevel: level,
-        },
-        logger,
-      )
-      expect(result).toContain(`Applied append`)
-    }
+    await writeTestNote(`level-${level}.md`, content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: `level-${level}.md`,
+        operation: "append",
+        content: `Appended to ${heading}.`,
+        heading,
+        headingLevel: level,
+      },
+      logger,
+    )
+    const updated = await readTestNote(`level-${level}.md`)
+    const lines = updated.split("\n")
+    const existingIdx = lines.findIndex(
+      (l) => l === `Content under ${heading}.`,
+    )
+    const appendedIdx = lines.findIndex((l) => l === `Appended to ${heading}.`)
+    expect(existingIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeGreaterThan(existingIdx)
   })
 
   it("ignores headings inside fenced code blocks", async () => {
@@ -137,7 +147,7 @@ title: Levels
 
   it("targets real headings around code blocks", async () => {
     await writeTestNote("code.md", NOTE_WITH_CODE_BLOCK)
-    const result = await patchNote(
+    await patchNote(
       {
         vaultPath: vault,
         path: "code.md",
@@ -147,9 +157,14 @@ title: Levels
       },
       logger,
     )
-    expect(result).toContain("Applied append")
     const updated = await readTestNote("code.md")
-    expect(updated).toContain("appended text")
+    const lines = updated.split("\n")
+    const someTextIdx = lines.findIndex((l) => l === "Some text.")
+    const appendedIdx = lines.findIndex((l) => l === "appended text")
+    const anotherIdx = lines.findIndex((l) => l === "## Another Real Heading")
+    expect(someTextIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeGreaterThan(someTextIdx)
+    expect(anotherIdx).toBeGreaterThan(appendedIdx)
   })
 
   it("strips trailing hashes from headings", async () => {
@@ -162,7 +177,7 @@ title: Hashes
 Content here.
 `
     await writeTestNote("hashes.md", content)
-    const result = await patchNote(
+    await patchNote(
       {
         vaultPath: vault,
         path: "hashes.md",
@@ -172,7 +187,12 @@ Content here.
       },
       logger,
     )
-    expect(result).toContain("Applied append")
+    const updated = await readTestNote("hashes.md")
+    const lines = updated.split("\n")
+    const contentIdx = lines.findIndex((l) => l === "Content here.")
+    const newLineIdx = lines.findIndex((l) => l === "new line")
+    expect(contentIdx).toBeGreaterThan(-1)
+    expect(newLineIdx).toBeGreaterThan(contentIdx)
   })
 
   it("returns empty list for file with no headings", async () => {
@@ -265,7 +285,7 @@ Top-level content.
 Sub-level content.
 `
     await writeTestNote("levels.md", content)
-    const result = await patchNote(
+    await patchNote(
       {
         vaultPath: vault,
         path: "levels.md",
@@ -276,10 +296,19 @@ Sub-level content.
       },
       logger,
     )
-    expect(result).toContain("Applied append")
     const updated = await readTestNote("levels.md")
-    expect(updated).toContain("Sub-level content.")
-    expect(updated).toContain("added to H2")
+    const lines = updated.split("\n")
+    const h1Idx = lines.findIndex((l) => l === "# Overview")
+    const topContentIdx = lines.findIndex((l) => l === "Top-level content.")
+    const h2Idx = lines.findIndex((l) => l === "## Overview")
+    const subContentIdx = lines.findIndex((l) => l === "Sub-level content.")
+    const addedIdx = lines.findIndex((l) => l === "added to H2")
+    // added to H2 must be in the H2 section (after Sub-level content), not H1
+    expect(addedIdx).toBeGreaterThan(subContentIdx)
+    expect(addedIdx).toBeGreaterThan(h2Idx)
+    // H1 section content must be unchanged (added text is NOT between H1 and H2)
+    expect(topContentIdx).toBeGreaterThan(h1Idx)
+    expect(h2Idx).toBeGreaterThan(topContentIdx)
   })
 
   it("errors on empty heading", async () => {
@@ -378,9 +407,14 @@ describe("patchNote — section-level append", () => {
     )
     const updated = await readTestNote("note.md")
     const lines = updated.split("\n")
+    const upNextIdx = lines.findIndex((l) => l === "## Up Next")
+    const taskCIdx = lines.findIndex((l) => l === "- [ ] Task C")
     const taskEIdx = lines.findIndex((l) => l === "- [ ] Task E")
     const doneIdx = lines.findIndex((l) => l === "## Done")
-    expect(taskEIdx).toBeGreaterThan(-1)
+    // Task E must be after existing Up Next content, before ## Done
+    expect(upNextIdx).toBeGreaterThan(-1)
+    expect(taskCIdx).toBeGreaterThan(upNextIdx)
+    expect(taskEIdx).toBeGreaterThan(taskCIdx)
     expect(doneIdx).toBeGreaterThan(taskEIdx)
   })
 
@@ -416,10 +450,17 @@ describe("patchNote — section-level append", () => {
     )
     const updated = await readTestNote("note.md")
     const lines = updated.split("\n")
+    const doneIdx = lines.findIndex((l) => l === "## Done")
     const taskDIdx = lines.findIndex((l) => l === "- [x] Task D")
     const taskEIdx = lines.findIndex((l) => l === "- [x] Task E")
-    expect(taskDIdx).toBeGreaterThan(-1)
+    // Task E must be in the Done section, after existing Task D
+    expect(taskDIdx).toBeGreaterThan(doneIdx)
     expect(taskEIdx).toBeGreaterThan(taskDIdx)
+    // No heading after Task E (it's the last section)
+    const headingsAfter = lines
+      .slice(taskEIdx + 1)
+      .filter((l) => /^#{1,6} /.test(l))
+    expect(headingsAfter).toHaveLength(0)
   })
 })
 
@@ -513,11 +554,15 @@ describe("patchNote — insert_before", () => {
     )
     const updated = await readTestNote("note.md")
     const lines = updated.split("\n")
+    // Frontmatter closes with ---
+    const fmCloseIdx = lines.indexOf("---", 1)
     const prefaceIdx = lines.findIndex((l) => l === "# Preface")
     const mainIdx = lines.findIndex((l) => l === "# Main Title")
-    expect(prefaceIdx).toBeGreaterThan(-1)
+    // Preface must be after frontmatter fence, before original heading
+    expect(prefaceIdx).toBeGreaterThan(fmCloseIdx)
     expect(mainIdx).toBeGreaterThan(prefaceIdx)
-    expect(updated).toContain("Before everything.")
+    // Original content still intact after Main Title
+    expect(updated).toContain("Intro paragraph.")
   })
 })
 
@@ -532,23 +577,31 @@ describe("frontmatter preservation", () => {
       op,
       heading: op === "append" || op === "prepend" ? undefined : "Active",
     })),
-  )("$name preserves frontmatter", async ({ op, heading }) => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
-    await patchNote(
-      {
-        vaultPath: vault,
-        path: "note.md",
-        operation: op,
-        content: "new content",
-        heading,
-      },
-      logger,
-    )
-    const updated = await readTestNote("note.md")
-    expect(updated).toContain("title: Test Note")
-    expect(updated).toContain("tags:")
-    expect(updated).toContain("- test")
-  })
+  )(
+    "$name preserves frontmatter and modifies body",
+    async ({ op, heading }) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: op,
+          content: `marker-${op}`,
+          heading,
+        },
+        logger,
+      )
+      const updated = await readTestNote("note.md")
+      // Frontmatter preserved
+      expect(updated).toContain("title: Test Note")
+      expect(updated).toContain("tags:")
+      expect(updated).toContain("- test")
+      // Body was actually modified
+      expect(updated).toContain(`marker-${op}`)
+      // Frontmatter is still at the top (starts with ---)
+      expect(updated.startsWith("---\n")).toBe(true)
+    },
+  )
 
   it("handles file with no frontmatter", async () => {
     await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER)
@@ -563,12 +616,17 @@ describe("frontmatter preservation", () => {
       logger,
     )
     const updated = await readTestNote("no-fm.md")
-    expect(updated).toContain("Content one.")
-    expect(updated).toContain("Appended text.")
     const lines = updated.split("\n")
+    const sectionOneIdx = lines.findIndex((l) => l === "## Section One")
     const contentIdx = lines.findIndex((l) => l === "Content one.")
     const appendIdx = lines.findIndex((l) => l === "Appended text.")
+    const sectionTwoIdx = lines.findIndex((l) => l === "## Section Two")
+    // Appended text must be within Section One (after content, before Section Two)
+    expect(contentIdx).toBeGreaterThan(sectionOneIdx)
     expect(appendIdx).toBeGreaterThan(contentIdx)
+    expect(sectionTwoIdx).toBeGreaterThan(appendIdx)
+    // Section Two content untouched
+    expect(updated).toContain("Content two.")
   })
 
   it("preserves complex frontmatter (nested objects, arrays)", async () => {
@@ -601,7 +659,15 @@ Body text.
     expect(updated).toContain("title: Complex")
     expect(updated).toContain("number: 42")
     expect(updated).toContain("key: value")
+    // Verify list-type frontmatter values preserved
+    expect(updated).toContain("- a")
+    expect(updated).toContain("- b")
+    expect(updated).toContain("- c")
+    expect(updated).toContain("- one")
+    expect(updated).toContain("- two")
+    // Verify body was replaced
     expect(updated).toContain("New body.")
+    expect(updated).not.toContain("Body text.")
   })
 })
 
@@ -677,7 +743,12 @@ Content.
       logger,
     )
     const updated = await readTestNote("only-fm.md")
-    expect(updated).toContain("## First Section\nContent.")
+    // Frontmatter preserved
+    expect(updated).toContain("title: Empty")
+    expect(updated.startsWith("---\n")).toBe(true)
+    // Content was appended
+    expect(updated).toContain("## First Section")
+    expect(updated).toContain("Content.")
   })
 
   it("handles heading at very end of file with no body", async () => {
@@ -703,10 +774,20 @@ Some text.
     )
     const updated = await readTestNote("trailing.md")
     const lines = updated.split("\n")
+    const hasContentIdx = lines.findIndex((l) => l === "## Has Content")
+    const someTextIdx = lines.findIndex((l) => l === "Some text.")
     const headingIdx = lines.findIndex((l) => l === "## Trailing Heading")
     const addedIdx = lines.findIndex((l) => l === "Added to trailing.")
-    expect(headingIdx).toBeGreaterThan(-1)
+    // Previous section intact
+    expect(someTextIdx).toBeGreaterThan(hasContentIdx)
+    expect(headingIdx).toBeGreaterThan(someTextIdx)
+    // Added content is after the trailing heading
     expect(addedIdx).toBeGreaterThan(headingIdx)
+    // No heading after the added content
+    const headingsAfter = lines
+      .slice(addedIdx + 1)
+      .filter((l) => /^#{1,6} /.test(l))
+    expect(headingsAfter).toHaveLength(0)
   })
 
   it("handles file in subdirectory", async () => {
@@ -718,7 +799,7 @@ title: Nested
 Body.
 `
     await writeTestNote("sub/dir/nested.md", content)
-    const result = await patchNote(
+    await patchNote(
       {
         vaultPath: vault,
         path: "sub/dir/nested.md",
@@ -728,7 +809,13 @@ Body.
       },
       logger,
     )
-    expect(result).toContain("sub/dir/nested.md")
+    const updated = await readTestNote("sub/dir/nested.md")
+    const lines = updated.split("\n")
+    const bodyIdx = lines.findIndex((l) => l === "Body.")
+    const moreIdx = lines.findIndex((l) => l === "More body.")
+    expect(bodyIdx).toBeGreaterThan(-1)
+    expect(moreIdx).toBeGreaterThan(bodyIdx)
+    expect(updated).toContain("title: Nested")
   })
 })
 
