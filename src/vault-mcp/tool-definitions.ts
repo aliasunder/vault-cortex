@@ -87,7 +87,7 @@ export const registerTools = (params: {
       title: "Read Note",
       description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter.
 
-Example: vault_read_note({ path: "About Me/Principles.md" })
+Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 
 When to use: You know the exact path and need the full content of a specific note.
 Prefer vault_search when you don't know the path. Prefer vault_get_memory for About Me/ files (returns content without frontmatter).
@@ -125,12 +125,14 @@ Returns: Raw markdown string.`,
     "vault_write_note",
     {
       title: "Write Note",
-      description: `Create or update a markdown note. Body is markdown only — frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).
+      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", frontmatter: { tags: ["project"], type: "project" } })
 
-When to use: Creating a new note or fully replacing an existing note's body. Frontmatter is the YAML metadata block at the top of a note (title, tags, type, created, related, etc.).
+When to use: Creating a new note or fully replacing an existing note's body.
 Prefer vault_update_memory for appending dated entries to About Me/ memory files.
+
+Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -176,7 +178,7 @@ Returns: Confirmation message.`,
 Example: vault_list_notes({ folder: "Projects" }) or vault_list_notes({ glob: "**/*session-log*.md" })
 
 When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
-Prefer vault_search for content-based discovery. Prefer vault_search_by_tag for tag-based discovery.
+Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery.
 
 Returns: JSON array of vault-relative paths.`,
       inputSchema: {
@@ -259,7 +261,7 @@ Returns: Confirmation message.`,
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 
 When to use: Finding notes by content when you don't know the exact path. The primary discovery tool for content-based queries.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_list_notes for browsing by folder without a search term. Prefer vault_recent_notes for time-based browsing.
+Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder without a search term. Prefer vault_recent_notes for time-based browsing.
 
 Returns: JSON with results array (path, title, snippet, score, tags, related, folder, type, created, mtime) and total count. created is omitted when null.`,
       inputSchema: {
@@ -391,12 +393,12 @@ Returns: JSON array of { tag, count } objects.`,
     "vault_recent_notes",
     {
       title: "Recent Notes",
-      description: `List recently modified or created notes.
+      description: `List recently modified or created notes, sorted by timestamp. Returns the most recent notes first — does not filter by date range.
 
 Example: vault_recent_notes({ sort_by: "mtime", limit: 10 })
 
-When to use: Catching up on vault changes, finding recent work, or checking what was modified since a given date.
-Prefer vault_search for content-based discovery. Prefer vault_list_notes for browsing a specific folder.
+When to use: Catching up on vault changes or finding recent work.
+Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties), sorted by chosen timestamp.`,
       inputSchema: {
@@ -480,6 +482,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
 Example: vault_stats()
 
 When to use: Quick vault orientation at the start of a session, or checking corpus size before planning queries.
+Use vault_list_tags for the complete tag list — vault_stats returns only the top 10.
 
 Returns: JSON with noteCount, tagCount, recentlyModified, and topTags array.`,
       inputSchema: {},
@@ -510,7 +513,7 @@ Returns: JSON with noteCount, tagCount, recentlyModified, and topTags array.`,
     "vault_get_memory",
     {
       title: "Get Memory",
-      description: `Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. No args: all files concatenated (frontmatter stripped). With file: single file content. With file+section: just that H2 section's entries.
+      description: `Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 
