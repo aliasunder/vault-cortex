@@ -150,11 +150,8 @@ describe("fullTextSearch", () => {
 
   it("rounds score to at most 4 significant figures", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    const digits = String(results[0].score)
-      .replace(".", "")
-      .replace(/^0+/, "")
-      .replace(/0+$/, "")
-    expect(digits.length).toBeLessThanOrEqual(4)
+    const score = results[0].score
+    expect(score).toBe(Number(score.toPrecision(4)))
   })
 
   it("omits created when null", () => {
@@ -264,6 +261,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     expect(phraseResults.some((r) => r.path === "phrase.md")).toBe(true)
+    expect(phraseResults.some((r) => r.path === "separate.md")).toBe(false)
   })
 
   it("query with FTS5 operators does not throw", () => {
@@ -486,9 +484,9 @@ describe("getStats", () => {
     expect(stats.noteCount).toBe(3)
   })
 
-  it("returns correct tag count", () => {
+  it("returns correct distinct tag count", () => {
     const stats = index.getStats(logger)
-    expect(stats.tagCount).toBeGreaterThanOrEqual(3)
+    expect(stats.tagCount).toBe(3)
   })
 
   it("counts recently modified notes", () => {
@@ -496,12 +494,12 @@ describe("getStats", () => {
     expect(stats.recentlyModified).toBe(2)
   })
 
-  it("returns top tags ordered by count", () => {
+  it("returns top tags ordered by count descending", () => {
     const stats = index.getStats(logger)
-    expect(stats.topTags.length).toBeGreaterThan(0)
-    expect(stats.topTags[0].count).toBeGreaterThanOrEqual(
-      stats.topTags[stats.topTags.length - 1].count,
-    )
+    expect(stats.topTags).toHaveLength(3)
+    expect(stats.topTags[0].count).toBe(2)
+    expect(stats.topTags[2].count).toBe(1)
+    expect(stats.topTags[2].tag).toBe("self")
   })
 })
 
