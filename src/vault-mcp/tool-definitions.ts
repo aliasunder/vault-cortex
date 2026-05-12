@@ -85,8 +85,14 @@ export const registerTools = (params: {
     "vault_read_note",
     {
       title: "Read Note",
-      description:
-        'Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter.\n\nExample: vault_read_note({ path: "About Me/Principles.md" })\n\nWhen to use: You know the exact path and need the full content of a specific note.\nPrefer vault_search when you don\'t know the path. Prefer vault_get_memory for About Me/ files (returns content without frontmatter).\n\nReturns: Raw markdown string.',
+      description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter.
+
+Example: vault_read_note({ path: "About Me/Principles.md" })
+
+When to use: You know the exact path and need the full content of a specific note.
+Prefer vault_search when you don't know the path. Prefer vault_get_memory for About Me/ files (returns content without frontmatter).
+
+Returns: Raw markdown string.`,
       inputSchema: {
         path: z
           .string()
@@ -119,8 +125,14 @@ export const registerTools = (params: {
     "vault_write_note",
     {
       title: "Write Note",
-      description:
-        'Create or update a markdown note. Body is markdown only — frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).\n\nExample: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", frontmatter: { tags: ["project"], type: "project" } })\n\nWhen to use: Creating a new note or fully replacing an existing note\'s body. Frontmatter is the YAML metadata block at the top of a note (title, tags, type, created, related, etc.).\nPrefer vault_update_memory for appending dated entries to About Me/ memory files.\n\nReturns: Confirmation message.',
+      description: `Create or update a markdown note. Body is markdown only — frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).
+
+Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", frontmatter: { tags: ["project"], type: "project" } })
+
+When to use: Creating a new note or fully replacing an existing note's body. Frontmatter is the YAML metadata block at the top of a note (title, tags, type, created, related, etc.).
+Prefer vault_update_memory for appending dated entries to About Me/ memory files.
+
+Returns: Confirmation message.`,
       inputSchema: {
         path: z.string().describe("Vault-relative path for the note"),
         body: z
@@ -159,8 +171,14 @@ export const registerTools = (params: {
     "vault_list_notes",
     {
       title: "List Notes",
-      description:
-        'List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.\n\nExample: vault_list_notes({ folder: "Projects" }) or vault_list_notes({ glob: "**/*session-log*.md" })\n\nWhen to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.\nPrefer vault_search for content-based discovery. Prefer vault_search_by_tag for tag-based discovery.\n\nReturns: JSON array of vault-relative paths.',
+      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
+
+Example: vault_list_notes({ folder: "Projects" }) or vault_list_notes({ glob: "**/*session-log*.md" })
+
+When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
+Prefer vault_search for content-based discovery. Prefer vault_search_by_tag for tag-based discovery.
+
+Returns: JSON array of vault-relative paths.`,
       inputSchema: {
         folder: z
           .string()
@@ -198,8 +216,14 @@ export const registerTools = (params: {
     "vault_delete_note",
     {
       title: "Delete Note",
-      description:
-        'Permanently delete a markdown note. Protected paths (About Me/, Daily Notes/) are refused to prevent accidental deletion of memory or daily notes.\n\nExample: vault_delete_note({ path: "Scratch/temp.md" })\n\nWhen to use: Removing a note you no longer need.\nPrefer vault_delete_memory for removing individual dated entries from About Me/ memory files.\n\nReturns: Confirmation message.',
+      description: `Permanently delete a markdown note. Protected paths (About Me/, Daily Notes/) are refused to prevent accidental deletion of memory or daily notes.
+
+Example: vault_delete_note({ path: "Scratch/temp.md" })
+
+When to use: Removing a note you no longer need.
+Prefer vault_delete_memory for removing individual dated entries from About Me/ memory files.
+
+Returns: Confirmation message.`,
       inputSchema: {
         path: z.string().describe("Vault-relative path of the note to delete"),
       },
@@ -230,8 +254,14 @@ export const registerTools = (params: {
     "vault_search",
     {
       title: "Search Notes",
-      description:
-        'Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and frontmatter properties. Wrap terms in double quotes for exact phrase matching (e.g. \'"machine learning"\'); unquoted terms use implicit AND with porter stemming.\n\nExample: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })\n\nWhen to use: Finding notes by content when you don\'t know the exact path. The primary discovery tool for content-based queries.\nPrefer vault_search_by_tag for tag-only queries without text. Prefer vault_list_notes for browsing by folder without a search term. Prefer vault_recent_notes for time-based browsing.\n\nReturns: JSON with results array (path, title, snippet, score, tags, related, folder, type, created, mtime) and total count. created is omitted when null.',
+      description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and frontmatter properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming.
+
+Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
+
+When to use: Finding notes by content when you don't know the exact path. The primary discovery tool for content-based queries.
+Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_list_notes for browsing by folder without a search term. Prefer vault_recent_notes for time-based browsing.
+
+Returns: JSON with results array (path, title, snippet, score, tags, related, folder, type, created, mtime) and total count. created is omitted when null.`,
       inputSchema: {
         query: z.string().describe("Search query text"),
         filters: z
@@ -287,8 +317,14 @@ export const registerTools = (params: {
     "vault_search_by_tag",
     {
       title: "Search by Tag",
-      description:
-        "Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. 'project' matches 'project/vault-cortex', 'project/blog'). Set exact=true for exact match only.\n\nExample: vault_search_by_tag({ tag: \"project\" }) returns all notes tagged project or project/*.\n\nWhen to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.\nPrefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties). Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.",
+      description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
+
+Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged project or project/*.
+
+When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
+Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties). Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -321,8 +357,14 @@ export const registerTools = (params: {
     "vault_list_tags",
     {
       title: "List Tags",
-      description:
-        'List all tags in the vault with their note counts, ordered by count descending.\n\nExample: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project", count: 15 }, ...]\n\nWhen to use: Discovering what tags exist in the vault before searching by tag. Good first step for vault orientation.\nPrefer vault_search_by_tag once you know which tag to query.\n\nReturns: JSON array of { tag, count } objects.',
+      description: `List all tags in the vault with their note counts, ordered by count descending.
+
+Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project", count: 15 }, ...]
+
+When to use: Discovering what tags exist in the vault before searching by tag. Good first step for vault orientation.
+Prefer vault_search_by_tag once you know which tag to query.
+
+Returns: JSON array of { tag, count } objects.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -349,8 +391,14 @@ export const registerTools = (params: {
     "vault_recent_notes",
     {
       title: "Recent Notes",
-      description:
-        'List recently modified or created notes.\n\nExample: vault_recent_notes({ sort_by: "mtime", limit: 10 })\n\nWhen to use: Catching up on vault changes, finding recent work, or checking what was modified since a given date.\nPrefer vault_search for content-based discovery. Prefer vault_list_notes for browsing a specific folder.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties), sorted by chosen timestamp.',
+      description: `List recently modified or created notes.
+
+Example: vault_recent_notes({ sort_by: "mtime", limit: 10 })
+
+When to use: Catching up on vault changes, finding recent work, or checking what was modified since a given date.
+Prefer vault_search for content-based discovery. Prefer vault_list_notes for browsing a specific folder.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties), sorted by chosen timestamp.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "mtime"])
@@ -383,8 +431,14 @@ export const registerTools = (params: {
     "vault_search_by_folder",
     {
       title: "Search by Folder",
-      description:
-        'Browse notes in a folder with full metadata (tags, type, related, created, mtime). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.\n\nExample: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "About Me", recursive: false })\n\nWhen to use: Exploring a folder\'s contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.\nPrefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties).',
+      description: `Browse notes in a folder with full metadata (tags, type, related, created, mtime). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
+
+Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "About Me", recursive: false })
+
+When to use: Exploring a folder's contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.
+Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties).`,
       inputSchema: {
         folder: z
           .string()
@@ -421,8 +475,13 @@ export const registerTools = (params: {
     "vault_stats",
     {
       title: "Vault Statistics",
-      description:
-        "Get vault statistics — note count, tag count, notes modified in last 7 days, and top 10 tags by frequency.\n\nExample: vault_stats()\n\nWhen to use: Quick vault orientation at the start of a session, or checking corpus size before planning queries.\n\nReturns: JSON with noteCount, tagCount, recentlyModified, and topTags array.",
+      description: `Get vault statistics — note count, tag count, notes modified in last 7 days, and top 10 tags by frequency.
+
+Example: vault_stats()
+
+When to use: Quick vault orientation at the start of a session, or checking corpus size before planning queries.
+
+Returns: JSON with noteCount, tagCount, recentlyModified, and topTags array.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -451,8 +510,14 @@ export const registerTools = (params: {
     "vault_get_memory",
     {
       title: "Get Memory",
-      description:
-        'Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. No args: all files concatenated (frontmatter stripped). With file: single file content. With file+section: just that H2 section\'s entries.\n\nExample: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })\n\nWhen to use: Reading user preferences, principles, opinions, or other persistent context stored in About Me/ files. Call vault_list_memory_files first to discover valid file and section names.\nPrefer vault_read_note for reading non-memory notes.\n\nReturns: Raw markdown text.',
+      description: `Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. No args: all files concatenated (frontmatter stripped). With file: single file content. With file+section: just that H2 section's entries.
+
+Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
+
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in About Me/ files. Call vault_list_memory_files first to discover valid file and section names.
+Prefer vault_read_note for reading non-memory notes.
+
+Returns: Raw markdown text.`,
       inputSchema: {
         file: z
           .string()
@@ -492,8 +557,14 @@ export const registerTools = (params: {
     "vault_update_memory",
     {
       title: "Update Memory",
-      description:
-        'Append a dated entry to a section of an About Me/ memory file. The server auto-prefixes today\'s date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.\n\nExample: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })\n\nWhen to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix.\nPrefer vault_write_note for creating entirely new notes (not memory entries).\n\nReturns: Confirmation message.',
+      description: `Append a dated entry to a section of an About Me/ memory file. The server auto-prefixes today's date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.
+
+Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
+
+When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix.
+Prefer vault_write_note for creating entirely new notes (not memory entries).
+
+Returns: Confirmation message.`,
       inputSchema: {
         file: z
           .string()
@@ -554,8 +625,13 @@ export const registerTools = (params: {
     "vault_list_memory_files",
     {
       title: "List Memory Files",
-      description:
-        'Discovery tool — lists About Me/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.\n\nExample: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)" and entry counts.\n\nWhen to use: Discovering what memory files and sections exist BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.\n\nReturns: JSON array of file outlines.',
+      description: `Discovery tool — lists About Me/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.
+
+Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)" and entry counts.
+
+When to use: Discovering what memory files and sections exist BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
+
+Returns: JSON array of file outlines.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -582,8 +658,14 @@ export const registerTools = (params: {
     "vault_delete_memory",
     {
       title: "Delete Memory Entry",
-      description:
-        'Delete a single dated entry from an About Me/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.\n\nExample: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })\n\nWhen to use: Removing an outdated or incorrect entry from a memory file. Call vault_get_memory(file, section) first to see exact entry text for matching.\nPrefer vault_delete_note for deleting entire non-protected notes.\n\nReturns: Confirmation message.',
+      description: `Delete a single dated entry from an About Me/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.
+
+Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
+
+When to use: Removing an outdated or incorrect entry from a memory file. Call vault_get_memory(file, section) first to see exact entry text for matching.
+Prefer vault_delete_note for deleting entire non-protected notes.
+
+Returns: Confirmation message.`,
       inputSchema: {
         file: z
           .string()
