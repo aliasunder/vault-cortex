@@ -42,7 +42,6 @@ type SearchResult = {
   snippet: string
   score: number
   tags: string[]
-  related: string[]
   folder: string
   type: string | null
   created?: string
@@ -289,7 +288,7 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT n.path, n.title,
              snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-             rank * -1 as score, n.tags, n.related, n.folder, n.type, n.created, n.mtime
+             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime
       FROM notes_fts
       JOIN notes n ON n.path = notes_fts.path
       WHERE ${conditions.join(" AND ")}
@@ -302,14 +301,7 @@ export const createSearchIndex = (dbPath: string) => {
       const rows = db.prepare(sql).all(...queryParams) as Array<
         Pick<
           NoteRow,
-          | "path"
-          | "title"
-          | "tags"
-          | "related"
-          | "folder"
-          | "type"
-          | "created"
-          | "mtime"
+          "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime"
         > & {
           snippet: string
           score: number
@@ -322,7 +314,6 @@ export const createSearchIndex = (dbPath: string) => {
         snippet: row.snippet,
         score: Number(Number(row.score).toPrecision(4)),
         tags: JSON.parse(row.tags) as string[],
-        related: JSON.parse(row.related) as string[],
         folder: row.folder,
         type: row.type,
         ...(row.created !== null ? { created: row.created } : {}),

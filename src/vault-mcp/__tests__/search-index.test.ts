@@ -142,10 +142,9 @@ describe("fullTextSearch", () => {
     expect(results[0].snippet).toContain("burnout")
   })
 
-  it("includes type and related in search results", () => {
+  it("includes type in search results", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results[0].type).toBe("about-me")
-    expect(results[0].related).toEqual(["Routines", "Career"])
   })
 
   it("rounds score to at most 4 significant figures", () => {

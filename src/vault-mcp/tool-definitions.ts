@@ -263,7 +263,7 @@ Example: vault_search({ query: "kubernetes networking", filters: { tags: ["refer
 When to use: Finding notes by content when you don't know the exact path. The primary discovery tool for content-based queries.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder without a search term. Prefer vault_recent_notes for time-based browsing.
 
-Returns: JSON with results array (path, title, snippet, score, tags, related, folder, type, created, mtime) and total count. created is omitted when null.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, mtime) and total count. created is omitted when null.`,
       inputSchema: {
         query: z.string().describe("Search query text"),
         filters: z
