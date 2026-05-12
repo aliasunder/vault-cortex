@@ -2,7 +2,7 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 complete — all 12 MCP tools implemented and tested (151 tests). Infrastructure deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+> **Status:** Phase 1 complete — 13 MCP tools implemented and tested (196 tests). Infrastructure deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Contents
 
@@ -308,7 +308,7 @@ Test with the same curl commands above. The hardcoded token is `local-dev-token`
 
 ### MCP Inspector
 
-Test all 12 tools interactively in a browser UI. The server must be running first:
+Test all tools interactively in a browser UI. The server must be running first:
 
 ```bash
 # Terminal 1 — start the server

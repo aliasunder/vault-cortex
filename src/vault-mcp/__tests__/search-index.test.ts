@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { createSearchIndex } from "../search-index.js"
+import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../logger.js"
 
@@ -57,19 +57,19 @@ describe("upsertNote", () => {
 
   it("extracts title from frontmatter", () => {
     index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    const results = index.searchByFolder("About Me")
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].title).toBe("Principles")
   })
 
   it("falls back to filename for title when no frontmatter title", () => {
     index.upsertNote("notes/random.md", NOTE_MINIMAL, 1000)
-    const results = index.searchByFolder("notes")
+    const results = index.searchByFolder({ folder: "notes" }, logger)
     expect(results[0].title).toBe("random")
   })
 
   it("stores folder as first path segment", () => {
     index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    const results = index.searchByFolder("About Me")
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].folder).toBe("About Me")
   })
 
@@ -136,9 +136,50 @@ describe("fullTextSearch", () => {
     expect(results).toHaveLength(1)
   })
 
-  it("returns highlighted snippets", () => {
+  it("returns snippets without HTML markup", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results[0].snippet).toContain("<mark>")
+    expect(results[0].snippet).not.toContain("<mark>")
+    expect(results[0].snippet).toContain("burnout")
+  })
+
+  it("includes type in search results", () => {
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(results[0].type).toBe("about-me")
+  })
+
+  it("rounds score to at most 4 significant figures", () => {
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    const score = results[0].score
+    expect(score).toBe(Number(score.toPrecision(4)))
+  })
+
+  it("omits created when null", () => {
+    const results = index.fullTextSearch({ query: "content without" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0]).not.toHaveProperty("created")
+  })
+
+  it("includes created when present", () => {
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(results[0]).toHaveProperty("created")
+    expect(results[0].created).toContain("2025")
+  })
+
+  it("returns integer mtime", () => {
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(Number.isInteger(results[0].mtime)).toBe(true)
+  })
+
+  it("respects custom snippet_tokens", () => {
+    const short = index.fullTextSearch(
+      { query: "burnout", filters: { snippet_tokens: 5 } },
+      logger,
+    )
+    const long = index.fullTextSearch(
+      { query: "burnout", filters: { snippet_tokens: 60 } },
+      logger,
+    )
+    expect(long[0].snippet.length).toBeGreaterThan(short[0].snippet.length)
   })
 
   it("respects folder filter", () => {
@@ -185,6 +226,105 @@ describe("fullTextSearch", () => {
     const results = index.fullTextSearch({ query: "run" }, logger)
     expect(results.length).toBeGreaterThan(0)
     expect(results.some((r) => r.path === "stem.md")).toBe(true)
+  })
+
+  it("multi-word query matches notes containing both terms (implicit AND)", () => {
+    const results = index.fullTextSearch(
+      { query: "burnout boundaries" },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("About Me/Principles.md")
+  })
+
+  it("multi-word query does not require exact phrase adjacency", () => {
+    index.upsertNote(
+      "spread.md",
+      "The word alpha appears here. Much later, beta shows up.\n",
+      5000,
+    )
+    const results = index.fullTextSearch({ query: "alpha beta" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("spread.md")
+  })
+
+  it("exact phrase match with quotes", () => {
+    index.upsertNote("phrase.md", "Learn machine learning today\n", 5000)
+    index.upsertNote(
+      "separate.md",
+      "The machine was broken. Learning was slow.\n",
+      5001,
+    )
+    const phraseResults = index.fullTextSearch(
+      { query: '"machine learning"' },
+      logger,
+    )
+    expect(phraseResults.some((r) => r.path === "phrase.md")).toBe(true)
+    expect(phraseResults.some((r) => r.path === "separate.md")).toBe(false)
+  })
+
+  it("query with FTS5 operators does not throw", () => {
+    expect(() =>
+      index.fullTextSearch(
+        { query: 'test "quoted" AND (grouped) OR NOT *wild*' },
+        logger,
+      ),
+    ).not.toThrow()
+  })
+})
+
+describe("sanitizeFtsQuery", () => {
+  const scenarios = [
+    {
+      name: "multi-word: unquoted terms joined with spaces",
+      input: "burnout boundaries",
+      expected: "burnout boundaries",
+    },
+    {
+      name: "single word: passthrough unquoted for stemming",
+      input: "single",
+      expected: "single",
+    },
+    {
+      name: "quoted phrase: preserved",
+      input: '"machine learning"',
+      expected: '"machine learning"',
+    },
+    {
+      name: "phrase + unquoted term",
+      input: '"machine learning" kubernetes',
+      expected: '"machine learning" kubernetes',
+    },
+    {
+      name: "FTS5 specials stripped, reserved words dropped",
+      input: 'test "quoted" AND (grouped)',
+      expected: '"quoted" test grouped',
+    },
+    {
+      name: "wildcard stripped",
+      input: "burn*",
+      expected: "burn",
+    },
+    {
+      name: "all reserved words: empty result",
+      input: "AND OR NOT",
+      expected: '""',
+    },
+    {
+      name: "empty string: empty result",
+      input: "",
+      expected: '""',
+    },
+    {
+      name: "caret and colon stripped",
+      input: "field:value ^boost",
+      expected: "field value boost",
+    },
+  ]
+
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    const result = sanitizeFtsQuery(input)
+    expect(result).toBe(expected)
   })
 })
 
@@ -239,12 +379,18 @@ describe("searchByFolder", () => {
   })
 
   it("recursive mode includes nested files", () => {
-    const results = index.searchByFolder("About Me", { recursive: true })
+    const results = index.searchByFolder(
+      { folder: "About Me", recursive: true },
+      logger,
+    )
     expect(results).toHaveLength(2)
   })
 
   it("non-recursive mode excludes nested files", () => {
-    const results = index.searchByFolder("About Me", { recursive: false })
+    const results = index.searchByFolder(
+      { folder: "About Me", recursive: false },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })
@@ -257,13 +403,13 @@ describe("searchByType", () => {
   })
 
   it("finds notes by type", () => {
-    const results = index.searchByType("about-me")
+    const results = index.searchByType({ type: "about-me" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })
 
   it("returns empty for unknown type", () => {
-    const results = index.searchByType("nonexistent")
+    const results = index.searchByType({ type: "nonexistent" }, logger)
     expect(results).toHaveLength(0)
   })
 })
