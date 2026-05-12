@@ -30,8 +30,9 @@ export type ToolName =
 // so the response doesn't contain the same data twice.
 const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 
-/** Replaces `properties` (full frontmatter) with `additional_properties`
- *  (only frontmatter keys not already in top-level fields like title, tags, type). */
+/** Reshapes NoteMetadata for client responses: keeps all top-level fields,
+ *  replaces `properties` (full frontmatter, mostly duplicated) with
+ *  `additional_properties` (only unpromoted keys like topic, agent, date). */
 const stripPromotedProperties = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
