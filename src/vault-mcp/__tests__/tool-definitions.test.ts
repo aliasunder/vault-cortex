@@ -14,7 +14,6 @@ const TOOL_NAMES = [
   "vault_search_by_folder",
   "vault_list_tags",
   "vault_recent_notes",
-  "vault_stats",
   "vault_get_memory",
   "vault_update_memory",
   "vault_list_memory_files",
@@ -29,7 +28,6 @@ const READ_ONLY_TOOLS = [
   "vault_search_by_folder",
   "vault_list_tags",
   "vault_recent_notes",
-  "vault_stats",
   "vault_get_memory",
   "vault_list_memory_files",
 ] as const
@@ -69,8 +67,8 @@ const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find((c) => c[0] === name)
 
 describe("registerTools", () => {
-  it("registers exactly 14 tools", () => {
-    expect(mockServer.registerTool).toHaveBeenCalledTimes(14)
+  it("registers exactly 13 tools", () => {
+    expect(mockServer.registerTool).toHaveBeenCalledTimes(13)
   })
 
   it.each(TOOL_NAMES)("registers %s", (name) => {

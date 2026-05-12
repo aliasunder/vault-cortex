@@ -17,7 +17,6 @@ export type ToolName =
   | "vault_search_by_folder"
   | "vault_list_tags"
   | "vault_recent_notes"
-  | "vault_stats"
   | "vault_get_memory"
   | "vault_update_memory"
   | "vault_list_memory_files"
@@ -476,40 +475,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
-    "vault_stats",
-    {
-      title: "Vault Statistics",
-      description: `Get vault statistics — note count, tag count, notes modified in last 7 days, and top 10 tags by frequency.
-
-Example: vault_stats()
-
-When to use: Quick vault orientation at the start of a session, or checking corpus size before planning queries.
-Use vault_list_tags for the complete tag list — vault_stats returns only the top 10.
-
-Returns: JSON with noteCount, tagCount, recentlyModified, and topTags array.`,
-      inputSchema: {},
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async (_args, extra) => {
-      const reqLogger = sessionLogger.child({
-        requestId: extra.requestId,
-        tool: "vault_stats",
-      })
-      reqLogger.info("tool_call")
-      return safeHandler(
-        reqLogger,
-        async () => search.getStats(reqLogger),
-        (stats) => JSON.stringify(stats),
-      )
-    },
-  )
-
   // ── Memory ──────────────────────────────────────────────────
 
   server.registerTool(
@@ -707,5 +672,5 @@ Returns: Confirmation message.`,
     },
   )
 
-  sessionLogger.info("registered tools", { count: 14 })
+  sessionLogger.info("registered tools", { count: 13 })
 }

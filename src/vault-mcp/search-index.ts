@@ -455,30 +455,6 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
-  /** Returns aggregate vault statistics for quick orientation. */
-  const getStats = (logger: Logger) => {
-    const { noteCount } = db
-      .prepare("SELECT COUNT(*) as noteCount FROM notes")
-      .get() as { noteCount: number }
-    const { tagCount } = db
-      .prepare(
-        "SELECT COUNT(DISTINCT value) as tagCount FROM notes, json_each(notes.tags)",
-      )
-      .get() as { tagCount: number }
-    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-    const { recentlyModified } = db
-      .prepare("SELECT COUNT(*) as recentlyModified FROM notes WHERE mtime > ?")
-      .get(sevenDaysAgo) as { recentlyModified: number }
-    const topTags = db
-      .prepare(
-        "SELECT value as tag, COUNT(*) as count FROM notes, json_each(notes.tags) GROUP BY value ORDER BY count DESC LIMIT 10",
-      )
-      .all() as Array<{ tag: string; count: number }>
-
-    logger.info("vault stats", { noteCount, tagCount })
-    return { noteCount, tagCount, recentlyModified, topTags }
-  }
-
   return {
     upsertNote,
     removeNote,
@@ -489,7 +465,6 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
-    getStats,
   }
 }
 

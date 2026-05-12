@@ -467,41 +467,6 @@ describe("recentNotes", () => {
   })
 })
 
-describe("getStats", () => {
-  beforeEach(() => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    index.upsertNote(
-      "a.md",
-      "---\ntags: [principles, work]\n---\nbody\n",
-      Date.now(),
-    )
-    index.upsertNote("b.md", "---\ntags: [work]\n---\nbody\n", Date.now())
-  })
-
-  it("returns correct note count", () => {
-    const stats = index.getStats(logger)
-    expect(stats.noteCount).toBe(3)
-  })
-
-  it("returns correct distinct tag count", () => {
-    const stats = index.getStats(logger)
-    expect(stats.tagCount).toBe(3)
-  })
-
-  it("counts recently modified notes", () => {
-    const stats = index.getStats(logger)
-    expect(stats.recentlyModified).toBe(2)
-  })
-
-  it("returns top tags ordered by count descending", () => {
-    const stats = index.getStats(logger)
-    expect(stats.topTags).toHaveLength(3)
-    expect(stats.topTags[0].count).toBe(2)
-    expect(stats.topTags[2].count).toBe(1)
-    expect(stats.topTags[2].tag).toBe("self")
-  })
-})
-
 describe("rebuildFromVault", () => {
   let vaultDir: string
 
