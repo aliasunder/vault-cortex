@@ -33,7 +33,7 @@ const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 /** Reshapes NoteMetadata for client responses: keeps all top-level fields,
  *  replaces `properties` (full frontmatter, mostly duplicated) with
  *  `additional_properties` (only unpromoted keys like topic, agent, date). */
-const stripPromotedProperties = (meta: {
+const formatProperties = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }) => {
@@ -353,7 +353,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       return safeHandler(
         reqLogger,
         async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
-        (results) => JSON.stringify(results.map(stripPromotedProperties)),
+        (results) => JSON.stringify(results.map(formatProperties)),
       )
     },
   )
@@ -427,7 +427,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       return safeHandler(
         reqLogger,
         async () => search.recentNotes({ sort_by, limit }, reqLogger),
-        (notes) => JSON.stringify(notes.map(stripPromotedProperties)),
+        (notes) => JSON.stringify(notes.map(formatProperties)),
       )
     },
   )
@@ -471,7 +471,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         reqLogger,
         async () =>
           search.searchByFolder({ folder, recursive, limit }, reqLogger),
-        (results) => JSON.stringify(results.map(stripPromotedProperties)),
+        (results) => JSON.stringify(results.map(formatProperties)),
       )
     },
   )
