@@ -265,7 +265,7 @@ Example: vault_search({ query: "kubernetes networking", filters: { tags: ["refer
 When to use: Finding notes by content when you don't know the exact path. The primary discovery tool for content-based queries.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder without a search term. Prefer vault_recent_notes for time-based browsing.
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, mtime) and total count. created is omitted when null.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null.`,
       inputSchema: {
         query: z.string().describe("Search query text"),
         filters: z
@@ -328,7 +328,7 @@ Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged projec
 When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties). Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties). Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -397,17 +397,17 @@ Returns: JSON array of { tag, count } objects.`,
       title: "Recent Notes",
       description: `List recently modified or created notes, sorted by timestamp. Returns the most recent notes first — does not filter by date range.
 
-Example: vault_recent_notes({ sort_by: "mtime", limit: 10 })
+Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 
 When to use: Catching up on vault changes or finding recent work.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties), sorted by chosen timestamp.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by chosen timestamp.`,
       inputSchema: {
         sort_by: z
-          .enum(["created", "mtime"])
+          .enum(["created", "modified"])
           .optional()
-          .describe('Sort field: "created" or "mtime" (default "mtime")'),
+          .describe('Sort field: "created" or "modified" (default "modified")'),
         limit: z.number().optional().describe("Max results (default 20)"),
       },
       annotations: {
@@ -435,14 +435,14 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     "vault_search_by_folder",
     {
       title: "Search by Folder",
-      description: `Browse notes in a folder with full metadata (tags, type, related, created, mtime). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
+      description: `Browse notes in a folder with full metadata (tags, type, related, created, modified). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
 
 Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "About Me", recursive: false })
 
 When to use: Exploring a folder's contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.
 Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, mtime, additional_properties).`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties).`,
       inputSchema: {
         folder: z
           .string()

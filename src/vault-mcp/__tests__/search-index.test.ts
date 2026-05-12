@@ -165,9 +165,10 @@ describe("fullTextSearch", () => {
     expect(results[0].created).toContain("2025")
   })
 
-  it("returns integer mtime", () => {
+  it("returns modified as ISO 8601 string", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(Number.isInteger(results[0].mtime)).toBe(true)
+    expect(typeof results[0].modified).toBe("string")
+    expect(results[0].modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 
   it("respects custom snippet_tokens", () => {
@@ -443,7 +444,7 @@ describe("recentNotes", () => {
     index.upsertNote("no-created.md", "no date\n", 3000)
   })
 
-  it("sorts by mtime by default", () => {
+  it("sorts by modified by default", () => {
     const results = index.recentNotes({}, logger)
     expect(results[0].path).toBe("new.md")
     expect(results[1].path).toBe("no-created.md")

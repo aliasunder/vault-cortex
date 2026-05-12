@@ -45,7 +45,7 @@ type SearchResult = {
   folder: string
   type: string | null
   created?: string
-  mtime: number
+  modified: string
 }
 
 type NoteMetadata = {
@@ -56,7 +56,7 @@ type NoteMetadata = {
   folder: string
   type: string | null
   created: string | null
-  mtime: number
+  modified: string
   properties: Record<string, unknown>
 }
 
@@ -317,7 +317,7 @@ export const createSearchIndex = (dbPath: string) => {
         folder: row.folder,
         type: row.type,
         ...(row.created !== null ? { created: row.created } : {}),
-        mtime: Math.round(row.mtime),
+        modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
       }))
       logger.info("full text search", {
         query: params.query,
@@ -430,17 +430,17 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Returns recently modified or created notes, sorted by chosen timestamp. */
   const recentNotes = (
-    params: { sort_by?: "created" | "mtime"; limit?: number },
+    params: { sort_by?: "created" | "modified"; limit?: number },
     logger: Logger,
   ): NoteMetadata[] => {
-    const sortBy = params.sort_by ?? "mtime"
+    const sortBy = params.sort_by ?? "modified"
     const limit = params.limit ?? 20
 
     // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
     const orderClause =
       sortBy === "created"
         ? "ORDER BY created IS NULL, created DESC"
-        : "ORDER BY mtime DESC"
+        : "ORDER BY mtime DESC" // SQL column is still `mtime`
 
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
@@ -479,7 +479,7 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   folder: row.folder,
   type: row.type,
   created: row.created,
-  mtime: row.mtime,
+  modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
   properties: JSON.parse(row.properties) as Record<string, unknown>,
 })
 
