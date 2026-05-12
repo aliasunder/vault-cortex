@@ -312,7 +312,7 @@ export const createSearchIndex = (dbPath: string) => {
         path: row.path,
         title: row.title,
         snippet: row.snippet,
-        score: Number(Number(row.score).toPrecision(4)),
+        score: Number(row.score.toPrecision(4)),
         tags: JSON.parse(row.tags) as string[],
         folder: row.folder,
         type: row.type,
