@@ -17,50 +17,72 @@ type HeadingInfo = Readonly<{
   bodyEndLine: number
 }>
 
+type FenceState = Readonly<{ char: string; length: number }> | null
+
 // ── Internal helpers ────────────────────────────────────────────
 
-const HEADING_RE = /^(#{1,6}) (.+)$/
+/** Matches markdown headings H1–H6: captures the `#` prefix and heading text. */
+const HEADING_REGEX = /^(#{1,6}) (.+)$/
+
+/** Matches fenced code block openers: 3+ backticks or 3+ tildes (CommonMark §4.5). */
+const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 
 /**
  * Single-pass heading parser for H1–H6 with code-block awareness.
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
  */
-const FENCE_OPEN_RE = /^(`{3,}|~{3,})/
-
 const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
-  let fence: { char: string; length: number } | null = null
+  // Phase 1: collect headings, skipping content inside fenced code blocks.
+  // Fence state is carried in the accumulator to avoid mutable external state.
+  const { headings: raw } = lines.reduce<{
+    headings: Array<{ text: string; level: number; startLine: number }>
+    fence: FenceState
+  }>(
+    (state, line, i) => {
+      const fenceMatch = FENCE_OPEN_REGEX.exec(line)
 
-  const raw = lines.reduce<
-    Array<{ text: string; level: number; startLine: number }>
-  >((acc, line, i) => {
-    const fenceMatch = FENCE_OPEN_RE.exec(line)
-    if (fence) {
-      if (
-        fenceMatch &&
-        fenceMatch[1][0] === fence.char &&
-        fenceMatch[1].length >= fence.length &&
-        line.trim() === fenceMatch[1]
-      ) {
-        fence = null
+      if (state.fence) {
+        // Inside a fenced block — only exit when we see a closing fence of the
+        // same character with length >= the opener, and nothing else on the line
+        const isFenceClose =
+          fenceMatch &&
+          fenceMatch[1][0] === state.fence.char &&
+          fenceMatch[1].length >= state.fence.length &&
+          line.trim() === fenceMatch[1]
+        return isFenceClose ? { headings: state.headings, fence: null } : state
       }
-      return acc
-    }
-    if (fenceMatch) {
-      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
-      return acc
-    }
 
-    const match = HEADING_RE.exec(line)
-    if (match) {
-      acc.push({
-        text: match[2].replace(/\s+#+\s*$/, "").trim(),
-        level: match[1].length,
-        startLine: i,
-      })
-    }
-    return acc
-  }, [])
+      // Opening a new fenced code block
+      if (fenceMatch) {
+        return {
+          headings: state.headings,
+          fence: { char: fenceMatch[1][0], length: fenceMatch[1].length },
+        }
+      }
 
+      const match = HEADING_REGEX.exec(line)
+      if (match) {
+        return {
+          headings: [
+            ...state.headings,
+            {
+              // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
+              text: match[2].replace(/\s+#+\s*$/, "").trim(),
+              level: match[1].length,
+              startLine: i,
+            },
+          ],
+          fence: null,
+        }
+      }
+
+      return state
+    },
+    { headings: [], fence: null },
+  )
+
+  // Phase 2: compute body ranges — each section's body ends where the next
+  // heading of the same or higher level starts (or at EOF)
   return raw.map((h, i) => {
     const nextSameOrHigher = raw
       .slice(i + 1)
@@ -85,9 +107,9 @@ const findHeading = (
     throw new Error("heading cannot be empty")
   }
 
-  const needle = text.trim()
+  const searchText = text.trim()
   const matches = headings.filter(
-    (h) => h.text === needle && (level === undefined || h.level === level),
+    (h) => h.text === searchText && (level === undefined || h.level === level),
   )
 
   if (matches.length === 0) {
@@ -95,7 +117,7 @@ const findHeading = (
       .map((h) => `${"#".repeat(h.level)} ${h.text}`)
       .join(", ")
     throw new Error(
-      `heading not found: "${needle}". Available headings: ${available || "(none)"}`,
+      `heading not found: "${searchText}". Available headings: ${available || "(none)"}`,
     )
   }
 
@@ -108,11 +130,46 @@ const findHeading = (
       ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
       : "Use heading_level to disambiguate."
     throw new Error(
-      `ambiguous heading: "${needle}" matches ${matches.length} sections: ${details}. ${hint}`,
+      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${details}. ${hint}`,
     )
   }
 
   return matches[0]
+}
+
+/** Splices new content into a line array at the position determined by operation and target. */
+const applySectionOperation = (
+  lines: readonly string[],
+  contentLines: readonly string[],
+  target: HeadingInfo,
+  operation: Operation,
+): string[] => {
+  switch (operation) {
+    case "append":
+      return [
+        ...lines.slice(0, target.bodyEndLine),
+        ...contentLines,
+        ...lines.slice(target.bodyEndLine),
+      ]
+    case "prepend":
+      return [
+        ...lines.slice(0, target.bodyStartLine),
+        ...contentLines,
+        ...lines.slice(target.bodyStartLine),
+      ]
+    case "replace":
+      return [
+        ...lines.slice(0, target.bodyStartLine),
+        ...contentLines,
+        ...lines.slice(target.bodyEndLine),
+      ]
+    case "insert_before":
+      return [
+        ...lines.slice(0, target.startLine),
+        ...contentLines,
+        ...lines.slice(target.startLine),
+      ]
+  }
 }
 
 /** Reads a note, returning parsed frontmatter data and content lines. */
@@ -125,15 +182,12 @@ const readNoteForPatch = async (
   lines: string[]
 }> => {
   const fullPath = resolveSafePath(vaultPath, path)
-  let raw: string
-  try {
-    raw = await readFile(fullPath, "utf8")
-  } catch (err) {
+  const raw = await readFile(fullPath, "utf8").catch((err) => {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(`note not found: "${path}"`, { cause: err })
     }
     throw err
-  }
+  })
   const parsed = matter(raw)
   return {
     fullPath,
@@ -146,7 +200,7 @@ const readNoteForPatch = async (
 const writePatched = async (
   fullPath: string,
   data: Record<string, unknown>,
-  lines: string[],
+  lines: readonly string[],
 ): Promise<void> => {
   const serialized = matter.stringify(lines.join("\n"), data)
   await writeFile(fullPath, serialized, "utf8")
@@ -173,54 +227,34 @@ const patchNote = async (
   )
   const contentLines = content.split("\n")
 
-  let updatedLines: string[]
-  let targetDesc: string
-
+  // File-level operation (no heading target)
   if (!heading) {
     if (operation === "replace" || operation === "insert_before") {
       throw new Error(`operation "${operation}" requires a heading target`)
     }
-    targetDesc = "file body"
-    updatedLines =
+    const updatedLines =
       operation === "append"
         ? [...lines, ...contentLines]
         : [...contentLines, ...lines]
-  } else {
-    const headings = parseHeadings(lines)
-    const target = findHeading(headings, heading, headingLevel)
-    targetDesc = `${"#".repeat(target.level)} ${target.text}`
-
-    switch (operation) {
-      case "append":
-        updatedLines = [
-          ...lines.slice(0, target.bodyEndLine),
-          ...contentLines,
-          ...lines.slice(target.bodyEndLine),
-        ]
-        break
-      case "prepend":
-        updatedLines = [
-          ...lines.slice(0, target.bodyStartLine),
-          ...contentLines,
-          ...lines.slice(target.bodyStartLine),
-        ]
-        break
-      case "replace":
-        updatedLines = [
-          ...lines.slice(0, target.bodyStartLine),
-          ...contentLines,
-          ...lines.slice(target.bodyEndLine),
-        ]
-        break
-      case "insert_before":
-        updatedLines = [
-          ...lines.slice(0, target.startLine),
-          ...contentLines,
-          ...lines.slice(target.startLine),
-        ]
-        break
-    }
+    await writePatched(fullPath, data, updatedLines)
+    logger.info("patched note", {
+      path,
+      operation,
+      target: "file body",
+    })
+    return `Applied ${operation} to ${path} → file body`
   }
+
+  // Section-level operation
+  const headings = parseHeadings(lines)
+  const target = findHeading(headings, heading, headingLevel)
+  const targetDesc = `${"#".repeat(target.level)} ${target.text}`
+  const updatedLines = applySectionOperation(
+    lines,
+    contentLines,
+    target,
+    operation,
+  )
 
   await writePatched(fullPath, data, updatedLines)
   logger.info("patched note", { path, operation, target: targetDesc })
@@ -256,18 +290,17 @@ const replaceInNote = async (
     throw new Error(`text not found in "${path}": "${preview}"`)
   }
 
-  let updatedBody: string
-  let count: number
-
-  if (replaceAllOccurrences) {
-    count = body.split(oldText).length - 1
-    updatedBody = body.split(oldText).join(newText)
-  } else {
-    count = 1
-    const idx = body.indexOf(oldText)
-    updatedBody =
-      body.slice(0, idx) + newText + body.slice(idx + oldText.length)
-  }
+  const idx = body.indexOf(oldText)
+  const { updatedBody, count } = replaceAllOccurrences
+    ? {
+        count: body.split(oldText).length - 1,
+        updatedBody: body.split(oldText).join(newText),
+      }
+    : {
+        count: 1,
+        updatedBody:
+          body.slice(0, idx) + newText + body.slice(idx + oldText.length),
+      }
 
   const updatedLines = updatedBody.split("\n")
   await writePatched(fullPath, data, updatedLines)
