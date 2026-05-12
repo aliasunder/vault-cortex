@@ -23,24 +23,27 @@ export type ToolName =
   | "vault_list_memory_files"
   | "vault_delete_memory"
 
-// ── Presentation helpers ─────────────────────────────────────────
+// ── Response shaping ─────────────────────────────────────────────
 
+// Frontmatter keys that are already top-level fields on NoteMetadata.
+// These are stripped from `properties` before returning to clients
+// so the response doesn't contain the same data twice.
 const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 
-/** Strips promoted frontmatter keys from properties, renaming to additional_properties.
- *  Omits the key entirely when no additional properties remain. */
-const toWireMetadata = (meta: {
+const stripPromotedProperties = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }) => {
-  const { properties, ...rest } = meta
-  const additional = Object.fromEntries(
+  const { properties, ...fields } = meta
+
+  const additional_properties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !PROMOTED_KEYS.has(key)),
   )
+
   return {
-    ...rest,
-    ...(Object.keys(additional).length > 0
-      ? { additional_properties: additional }
+    ...fields,
+    ...(Object.keys(additional_properties).length > 0
+      ? { additional_properties }
       : {}),
   }
 }
@@ -309,7 +312,7 @@ export const registerTools = (params: {
       return safeHandler(
         reqLogger,
         async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
-        (results) => JSON.stringify(results.map(toWireMetadata)),
+        (results) => JSON.stringify(results.map(stripPromotedProperties)),
       )
     },
   )
@@ -371,7 +374,7 @@ export const registerTools = (params: {
       return safeHandler(
         reqLogger,
         async () => search.recentNotes({ sort_by, limit }, reqLogger),
-        (notes) => JSON.stringify(notes.map(toWireMetadata)),
+        (notes) => JSON.stringify(notes.map(stripPromotedProperties)),
       )
     },
   )
@@ -409,7 +412,7 @@ export const registerTools = (params: {
         reqLogger,
         async () =>
           search.searchByFolder({ folder, recursive, limit }, reqLogger),
-        (results) => JSON.stringify(results.map(toWireMetadata)),
+        (results) => JSON.stringify(results.map(stripPromotedProperties)),
       )
     },
   )
