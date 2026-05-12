@@ -46,6 +46,7 @@ src/
     consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
     vault-filesystem.ts                # Read/write/list/delete .md files
+    vault-patcher.ts                   # Surgical edits: heading-targeted patch + find-and-replace
     memory-store.ts                    # About Me/ heading-aware read/append/delete
     search-index.ts                    # SQLite FTS5 factory (tags, folders, etc)
     file-watcher.ts                    # chokidar -> keeps index current

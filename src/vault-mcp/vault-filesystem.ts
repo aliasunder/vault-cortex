@@ -8,7 +8,10 @@ import type { Logger } from "../logger.js"
 const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
-const resolveSafePath = (vaultPath: string, notePath: string): string => {
+export const resolveSafePath = (
+  vaultPath: string,
+  notePath: string,
+): string => {
   const normalizedVault = resolve(vaultPath)
   const resolved = resolve(normalizedVault, notePath)
   if (!resolved.startsWith(normalizedVault + "/")) {

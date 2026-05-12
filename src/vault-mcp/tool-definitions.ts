@@ -3,6 +3,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { vaultFs } from "./vault-filesystem.js"
+import { vaultPatcher } from "./vault-patcher.js"
 import { memoryStore } from "./memory-store.js"
 import type { SearchIndex } from "./search-index.js"
 import type { Logger } from "../logger.js"
@@ -10,6 +11,8 @@ import type { Logger } from "../logger.js"
 export type ToolName =
   | "vault_read_note"
   | "vault_write_note"
+  | "vault_patch_note"
+  | "vault_replace_in_note"
   | "vault_list_notes"
   | "vault_delete_note"
   | "vault_search"
@@ -167,6 +170,131 @@ Returns: Confirmation message.`,
         () =>
           vaultFs.writeNote({ vaultPath, path, body, frontmatter }, reqLogger),
         () => `Wrote ${path}`,
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_patch_note",
+    {
+      title: "Patch Note",
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter is always preserved.
+
+Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })
+
+When to use: Modifying part of an existing note without overwriting the entire body.
+Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_replace_in_note for find-and-replace edits.
+
+Operations:
+- append: add content at end of section (or end of file if no heading)
+- prepend: add content after heading line (or after frontmatter if no heading)
+- replace: replace section body (heading preserved; requires heading)
+- insert_before: insert content above the heading line (requires heading)
+
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.`,
+      inputSchema: {
+        path: z.string().describe("Vault-relative path to the note"),
+        operation: z
+          .enum(["append", "prepend", "replace", "insert_before"])
+          .describe("Patch operation to apply"),
+        content: z.string().describe("Content to insert or replace with"),
+        heading: z
+          .string()
+          .optional()
+          .describe(
+            "Target heading text (case-sensitive exact match). Required for replace and insert_before. Optional for append/prepend (omit for file-level operation).",
+          ),
+        heading_level: z
+          .number()
+          .min(1)
+          .max(6)
+          .optional()
+          .describe(
+            "Heading level (1-6) for disambiguation when multiple headings share the same text",
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ path, operation, content, heading, heading_level }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_patch_note",
+      })
+      reqLogger.info("tool_call", { path, operation, heading })
+      return safeHandler(
+        reqLogger,
+        () =>
+          vaultPatcher.patchNote(
+            {
+              vaultPath,
+              path,
+              operation,
+              content,
+              heading,
+              headingLevel: heading_level,
+            },
+            reqLogger,
+          ),
+        (msg) => msg,
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_replace_in_note",
+    {
+      title: "Replace in Note",
+      description: `Find and replace text in a markdown note. Matches exact text (case-sensitive). Frontmatter is always preserved.
+
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "status: draft", new_text: "status: review" })
+
+When to use: Targeted text changes — fixing typos, updating values, renaming terms.
+Prefer vault_patch_note for heading-targeted structural edits.
+
+Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.`,
+      inputSchema: {
+        path: z.string().describe("Vault-relative path to the note"),
+        old_text: z.string().describe("Exact text to find (case-sensitive)"),
+        new_text: z.string().describe("Replacement text"),
+        replace_all_occurrences: z
+          .boolean()
+          .optional()
+          .describe(
+            "Replace all occurrences (default: false — replaces first occurrence only)",
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_replace_in_note",
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        () =>
+          vaultPatcher.replaceInNote(
+            {
+              vaultPath,
+              path,
+              oldText: old_text,
+              newText: new_text,
+              replaceAllOccurrences: replace_all_occurrences,
+            },
+            reqLogger,
+          ),
+        (msg) => msg,
       )
     },
   )
@@ -672,5 +800,5 @@ Returns: Confirmation message.`,
     },
   )
 
-  sessionLogger.info("registered tools", { count: 13 })
+  sessionLogger.info("registered tools", { count: 15 })
 }

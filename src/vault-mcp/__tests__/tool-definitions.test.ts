@@ -7,6 +7,8 @@ import { logger } from "../../logger.js"
 const TOOL_NAMES = [
   "vault_read_note",
   "vault_write_note",
+  "vault_patch_note",
+  "vault_replace_in_note",
   "vault_list_notes",
   "vault_delete_note",
   "vault_search",
@@ -67,8 +69,8 @@ const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find((c) => c[0] === name)
 
 describe("registerTools", () => {
-  it("registers exactly 13 tools", () => {
-    expect(mockServer.registerTool).toHaveBeenCalledTimes(13)
+  it("registers exactly 15 tools", () => {
+    expect(mockServer.registerTool).toHaveBeenCalledTimes(15)
   })
 
   it.each(TOOL_NAMES)("registers %s", (name) => {
