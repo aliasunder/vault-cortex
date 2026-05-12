@@ -1,4 +1,4 @@
-/** MCP tool definitions — registers all 12 vault-cortex tools with Zod schemas. */
+/** MCP tool definitions — registers all vault-cortex tools with Zod schemas. */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
