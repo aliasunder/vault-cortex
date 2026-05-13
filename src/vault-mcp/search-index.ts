@@ -332,7 +332,9 @@ export const createSearchIndex = (dbPath: string) => {
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
-    // Re-resolve stale unresolved targets that now match the newly added note
+    // Re-resolve stale unresolved targets that match the newly added note.
+    // Two forms: wikilinks store just the basename ("Note"), markdown links
+    // may store the full path ("folder/Note.md").
     const fileBasename = basename(note.path, ".md")
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
@@ -702,8 +704,10 @@ export const createSearchIndex = (dbPath: string) => {
       .map(() => "path NOT LIKE ? || '/%'")
       .join(" AND ")
     const whereClause =
-      folderExclusions.length > 0 ? `AND ${folderExclusions}` : ""
+      excludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
 
+    // Self-links (source = target) are excluded from the backlink subquery
+    // so a note that only links to itself is still considered an orphan.
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
       FROM notes
