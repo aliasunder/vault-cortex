@@ -34,7 +34,7 @@ const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // Phase 1: collect headings, skipping content inside fenced code blocks.
   // Fence state is carried in the accumulator to avoid mutable external state.
-  const { headings: raw } = lines.reduce<{
+  const { headings: collectedHeadings } = lines.reduce<{
     headings: Array<{ text: string; level: number; startLine: number }>
     fence: FenceState
   }>(
@@ -83,8 +83,8 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 
   // Phase 2: compute body ranges — each section's body ends where the next
   // heading of the same or higher level starts (or at EOF)
-  return raw.map((h, i) => {
-    const nextSameOrHigher = raw
+  return collectedHeadings.map((h, i) => {
+    const nextSameOrHigher = collectedHeadings
       .slice(i + 1)
       .find((next) => next.level <= h.level)
     return {
