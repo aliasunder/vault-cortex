@@ -83,7 +83,7 @@ type TagCount = {
 type PropertyKeyInfo = {
   key: string
   count: number
-  sample_values: string[]
+  sampleValues: string[]
 }
 
 type PropertyValueCount = {
@@ -486,8 +486,9 @@ export const createSearchIndex = (dbPath: string) => {
     params: { folder?: string },
     logger: Logger,
   ): PropertyKeyInfo[] => {
-    const folderCondition = params.folder ? "WHERE n.path LIKE ? || '/%'" : ""
-    const folderParams: string[] = params.folder ? [params.folder] : []
+    const folderCondition = params.folder
+      ? "WHERE n.path LIKE @folder || '/%'"
+      : ""
 
     const keySql = `
       SELECT je.key, COUNT(DISTINCT n.path) as count
@@ -496,7 +497,9 @@ export const createSearchIndex = (dbPath: string) => {
       GROUP BY je.key
       ORDER BY count DESC
     `
-    const keyRows = db.prepare(keySql).all(...folderParams) as Array<{
+    const keyBindParams: Record<string, string> = {}
+    if (params.folder) keyBindParams.folder = params.folder
+    const keyRows = db.prepare(keySql).all(keyBindParams) as Array<{
       key: string
       count: number
     }>
@@ -528,15 +531,15 @@ export const createSearchIndex = (dbPath: string) => {
     const sampleStmt = db.prepare(sampleSql)
 
     const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
-      const sampleBinds: Record<string, string> = { key: keyRow.key }
-      if (params.folder) sampleBinds.folder = params.folder
-      const sampleRows = sampleStmt.all(sampleBinds) as Array<{
+      const bindParams: Record<string, string> = { key: keyRow.key }
+      if (params.folder) bindParams.folder = params.folder
+      const sampleRows = sampleStmt.all(bindParams) as Array<{
         value: string
       }>
       return {
         key: keyRow.key,
         count: keyRow.count,
-        sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
+        sampleValues: sampleRows.map((sampleRow) => String(sampleRow.value)),
       }
     })
 

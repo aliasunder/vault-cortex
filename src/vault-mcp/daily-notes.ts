@@ -76,19 +76,24 @@ export const readDailyNotesConfig = async (
   if (cachedConfig) return cachedConfig
 
   try {
-    const raw = await readFile(
+    const configFileContent = await readFile(
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
     )
-    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const parsedConfig = JSON.parse(configFileContent) as Record<
+      string,
+      unknown
+    >
     cachedConfig = {
       folder:
-        typeof parsed.folder === "string" && parsed.folder.length > 0
-          ? parsed.folder
+        typeof parsedConfig.folder === "string" &&
+        parsedConfig.folder.length > 0
+          ? parsedConfig.folder
           : OBSIDIAN_DEFAULTS.folder,
       format:
-        typeof parsed.format === "string" && parsed.format.length > 0
-          ? parsed.format
+        typeof parsedConfig.format === "string" &&
+        parsedConfig.format.length > 0
+          ? parsedConfig.format
           : OBSIDIAN_DEFAULTS.format,
     }
   } catch {
@@ -105,6 +110,9 @@ export const clearConfigCache = (): void => {
 
 // ── Path resolution + read ──────────────────────────────────────
 
+/** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
+const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
 /** Resolves a date to a vault-relative daily note path using the
  *  vault's .obsidian/daily-notes.json config. */
 export const getDailyNotePath = async (
@@ -114,7 +122,7 @@ export const getDailyNotePath = async (
   const config = await readDailyNotesConfig(vaultPath)
   const luxonFormat = momentToLuxonFormat(config.format)
 
-  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (date && !STRICT_ISO_DATE_RE.test(date)) {
     throw new Error(
       `invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`,
     )
@@ -152,8 +160,8 @@ export const getDailyNote = async (
     )
     return { path, content, exists: true }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (message.startsWith("note not found")) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    if (errorMessage.startsWith("note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }
     }

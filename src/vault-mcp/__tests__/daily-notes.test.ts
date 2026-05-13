@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { DateTime } from "luxon"
 import {
   mkdtemp,
   rm as removeDirectory,
@@ -147,13 +148,15 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const first = await readDailyNotesConfig(vaultDir)
+    expect(first.folder).toBe("Journal")
+
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "Changed", format: "DD-MM-YYYY" }),
       "utf8",
     )
     const second = await readDailyNotesConfig(vaultDir)
-    expect(second).toEqual(first)
+    expect(second.folder).toBe("Journal")
   })
 })
 
@@ -189,8 +192,10 @@ describe("getDailyNotePath", () => {
 
   it("defaults to today when no date provided", async () => {
     const path = await getDailyNotePath(vaultDir)
-    const todayISO = new Date().toISOString().slice(0, 10)
-    expect(path).toBe(`Daily Notes/${todayISO}.md`)
+    // Use Luxon's local-timezone today (same as the code under test) to
+    // avoid UTC/local date mismatch near midnight
+    const todayLocal = DateTime.now().toFormat("yyyy-MM-dd")
+    expect(path).toBe(`Daily Notes/${todayLocal}.md`)
   })
 
   it("throws on invalid date format", async () => {

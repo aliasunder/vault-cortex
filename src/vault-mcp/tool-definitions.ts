@@ -878,12 +878,12 @@ Returns: JSON with path (resolved vault-relative path), content (note body or nu
       title: "List Property Keys",
       description: `Discover all frontmatter property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
 
-Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_values: ["session-log", "project"] }, ...]
+Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sampleValues: ["session-log", "project"] }, ...]
 
 When to use: Discovering what frontmatter properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.
 Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
 
-Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values for quick orientation.`,
+Returns: JSON array of { key, count, sampleValues } sorted by count descending. sampleValues shows the top 3 most common values for quick orientation.`,
       inputSchema: {
         folder: z
           .string()

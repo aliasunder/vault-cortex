@@ -521,12 +521,12 @@ describe("listPropertyKeys", () => {
     expect(titleKey!.count).toBe(3)
   })
 
-  it("includes sample_values for each key", () => {
+  it("includes sampleValues for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).toContain("in-progress")
-    expect(statusKey!.sample_values).toContain("done")
+    expect(statusKey!.sampleValues).toContain("in-progress")
+    expect(statusKey!.sampleValues).toContain("done")
   })
 
   it("returns at most 3 sample values", () => {
@@ -539,7 +539,7 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey!.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey!.sampleValues.length).toBeLessThanOrEqual(3)
   })
 
   it("sorts by count descending", () => {
@@ -562,7 +562,7 @@ describe("listPropertyKeys", () => {
     expect(statusKey).toBeUndefined()
   })
 
-  it("sample_values are scoped to the folder filter", () => {
+  it("sampleValues are scoped to the folder filter", () => {
     index.upsertNote(
       "Other/other.md",
       "---\nstatus: blocked\n---\nbody\n",
@@ -571,7 +571,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).not.toContain("blocked")
+    expect(statusKey!.sampleValues).not.toContain("blocked")
   })
 })
 
@@ -585,11 +585,11 @@ describe("listPropertyValues", () => {
   it("returns distinct values with counts for a scalar property", () => {
     const values = index.listPropertyValues({ key: "status" }, logger)
     expect(values).toHaveLength(2)
-    expect(values.find((val) => val.value === "in-progress")).toEqual({
+    expect(values.find((entry) => entry.value === "in-progress")).toEqual({
       value: "in-progress",
       count: 1,
     })
-    expect(values.find((val) => val.value === "done")).toEqual({
+    expect(values.find((entry) => entry.value === "done")).toEqual({
       value: "done",
       count: 1,
     })
@@ -597,9 +597,9 @@ describe("listPropertyValues", () => {
 
   it("enumerates individual array elements for array properties", () => {
     const values = index.listPropertyValues({ key: "tags" }, logger)
-    expect(values.find((val) => val.value === "project")).toBeDefined()
-    expect(values.find((val) => val.value === "active")).toBeDefined()
-    expect(values.find((val) => val.value === "note")).toBeDefined()
+    expect(values.find((entry) => entry.value === "project")).toBeDefined()
+    expect(values.find((entry) => entry.value === "active")).toBeDefined()
+    expect(values.find((entry) => entry.value === "note")).toBeDefined()
   })
 
   it("sorts by count descending", () => {
@@ -625,7 +625,7 @@ describe("listPropertyValues", () => {
       logger,
     )
     expect(values).toHaveLength(2)
-    const blockedValue = values.find((val) => val.value === "blocked")
+    const blockedValue = values.find((entry) => entry.value === "blocked")
     expect(blockedValue).toBeUndefined()
   })
 
