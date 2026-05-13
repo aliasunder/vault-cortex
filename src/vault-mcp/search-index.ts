@@ -505,8 +505,11 @@ export const createSearchIndex = (dbPath: string) => {
       ? "AND path LIKE @folder || '/%'"
       : ""
 
+    // For each key, fetch the 3 most common values as samples.
+    // json_array() wraps scalars so json_each works uniformly for
+    // both scalar ("active") and array (["a","b"]) property values.
     const sampleSql = `
-      SELECT je_val.value, COUNT(*) as c
+      SELECT element.value, COUNT(*) as count
       FROM (
         SELECT properties FROM notes
         WHERE json_type(properties, '$.' || @key) IS NOT NULL
@@ -516,24 +519,24 @@ export const createSearchIndex = (dbPath: string) => {
           WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
           ELSE json_array(json_extract(filtered.properties, '$.' || @key))
         END
-      ) je_val
-      WHERE typeof(je_val.value) IN ('text', 'integer', 'real')
-      GROUP BY je_val.value
-      ORDER BY c DESC
+      ) element
+      WHERE typeof(element.value) IN ('text', 'integer', 'real')
+      GROUP BY element.value
+      ORDER BY count DESC
       LIMIT 3
     `
     const sampleStmt = db.prepare(sampleSql)
 
-    const results: PropertyKeyInfo[] = keyRows.map((row) => {
-      const sampleBinds: Record<string, string> = { key: row.key }
+    const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
+      const sampleBinds: Record<string, string> = { key: keyRow.key }
       if (params.folder) sampleBinds.folder = params.folder
       const sampleRows = sampleStmt.all(sampleBinds) as Array<{
         value: string
       }>
       return {
-        key: row.key,
-        count: row.count,
-        sample_values: sampleRows.map((r) => String(r.value)),
+        key: keyRow.key,
+        count: keyRow.count,
+        sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
       }
     })
 
@@ -549,8 +552,10 @@ export const createSearchIndex = (dbPath: string) => {
     const limit = params.limit ?? 50
     const folderCondition = params.folder ? "AND path LIKE @folder || '/%'" : ""
 
+    // json_array() wraps scalars so json_each works uniformly for
+    // both scalar ("active") and array (["a","b"]) property values.
     const sql = `
-      SELECT je.value, COUNT(*) as count
+      SELECT element.value, COUNT(*) as count
       FROM (
         SELECT properties FROM notes
         WHERE json_type(properties, '$.' || @key) IS NOT NULL
@@ -560,9 +565,9 @@ export const createSearchIndex = (dbPath: string) => {
           WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
           ELSE json_array(json_extract(filtered.properties, '$.' || @key))
         END
-      ) je
-      WHERE typeof(je.value) IN ('text', 'integer', 'real')
-      GROUP BY je.value
+      ) element
+      WHERE typeof(element.value) IN ('text', 'integer', 'real')
+      GROUP BY element.value
       ORDER BY count DESC
       LIMIT @limit
     `
@@ -574,9 +579,9 @@ export const createSearchIndex = (dbPath: string) => {
       value: string | number
       count: number
     }>
-    const results = rows.map((r) => ({
-      value: String(r.value),
-      count: r.count,
+    const results = rows.map((row) => ({
+      value: String(row.value),
+      count: row.count,
     }))
     logger.info("listed property values", {
       key: params.key,
@@ -595,6 +600,10 @@ export const createSearchIndex = (dbPath: string) => {
       ? "AND n.path LIKE @folder || '/%'"
       : ""
 
+    // Two branches handle different property shapes:
+    // - Array properties (tags: ["a","b"]): check if @value is IN the array
+    // - Scalar properties (status: "active"): check direct equality
+    // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
       FROM notes n

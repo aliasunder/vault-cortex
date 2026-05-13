@@ -33,13 +33,20 @@ const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
  *  left as-is — Luxon will throw on unknown tokens, making the
  *  failure visible rather than producing a wrong path. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
-  const escaped = momentFormat.replace(MOMENT_ESCAPE_RE, (_, literal) => {
-    const safeContent = (literal as string).replace(/'/g, "''")
-    return `'${safeContent}'`
-  })
+  // First pass: convert Moment [literal] escapes to Luxon 'literal' syntax.
+  // Single quotes inside literals are doubled per Luxon's escape convention.
+  const withLiteralsConverted = momentFormat.replace(
+    MOMENT_ESCAPE_RE,
+    (_, literal) => {
+      const escapedContent = ((literal as string) ?? "").replace(/'/g, "''")
+      return `'${escapedContent}'`
+    },
+  )
+  // Second pass: replace date/time tokens from longest to shortest
   return MOMENT_TO_LUXON.reduce(
-    (fmt, [moment, luxon]) => fmt.replaceAll(moment, luxon),
-    escaped,
+    (formatString, [momentToken, luxonToken]) =>
+      formatString.replaceAll(momentToken, luxonToken),
+    withLiteralsConverted,
   )
 }
 
@@ -55,6 +62,9 @@ const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
   format: "YYYY-MM-DD",
 }
 
+// Mutable module-level cache — justified because the config is read from
+// the filesystem once and never changes during the server's lifetime.
+// Avoids re-reading .obsidian/daily-notes.json on every tool call.
 let cachedConfig: DailyNotesConfig | null = null
 
 /** Reads .obsidian/daily-notes.json for the vault's daily note folder
@@ -110,14 +120,14 @@ export const getDailyNotePath = async (
     )
   }
 
-  const dt = date ? DateTime.fromISO(date) : DateTime.now()
-  if (!dt.isValid) {
+  const dateTime = date ? DateTime.fromISO(date) : DateTime.now()
+  if (!dateTime.isValid) {
     throw new Error(
       `invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`,
     )
   }
 
-  const filename = dt.toFormat(luxonFormat)
+  const filename = dateTime.toFormat(luxonFormat)
   return `${config.folder}/${filename}.md`
 }
 
