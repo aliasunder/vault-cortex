@@ -54,27 +54,28 @@ const formatNoteMetadata = (meta: {
 }
 
 /** Wraps a handler with try/catch, returning isError on failure. */
-const safeHandler = <T>(
+const safeHandler = async <T>(
   logger: Logger,
   fn: () => Promise<T>,
   format: (result: T) => string,
 ): Promise<{
   content: Array<{ type: "text"; text: string }>
   isError?: true
-}> =>
-  fn().then(
-    (result) => ({
+}> => {
+  try {
+    const result = await fn()
+    return {
       content: [{ type: "text" as const, text: format(result) }],
-    }),
-    (err) => {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.warn("tool_error", { error: message })
-      return {
-        content: [{ type: "text" as const, text: message }],
-        isError: true as const,
-      }
-    },
-  )
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.warn("tool_error", { error: message })
+    return {
+      content: [{ type: "text" as const, text: message }],
+      isError: true as const,
+    }
+  }
+}
 
 export const registerTools = (params: {
   server: McpServer
