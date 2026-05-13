@@ -11,6 +11,21 @@ const isString = (value: unknown): value is string => typeof value === "string"
 
 const isDate = (value: unknown): value is Date => value instanceof Date
 
+/** Converts Date instances in frontmatter to ISO date strings (YYYY-MM-DD)
+ *  before JSON.stringify, preventing gray-matter's YAML 1.1 Date parsing
+ *  from producing full ISO timestamps in the properties column. */
+const convertFrontmatterDatesToIsoStrings = (
+  data: Record<string, unknown>,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      isDate(value)
+        ? DateTime.fromJSDate(value, { zone: "utc" }).toFormat("yyyy-MM-dd")
+        : value,
+    ]),
+  )
+
 // ── FTS5 query sanitization ─────────────────────────────────────
 
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
@@ -62,6 +77,17 @@ type NoteMetadata = {
 
 type TagCount = {
   tag: string
+  count: number
+}
+
+type PropertyKeyInfo = {
+  key: string
+  count: number
+  sample_values: string[]
+}
+
+type PropertyValueCount = {
+  value: string
   count: number
 }
 
@@ -165,7 +191,7 @@ export const createSearchIndex = (dbPath: string) => {
           ? DateTime.fromISO(data.created).toISO()
           : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(data),
+      properties: JSON.stringify(convertFrontmatterDatesToIsoStrings(data)),
     }
 
     deleteFtsStmt.run(note.path)
@@ -455,6 +481,167 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  /** Returns all frontmatter property keys with note counts and top 3 sample values. */
+  const listPropertyKeys = (
+    params: { folder?: string },
+    logger: Logger,
+  ): PropertyKeyInfo[] => {
+    const folderCondition = params.folder
+      ? "WHERE n.path LIKE @folder || '/%'"
+      : ""
+
+    const keySql = `
+      SELECT je.key, COUNT(DISTINCT n.path) as count
+      FROM notes n, json_each(n.properties) je
+      ${folderCondition}
+      GROUP BY je.key
+      ORDER BY count DESC
+    `
+    const keySqlParams: Record<string, string> = {}
+    if (params.folder) keySqlParams.folder = params.folder
+    const keyRows = db.prepare(keySql).all(keySqlParams) as Array<{
+      key: string
+      count: number
+    }>
+
+    const sampleFolderCondition = params.folder
+      ? "AND path LIKE @folder || '/%'"
+      : ""
+
+    // For each key, fetch the 3 most common values as samples.
+    // json_array() wraps scalars so json_each works uniformly for
+    // both scalar ("active") and array (["a","b"]) property values.
+    const sampleSql = `
+      SELECT element.value, COUNT(*) as count
+      FROM (
+        SELECT properties FROM notes
+        WHERE json_type(properties, '$.' || @key) IS NOT NULL
+        ${sampleFolderCondition}
+      ) filtered, json_each(
+        CASE json_type(filtered.properties, '$.' || @key)
+          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
+          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+        END
+      ) element
+      WHERE typeof(element.value) IN ('text', 'integer', 'real')
+      GROUP BY element.value
+      ORDER BY count DESC
+      LIMIT 3
+    `
+    const sampleStmt = db.prepare(sampleSql)
+
+    const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
+      const sqlParams: Record<string, string> = { key: keyRow.key }
+      if (params.folder) sqlParams.folder = params.folder
+      const sampleRows = sampleStmt.all(sqlParams) as Array<{
+        value: string
+      }>
+      return {
+        key: keyRow.key,
+        count: keyRow.count,
+        sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
+      }
+    })
+
+    logger.info("listed property keys", { count: results.length })
+    return results
+  }
+
+  /** Returns distinct values for a given property key with note counts. */
+  const listPropertyValues = (
+    params: { key: string; folder?: string; limit?: number },
+    logger: Logger,
+  ): PropertyValueCount[] => {
+    const limit = params.limit ?? 50
+    const folderCondition = params.folder ? "AND path LIKE @folder || '/%'" : ""
+
+    // json_array() wraps scalars so json_each works uniformly for
+    // both scalar ("active") and array (["a","b"]) property values.
+    const sql = `
+      SELECT element.value, COUNT(*) as count
+      FROM (
+        SELECT properties FROM notes
+        WHERE json_type(properties, '$.' || @key) IS NOT NULL
+        ${folderCondition}
+      ) filtered, json_each(
+        CASE json_type(filtered.properties, '$.' || @key)
+          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
+          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+        END
+      ) element
+      WHERE typeof(element.value) IN ('text', 'integer', 'real')
+      GROUP BY element.value
+      ORDER BY count DESC
+      LIMIT @limit
+    `
+
+    const sqlParams: Record<string, unknown> = { key: params.key, limit }
+    if (params.folder) sqlParams.folder = params.folder
+
+    const rows = db.prepare(sql).all(sqlParams) as Array<{
+      value: string | number
+      count: number
+    }>
+    const results = rows.map((row) => ({
+      value: String(row.value),
+      count: row.count,
+    }))
+    logger.info("listed property values", {
+      key: params.key,
+      count: results.length,
+    })
+    return results
+  }
+
+  /** Finds notes where a frontmatter property matches a value (exact match). */
+  const searchByProperty = (
+    params: { key: string; value: string; folder?: string; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const limit = params.limit ?? 20
+    const folderCondition = params.folder
+      ? "AND n.path LIKE @folder || '/%'"
+      : ""
+
+    // Two branches handle different property shapes:
+    // - Array properties (tags: ["a","b"]): check if @value is IN the array
+    // - Scalar properties (status: "active"): check direct equality
+    // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
+    const sql = `
+      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      FROM notes n
+      WHERE (
+        (json_type(n.properties, '$.' || @key) = 'array'
+         AND EXISTS (
+           SELECT 1 FROM json_each(json_extract(n.properties, '$.' || @key))
+           WHERE CAST(value AS TEXT) = @value
+         ))
+        OR
+        (json_type(n.properties, '$.' || @key) IS NOT NULL
+         AND json_type(n.properties, '$.' || @key) != 'array'
+         AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
+      )
+      ${folderCondition}
+      LIMIT @limit
+    `
+
+    const sqlParams: Record<string, unknown> = {
+      key: params.key,
+      value: params.value,
+      limit,
+    }
+    if (params.folder) sqlParams.folder = params.folder
+
+    const rows = db.prepare(sql).all(sqlParams) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("search by property", {
+      key: params.key,
+      value: params.value,
+      resultCount: results.length,
+    })
+    return results
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -465,6 +652,9 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
+    listPropertyKeys,
+    listPropertyValues,
+    searchByProperty,
   }
 }
 
