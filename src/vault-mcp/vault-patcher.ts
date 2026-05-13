@@ -122,7 +122,7 @@ const findHeading = (
   }
 
   if (matches.length > 1) {
-    const details = matches
+    const matchedHeadings = matches
       .map((h) => `${"#".repeat(h.level)} ${h.text} (line ${h.startLine + 1})`)
       .join(", ")
     const allSameLevel = matches.every((h) => h.level === matches[0].level)
@@ -130,7 +130,7 @@ const findHeading = (
       ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
       : "Use heading_level to disambiguate."
     throw new Error(
-      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${details}. ${hint}`,
+      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}. ${hint}`,
     )
   }
 
