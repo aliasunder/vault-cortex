@@ -11,6 +11,21 @@ const isString = (value: unknown): value is string => typeof value === "string"
 
 const isDate = (value: unknown): value is Date => value instanceof Date
 
+/** Converts Date instances in frontmatter to ISO date strings (YYYY-MM-DD)
+ *  before JSON.stringify, preventing gray-matter's YAML 1.1 Date parsing
+ *  from producing full ISO timestamps in the properties column. */
+const normalizeDates = (
+  data: Record<string, unknown>,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      isDate(value)
+        ? DateTime.fromJSDate(value, { zone: "utc" }).toFormat("yyyy-MM-dd")
+        : value,
+    ]),
+  )
+
 // ── FTS5 query sanitization ─────────────────────────────────────
 
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
@@ -176,7 +191,7 @@ export const createSearchIndex = (dbPath: string) => {
           ? DateTime.fromISO(data.created).toISO()
           : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(data),
+      properties: JSON.stringify(normalizeDates(data)),
     }
 
     deleteFtsStmt.run(note.path)
@@ -486,11 +501,16 @@ export const createSearchIndex = (dbPath: string) => {
       count: number
     }>
 
-    const sampleStmt = db.prepare(`
-      SELECT DISTINCT je_val.value
+    const sampleFolderCondition = params.folder
+      ? "AND path LIKE @folder || '/%'"
+      : ""
+
+    const sampleSql = `
+      SELECT je_val.value, COUNT(*) as c
       FROM (
         SELECT properties FROM notes
         WHERE json_type(properties, '$.' || @key) IS NOT NULL
+        ${sampleFolderCondition}
       ) filtered, json_each(
         CASE json_type(filtered.properties, '$.' || @key)
           WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
@@ -498,11 +518,16 @@ export const createSearchIndex = (dbPath: string) => {
         END
       ) je_val
       WHERE typeof(je_val.value) IN ('text', 'integer', 'real')
+      GROUP BY je_val.value
+      ORDER BY c DESC
       LIMIT 3
-    `)
+    `
+    const sampleStmt = db.prepare(sampleSql)
 
     const results: PropertyKeyInfo[] = keyRows.map((row) => {
-      const sampleRows = sampleStmt.all({ key: row.key }) as Array<{
+      const sampleBinds: Record<string, string> = { key: row.key }
+      if (params.folder) sampleBinds.folder = params.folder
+      const sampleRows = sampleStmt.all(sampleBinds) as Array<{
         value: string
       }>
       return {
@@ -577,7 +602,7 @@ export const createSearchIndex = (dbPath: string) => {
         (json_type(n.properties, '$.' || @key) = 'array'
          AND EXISTS (
            SELECT 1 FROM json_each(json_extract(n.properties, '$.' || @key))
-           WHERE value = @value
+           WHERE CAST(value AS TEXT) = @value
          ))
         OR
         (json_type(n.properties, '$.' || @key) IS NOT NULL

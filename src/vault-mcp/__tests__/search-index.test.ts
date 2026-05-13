@@ -698,6 +698,16 @@ describe("searchByProperty", () => {
     )
     expect(results).toHaveLength(1)
   })
+
+  it("finds notes by YAML date property (normalized from Date object)", () => {
+    index.upsertNote("dated.md", "---\ndue: 2026-05-13\n---\nbody\n", 5000)
+    const results = index.searchByProperty(
+      { key: "due", value: "2026-05-13" },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("dated.md")
+  })
 })
 
 describe("rebuildFromVault", () => {

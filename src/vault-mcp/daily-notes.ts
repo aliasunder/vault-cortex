@@ -21,18 +21,27 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
   ["hh", "hh"],
   ["mm", "mm"],
   ["ss", "ss"],
-  ["Do", "d"],
   ["A", "a"],
 ]
 
+/** Matches Moment.js [literal] escape groups — e.g. [Daily Note]. */
+const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
+
 /** Converts a Moment.js format string to Luxon format tokens.
- *  Covers YYYY, YY, MM, DD, dddd, ddd, HH, hh, mm, ss, Do, A —
- *  sufficient for 99%+ of daily note filename patterns. */
-export const momentToLuxonFormat = (momentFormat: string): string =>
-  MOMENT_TO_LUXON.reduce(
+ *  Handles [literal] escapes (Moment) → 'literal' (Luxon) and
+ *  common date/time tokens. Unsupported tokens (Do, d, dd) are
+ *  left as-is — Luxon will throw on unknown tokens, making the
+ *  failure visible rather than producing a wrong path. */
+export const momentToLuxonFormat = (momentFormat: string): string => {
+  const escaped = momentFormat.replace(MOMENT_ESCAPE_RE, (_, literal) => {
+    const safeContent = (literal as string).replace(/'/g, "''")
+    return `'${safeContent}'`
+  })
+  return MOMENT_TO_LUXON.reduce(
     (fmt, [moment, luxon]) => fmt.replaceAll(moment, luxon),
-    momentFormat,
+    escaped,
   )
+}
 
 // ── Config reading ──────────────────────────────────────────────
 
@@ -95,6 +104,12 @@ export const getDailyNotePath = async (
   const config = await readDailyNotesConfig(vaultPath)
   const luxonFormat = momentToLuxonFormat(config.format)
 
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(
+      `invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`,
+    )
+  }
+
   const dt = date ? DateTime.fromISO(date) : DateTime.now()
   if (!dt.isValid) {
     throw new Error(
@@ -126,8 +141,12 @@ export const getDailyNote = async (
       logger,
     )
     return { path, content, exists: true }
-  } catch {
-    logger.info("daily note not found", { path })
-    return { path, content: null, exists: false }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.startsWith("note not found")) {
+      logger.info("daily note not found", { path })
+      return { path, content: null, exists: false }
+    }
+    throw err
   }
 }

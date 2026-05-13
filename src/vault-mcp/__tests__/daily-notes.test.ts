@@ -50,6 +50,21 @@ describe("momentToLuxonFormat", () => {
       input: "YYYY_MM_DD journal",
       expected: "yyyy_MM_dd journal",
     },
+    {
+      name: "converts [literal] escapes to Luxon single-quote syntax",
+      input: "YYYY-MM-DD [Daily Note]",
+      expected: "yyyy-MM-dd 'Daily Note'",
+    },
+    {
+      name: "handles [literal] with apostrophe",
+      input: "YYYY-MM-DD [it's]",
+      expected: "yyyy-MM-dd 'it''s'",
+    },
+    {
+      name: "handles empty [literal] brackets",
+      input: "YYYY-MM-DD []",
+      expected: "yyyy-MM-dd ''",
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
@@ -179,6 +194,24 @@ describe("getDailyNotePath", () => {
       "invalid date",
     )
   })
+
+  it("rejects partial ISO dates (year only)", async () => {
+    await expect(getDailyNotePath(vaultDir, "2026")).rejects.toThrow(
+      "invalid date",
+    )
+  })
+
+  it("rejects partial ISO dates (year-month only)", async () => {
+    await expect(getDailyNotePath(vaultDir, "2026-05")).rejects.toThrow(
+      "invalid date",
+    )
+  })
+
+  it("rejects full ISO timestamps", async () => {
+    await expect(
+      getDailyNotePath(vaultDir, "2026-05-13T14:30:00Z"),
+    ).rejects.toThrow("invalid date")
+  })
 })
 
 // ── getDailyNote ─────────────────────────────────────────────────
@@ -221,5 +254,17 @@ describe("getDailyNote", () => {
     expect(result.exists).toBe(false)
     expect(result.path).toBe("Daily Notes/2026-01-01.md")
     expect(result.content).toBeNull()
+  })
+
+  it("rethrows non-ENOENT errors (e.g. path traversal)", async () => {
+    clearConfigCache()
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "../escape", format: "YYYY-MM-DD" }),
+      "utf8",
+    )
+    await expect(
+      getDailyNote({ vaultPath: vaultDir, date: "2026-05-13" }, logger),
+    ).rejects.toThrow("path traversal blocked")
   })
 })
