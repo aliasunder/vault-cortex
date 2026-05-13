@@ -14,7 +14,7 @@ const isDate = (value: unknown): value is Date => value instanceof Date
 /** Converts Date instances in frontmatter to ISO date strings (YYYY-MM-DD)
  *  before JSON.stringify, preventing gray-matter's YAML 1.1 Date parsing
  *  from producing full ISO timestamps in the properties column. */
-const normalizeDates = (
+const convertFrontmatterDatesToIsoStrings = (
   data: Record<string, unknown>,
 ): Record<string, unknown> =>
   Object.fromEntries(
@@ -191,7 +191,7 @@ export const createSearchIndex = (dbPath: string) => {
           ? DateTime.fromISO(data.created).toISO()
           : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(normalizeDates(data)),
+      properties: JSON.stringify(convertFrontmatterDatesToIsoStrings(data)),
     }
 
     deleteFtsStmt.run(note.path)
@@ -497,9 +497,9 @@ export const createSearchIndex = (dbPath: string) => {
       GROUP BY je.key
       ORDER BY count DESC
     `
-    const keyBindParams: Record<string, string> = {}
-    if (params.folder) keyBindParams.folder = params.folder
-    const keyRows = db.prepare(keySql).all(keyBindParams) as Array<{
+    const keySqlParams: Record<string, string> = {}
+    if (params.folder) keySqlParams.folder = params.folder
+    const keyRows = db.prepare(keySql).all(keySqlParams) as Array<{
       key: string
       count: number
     }>
@@ -531,9 +531,9 @@ export const createSearchIndex = (dbPath: string) => {
     const sampleStmt = db.prepare(sampleSql)
 
     const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
-      const bindParams: Record<string, string> = { key: keyRow.key }
-      if (params.folder) bindParams.folder = params.folder
-      const sampleRows = sampleStmt.all(bindParams) as Array<{
+      const sqlParams: Record<string, string> = { key: keyRow.key }
+      if (params.folder) sqlParams.folder = params.folder
+      const sampleRows = sampleStmt.all(sqlParams) as Array<{
         value: string
       }>
       return {
@@ -575,10 +575,10 @@ export const createSearchIndex = (dbPath: string) => {
       LIMIT @limit
     `
 
-    const bindParams: Record<string, unknown> = { key: params.key, limit }
-    if (params.folder) bindParams.folder = params.folder
+    const sqlParams: Record<string, unknown> = { key: params.key, limit }
+    if (params.folder) sqlParams.folder = params.folder
 
-    const rows = db.prepare(sql).all(bindParams) as Array<{
+    const rows = db.prepare(sql).all(sqlParams) as Array<{
       value: string | number
       count: number
     }>
@@ -625,14 +625,14 @@ export const createSearchIndex = (dbPath: string) => {
       LIMIT @limit
     `
 
-    const bindParams: Record<string, unknown> = {
+    const sqlParams: Record<string, unknown> = {
       key: params.key,
       value: params.value,
       limit,
     }
-    if (params.folder) bindParams.folder = params.folder
+    if (params.folder) sqlParams.folder = params.folder
 
-    const rows = db.prepare(sql).all(bindParams) as NoteRow[]
+    const rows = db.prepare(sql).all(sqlParams) as NoteRow[]
     const results = rows.map(rowToMetadata)
     logger.info("search by property", {
       key: params.key,
