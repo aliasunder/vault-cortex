@@ -84,7 +84,6 @@ describe("readDailyNotesConfig", () => {
   })
 
   afterEach(async () => {
-    clearConfigCache()
     await rm(vaultDir, { recursive: true })
   })
 
@@ -165,7 +164,6 @@ describe("getDailyNotePath", () => {
   })
 
   afterEach(async () => {
-    clearConfigCache()
     await rm(vaultDir, { recursive: true })
   })
 
@@ -186,7 +184,8 @@ describe("getDailyNotePath", () => {
 
   it("defaults to today when no date provided", async () => {
     const path = await getDailyNotePath(vaultDir)
-    expect(path).toMatch(/^Daily Notes\/\d{4}-\d{2}-\d{2}\.md$/)
+    const todayISO = new Date().toISOString().slice(0, 10)
+    expect(path).toBe(`Daily Notes/${todayISO}.md`)
   })
 
   it("throws on invalid date format", async () => {
@@ -227,7 +226,6 @@ describe("getDailyNote", () => {
   })
 
   afterEach(async () => {
-    clearConfigCache()
     await rm(vaultDir, { recursive: true })
   })
 
@@ -257,7 +255,6 @@ describe("getDailyNote", () => {
   })
 
   it("rethrows non-ENOENT errors (e.g. path traversal)", async () => {
-    clearConfigCache()
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "../escape", format: "YYYY-MM-DD" }),
