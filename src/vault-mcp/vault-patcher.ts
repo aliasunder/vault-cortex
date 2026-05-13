@@ -199,7 +199,7 @@ const readNoteForPatch = async (
 }
 
 /** Writes modified content back with preserved frontmatter. */
-const writePatched = async (
+const writePatchedNote = async (
   fullPath: string,
   data: Record<string, unknown>,
   lines: readonly string[],
@@ -238,7 +238,7 @@ const patchNote = async (
       operation === "append"
         ? [...lines, ...contentLines]
         : [...contentLines, ...lines]
-    await writePatched(fullPath, data, updatedLines)
+    await writePatchedNote(fullPath, data, updatedLines)
     logger.info("patched note", {
       path,
       operation,
@@ -258,7 +258,7 @@ const patchNote = async (
     operation,
   )
 
-  await writePatched(fullPath, data, updatedLines)
+  await writePatchedNote(fullPath, data, updatedLines)
   logger.info("patched note", { path, operation, target: targetDesc })
   return `Applied ${operation} to ${path} → ${targetDesc}`
 }
@@ -306,7 +306,7 @@ const replaceInNote = async (
       }
 
   const updatedLines = updatedBody.split("\n")
-  await writePatched(fullPath, data, updatedLines)
+  await writePatchedNote(fullPath, data, updatedLines)
   logger.info("replaced in note", { path, count })
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
 }
