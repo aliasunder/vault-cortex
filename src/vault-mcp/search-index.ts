@@ -83,7 +83,7 @@ type TagCount = {
 type PropertyKeyInfo = {
   key: string
   count: number
-  sampleValues: string[]
+  sample_values: string[]
 }
 
 type PropertyValueCount = {
@@ -539,7 +539,7 @@ export const createSearchIndex = (dbPath: string) => {
       return {
         key: keyRow.key,
         count: keyRow.count,
-        sampleValues: sampleRows.map((sampleRow) => String(sampleRow.value)),
+        sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
       }
     })
 
