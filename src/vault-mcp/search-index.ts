@@ -87,6 +87,14 @@ type NoteRow = {
   properties: string
 }
 
+type BacklinkEntry = { path: string; title: string }
+
+type OutgoingLinkEntry = {
+  path: string
+  title: string | null
+  exists: boolean
+}
+
 // ── Link extraction ─────────────────────────────────────────────
 
 /** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5). */
@@ -103,11 +111,30 @@ const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
 const MD_LINK_RE =
   /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
 
-/** Extracts link targets from markdown content, skipping fenced code blocks.
- *  Returns deduplicated raw targets (pre-resolution). */
+/** Safely decodes a URI component, falling back to the raw string
+ *  if the percent-encoding is malformed (e.g. "100%complete"). */
+const safeDecodeURIComponent = (encoded: string): string => {
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return encoded
+  }
+}
+
+/** Strips inline code spans from a line so links inside backticks
+ *  (e.g. `[[Note]]`) are not extracted as real links. */
+const INLINE_CODE_RE = /`+[^`\n]*`+/g
+
+/** Extracts link targets from markdown content, skipping fenced code
+ *  blocks and inline code spans. Returns deduplicated raw targets
+ *  (pre-resolution). */
 export const extractLinks = (content: string): string[] => {
   const lines = content.split("\n")
   const targets = new Set<string>()
+
+  // Mutable state: tracks whether we're inside a fenced code block.
+  // A state machine needs mutable state — no immutable alternative
+  // without restructuring into a reduce over line-state pairs.
   let currentFenceOpener: string | null = null
 
   for (const line of lines) {
@@ -117,6 +144,8 @@ export const extractLinks = (content: string): string[] => {
       if (currentFenceOpener === null) {
         currentFenceOpener = fenceChars[0]!.repeat(fenceChars.length)
       } else if (
+        // Closer must use the same character as the opener (backtick vs tilde),
+        // be at least as long, and contain only fence characters (no trailing content)
         fenceChars[0] === currentFenceOpener[0] &&
         fenceChars.length >= currentFenceOpener.length &&
         line.trim() === fenceChars[0]!.repeat(line.trim().length)
@@ -127,20 +156,17 @@ export const extractLinks = (content: string): string[] => {
     }
     if (currentFenceOpener !== null) continue
 
-    const stripped = line.replace(/`+[^`\n]*`+/g, (m) => " ".repeat(m.length))
+    // Replace inline code spans with spaces so links inside backticks are ignored
+    const withoutInlineCode = line.replace(INLINE_CODE_RE, (match) =>
+      " ".repeat(match.length),
+    )
 
-    for (const match of stripped.matchAll(WIKILINK_RE)) {
+    for (const match of withoutInlineCode.matchAll(WIKILINK_RE)) {
       const target = match[1]!.trim()
       if (target.length > 0) targets.add(target)
     }
-    for (const match of stripped.matchAll(MD_LINK_RE)) {
-      const raw = match[1]!.trim()
-      let target: string
-      try {
-        target = decodeURIComponent(raw)
-      } catch {
-        target = raw
-      }
+    for (const match of withoutInlineCode.matchAll(MD_LINK_RE)) {
+      const target = safeDecodeURIComponent(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
   }
@@ -153,16 +179,22 @@ export const resolveLink = (
   target: string,
   allPaths: string[],
 ): string | null => {
-  const withExt = target.endsWith(".md") ? target : `${target}.md`
-  if (allPaths.includes(withExt)) return withExt
+  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
 
+  // Exact path match: "folder/Note.md" or "Note.md"
+  if (allPaths.includes(targetWithExtension)) return targetWithExtension
+
+  // Basename match: find all paths that end with the target filename
   const basenameMatches = allPaths.filter(
-    (p) => p === withExt || p.endsWith(`/${withExt}`),
+    (candidatePath) =>
+      candidatePath === targetWithExtension ||
+      candidatePath.endsWith(`/${targetWithExtension}`),
   )
   if (basenameMatches.length === 1) return basenameMatches[0]!
+  // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
   if (basenameMatches.length > 1) {
-    return basenameMatches.reduce((shortest, p) =>
-      p.length < shortest.length ? p : shortest,
+    return basenameMatches.reduce((shortest, candidatePath) =>
+      candidatePath.length < shortest.length ? candidatePath : shortest,
     )
   }
 
@@ -224,6 +256,9 @@ export const createSearchIndex = (dbPath: string) => {
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
+  // When a new note is indexed, any previously-unresolved link targets that
+  // match the new note's path or basename are updated to the resolved path.
+  // This handles the "link first, create later" workflow common in Obsidian.
   const reResolveStmt = db.prepare(
     `UPDATE links SET target = @resolved WHERE target = @raw`,
   )
@@ -288,7 +323,7 @@ export const createSearchIndex = (dbPath: string) => {
       const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
         path: string
       }>
-      const pathList = allPaths.map((r) => r.path)
+      const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
       for (const rawTarget of extractLinks(parsed.content)) {
@@ -357,7 +392,7 @@ export const createSearchIndex = (dbPath: string) => {
       const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
         path: string
       }>
-      const pathList = allPaths.map((r) => r.path)
+      const pathList = allPaths.map((row) => row.path)
 
       db.exec("DELETE FROM links")
       for (const item of items) {
@@ -597,13 +632,6 @@ export const createSearchIndex = (dbPath: string) => {
 
   // ── Link queries ────────────────────────────────────────────────
 
-  type BacklinkEntry = { path: string; title: string }
-  type OutgoingLinkEntry = {
-    path: string
-    title: string | null
-    exists: boolean
-  }
-
   /** Returns notes that link TO the given path (incoming links / backlinks). */
   const getBacklinks = (
     params: { path: string },
@@ -646,10 +674,10 @@ export const createSearchIndex = (dbPath: string) => {
       title: string | null
       exists_flag: number
     }>
-    const results = rows.map((r) => ({
-      path: r.path,
-      title: r.title,
-      exists: r.exists_flag === 1,
+    const results = rows.map((row) => ({
+      path: row.path,
+      title: row.title,
+      exists: row.exists_flag === 1,
     }))
     logger.info("get outgoing links", {
       path: params.path,
