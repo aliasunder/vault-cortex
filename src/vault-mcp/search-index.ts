@@ -87,6 +87,79 @@ type NoteRow = {
   properties: string
 }
 
+// ── Link extraction ─────────────────────────────────────────────
+
+/** Matches fenced code block openers: 3+ backticks or 3+ tildes. */
+const FENCE_OPEN = /^(`{3,}|~{3,})/
+
+/** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
+ *  [[target#heading|text]], and embeds ![[target]]. Captures the
+ *  target path/name (group 1) before any # or |. */
+const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
+
+/** Matches markdown internal links: [text](path) or [text](path#heading).
+ *  Excludes external URLs (http://, https://, mailto:) and same-page
+ *  anchors (#heading). Captures the path (group 1). */
+const MD_LINK_RE =
+  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)(?:\.md)?(?:#[^)\s]*)?\)/g
+
+/** Extracts link targets from markdown content, skipping fenced code blocks.
+ *  Returns deduplicated raw targets (pre-resolution). */
+export const extractLinks = (content: string): string[] => {
+  const lines = content.split("\n")
+  const targets = new Set<string>()
+  let currentFenceOpener: string | null = null
+
+  for (const line of lines) {
+    const fenceMatch = FENCE_OPEN.exec(line)
+    if (fenceMatch) {
+      if (currentFenceOpener === null) {
+        currentFenceOpener = fenceMatch[1][0]!.repeat(fenceMatch[1].length)
+      } else if (
+        line.startsWith(currentFenceOpener[0]!) &&
+        line.trimEnd().length >= currentFenceOpener.length &&
+        line.trimEnd() === line.trimEnd()[0]!.repeat(line.trimEnd().length)
+      ) {
+        currentFenceOpener = null
+      }
+      continue
+    }
+    if (currentFenceOpener !== null) continue
+
+    for (const match of line.matchAll(WIKILINK_RE)) {
+      const target = match[1]!.trim()
+      if (target.length > 0) targets.add(target)
+    }
+    for (const match of line.matchAll(MD_LINK_RE)) {
+      const target = decodeURIComponent(match[1]!.trim())
+      if (target.length > 0) targets.add(target)
+    }
+  }
+  return [...targets]
+}
+
+/** Resolves a wikilink target to a vault-relative path using all known paths.
+ *  Returns null if unresolvable. */
+export const resolveLink = (
+  target: string,
+  allPaths: string[],
+): string | null => {
+  const withExt = target.endsWith(".md") ? target : `${target}.md`
+  if (allPaths.includes(withExt)) return withExt
+
+  const basenameMatches = allPaths.filter(
+    (p) => p === withExt || p.endsWith(`/${withExt}`),
+  )
+  if (basenameMatches.length === 1) return basenameMatches[0]!
+  if (basenameMatches.length > 1) {
+    return basenameMatches.reduce((shortest, p) =>
+      p.length < shortest.length ? p : shortest,
+    )
+  }
+
+  return null
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (dbPath: string) => {
@@ -111,6 +184,14 @@ export const createSearchIndex = (dbPath: string) => {
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, tokenize='porter unicode61'
     );
+
+    CREATE TABLE IF NOT EXISTS links (
+      source TEXT NOT NULL,
+      target TEXT NOT NULL,
+      PRIMARY KEY (source, target)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
@@ -124,6 +205,10 @@ export const createSearchIndex = (dbPath: string) => {
     `INSERT INTO notes_fts (path, title, content) VALUES (?, ?, ?)`,
   )
   const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
+  const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
+  const insertLinkStmt = db.prepare(
+    `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
+  )
 
   // ── Index maintenance ──────────────────────────────────────────
 
@@ -182,18 +267,31 @@ export const createSearchIndex = (dbPath: string) => {
       note.properties,
     )
     insertFtsStmt.run(note.path, note.title, note.content)
+
+    const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+      path: string
+    }>
+    const pathList = allPaths.map((r) => r.path)
+
+    deleteLinksStmt.run(note.path)
+    for (const rawTarget of extractLinks(parsed.content)) {
+      const resolved = resolveLink(rawTarget, pathList)
+      insertLinkStmt.run(note.path, resolved ?? rawTarget)
+    }
   }
 
-  /** Removes a note from both the notes table and FTS index. */
+  /** Removes a note from the notes table, FTS index, and links. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
     removeNotesStmt.run(filePath)
+    deleteLinksStmt.run(filePath)
   }
 
   /** Drops the entire index and re-indexes every .md file in the vault. */
   const rebuildFromVault = async (vaultPath: string): Promise<number> => {
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
+    db.exec("DELETE FROM links")
 
     const normalizedVault = resolve(vaultPath)
     const entries = await readdir(vaultPath, {
@@ -224,8 +322,26 @@ export const createSearchIndex = (dbPath: string) => {
     )
 
     db.transaction(() => {
+      // Pass 1: index all notes (content, frontmatter, FTS)
       for (const item of items) {
         upsertNote(item.rel, item.content, item.mtime)
+      }
+
+      // Pass 2: re-extract links now that all paths are in the notes table,
+      // resolving targets that the per-note upsertNote pass may have missed
+      // (e.g. Note A links to Note B, but Note B was indexed after Note A).
+      const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+        path: string
+      }>
+      const pathList = allPaths.map((r) => r.path)
+
+      db.exec("DELETE FROM links")
+      for (const item of items) {
+        const parsed = matter(item.content)
+        for (const rawTarget of extractLinks(parsed.content)) {
+          const resolved = resolveLink(rawTarget, pathList)
+          insertLinkStmt.run(item.rel, resolved ?? rawTarget)
+        }
       }
     })()
 
@@ -455,6 +571,102 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  // ── Link queries ────────────────────────────────────────────────
+
+  type BacklinkEntry = { path: string; title: string }
+  type OutgoingLinkEntry = {
+    path: string
+    title: string | null
+    exists: boolean
+  }
+
+  /** Returns notes that link TO the given path (incoming links / backlinks). */
+  const getBacklinks = (
+    params: { path: string },
+    logger: Logger,
+  ): BacklinkEntry[] => {
+    const sql = `
+      SELECT n.path, n.title
+      FROM links l
+      JOIN notes n ON n.path = l.source
+      WHERE l.target = ?
+      ORDER BY n.title
+    `
+    const rows = db.prepare(sql).all(params.path) as Array<{
+      path: string
+      title: string
+    }>
+    logger.info("get backlinks", {
+      path: params.path,
+      count: rows.length,
+    })
+    return rows
+  }
+
+  /** Returns notes that the given path links TO (outgoing links). */
+  const getOutgoingLinks = (
+    params: { path: string },
+    logger: Logger,
+  ): OutgoingLinkEntry[] => {
+    const sql = `
+      SELECT l.target as path,
+             n.title,
+             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag
+      FROM links l
+      LEFT JOIN notes n ON n.path = l.target
+      WHERE l.source = ?
+      ORDER BY l.target
+    `
+    const rows = db.prepare(sql).all(params.path) as Array<{
+      path: string
+      title: string | null
+      exists_flag: number
+    }>
+    const results = rows.map((r) => ({
+      path: r.path,
+      title: r.title,
+      exists: r.exists_flag === 1,
+    }))
+    logger.info("get outgoing links", {
+      path: params.path,
+      count: results.length,
+    })
+    return results
+  }
+
+  /** Finds notes with no incoming links (orphans). */
+  const findOrphans = (
+    params: { excludeFolders?: string[]; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const excludeFolders = params.excludeFolders ?? [
+      "Daily Notes",
+      "Templates",
+      "About Me",
+    ]
+    const limit = params.limit ?? 50
+
+    const folderExclusions = excludeFolders
+      .map(() => "folder != ?")
+      .join(" AND ")
+    const whereClause =
+      folderExclusions.length > 0 ? `AND ${folderExclusions}` : ""
+
+    const sql = `
+      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      FROM notes
+      WHERE path NOT IN (SELECT DISTINCT target FROM links)
+        ${whereClause}
+      ORDER BY mtime DESC
+      LIMIT ?
+    `
+
+    const rows = db.prepare(sql).all(...excludeFolders, limit) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("find orphans", { count: results.length })
+    return results
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -465,6 +677,9 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
+    getBacklinks,
+    getOutgoingLinks,
+    findOrphans,
   }
 }
 

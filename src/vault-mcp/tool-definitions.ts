@@ -24,6 +24,9 @@ export type ToolName =
   | "vault_update_memory"
   | "vault_list_memory_files"
   | "vault_delete_memory"
+  | "vault_get_backlinks"
+  | "vault_get_outgoing_links"
+  | "vault_find_orphans"
 
 // ── Response shaping ─────────────────────────────────────────────
 
@@ -820,5 +823,141 @@ Returns: Confirmation message.`,
     },
   )
 
-  sessionLogger.info("registered tools", { count: 15 })
+  // ── Links ──────────────────────────────────────────────────
+
+  server.registerTool(
+    "vault_get_backlinks",
+    {
+      title: "Get Backlinks",
+      description: `Find all notes that link to a given note (incoming wikilinks and markdown links). Shows which notes reference the target — useful for understanding a note's context and importance in the vault's knowledge graph.
+
+Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
+
+When to use: When you need to understand what references a note, find related context, or assess a note's connectivity. Core Obsidian concept — backlinks are invisible without a database query.
+For outgoing links (what a note links TO), use vault_get_outgoing_links. For orphan detection, use vault_find_orphans.
+
+Errors:
+- No error if the note has zero backlinks — returns an empty array.
+
+Returns: JSON with path (the queried note), backlinks (array of { path, title }), and count.`,
+      inputSchema: {
+        path: z
+          .string()
+          .describe(
+            'Vault-relative path to the note (e.g. "Projects/vault-cortex.md")',
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ path }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_get_backlinks",
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        async () => search.getBacklinks({ path }, reqLogger),
+        (backlinks) =>
+          JSON.stringify({ path, backlinks, count: backlinks.length }),
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_get_outgoing_links",
+    {
+      title: "Get Outgoing Links",
+      description: `Find all notes that a given note links to (outgoing wikilinks and markdown links). Each link includes an exists flag — false means the target note doesn't exist (broken link).
+
+Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
+
+When to use: When you need to see what a note references, navigate the knowledge graph forward, or detect broken links in a specific note.
+For incoming links (what links TO a note), use vault_get_backlinks.
+
+Errors:
+- No error if the note has zero outgoing links — returns an empty array.
+
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }), and count.`,
+      inputSchema: {
+        path: z.string().describe("Vault-relative path to the note"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ path }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_get_outgoing_links",
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        async () => search.getOutgoingLinks({ path }, reqLogger),
+        (outgoingLinks) =>
+          JSON.stringify({
+            path,
+            outgoing_links: outgoingLinks,
+            count: outgoingLinks.length,
+          }),
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_find_orphans",
+    {
+      title: "Find Orphans",
+      description: `Find notes with no incoming links from other notes. Orphan notes are disconnected from the vault's knowledge graph — they may be forgotten or need linking from relevant notes.
+
+Example: vault_find_orphans() or vault_find_orphans({ exclude_folders: ["Daily Notes", "Templates", "About Me"] })
+
+When to use: Vault maintenance and organization. Helps identify notes that might be forgotten or need integration into the knowledge graph. Daily Notes, Templates, and About Me folders are excluded by default since those are standalone by design.
+To add links to an orphan, use vault_patch_note to mention it from a relevant note.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
+      inputSchema: {
+        exclude_folders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Folders to exclude (default: ["Daily Notes", "Templates", "About Me"])',
+          ),
+        limit: z.number().optional().describe("Max results (default 50)"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ exclude_folders, limit }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_find_orphans",
+      })
+      reqLogger.info("tool_call", { exclude_folders, limit })
+      return safeHandler(
+        reqLogger,
+        async () =>
+          search.findOrphans(
+            { excludeFolders: exclude_folders, limit },
+            reqLogger,
+          ),
+        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+      )
+    },
+  )
+
+  sessionLogger.info("registered tools", { count: 18 })
 }

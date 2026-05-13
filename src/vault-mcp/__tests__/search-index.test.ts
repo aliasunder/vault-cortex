@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
+import {
+  createSearchIndex,
+  sanitizeFtsQuery,
+  extractLinks,
+  resolveLink,
+} from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../logger.js"
 
@@ -511,5 +516,278 @@ describe("rebuildFromVault", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
+  })
+})
+
+// ── extractLinks ─────────────────────────────────────────────────
+
+describe("extractLinks", () => {
+  it("extracts basic wikilinks", () => {
+    const links = extractLinks("See [[Note A]] and [[Note B]].")
+    expect(links).toContain("Note A")
+    expect(links).toContain("Note B")
+  })
+
+  it("extracts wikilinks with display text", () => {
+    const links = extractLinks("See [[Note A|my note]].")
+    expect(links).toEqual(["Note A"])
+  })
+
+  it("extracts wikilinks with heading anchors", () => {
+    const links = extractLinks("See [[Note A#Section One]].")
+    expect(links).toEqual(["Note A"])
+  })
+
+  it("extracts wikilinks with heading and display text", () => {
+    const links = extractLinks("See [[Note A#Section|display]].")
+    expect(links).toEqual(["Note A"])
+  })
+
+  it("extracts wikilinks with folder paths", () => {
+    const links = extractLinks("See [[Projects/vault-cortex]].")
+    expect(links).toEqual(["Projects/vault-cortex"])
+  })
+
+  it("extracts embeds as links", () => {
+    const links = extractLinks("![[Embedded Note]]")
+    expect(links).toEqual(["Embedded Note"])
+  })
+
+  it("extracts markdown internal links", () => {
+    const links = extractLinks("[click here](Projects/plan.md)")
+    expect(links).toContain("Projects/plan")
+  })
+
+  it("excludes external URLs", () => {
+    const links = extractLinks("[Google](https://google.com) and [[Internal]]")
+    expect(links).toEqual(["Internal"])
+  })
+
+  it("excludes mailto links", () => {
+    const links = extractLinks("[email](mailto:test@example.com)")
+    expect(links).toHaveLength(0)
+  })
+
+  it("excludes same-page anchors", () => {
+    const links = extractLinks("[section](#heading)")
+    expect(links).toHaveLength(0)
+  })
+
+  it("deduplicates repeated targets", () => {
+    const links = extractLinks("[[Note A]] and again [[Note A]]")
+    expect(links).toEqual(["Note A"])
+  })
+
+  it("skips links inside fenced code blocks", () => {
+    const content = [
+      "before [[Real Link]]",
+      "```",
+      "[[Fake Link]]",
+      "```",
+      "after [[Another Real Link]]",
+    ].join("\n")
+    const links = extractLinks(content)
+    expect(links).toContain("Real Link")
+    expect(links).toContain("Another Real Link")
+    expect(links).not.toContain("Fake Link")
+  })
+
+  it("skips links inside tilde fenced blocks", () => {
+    const content = ["~~~", "[[Fake]]", "~~~"].join("\n")
+    const links = extractLinks(content)
+    expect(links).not.toContain("Fake")
+  })
+
+  it("handles nested fences correctly", () => {
+    const content = [
+      "````",
+      "```",
+      "[[Inside Nested]]",
+      "```",
+      "````",
+      "[[Outside]]",
+    ].join("\n")
+    const links = extractLinks(content)
+    expect(links).not.toContain("Inside Nested")
+    expect(links).toContain("Outside")
+  })
+
+  it("returns empty for content with no links", () => {
+    expect(extractLinks("Just plain text.")).toEqual([])
+  })
+})
+
+// ── resolveLink ──────────────────────────────────────────────────
+
+describe("resolveLink", () => {
+  const allPaths = [
+    "Projects/vault-cortex.md",
+    "About Me/Principles.md",
+    "notes/random.md",
+    "deep/nested/note.md",
+    "note.md",
+  ]
+
+  it("resolves exact path match", () => {
+    expect(resolveLink("Projects/vault-cortex", allPaths)).toBe(
+      "Projects/vault-cortex.md",
+    )
+  })
+
+  it("resolves exact path with .md extension", () => {
+    expect(resolveLink("Projects/vault-cortex.md", allPaths)).toBe(
+      "Projects/vault-cortex.md",
+    )
+  })
+
+  it("resolves basename match", () => {
+    expect(resolveLink("Principles", allPaths)).toBe("About Me/Principles.md")
+  })
+
+  it("resolves to shortest path when multiple basename matches exist", () => {
+    expect(resolveLink("note", allPaths)).toBe("note.md")
+  })
+
+  it("returns null for unresolvable target", () => {
+    expect(resolveLink("NonExistent", allPaths)).toBeNull()
+  })
+})
+
+// ── Link query methods ───────────────────────────────────────────
+
+describe("getBacklinks", () => {
+  beforeEach(() => {
+    // Index targets before sources so link resolution finds them
+    index.upsertNote("spoke-a.md", "# Spoke A\n\nBody.\n", 1000)
+    index.upsertNote("spoke-b.md", "# Spoke B\n\nNo backlink.\n", 2000)
+    index.upsertNote("island.md", "# Island\n\nNo links at all.\n", 3000)
+    index.upsertNote(
+      "hub.md",
+      "# Hub\n\nLinks to [[spoke-a]] and [[spoke-b]].\n",
+      4000,
+    )
+    // Re-index spoke-a now that hub exists, so its [[hub]] link resolves
+    index.upsertNote(
+      "spoke-a.md",
+      "# Spoke A\n\nLinks back to [[hub]].\n",
+      5000,
+    )
+  })
+
+  it("finds notes linking to the target", () => {
+    const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("hub.md")
+  })
+
+  it("returns multiple backlinks", () => {
+    const backlinks = index.getBacklinks({ path: "hub.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("spoke-a.md")
+  })
+
+  it("returns empty for notes with no backlinks", () => {
+    const backlinks = index.getBacklinks({ path: "island.md" }, logger)
+    expect(backlinks).toHaveLength(0)
+  })
+
+  it("includes title in results", () => {
+    const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
+    expect(backlinks[0].title).toBe("hub")
+  })
+})
+
+describe("getOutgoingLinks", () => {
+  beforeEach(() => {
+    index.upsertNote(
+      "target-exists.md",
+      "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
+      1000,
+    )
+    index.upsertNote(
+      "source.md",
+      "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
+      2000,
+    )
+  })
+
+  it("returns outgoing links with exists flag", () => {
+    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(links.length).toBeGreaterThanOrEqual(1)
+
+    const existing = links.find((l) => l.path === "target-exists.md")
+    expect(existing).toBeDefined()
+    expect(existing!.exists).toBe(true)
+    expect(existing!.title).toBe("Target")
+  })
+
+  it("marks unresolved links as exists: false", () => {
+    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const missing = links.find((l) => l.path === "NonExistent")
+    expect(missing).toBeDefined()
+    expect(missing!.exists).toBe(false)
+    expect(missing!.title).toBeNull()
+  })
+
+  it("returns empty for notes with no outgoing links", () => {
+    index.upsertNote("lonely.md", "# Lonely\n\nNo links.\n", 3000)
+    const links = index.getOutgoingLinks({ path: "lonely.md" }, logger)
+    expect(links).toHaveLength(0)
+  })
+})
+
+describe("findOrphans", () => {
+  beforeEach(() => {
+    index.upsertNote("connected.md", "# Connected\n\nBody.\n", 1000)
+    index.upsertNote("hub.md", "# Hub\n\n[[connected]].\n", 2000)
+    index.upsertNote(
+      "Projects/orphan.md",
+      "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
+      3000,
+    )
+    index.upsertNote(
+      "Daily Notes/2026-05-13.md",
+      "---\ntitle: 2026-05-13\n---\n\n# Daily\n",
+      4000,
+    )
+  })
+
+  it("finds notes with no incoming links", () => {
+    const orphans = index.findOrphans({}, logger)
+    const orphanPaths = orphans.map((o) => o.path)
+    expect(orphanPaths).toContain("Projects/orphan.md")
+  })
+
+  it("excludes connected notes", () => {
+    const orphans = index.findOrphans({}, logger)
+    const orphanPaths = orphans.map((o) => o.path)
+    expect(orphanPaths).not.toContain("connected.md")
+  })
+
+  it("excludes Daily Notes by default", () => {
+    const orphans = index.findOrphans({}, logger)
+    const orphanPaths = orphans.map((o) => o.path)
+    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
+  })
+
+  it("includes Daily Notes when excluded folders are overridden", () => {
+    const orphans = index.findOrphans({ excludeFolders: [] }, logger)
+    const orphanPaths = orphans.map((o) => o.path)
+    expect(orphanPaths).toContain("Daily Notes/2026-05-13.md")
+  })
+
+  it("respects limit", () => {
+    const orphans = index.findOrphans({ limit: 1 }, logger)
+    expect(orphans).toHaveLength(1)
+  })
+
+  it("returns NoteMetadata with all fields", () => {
+    const orphans = index.findOrphans({}, logger)
+    const orphan = orphans.find((o) => o.path === "Projects/orphan.md")
+    expect(orphan).toBeDefined()
+    expect(orphan).toHaveProperty("title")
+    expect(orphan).toHaveProperty("tags")
+    expect(orphan).toHaveProperty("folder")
+    expect(orphan).toHaveProperty("modified")
   })
 })

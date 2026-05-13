@@ -2,7 +2,7 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 complete — 15 MCP tools, deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+> **Status:** Phase 1 complete — 18 MCP tools, deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Contents
 

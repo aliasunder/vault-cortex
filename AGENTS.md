@@ -61,7 +61,7 @@ connector is typically loaded as deferred tools (names like
 check the deferred-tools list and load schemas via `ToolSearch`. The
 connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
 `vault_write_note`, `vault_patch_note`, `vault_replace_in_note`, and the
-rest of the API (15 tools) in `src/vault-mcp/tool-definitions.ts`.
+rest of the API (18 tools) in `src/vault-mcp/tool-definitions.ts`.
 
 ## Logging
 
