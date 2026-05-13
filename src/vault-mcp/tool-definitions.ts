@@ -110,6 +110,7 @@ Returns: Raw markdown string.`,
       inputSchema: {
         path: z
           .string()
+          .min(1)
           .describe(
             'Vault-relative path to the note (e.g. "About Me/Principles.md")',
           ),
@@ -150,7 +151,7 @@ Limitation: Overwrites the entire body. Do not use for surgical edits to large f
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().describe("Vault-relative path for the note"),
+        path: z.string().min(1).describe("Vault-relative path for the note"),
         body: z
           .string()
           .describe("Markdown body content (no frontmatter fences)"),
@@ -210,7 +211,7 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().describe("Vault-relative path to the note"),
+        path: z.string().min(1).describe("Vault-relative path to the note"),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
           .describe("Patch operation to apply"),
@@ -283,7 +284,7 @@ Errors:
 
 Returns: Confirmation message with replacement count.`,
       inputSchema: {
-        path: z.string().describe("Vault-relative path to the note"),
+        path: z.string().min(1).describe("Vault-relative path to the note"),
         old_text: z
           .string()
           .min(1)
@@ -385,7 +386,10 @@ Prefer vault_delete_memory for removing individual dated entries from About Me/ 
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().describe("Vault-relative path of the note to delete"),
+        path: z
+          .string()
+          .min(1)
+          .describe("Vault-relative path of the note to delete"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1018,6 +1022,7 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title })
       inputSchema: {
         path: z
           .string()
+          .min(1)
           .describe(
             'Vault-relative path to the note (e.g. "Projects/vault-cortex.md")',
           ),
@@ -1060,7 +1065,7 @@ Errors:
 
 Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }), and count.`,
       inputSchema: {
-        path: z.string().describe("Vault-relative path to the note"),
+        path: z.string().min(1).describe("Vault-relative path to the note"),
       },
       annotations: {
         readOnlyHint: true,
