@@ -162,25 +162,30 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ### Phase 1: Vault Read/Write (R2, R3)
 
-| Tool                | Input                      | Annotation      |
-| ------------------- | -------------------------- | --------------- |
-| `vault_read_note`   | `path`                     | readOnlyHint    |
-| `vault_write_note`  | `path, body, frontmatter?` | destructiveHint |
-| `vault_list_notes`  | `folder?, glob?`           | readOnlyHint    |
-| `vault_delete_note` | `path`                     | destructiveHint |
+| Tool                    | Input                                                | Annotation      |
+| ----------------------- | ---------------------------------------------------- | --------------- |
+| `vault_read_note`       | `path`                                               | readOnlyHint    |
+| `vault_write_note`      | `path, body, frontmatter?`                           | destructiveHint |
+| `vault_patch_note`      | `path, operation, content, heading?, heading_level?` | destructiveHint |
+| `vault_replace_in_note` | `path, old_text, new_text, replace_all_occurrences?` | destructiveHint |
+| `vault_list_notes`      | `folder?, glob?`                                     | readOnlyHint    |
+| `vault_delete_note`     | `path`                                               | destructiveHint |
+
+`vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
 
 `vault_delete_note` refuses paths under `About Me/` or `Daily Notes/` as a server-side guardrail; use `vault_delete_memory` for individual entries in those files.
 
 ### Phase 1: Search (R4)
 
-| Tool                  | Input              | Annotation   |
-| --------------------- | ------------------ | ------------ |
-| `vault_search`        | `query, filters?`  | readOnlyHint |
-| `vault_search_by_tag` | `tag, exact?`      | readOnlyHint |
-| `vault_list_tags`     | —                  | readOnlyHint |
-| `vault_recent_notes`  | `sort_by?, limit?` | readOnlyHint |
+| Tool                     | Input                        | Annotation   |
+| ------------------------ | ---------------------------- | ------------ |
+| `vault_search`           | `query, filters?`            | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?`                | readOnlyHint |
+| `vault_search_by_folder` | `folder, recursive?, limit?` | readOnlyHint |
+| `vault_list_tags`        | —                            | readOnlyHint |
+| `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
 
-`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), and `limit`. `sort_by` is `"created" | "mtime"` (default `"mtime"`).
+`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, and `snippet_tokens`. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
 ### Phase 1: Memory (R5)
 

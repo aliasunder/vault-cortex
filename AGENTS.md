@@ -46,6 +46,7 @@ src/
     consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
     vault-filesystem.ts                # Read/write/list/delete .md files
+    vault-patcher.ts                   # Surgical edits: heading-targeted patch + find-and-replace
     memory-store.ts                    # About Me/ heading-aware read/append/delete
     search-index.ts                    # SQLite FTS5 factory (tags, folders, etc)
     file-watcher.ts                    # chokidar -> keeps index current
@@ -59,8 +60,8 @@ connector is typically loaded as deferred tools (names like
 `mcp__*__vault_*`). Before claiming inability to read or write the vault,
 check the deferred-tools list and load schemas via `ToolSearch`. The
 connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
-`vault_write_note`, and the rest of the API in
-`src/vault-mcp/tool-definitions.ts`.
+`vault_write_note`, `vault_patch_note`, `vault_replace_in_note`, and the
+rest of the API (15 tools) in `src/vault-mcp/tool-definitions.ts`.
 
 ## Logging
 
@@ -103,9 +104,9 @@ root logger (src/logger.ts)
 - `tool-definitions.ts` creates a **request logger** per tool call,
   adding `requestId` + `tool` name from the MCP SDK's
   `RequestHandlerExtra`
-- Data-layer functions (`vault-filesystem`, `memory-store`,
-  `search-index`) take the logger as a **required** second argument
-  (two-arg pattern: `(params, logger)`)
+- Data-layer functions (`vault-filesystem`, `vault-patcher`,
+  `memory-store`, `search-index`) take the logger as a **required**
+  second argument (two-arg pattern: `(params, logger)`)
 - Background callers (file-watcher, startup) use the root logger
   directly — no request context available
 
@@ -135,7 +136,16 @@ search.fullTextSearch({ query, filters }, reqLogger)
 - `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
-- No `any`. Prefer `async/await`.
+- No `any`. Prefer `async/await` over `.then()`/`.catch()`.
+- Immutable by default. Avoid `let` — carry state in reduce
+  accumulators, use early returns, or destructure conditional results.
+  A bit of duplication is acceptable to keep code immutable and clear.
+- Explicit names over abbreviations. Variable names should describe
+  what the value _is_, not use shorthand (`availableHeadings` not
+  `available`, `searchText` not `needle`, `fileContent` not `raw`).
+- Regex constants get doc comments explaining what they match.
+- MCP tool descriptions include `Example:`, `When to use:`,
+  `Errors:` (with remediation guidance), and `Returns:` sections.
 
 ## SST conventions
 
