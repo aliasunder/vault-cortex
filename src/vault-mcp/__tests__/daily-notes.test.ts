@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm as removeDirectory,
+  writeFile,
+  mkdir,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import {
@@ -84,7 +89,7 @@ describe("readDailyNotesConfig", () => {
   })
 
   afterEach(async () => {
-    await rm(vaultDir, { recursive: true })
+    await removeDirectory(vaultDir, { recursive: true })
   })
 
   it("reads folder and format from .obsidian/daily-notes.json", async () => {
@@ -164,7 +169,7 @@ describe("getDailyNotePath", () => {
   })
 
   afterEach(async () => {
-    await rm(vaultDir, { recursive: true })
+    await removeDirectory(vaultDir, { recursive: true })
   })
 
   it("resolves a specific date with default config", async () => {
@@ -226,7 +231,7 @@ describe("getDailyNote", () => {
   })
 
   afterEach(async () => {
-    await rm(vaultDir, { recursive: true })
+    await removeDirectory(vaultDir, { recursive: true })
   })
 
   it("reads an existing daily note", async () => {
