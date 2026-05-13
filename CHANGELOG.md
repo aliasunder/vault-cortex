@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [0.4.0] — 2026-05-13
+
+### Features
+
+- **mcp:** Add vault_patch_note and vault_replace_in_note tools (#12)
+
+### Refactoring
+
+- Rename mtime → modified, convert to ISO 8601
+
+### Documentation
+
+- Update CHANGELOG.md for v0.3.0
+
+
 ## [0.3.0] — 2026-05-12
 
 ### Features
