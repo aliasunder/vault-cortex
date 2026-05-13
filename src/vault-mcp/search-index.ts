@@ -65,6 +65,17 @@ type TagCount = {
   count: number
 }
 
+type PropertyKeyInfo = {
+  key: string
+  count: number
+  sample_values: string[]
+}
+
+type PropertyValueCount = {
+  value: string
+  count: number
+}
+
 type SearchFilters = {
   folder?: string
   tags?: string[]
@@ -455,6 +466,145 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  /** Returns all frontmatter property keys with note counts and top 3 sample values. */
+  const listPropertyKeys = (
+    params: { folder?: string },
+    logger: Logger,
+  ): PropertyKeyInfo[] => {
+    const folderCondition = params.folder ? "WHERE n.path LIKE ? || '/%'" : ""
+    const folderParams: string[] = params.folder ? [params.folder] : []
+
+    const keySql = `
+      SELECT je.key, COUNT(DISTINCT n.path) as count
+      FROM notes n, json_each(n.properties) je
+      ${folderCondition}
+      GROUP BY je.key
+      ORDER BY count DESC
+    `
+    const keyRows = db.prepare(keySql).all(...folderParams) as Array<{
+      key: string
+      count: number
+    }>
+
+    const sampleStmt = db.prepare(`
+      SELECT DISTINCT je_val.value
+      FROM (
+        SELECT properties FROM notes
+        WHERE json_type(properties, '$.' || @key) IS NOT NULL
+      ) filtered, json_each(
+        CASE json_type(filtered.properties, '$.' || @key)
+          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
+          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+        END
+      ) je_val
+      WHERE typeof(je_val.value) IN ('text', 'integer', 'real')
+      LIMIT 3
+    `)
+
+    const results: PropertyKeyInfo[] = keyRows.map((row) => {
+      const sampleRows = sampleStmt.all({ key: row.key }) as Array<{
+        value: string
+      }>
+      return {
+        key: row.key,
+        count: row.count,
+        sample_values: sampleRows.map((r) => String(r.value)),
+      }
+    })
+
+    logger.info("listed property keys", { count: results.length })
+    return results
+  }
+
+  /** Returns distinct values for a given property key with note counts. */
+  const listPropertyValues = (
+    params: { key: string; folder?: string; limit?: number },
+    logger: Logger,
+  ): PropertyValueCount[] => {
+    const limit = params.limit ?? 50
+    const folderCondition = params.folder ? "AND path LIKE @folder || '/%'" : ""
+
+    const sql = `
+      SELECT je.value, COUNT(*) as count
+      FROM (
+        SELECT properties FROM notes
+        WHERE json_type(properties, '$.' || @key) IS NOT NULL
+        ${folderCondition}
+      ) filtered, json_each(
+        CASE json_type(filtered.properties, '$.' || @key)
+          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
+          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+        END
+      ) je
+      WHERE typeof(je.value) IN ('text', 'integer', 'real')
+      GROUP BY je.value
+      ORDER BY count DESC
+      LIMIT @limit
+    `
+
+    const bindParams: Record<string, unknown> = { key: params.key, limit }
+    if (params.folder) bindParams.folder = params.folder
+
+    const rows = db.prepare(sql).all(bindParams) as Array<{
+      value: string | number
+      count: number
+    }>
+    const results = rows.map((r) => ({
+      value: String(r.value),
+      count: r.count,
+    }))
+    logger.info("listed property values", {
+      key: params.key,
+      count: results.length,
+    })
+    return results
+  }
+
+  /** Finds notes where a frontmatter property matches a value (exact match). */
+  const searchByProperty = (
+    params: { key: string; value: string; folder?: string; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const limit = params.limit ?? 20
+    const folderCondition = params.folder
+      ? "AND n.path LIKE @folder || '/%'"
+      : ""
+
+    const sql = `
+      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      FROM notes n
+      WHERE (
+        (json_type(n.properties, '$.' || @key) = 'array'
+         AND EXISTS (
+           SELECT 1 FROM json_each(json_extract(n.properties, '$.' || @key))
+           WHERE value = @value
+         ))
+        OR
+        (json_type(n.properties, '$.' || @key) IS NOT NULL
+         AND json_type(n.properties, '$.' || @key) != 'array'
+         AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
+      )
+      ${folderCondition}
+      LIMIT @limit
+    `
+
+    const bindParams: Record<string, unknown> = {
+      key: params.key,
+      value: params.value,
+      limit,
+    }
+    if (params.folder) bindParams.folder = params.folder
+
+    const rows = db.prepare(sql).all(bindParams) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("search by property", {
+      key: params.key,
+      value: params.value,
+      resultCount: results.length,
+    })
+    return results
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -465,6 +615,9 @@ export const createSearchIndex = (dbPath: string) => {
     searchByType,
     listAllTags,
     recentNotes,
+    listPropertyKeys,
+    listPropertyValues,
+    searchByProperty,
   }
 }
 

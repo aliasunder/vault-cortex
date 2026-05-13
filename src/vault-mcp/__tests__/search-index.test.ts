@@ -468,6 +468,238 @@ describe("recentNotes", () => {
   })
 })
 
+// ── Property query fixtures ──────────────────────────────────────
+
+const NOTE_WITH_STATUS = `---
+title: Active Project
+type: project
+tags: [project, active]
+status: in-progress
+priority: high
+---
+
+# Active Project
+
+Work in progress.
+`
+
+const NOTE_WITH_DIFFERENT_STATUS = `---
+title: Done Project
+type: project
+tags: [project, done]
+status: done
+priority: low
+---
+
+# Done Project
+
+Completed work.
+`
+
+const NOTE_WITH_NO_CUSTOM_PROPS = `---
+title: Plain Note
+tags: [note]
+---
+
+# Plain Note
+
+No custom properties.
+`
+
+describe("listPropertyKeys", () => {
+  beforeEach(() => {
+    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
+    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
+    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+  })
+
+  it("returns all property keys with counts", () => {
+    const keys = index.listPropertyKeys({}, logger)
+    expect(keys.length).toBeGreaterThan(0)
+    const titleKey = keys.find((k) => k.key === "title")
+    expect(titleKey).toBeDefined()
+    expect(titleKey!.count).toBe(3)
+  })
+
+  it("includes sample_values for each key", () => {
+    const keys = index.listPropertyKeys({}, logger)
+    const statusKey = keys.find((k) => k.key === "status")
+    expect(statusKey).toBeDefined()
+    expect(statusKey!.sample_values).toContain("in-progress")
+    expect(statusKey!.sample_values).toContain("done")
+  })
+
+  it("returns at most 3 sample values", () => {
+    for (let i = 0; i < 5; i++) {
+      index.upsertNote(
+        `extra/n${i}.md`,
+        `---\nvariety: value-${i}\n---\nbody\n`,
+        4000 + i,
+      )
+    }
+    const keys = index.listPropertyKeys({}, logger)
+    const varietyKey = keys.find((k) => k.key === "variety")
+    expect(varietyKey!.sample_values.length).toBeLessThanOrEqual(3)
+  })
+
+  it("sorts by count descending", () => {
+    const keys = index.listPropertyKeys({}, logger)
+    for (let i = 1; i < keys.length; i++) {
+      expect(keys[i - 1].count).toBeGreaterThanOrEqual(keys[i].count)
+    }
+  })
+
+  it("respects folder filter", () => {
+    const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
+    const statusKey = keys.find((k) => k.key === "status")
+    expect(statusKey).toBeDefined()
+    expect(statusKey!.count).toBe(2)
+  })
+
+  it("folder filter excludes notes outside the folder", () => {
+    const keys = index.listPropertyKeys({ folder: "notes" }, logger)
+    const statusKey = keys.find((k) => k.key === "status")
+    expect(statusKey).toBeUndefined()
+  })
+})
+
+describe("listPropertyValues", () => {
+  beforeEach(() => {
+    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
+    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
+    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+  })
+
+  it("returns distinct values with counts for a scalar property", () => {
+    const values = index.listPropertyValues({ key: "status" }, logger)
+    expect(values).toHaveLength(2)
+    expect(values.find((v) => v.value === "in-progress")).toEqual({
+      value: "in-progress",
+      count: 1,
+    })
+    expect(values.find((v) => v.value === "done")).toEqual({
+      value: "done",
+      count: 1,
+    })
+  })
+
+  it("enumerates individual array elements for array properties", () => {
+    const values = index.listPropertyValues({ key: "tags" }, logger)
+    expect(values.find((v) => v.value === "project")).toBeDefined()
+    expect(values.find((v) => v.value === "active")).toBeDefined()
+    expect(values.find((v) => v.value === "note")).toBeDefined()
+  })
+
+  it("sorts by count descending", () => {
+    const values = index.listPropertyValues({ key: "tags" }, logger)
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i - 1].count).toBeGreaterThanOrEqual(values[i].count)
+    }
+  })
+
+  it("respects limit", () => {
+    const values = index.listPropertyValues({ key: "tags", limit: 2 }, logger)
+    expect(values).toHaveLength(2)
+  })
+
+  it("respects folder filter", () => {
+    const values = index.listPropertyValues(
+      { key: "status", folder: "Projects" },
+      logger,
+    )
+    expect(values).toHaveLength(2)
+  })
+
+  it("returns empty for non-existent key", () => {
+    const values = index.listPropertyValues({ key: "nonexistent" }, logger)
+    expect(values).toHaveLength(0)
+  })
+})
+
+describe("searchByProperty", () => {
+  beforeEach(() => {
+    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
+    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
+    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+  })
+
+  it("finds notes by scalar property value", () => {
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress" },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("Projects/active.md")
+  })
+
+  it("finds notes by array property value", () => {
+    const results = index.searchByProperty(
+      { key: "tags", value: "active" },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("Projects/active.md")
+  })
+
+  it("returns NoteMetadata with all fields", () => {
+    const results = index.searchByProperty(
+      { key: "status", value: "done" },
+      logger,
+    )
+    expect(results[0]).toHaveProperty("path")
+    expect(results[0]).toHaveProperty("title")
+    expect(results[0]).toHaveProperty("tags")
+    expect(results[0]).toHaveProperty("related")
+    expect(results[0]).toHaveProperty("folder")
+    expect(results[0]).toHaveProperty("type")
+    expect(results[0]).toHaveProperty("modified")
+    expect(results[0]).toHaveProperty("properties")
+  })
+
+  it("returns empty for non-matching value", () => {
+    const results = index.searchByProperty(
+      { key: "status", value: "archived" },
+      logger,
+    )
+    expect(results).toHaveLength(0)
+  })
+
+  it("returns empty for non-existent key", () => {
+    const results = index.searchByProperty(
+      { key: "nonexistent", value: "any" },
+      logger,
+    )
+    expect(results).toHaveLength(0)
+  })
+
+  it("respects folder filter", () => {
+    index.upsertNote(
+      "Other/also-active.md",
+      "---\nstatus: in-progress\n---\nbody\n",
+      4000,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "Projects" },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("Projects/active.md")
+  })
+
+  it("respects limit", () => {
+    index.upsertNote(
+      "Projects/another.md",
+      "---\nstatus: in-progress\n---\nbody\n",
+      4000,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", limit: 1 },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+  })
+})
+
 describe("rebuildFromVault", () => {
   let vaultDir: string
 

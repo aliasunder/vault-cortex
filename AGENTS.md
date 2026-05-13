@@ -45,6 +45,7 @@ src/
     oauth-provider.ts                  # OAuthServerProvider — JWT tokens, SQLite persistence
     consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
+    daily-notes.ts                     # Daily note config reader + path resolver
     vault-filesystem.ts                # Read/write/list/delete .md files
     vault-patcher.ts                   # Surgical edits: heading-targeted patch + find-and-replace
     memory-store.ts                    # About Me/ heading-aware read/append/delete
@@ -61,7 +62,7 @@ connector is typically loaded as deferred tools (names like
 check the deferred-tools list and load schemas via `ToolSearch`. The
 connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
 `vault_write_note`, `vault_patch_note`, `vault_replace_in_note`, and the
-rest of the API (15 tools) in `src/vault-mcp/tool-definitions.ts`.
+rest of the API (19 tools) in `src/vault-mcp/tool-definitions.ts`.
 
 ## Logging
 
