@@ -89,19 +89,19 @@ type NoteRow = {
 
 // ── Link extraction ─────────────────────────────────────────────
 
-/** Matches fenced code block openers: 3+ backticks or 3+ tildes. */
-const FENCE_OPEN = /^(`{3,}|~{3,})/
+/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5). */
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 
 /** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
  *  [[target#heading|text]], and embeds ![[target]]. Captures the
  *  target path/name (group 1) before any # or |. */
 const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
 
-/** Matches markdown internal links: [text](path) or [text](path#heading).
- *  Excludes external URLs (http://, https://, mailto:) and same-page
- *  anchors (#heading). Captures the path (group 1). */
+/** Matches markdown internal links to .md files: [text](path.md) or
+ *  [text](path.md#heading). Excludes external URLs and non-.md assets
+ *  (images, PDFs). Captures the path without extension (group 1). */
 const MD_LINK_RE =
-  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)(?:\.md)?(?:#[^)\s]*)?\)/g
+  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
 
 /** Extracts link targets from markdown content, skipping fenced code blocks.
  *  Returns deduplicated raw targets (pre-resolution). */
@@ -113,12 +113,13 @@ export const extractLinks = (content: string): string[] => {
   for (const line of lines) {
     const fenceMatch = FENCE_OPEN.exec(line)
     if (fenceMatch) {
+      const fenceChars = fenceMatch[1]!
       if (currentFenceOpener === null) {
-        currentFenceOpener = fenceMatch[1][0]!.repeat(fenceMatch[1].length)
+        currentFenceOpener = fenceChars[0]!.repeat(fenceChars.length)
       } else if (
-        line.startsWith(currentFenceOpener[0]!) &&
-        line.trimEnd().length >= currentFenceOpener.length &&
-        line.trimEnd() === line.trimEnd()[0]!.repeat(line.trimEnd().length)
+        fenceChars[0] === currentFenceOpener[0] &&
+        fenceChars.length >= currentFenceOpener.length &&
+        line.trim() === fenceChars[0]!.repeat(line.trim().length)
       ) {
         currentFenceOpener = null
       }
@@ -126,12 +127,20 @@ export const extractLinks = (content: string): string[] => {
     }
     if (currentFenceOpener !== null) continue
 
-    for (const match of line.matchAll(WIKILINK_RE)) {
+    const stripped = line.replace(/`+[^`\n]*`+/g, (m) => " ".repeat(m.length))
+
+    for (const match of stripped.matchAll(WIKILINK_RE)) {
       const target = match[1]!.trim()
       if (target.length > 0) targets.add(target)
     }
-    for (const match of line.matchAll(MD_LINK_RE)) {
-      const target = decodeURIComponent(match[1]!.trim())
+    for (const match of stripped.matchAll(MD_LINK_RE)) {
+      const raw = match[1]!.trim()
+      let target: string
+      try {
+        target = decodeURIComponent(raw)
+      } catch {
+        target = raw
+      }
       if (target.length > 0) targets.add(target)
     }
   }
@@ -215,11 +224,18 @@ export const createSearchIndex = (dbPath: string) => {
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
-  /** Parses a note's content and frontmatter, then indexes it for search. */
+  const reResolveStmt = db.prepare(
+    `UPDATE links SET target = @resolved WHERE target = @raw`,
+  )
+
+  /** Parses a note's content and frontmatter, then indexes it for search.
+   *  Set skipLinks to true during bulk rebuild (rebuildFromVault handles
+   *  links in a separate pass with a complete path list). */
   const upsertNote = (
     filePath: string,
     rawContent: string,
     lastModifiedMs: number,
+    skipLinks = false,
   ): void => {
     const parsed = matter(rawContent)
     const { data } = parsed
@@ -268,15 +284,22 @@ export const createSearchIndex = (dbPath: string) => {
     )
     insertFtsStmt.run(note.path, note.title, note.content)
 
-    const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
-      path: string
-    }>
-    const pathList = allPaths.map((r) => r.path)
+    if (!skipLinks) {
+      const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+        path: string
+      }>
+      const pathList = allPaths.map((r) => r.path)
 
-    deleteLinksStmt.run(note.path)
-    for (const rawTarget of extractLinks(parsed.content)) {
-      const resolved = resolveLink(rawTarget, pathList)
-      insertLinkStmt.run(note.path, resolved ?? rawTarget)
+      deleteLinksStmt.run(note.path)
+      for (const rawTarget of extractLinks(parsed.content)) {
+        const resolved = resolveLink(rawTarget, pathList)
+        insertLinkStmt.run(note.path, resolved ?? rawTarget)
+      }
+
+      // Re-resolve stale unresolved targets that now match the newly added note
+      const fileBasename = basename(note.path, ".md")
+      reResolveStmt.run({ resolved: note.path, raw: fileBasename })
+      reResolveStmt.run({ resolved: note.path, raw: note.path })
     }
   }
 
@@ -322,9 +345,10 @@ export const createSearchIndex = (dbPath: string) => {
     )
 
     db.transaction(() => {
-      // Pass 1: index all notes (content, frontmatter, FTS)
+      // Pass 1: index all notes (content, frontmatter, FTS) — skip link
+      // extraction here; Pass 2 handles it with the complete path list.
       for (const item of items) {
-        upsertNote(item.rel, item.content, item.mtime)
+        upsertNote(item.rel, item.content, item.mtime, true)
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
@@ -647,7 +671,7 @@ export const createSearchIndex = (dbPath: string) => {
     const limit = params.limit ?? 50
 
     const folderExclusions = excludeFolders
-      .map(() => "folder != ?")
+      .map(() => "path NOT LIKE ? || '/%'")
       .join(" AND ")
     const whereClause =
       folderExclusions.length > 0 ? `AND ${folderExclusions}` : ""
@@ -655,7 +679,7 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT path, title, tags, related, folder, type, created, mtime, properties
       FROM notes
-      WHERE path NOT IN (SELECT DISTINCT target FROM links)
+      WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
         ${whereClause}
       ORDER BY mtime DESC
       LIMIT ?

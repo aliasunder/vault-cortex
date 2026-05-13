@@ -615,6 +615,41 @@ describe("extractLinks", () => {
   it("returns empty for content with no links", () => {
     expect(extractLinks("Just plain text.")).toEqual([])
   })
+
+  it("skips wikilinks inside inline code spans", () => {
+    const links = extractLinks("Use the `[[Note Name]]` syntax to link.")
+    expect(links).not.toContain("Note Name")
+  })
+
+  it("skips markdown links inside inline code spans", () => {
+    const links = extractLinks("Pattern `[text](file.md)` does X.")
+    expect(links).not.toContain("file")
+  })
+
+  it("skips links inside indented fences (CommonMark §4.5)", () => {
+    const content = [
+      "- list item:",
+      "  ```",
+      "  [[Fake Link]]",
+      "  ```",
+      "[[Real Link]]",
+    ].join("\n")
+    const links = extractLinks(content)
+    expect(links).not.toContain("Fake Link")
+    expect(links).toContain("Real Link")
+  })
+
+  it("excludes non-.md assets (images, PDFs)", () => {
+    const links = extractLinks(
+      "![photo](pics/photo.png) and [doc](papers/report.pdf)",
+    )
+    expect(links).toHaveLength(0)
+  })
+
+  it("handles malformed percent-encoding without throwing", () => {
+    const links = extractLinks("[done](100%25complete.md)")
+    expect(links).toBeDefined()
+  })
 })
 
 // ── resolveLink ──────────────────────────────────────────────────
@@ -657,21 +692,20 @@ describe("resolveLink", () => {
 
 describe("getBacklinks", () => {
   beforeEach(() => {
-    // Index targets before sources so link resolution finds them
-    index.upsertNote("spoke-a.md", "# Spoke A\n\nBody.\n", 1000)
-    index.upsertNote("spoke-b.md", "# Spoke B\n\nNo backlink.\n", 2000)
-    index.upsertNote("island.md", "# Island\n\nNo links at all.\n", 3000)
+    // hub links to spoke-a and spoke-b; spoke-a links back to hub.
+    // upsertNote re-resolves stale targets, so ordering doesn't matter.
     index.upsertNote(
       "hub.md",
       "# Hub\n\nLinks to [[spoke-a]] and [[spoke-b]].\n",
-      4000,
+      1000,
     )
-    // Re-index spoke-a now that hub exists, so its [[hub]] link resolves
     index.upsertNote(
       "spoke-a.md",
       "# Spoke A\n\nLinks back to [[hub]].\n",
-      5000,
+      2000,
     )
+    index.upsertNote("spoke-b.md", "# Spoke B\n\nNo backlink.\n", 3000)
+    index.upsertNote("island.md", "# Island\n\nNo links at all.\n", 4000)
   })
 
   it("finds notes linking to the target", () => {
@@ -699,14 +733,15 @@ describe("getBacklinks", () => {
 
 describe("getOutgoingLinks", () => {
   beforeEach(() => {
-    index.upsertNote(
-      "target-exists.md",
-      "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
-      1000,
-    )
+    // source links to target-exists (will be resolved) and NonExistent (unresolved)
     index.upsertNote(
       "source.md",
       "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
+      1000,
+    )
+    index.upsertNote(
+      "target-exists.md",
+      "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
       2000,
     )
   })
@@ -738,8 +773,8 @@ describe("getOutgoingLinks", () => {
 
 describe("findOrphans", () => {
   beforeEach(() => {
-    index.upsertNote("connected.md", "# Connected\n\nBody.\n", 1000)
-    index.upsertNote("hub.md", "# Hub\n\n[[connected]].\n", 2000)
+    index.upsertNote("hub.md", "# Hub\n\n[[connected]].\n", 1000)
+    index.upsertNote("connected.md", "# Connected\n\nBody.\n", 2000)
     index.upsertNote(
       "Projects/orphan.md",
       "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
@@ -789,5 +824,23 @@ describe("findOrphans", () => {
     expect(orphan).toHaveProperty("tags")
     expect(orphan).toHaveProperty("folder")
     expect(orphan).toHaveProperty("modified")
+  })
+
+  it("treats self-linking notes as orphans", () => {
+    index.upsertNote("self-ref.md", "# Self\n\nLinks to [[self-ref]].\n", 5000)
+    const orphans = index.findOrphans({}, logger)
+    const orphanPaths = orphans.map((o) => o.path)
+    expect(orphanPaths).toContain("self-ref.md")
+  })
+})
+
+describe("forward reference resolution", () => {
+  it("resolves backlinks when target is indexed after source", () => {
+    index.upsertNote("source.md", "# Source\n\nLinks to [[target]].\n", 1000)
+    index.upsertNote("target.md", "# Target\n\nBody.\n", 2000)
+
+    const backlinks = index.getBacklinks({ path: "target.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("source.md")
   })
 })
