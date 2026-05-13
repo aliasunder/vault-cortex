@@ -193,6 +193,12 @@ Operations:
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
+Errors:
+- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "heading not found" — no heading matches the text; error lists available headings
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
+- "operation requires a heading target" — replace and insert_before need a heading
+
 Returns: Confirmation message.`,
       inputSchema: {
         path: z.string().describe("Vault-relative path to the note"),
@@ -260,6 +266,11 @@ When to use: Targeted text changes — fixing typos, updating values, renaming t
 Prefer vault_patch_note for heading-targeted structural edits.
 
 Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
+
+Errors:
+- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
+- "old_text cannot be empty" — old_text must be at least one character
 
 Returns: Confirmation message with replacement count.`,
       inputSchema: {

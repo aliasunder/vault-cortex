@@ -113,11 +113,11 @@ const findHeading = (
   )
 
   if (matches.length === 0) {
-    const available = headings
+    const availableHeadings = headings
       .map((h) => `${"#".repeat(h.level)} ${h.text}`)
       .join(", ")
     throw new Error(
-      `heading not found: "${searchText}". Available headings: ${available || "(none)"}`,
+      `heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`,
     )
   }
 
@@ -286,8 +286,9 @@ const replaceInNote = async (
   const body = lines.join("\n")
 
   if (!body.includes(oldText)) {
-    const preview = oldText.length > 80 ? oldText.slice(0, 80) + "…" : oldText
-    throw new Error(`text not found in "${path}": "${preview}"`)
+    const truncatedOldText =
+      oldText.length > 80 ? oldText.slice(0, 80) + "…" : oldText
+    throw new Error(`text not found in "${path}": "${truncatedOldText}"`)
   }
 
   const idx = body.indexOf(oldText)
