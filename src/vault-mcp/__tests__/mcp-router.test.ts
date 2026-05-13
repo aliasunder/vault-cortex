@@ -72,6 +72,7 @@ type Harness = {
   transportInstances: TransportMock[]
   serverInstances: ServerMock[]
   search: SearchIndex
+  provider: OAuthServerProvider
 }
 
 const harnesses: Harness[] = []
@@ -103,20 +104,16 @@ const setupHarness = async (
   const serverInstances: ServerMock[] = []
 
   vi.mocked(StreamableHTTPServerTransport).mockImplementation(
-    function MockStreamableHTTPServerTransport(this: TransportMock) {
+    function MockStreamableHTTPServerTransport() {
       const t = createTransportMock()
       transportInstances.push(t)
-      Object.assign(this, t)
       return t
     } as unknown as typeof StreamableHTTPServerTransport,
   )
 
-  vi.mocked(McpServer).mockImplementation(function MockMcpServer(
-    this: ServerMock,
-  ) {
+  vi.mocked(McpServer).mockImplementation(function MockMcpServer() {
     const s = createServerMock()
     serverInstances.push(s)
-    Object.assign(this, s)
     return s
   } as unknown as typeof McpServer)
 
@@ -147,6 +144,7 @@ const setupHarness = async (
     transportInstances,
     serverInstances,
     search,
+    provider,
   }
   harnesses.push(h)
   return h
@@ -175,24 +173,19 @@ const baseHeaders = {
 
 const createSession = async (
   h: Harness,
-): Promise<{
-  sessionId: string
-  transport: TransportMock
-  response: Response
-}> => {
+): Promise<{ sessionId: string; transport: TransportMock }> => {
   vi.mocked(isInitializeRequest).mockReturnValue(true)
   const response = await fetch(h.url(), {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify(initializeBody),
   })
-  // drain so the connection releases
   await response.arrayBuffer()
   const transport = h.transportInstances.at(-1)
   if (!transport || !transport.sessionId) {
     throw new Error("session was not created")
   }
-  return { sessionId: transport.sessionId, transport, response }
+  return { sessionId: transport.sessionId, transport }
 }
 
 let infoSpy: ReturnType<typeof vi.spyOn>
@@ -204,13 +197,21 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  while (harnesses.length > 0) {
-    const h = harnesses.pop()
-    if (h) await teardownHarness(h)
-  }
+  await Promise.all(harnesses.splice(0).map(teardownHarness))
   vi.clearAllMocks()
   infoSpy.mockRestore()
   warnSpy.mockRestore()
+})
+
+describe("createMcpRouter — construction", () => {
+  it("wires the OAuth provider into requireBearerAuth as the verifier", async () => {
+    const h = await setupHarness()
+
+    expect(requireBearerAuth).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(requireBearerAuth).mock.calls[0]![0]).toEqual({
+      verifier: h.provider,
+    })
+  })
 })
 
 describe("createMcpRouter — POST /mcp", () => {
@@ -366,12 +367,9 @@ describe("createMcpRouter — POST /mcp", () => {
 
     expect(response.status).toBe(401)
     expect(h.transportInstances).toHaveLength(0)
-    // The route handler never runs, so neither mcp_request nor mcp_response
-    // info logs should fire.
-    expect(infoSpy).not.toHaveBeenCalledWith(
-      "mcp_request",
-      expect.objectContaining({ method: "POST" }),
-    )
+    // The route handler never runs, so its mcp_request / mcp_response info
+    // logs should never fire.
+    expect(infoSpy).not.toHaveBeenCalled()
   })
 
   it("logs mcp_request for every accepted POST", async () => {
@@ -391,18 +389,13 @@ describe("createMcpRouter — GET /mcp", () => {
     const h = await setupHarness()
     const { sessionId, transport } = await createSession(h)
     transport.handleRequest.mockClear()
-    transport.handleRequest.mockImplementationOnce(async (_req, res) => {
-      res.status(200).json({ ok: true, via: "GET" })
-    })
 
     const response = await fetch(h.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
     })
-    const body = (await response.json()) as { via: string }
+    await response.arrayBuffer()
 
-    expect(response.status).toBe(200)
-    expect(body).toEqual({ ok: true, via: "GET" })
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
     expect(transport.handleRequest.mock.calls[0]).toHaveLength(2)
   })
