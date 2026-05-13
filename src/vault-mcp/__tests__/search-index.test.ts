@@ -646,9 +646,9 @@ describe("extractLinks", () => {
     expect(links).toHaveLength(0)
   })
 
-  it("handles malformed percent-encoding without throwing", () => {
-    const links = extractLinks("[done](100%25complete.md)")
-    expect(links).toBeDefined()
+  it("falls back to raw target when percent-encoding is malformed", () => {
+    const links = extractLinks("[done](100%zzcomplete.md)")
+    expect(links).toContain("100%zzcomplete")
   })
 })
 
@@ -714,7 +714,7 @@ describe("getBacklinks", () => {
     expect(backlinks[0].path).toBe("hub.md")
   })
 
-  it("returns multiple backlinks", () => {
+  it("finds backlinks from notes that link to the target", () => {
     const backlinks = index.getBacklinks({ path: "hub.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("spoke-a.md")
@@ -748,9 +748,9 @@ describe("getOutgoingLinks", () => {
 
   it("returns outgoing links with exists flag", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(links.length).toBeGreaterThanOrEqual(1)
+    expect(links).toHaveLength(2)
 
-    const existing = links.find((l) => l.path === "target-exists.md")
+    const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
     expect(existing!.exists).toBe(true)
     expect(existing!.title).toBe("Target")
@@ -758,7 +758,7 @@ describe("getOutgoingLinks", () => {
 
   it("marks unresolved links as exists: false", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
-    const missing = links.find((l) => l.path === "NonExistent")
+    const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
     expect(missing!.exists).toBe(false)
     expect(missing!.title).toBeNull()
@@ -789,25 +789,25 @@ describe("findOrphans", () => {
 
   it("finds notes with no incoming links", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((o) => o.path)
+    const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("Projects/orphan.md")
   })
 
   it("excludes connected notes", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((o) => o.path)
+    const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("connected.md")
   })
 
   it("excludes Daily Notes by default", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((o) => o.path)
+    const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
   })
 
   it("includes Daily Notes when excluded folders are overridden", () => {
     const orphans = index.findOrphans({ excludeFolders: [] }, logger)
-    const orphanPaths = orphans.map((o) => o.path)
+    const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("Daily Notes/2026-05-13.md")
   })
 
@@ -818,18 +818,20 @@ describe("findOrphans", () => {
 
   it("returns NoteMetadata with all fields", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphan = orphans.find((o) => o.path === "Projects/orphan.md")
-    expect(orphan).toBeDefined()
-    expect(orphan).toHaveProperty("title")
-    expect(orphan).toHaveProperty("tags")
-    expect(orphan).toHaveProperty("folder")
-    expect(orphan).toHaveProperty("modified")
+    const projectOrphan = orphans.find(
+      (orphan) => orphan.path === "Projects/orphan.md",
+    )
+    expect(projectOrphan).toBeDefined()
+    expect(projectOrphan).toHaveProperty("title")
+    expect(projectOrphan).toHaveProperty("tags")
+    expect(projectOrphan).toHaveProperty("folder")
+    expect(projectOrphan).toHaveProperty("modified")
   })
 
   it("treats self-linking notes as orphans", () => {
     index.upsertNote("self-ref.md", "# Self\n\nLinks to [[self-ref]].\n", 5000)
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((o) => o.path)
+    const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("self-ref.md")
   })
 })
