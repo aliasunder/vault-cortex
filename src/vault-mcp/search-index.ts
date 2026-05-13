@@ -280,11 +280,13 @@ export const createSearchIndex = (dbPath: string) => {
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
+  // Prepared statements are compiled once here and reused across all calls.
+  // db.prepare() caches the compiled SQL — calling it inside a function
+  // would re-compile on every invocation.
   const upsertNotesStmt = db.prepare(`
     INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
-
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
     `INSERT INTO notes_fts (path, title, content) VALUES (?, ?, ?)`,
@@ -293,6 +295,9 @@ export const createSearchIndex = (dbPath: string) => {
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
+  )
+  const reResolveStmt = db.prepare(
+    `UPDATE links SET target = @resolved WHERE target = @raw`,
   )
 
   // ── Index maintenance ──────────────────────────────────────────
@@ -371,9 +376,6 @@ export const createSearchIndex = (dbPath: string) => {
     // Re-resolve stale unresolved targets that match the newly added note.
     // Two forms: wikilinks store just the basename ("Note"), markdown links
     // may store the full path ("folder/Note.md").
-    const reResolveStmt = db.prepare(
-      `UPDATE links SET target = @resolved WHERE target = @raw`,
-    )
     const fileBasename = basename(note.path, ".md")
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
