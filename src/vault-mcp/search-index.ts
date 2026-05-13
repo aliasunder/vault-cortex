@@ -122,6 +122,24 @@ type OutgoingLinkEntry = {
 }
 
 // ── Link extraction ─────────────────────────────────────────────
+//
+// Links between notes are tracked in a `links` table (source → target)
+// to power backlink queries, outgoing link lookups, and orphan detection.
+//
+// Indexing flow:
+//   1. extractLinks() parses wikilinks ([[target]]) and markdown links
+//      ([text](path.md)) from note body, skipping fenced code blocks
+//      and inline code spans.
+//   2. resolveLink() maps each raw target to a vault-relative path by
+//      trying exact match → basename match → shortest-path heuristic.
+//   3. upsertNote stores resolved links in the `links` table. Unresolved
+//      targets are stored as-is (raw text) for broken-link detection.
+//   4. When a new note is created, upsertNote re-resolves any stale
+//      unresolved targets that now match the new note's path or basename
+//      (handles Obsidian's "link first, create later" workflow).
+//   5. rebuildFromVault uses a two-pass approach: Pass 1 indexes all
+//      notes without links (skipLinks), Pass 2 extracts links with the
+//      complete path list so all targets can resolve.
 
 /** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5). */
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
@@ -282,22 +300,14 @@ export const createSearchIndex = (dbPath: string) => {
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
-  // When a new note is indexed, any previously-unresolved link targets that
-  // match the new note's path or basename are updated to the resolved path.
-  // This handles the "link first, create later" workflow common in Obsidian.
-  const reResolveStmt = db.prepare(
-    `UPDATE links SET target = @resolved WHERE target = @raw`,
-  )
-
-  /** Parses a note's content and frontmatter, then indexes it for search.
-   *  Set skipLinks to true during bulk rebuild (rebuildFromVault handles
-   *  links in a separate pass with a complete path list). */
+  /** Parses a note's content and frontmatter, then indexes it for search. */
   const upsertNote = (
     filePath: string,
     rawContent: string,
     lastModifiedMs: number,
-    skipLinks = false,
+    options?: { skipLinks?: boolean },
   ): void => {
+    const skipLinks = options?.skipLinks ?? false
     const parsed = matter(rawContent)
     const { data } = parsed
 
@@ -361,6 +371,9 @@ export const createSearchIndex = (dbPath: string) => {
     // Re-resolve stale unresolved targets that match the newly added note.
     // Two forms: wikilinks store just the basename ("Note"), markdown links
     // may store the full path ("folder/Note.md").
+    const reResolveStmt = db.prepare(
+      `UPDATE links SET target = @resolved WHERE target = @raw`,
+    )
     const fileBasename = basename(note.path, ".md")
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
@@ -411,7 +424,9 @@ export const createSearchIndex = (dbPath: string) => {
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const item of items) {
-        upsertNote(item.rel, item.content, item.mtime, true)
+        // Skip link extraction here — Pass 2 handles it with the complete
+        // path list so all forward references can resolve correctly.
+        upsertNote(item.rel, item.content, item.mtime, { skipLinks: true })
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
