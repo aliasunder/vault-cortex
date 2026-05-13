@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.6.0] — 2026-05-13
+
+### Features
+
+- **vault-mcp:** Backlinks, outgoing links, and orphan detection (19 → 22) (#16)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.5.0
+
+
 ## [0.5.0] — 2026-05-13
 
 ### Features
