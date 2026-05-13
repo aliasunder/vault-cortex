@@ -11,7 +11,7 @@ import { createOAuthRoutes } from "./oauth-routes.js"
 import { createMcpRouter } from "./mcp-router.js"
 import { logger } from "../logger.js"
 
-const createErrorMiddleware =
+export const createErrorMiddleware =
   () =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
@@ -26,7 +26,7 @@ const createErrorMiddleware =
     }
   }
 
-const requireEnv = (name: string): string => {
+export const requireEnv = (name: string): string => {
   const value = process.env[name]
   if (!value) {
     logger.error("missing required env", { var: name })
