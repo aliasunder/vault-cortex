@@ -5,6 +5,7 @@ import { z } from "zod"
 import { vaultFs } from "./vault-filesystem.js"
 import { vaultPatcher } from "./vault-patcher.js"
 import { memoryStore } from "./memory-store.js"
+import { getDailyNote } from "./daily-notes.js"
 import type { SearchIndex } from "./search-index.js"
 import type { Logger } from "../logger.js"
 
@@ -24,6 +25,10 @@ export type ToolName =
   | "vault_update_memory"
   | "vault_list_memory_files"
   | "vault_delete_memory"
+  | "vault_get_daily_note"
+  | "vault_list_property_keys"
+  | "vault_list_property_values"
+  | "vault_search_by_property"
   | "vault_get_backlinks"
   | "vault_get_outgoing_links"
   | "vault_find_orphans"
@@ -823,6 +828,176 @@ Returns: Confirmation message.`,
     },
   )
 
+  // ── Daily Notes ────────────────────────────────────────────
+
+  server.registerTool(
+    "vault_get_daily_note",
+    {
+      title: "Get Daily Note",
+      description: `Read a daily note by date, using the vault's configured Daily Notes folder and date format (from .obsidian/daily-notes.json). Defaults to today if no date is provided.
+
+Example: vault_get_daily_note({ date: "2026-05-13" })
+
+When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. To append content to a daily note section, use the returned path with vault_patch_note.
+
+Errors:
+- "invalid date" — use YYYY-MM-DD format (e.g. "2026-05-13")
+
+Returns: JSON with path (resolved vault-relative path), content (note body or null), and exists (boolean). When exists is false, use vault_write_note with the returned path to create the note.`,
+      inputSchema: {
+        date: z
+          .string()
+          .optional()
+          .describe(
+            "Date in YYYY-MM-DD format (defaults to today in server timezone)",
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ date }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_get_daily_note",
+      })
+      reqLogger.info("tool_call", { date })
+      return safeHandler(
+        reqLogger,
+        () => getDailyNote({ vaultPath, date }, reqLogger),
+        (result) => JSON.stringify(result),
+      )
+    },
+  )
+
+  // ── Property Discovery ────────────────────────────────────
+
+  server.registerTool(
+    "vault_list_property_keys",
+    {
+      title: "List Property Keys",
+      description: `Discover all frontmatter property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
+
+Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_values: ["session-log", "project"] }, ...]
+
+When to use: Discovering what frontmatter properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.
+Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
+
+Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values for quick orientation.`,
+      inputSchema: {
+        folder: z
+          .string()
+          .optional()
+          .describe('Restrict to a folder (e.g. "Projects")'),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ folder }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_list_property_keys",
+      })
+      reqLogger.info("tool_call", { folder })
+      return safeHandler(
+        reqLogger,
+        async () => search.listPropertyKeys({ folder }, reqLogger),
+        (keys) => JSON.stringify(keys),
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_list_property_values",
+    {
+      title: "List Property Values",
+      description: `List distinct values for a specific frontmatter property key with note counts. Useful for discovering the range of values a property takes before searching.
+
+Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
+
+When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are enumerated individually.
+Call vault_list_property_keys first to discover valid key names.
+
+Returns: JSON array of { value, count } sorted by count descending.`,
+      inputSchema: {
+        key: z
+          .string()
+          .describe('Property key name (e.g. "status", "type", "tags")'),
+        folder: z.string().optional().describe("Restrict to a folder"),
+        limit: z
+          .number()
+          .optional()
+          .describe("Max values to return (default 50)"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ key, folder, limit }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_list_property_values",
+      })
+      reqLogger.info("tool_call", { key, folder })
+      return safeHandler(
+        reqLogger,
+        async () =>
+          search.listPropertyValues({ key, folder, limit }, reqLogger),
+        (values) => JSON.stringify(values),
+      )
+    },
+  )
+
+  server.registerTool(
+    "vault_search_by_property",
+    {
+      title: "Search by Property",
+      description: `Find notes where a frontmatter property matches a value (exact match). Unlike vault_search, this does not require a text query — it searches by metadata only. Handles both scalar properties (status: "active") and array properties (tags contains "project").
+
+Example: vault_search_by_property({ key: "status", value: "in-progress" })
+
+When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
+Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties).`,
+      inputSchema: {
+        key: z.string().describe("Property key name"),
+        value: z.string().describe("Value to match (exact, case-sensitive)"),
+        folder: z.string().optional().describe("Restrict to a folder"),
+        limit: z.number().optional().describe("Max results (default 20)"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ key, value, folder, limit }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: "vault_search_by_property",
+      })
+      reqLogger.info("tool_call", { key, value, folder })
+      return safeHandler(
+        reqLogger,
+        async () =>
+          search.searchByProperty({ key, value, folder, limit }, reqLogger),
+        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+      )
+    },
+  )
+
   // ── Links ──────────────────────────────────────────────────
 
   server.registerTool(
@@ -959,5 +1134,5 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  sessionLogger.info("registered tools", { count: 18 })
+  sessionLogger.info("registered tools", { count: 22 })
 }

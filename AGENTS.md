@@ -45,6 +45,7 @@ src/
     oauth-provider.ts                  # OAuthServerProvider — JWT tokens, SQLite persistence
     consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
+    daily-notes.ts                     # Daily note config reader + path resolver
     vault-filesystem.ts                # Read/write/list/delete .md files
     vault-patcher.ts                   # Surgical edits: heading-targeted patch + find-and-replace
     memory-store.ts                    # About Me/ heading-aware read/append/delete
@@ -61,7 +62,7 @@ connector is typically loaded as deferred tools (names like
 check the deferred-tools list and load schemas via `ToolSearch`. The
 connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
 `vault_write_note`, `vault_patch_note`, `vault_replace_in_note`, and the
-rest of the API (18 tools) in `src/vault-mcp/tool-definitions.ts`.
+rest of the API (22 tools) in `src/vault-mcp/tool-definitions.ts`.
 
 ## Logging
 
@@ -140,12 +141,68 @@ search.fullTextSearch({ query, filters }, reqLogger)
 - Immutable by default. Avoid `let` — carry state in reduce
   accumulators, use early returns, or destructure conditional results.
   A bit of duplication is acceptable to keep code immutable and clear.
+  When `let` is necessary (caching, parser state), add a comment
+  justifying why mutation is needed here.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
   `available`, `searchText` not `needle`, `fileContent` not `raw`).
+  This applies everywhere: function params, callback params (`row`
+  not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
+  (`element` not `je`), destructured bindings, and loop variables.
 - Regex constants get doc comments explaining what they match.
+  Inline regexes used more than once should be extracted to a named
+  `const` with a doc comment.
+- Comments above any logic that is complex or multi-step. A reader
+  should not need to pause to understand what the code does. SQL
+  with branching logic (CASE, EXISTS subqueries) needs a comment
+  explaining the overall strategy before the query.
+- Early returns over nested `if/else` — reduces indentation depth
+  and cognitive load. Prefer `if (done) return` over wrapping 15
+  lines in `if (!done) { ... }`.
+- Simple code over clever code when the same outcome is achievable.
+  A person should be able to read and follow the code without
+  unnecessary cognitive overload.
 - MCP tool descriptions include `Example:`, `When to use:`,
   `Errors:` (with remediation guidance), and `Returns:` sections.
+
+### MCP naming conventions
+
+Two naming layers — MCP (JSON wire format) and TypeScript (internal):
+
+- **MCP inputs and outputs** use `snake_case` — this is the JSON
+  shape clients see. Examples: `old_text`, `heading_level`,
+  `snippet_tokens`, `additional_properties`, `sample_values`,
+  `outgoing_links`, `exclude_folders`, `sort_by`.
+- **Internal TypeScript** uses `camelCase` — function params,
+  local variables, internal types that never reach the wire.
+  Examples: `oldText`, `headingLevel`, `snippetTokens`.
+- The mapping happens in `tool-definitions.ts` handlers:
+  `replaceAllOccurrences: replace_all_occurrences`.
+- Types that ARE the JSON response shape (`PropertyKeyInfo`,
+  `SearchResult`, `NoteMetadata`) use `snake_case` for any
+  multi-word fields to match the wire format. Single-word fields
+  (`path`, `title`, `count`) are the same in both conventions.
+
+### Test conventions
+
+- Tests read as a behavioral spec. One focused `it()` per
+  behavior — a failing test name should identify which behavior
+  regressed without reading the body.
+- `const` per test over `let` in `beforeEach` when possible.
+  `beforeEach` is justified for shared setup that all tests in a
+  `describe` need (e.g. indexing fixture notes, creating temp dirs).
+- Every test must actually verify the behavior it claims to test.
+  A folder-filter test must include data both inside and outside the
+  folder to confirm exclusion works — not just data inside.
+- Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
+  loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
+  when the expected value is known.
+- Explicit callback parameter names — `orphan` not `o`, `entry`
+  not `e`, `link` not `l`. Same naming rules as production code.
+- Test names match what they assert. If the test asserts 1 result,
+  don't name it "returns multiple results."
+- Use vitest helpers (`onTestFinished`, `vi.mocked`, `vi.each`)
+  before hand-rolling test plumbing.
 
 ## SST conventions
 

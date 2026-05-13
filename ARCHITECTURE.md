@@ -187,6 +187,17 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, and `snippet_tokens`. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
+### Phase 1: Property Discovery + Daily Notes
+
+| Tool                         | Input                         | Annotation   |
+| ---------------------------- | ----------------------------- | ------------ |
+| `vault_get_daily_note`       | `date?`                       | readOnlyHint |
+| `vault_list_property_keys`   | `folder?`                     | readOnlyHint |
+| `vault_list_property_values` | `key, folder?, limit?`        | readOnlyHint |
+| `vault_search_by_property`   | `key, value, folder?, limit?` | readOnlyHint |
+
+`vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
+
 ### Phase 1: Memory (R5)
 
 | Tool                      | Input                            | Annotation      |
