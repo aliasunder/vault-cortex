@@ -21,6 +21,11 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { registerTools } from "../tool-definitions.js"
 import { logger } from "../../logger.js"
 
+// `logger` is a real exported object; its methods become spies inside
+// beforeEach (vi.spyOn). vi.mocked is a type-only cast that gives us
+// typed access to the spy state — at runtime, mockedLogger === logger.
+const mockedLogger = vi.mocked(logger)
+
 // We stub the MCP SDK so tests focus on the router's own logic — the
 // session map, the route dispatch, and the onclose cleanup — rather than
 // the SDK's transport state machine. Each mocked module captures real
@@ -260,7 +265,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     it("scopes the logger for registerTools to the sessionId and clientIp", async () => {
       const { sessionId } = await setupInitializedSession()
-      expect(vi.mocked(logger.child)).toHaveBeenCalledWith({
+      expect(mockedLogger.child).toHaveBeenCalledWith({
         sessionId,
         clientIp: FORWARDED_IP,
       })
@@ -268,7 +273,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     it("logs the 'session created' response", async () => {
       const { sessionId } = await setupInitializedSession()
-      expect(vi.mocked(logger.info)).toHaveBeenCalledWith("mcp_response", {
+      expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
         sessionId,
         clientIp: FORWARDED_IP,
         status: 200,
@@ -278,7 +283,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     it("logs an 'mcp_request' for the incoming POST", async () => {
       await setupInitializedSession()
-      expect(vi.mocked(logger.info)).toHaveBeenCalledWith("mcp_request", {
+      expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: FORWARDED_IP,
         method: "POST",
@@ -290,7 +295,7 @@ describe("createMcpRouter — POST /mcp", () => {
     const harness = await setupHarness()
     const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockClear()
-    vi.mocked(logger.info).mockClear()
+    mockedLogger.info.mockClear()
     vi.mocked(isInitializeRequest).mockReturnValue(false)
 
     const followUp = { jsonrpc: "2.0", id: 2, method: "tools/list" }
@@ -304,7 +309,7 @@ describe("createMcpRouter — POST /mcp", () => {
     expect(harness.transportInstances).toHaveLength(1)
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
     expect(transport.handleRequest.mock.calls[0]![2]).toEqual(followUp)
-    expect(vi.mocked(logger.info)).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
       status: 200,
@@ -325,7 +330,7 @@ describe("createMcpRouter — POST /mcp", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: "no session" })
     expect(harness.transportInstances).toHaveLength(0)
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       clientIp: FORWARDED_IP,
       status: 400,
       outcome: "no session, non-initialize request",
@@ -344,7 +349,7 @@ describe("createMcpRouter — POST /mcp", () => {
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "session not found" })
     expect(harness.transportInstances).toHaveLength(0)
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       sessionId: "ghost-session",
       clientIp: FORWARDED_IP,
       status: 404,
@@ -363,7 +368,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     expect(response.status).toBe(401)
     expect(harness.transportInstances).toHaveLength(0)
-    expect(vi.mocked(logger.info)).not.toHaveBeenCalled()
+    expect(mockedLogger.info).not.toHaveBeenCalled()
   })
 })
 
@@ -393,7 +398,7 @@ describe("createMcpRouter — GET /mcp", () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "session not found" })
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       sessionId: undefined,
       clientIp: FORWARDED_IP,
       status: 404,
@@ -438,7 +443,7 @@ describe("createMcpRouter — DELETE /mcp", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
     expect(transport.close).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(logger.info)).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
       status: 200,
@@ -495,11 +500,11 @@ describe("createMcpRouter — transport.onclose", () => {
   it("removes the session from the map and logs 'session_closed'", async () => {
     const harness = await setupHarness()
     const { sessionId, transport } = await createSession(harness)
-    vi.mocked(logger.info).mockClear()
+    mockedLogger.info.mockClear()
 
     transport.onclose!()
 
-    expect(vi.mocked(logger.info)).toHaveBeenCalledWith("session_closed", {
+    expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", {
       sessionId,
     })
     // The session should be gone — confirm with a GET that should 404.
@@ -515,9 +520,9 @@ describe("createMcpRouter — transport.onclose", () => {
     const harness = await setupHarness()
     const { transport } = await createSession(harness)
     transport.sessionId = undefined
-    vi.mocked(logger.info).mockClear()
+    mockedLogger.info.mockClear()
 
     expect(() => transport.onclose!()).not.toThrow()
-    expect(vi.mocked(logger.info)).not.toHaveBeenCalled()
+    expect(mockedLogger.info).not.toHaveBeenCalled()
   })
 })
