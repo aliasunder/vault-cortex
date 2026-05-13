@@ -182,17 +182,19 @@ const readNoteForPatch = async (
   lines: string[]
 }> => {
   const fullPath = resolveSafePath(vaultPath, path)
-  const raw = await readFile(fullPath, "utf8").catch((err) => {
+  try {
+    const fileContent = await readFile(fullPath, "utf8")
+    const parsed = matter(fileContent)
+    return {
+      fullPath,
+      data: parsed.data as Record<string, unknown>,
+      lines: parsed.content.split("\n"),
+    }
+  } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(`note not found: "${path}"`, { cause: err })
     }
     throw err
-  })
-  const parsed = matter(raw)
-  return {
-    fullPath,
-    data: parsed.data as Record<string, unknown>,
-    lines: parsed.content.split("\n"),
   }
 }
 
