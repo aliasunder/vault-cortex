@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [0.5.0] — 2026-05-13
+
+### Features
+
+- **vault-mcp:** Daily note + property discovery tools (15 → 19) (#15)
+
+### Bug Fixes
+
+- **deploy:** Wait for container health before curl /healthz (#11)
+
+### Refactoring
+
+- **tool-definitions:** Rewrite safeHandler with try/catch (#13)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.4.0
+
+### Other Changes
+
+- **vault-mcp:** Cover server.ts helpers and mcp-router.ts (#14)
+
+
 ## [0.4.0] — 2026-05-13
 
 ### Features
