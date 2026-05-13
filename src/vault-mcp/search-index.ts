@@ -319,23 +319,23 @@ export const createSearchIndex = (dbPath: string) => {
     )
     insertFtsStmt.run(note.path, note.title, note.content)
 
-    if (!skipLinks) {
-      const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
-        path: string
-      }>
-      const pathList = allPaths.map((row) => row.path)
+    if (skipLinks) return
 
-      deleteLinksStmt.run(note.path)
-      for (const rawTarget of extractLinks(parsed.content)) {
-        const resolved = resolveLink(rawTarget, pathList)
-        insertLinkStmt.run(note.path, resolved ?? rawTarget)
-      }
+    const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+      path: string
+    }>
+    const pathList = allPaths.map((row) => row.path)
 
-      // Re-resolve stale unresolved targets that now match the newly added note
-      const fileBasename = basename(note.path, ".md")
-      reResolveStmt.run({ resolved: note.path, raw: fileBasename })
-      reResolveStmt.run({ resolved: note.path, raw: note.path })
+    deleteLinksStmt.run(note.path)
+    for (const rawTarget of extractLinks(parsed.content)) {
+      const resolved = resolveLink(rawTarget, pathList)
+      insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
+
+    // Re-resolve stale unresolved targets that now match the newly added note
+    const fileBasename = basename(note.path, ".md")
+    reResolveStmt.run({ resolved: note.path, raw: fileBasename })
+    reResolveStmt.run({ resolved: note.path, raw: note.path })
   }
 
   /** Removes a note from the notes table, FTS index, and links. */
