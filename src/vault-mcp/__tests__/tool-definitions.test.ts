@@ -24,6 +24,9 @@ const TOOL_NAMES = [
   "vault_list_property_keys",
   "vault_list_property_values",
   "vault_search_by_property",
+  "vault_get_backlinks",
+  "vault_get_outgoing_links",
+  "vault_find_orphans",
 ] as const
 
 const READ_ONLY_TOOLS = [
@@ -40,6 +43,9 @@ const READ_ONLY_TOOLS = [
   "vault_list_property_keys",
   "vault_list_property_values",
   "vault_search_by_property",
+  "vault_get_backlinks",
+  "vault_get_outgoing_links",
+  "vault_find_orphans",
 ] as const
 
 const DESTRUCTIVE_TOOLS = [
@@ -77,8 +83,8 @@ const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find((c) => c[0] === name)
 
 describe("registerTools", () => {
-  it("registers exactly 19 tools", () => {
-    expect(mockServer.registerTool).toHaveBeenCalledTimes(19)
+  it("registers exactly 22 tools", () => {
+    expect(mockServer.registerTool).toHaveBeenCalledTimes(22)
   })
 
   it.each(TOOL_NAMES)("registers %s", (name) => {

@@ -113,6 +113,138 @@ type NoteRow = {
   properties: string
 }
 
+type BacklinkEntry = { path: string; title: string }
+
+type OutgoingLinkEntry = {
+  path: string
+  title: string | null
+  exists: boolean
+}
+
+// ── Link extraction ─────────────────────────────────────────────
+//
+// Links between notes are tracked in a `links` table (source → target)
+// to power backlink queries, outgoing link lookups, and orphan detection.
+//
+// Indexing flow:
+//   1. extractLinks() parses wikilinks ([[target]]) and markdown links
+//      ([text](path.md)) from note body, skipping fenced code blocks
+//      and inline code spans.
+//   2. resolveLink() maps each raw target to a vault-relative path by
+//      trying exact match → basename match → shortest-path heuristic.
+//   3. upsertNote stores resolved links in the `links` table. Unresolved
+//      targets are stored as-is (raw text) for broken-link detection.
+//   4. When a new note is created, upsertNote re-resolves any stale
+//      unresolved targets that now match the new note's path or basename
+//      (handles Obsidian's "link first, create later" workflow).
+//   5. rebuildFromVault uses a two-pass approach: Pass 1 indexes all
+//      notes without links (skipLinks), Pass 2 extracts links with the
+//      complete path list so all targets can resolve.
+
+/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5). */
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+
+/** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
+ *  [[target#heading|text]], and embeds ![[target]]. Captures the
+ *  target path/name (group 1) before any # or |. */
+const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
+
+/** Matches markdown internal links to .md files: [text](path.md) or
+ *  [text](path.md#heading). Excludes external URLs and non-.md assets
+ *  (images, PDFs). Captures the path without extension (group 1). */
+const MD_LINK_RE =
+  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
+
+/** Safely decodes a URI component, falling back to the raw string
+ *  if the percent-encoding is malformed (e.g. "100%complete"). */
+const safeDecodeURIComponent = (encoded: string): string => {
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return encoded
+  }
+}
+
+/** Strips inline code spans from a line so links inside backticks
+ *  (e.g. `[[Note]]`) are not extracted as real links. */
+const INLINE_CODE_RE = /`+[^`\n]*`+/g
+
+/** Extracts link targets from markdown content, skipping fenced code
+ *  blocks and inline code spans. Returns deduplicated raw targets
+ *  (pre-resolution). */
+export const extractLinks = (content: string): string[] => {
+  const lines = content.split("\n")
+  const targets = new Set<string>()
+
+  // Mutable state: tracks whether we're inside a fenced code block.
+  // A state machine needs mutable state — no immutable alternative
+  // without restructuring into a reduce over line-state pairs.
+  let currentFenceOpener: string | null = null
+
+  for (const line of lines) {
+    const fenceMatch = FENCE_OPEN.exec(line)
+    if (fenceMatch) {
+      const fenceChars = fenceMatch[1]!
+      if (currentFenceOpener === null) {
+        currentFenceOpener = fenceChars[0]!.repeat(fenceChars.length)
+      } else if (
+        // Closer must use the same character as the opener (backtick vs tilde),
+        // be at least as long, and contain only fence characters (no trailing content)
+        fenceChars[0] === currentFenceOpener[0] &&
+        fenceChars.length >= currentFenceOpener.length &&
+        line.trim() === fenceChars[0]!.repeat(line.trim().length)
+      ) {
+        currentFenceOpener = null
+      }
+      continue
+    }
+    if (currentFenceOpener !== null) continue
+
+    // Replace inline code spans with spaces so links inside backticks are ignored
+    const withoutInlineCode = line.replace(INLINE_CODE_RE, (match) =>
+      " ".repeat(match.length),
+    )
+
+    for (const match of withoutInlineCode.matchAll(WIKILINK_RE)) {
+      const target = match[1]!.trim()
+      if (target.length > 0) targets.add(target)
+    }
+    for (const match of withoutInlineCode.matchAll(MD_LINK_RE)) {
+      const target = safeDecodeURIComponent(match[1]!.trim())
+      if (target.length > 0) targets.add(target)
+    }
+  }
+  return [...targets]
+}
+
+/** Resolves a wikilink target to a vault-relative path using all known paths.
+ *  Returns null if unresolvable. */
+export const resolveLink = (
+  target: string,
+  allPaths: string[],
+): string | null => {
+  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
+
+  // Exact path match: "folder/Note.md" or "Note.md"
+  if (allPaths.includes(targetWithExtension)) return targetWithExtension
+
+  // Basename match: find all paths that end with the target filename
+  const basenameMatches = allPaths.filter(
+    (candidatePath) =>
+      candidatePath === targetWithExtension ||
+      candidatePath.endsWith(`/${targetWithExtension}`),
+  )
+  if (basenameMatches.length === 1) return basenameMatches[0]!
+  // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
+  if (basenameMatches.length > 1) {
+    return basenameMatches.reduce((shortest, candidatePath) =>
+      candidatePath.length < shortest.length ? candidatePath : shortest,
+    )
+  }
+
+  return null
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (dbPath: string) => {
@@ -137,19 +269,36 @@ export const createSearchIndex = (dbPath: string) => {
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, tokenize='porter unicode61'
     );
+
+    CREATE TABLE IF NOT EXISTS links (
+      source TEXT NOT NULL,
+      target TEXT NOT NULL,
+      PRIMARY KEY (source, target)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
+  // Prepared statements are compiled once here and reused across all calls.
+  // db.prepare() caches the compiled SQL — calling it inside a function
+  // would re-compile on every invocation.
   const upsertNotesStmt = db.prepare(`
     INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
-
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
     `INSERT INTO notes_fts (path, title, content) VALUES (?, ?, ?)`,
   )
   const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
+  const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
+  const insertLinkStmt = db.prepare(
+    `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
+  )
+  const reResolveStmt = db.prepare(
+    `UPDATE links SET target = @resolved WHERE target = @raw`,
+  )
 
   // ── Index maintenance ──────────────────────────────────────────
 
@@ -161,7 +310,9 @@ export const createSearchIndex = (dbPath: string) => {
     filePath: string,
     rawContent: string,
     lastModifiedMs: number,
+    options?: { skipLinks?: boolean },
   ): void => {
+    const skipLinks = options?.skipLinks ?? false
     const parsed = matter(rawContent)
     const { data } = parsed
 
@@ -208,18 +359,40 @@ export const createSearchIndex = (dbPath: string) => {
       note.properties,
     )
     insertFtsStmt.run(note.path, note.title, note.content)
+
+    if (skipLinks) return
+
+    const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+      path: string
+    }>
+    const pathList = allPaths.map((row) => row.path)
+
+    deleteLinksStmt.run(note.path)
+    for (const rawTarget of extractLinks(parsed.content)) {
+      const resolved = resolveLink(rawTarget, pathList)
+      insertLinkStmt.run(note.path, resolved ?? rawTarget)
+    }
+
+    // Re-resolve stale unresolved targets that match the newly added note.
+    // Two forms: wikilinks store just the basename ("Note"), markdown links
+    // may store the full path ("folder/Note.md").
+    const fileBasename = basename(note.path, ".md")
+    reResolveStmt.run({ resolved: note.path, raw: fileBasename })
+    reResolveStmt.run({ resolved: note.path, raw: note.path })
   }
 
-  /** Removes a note from both the notes table and FTS index. */
+  /** Removes a note from the notes table, FTS index, and links. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
     removeNotesStmt.run(filePath)
+    deleteLinksStmt.run(filePath)
   }
 
   /** Drops the entire index and re-indexes every .md file in the vault. */
   const rebuildFromVault = async (vaultPath: string): Promise<number> => {
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
+    db.exec("DELETE FROM links")
 
     const normalizedVault = resolve(vaultPath)
     const entries = await readdir(vaultPath, {
@@ -250,8 +423,29 @@ export const createSearchIndex = (dbPath: string) => {
     )
 
     db.transaction(() => {
+      // Pass 1: index all notes (content, frontmatter, FTS) — skip link
+      // extraction here; Pass 2 handles it with the complete path list.
       for (const item of items) {
-        upsertNote(item.rel, item.content, item.mtime)
+        // Skip link extraction here — Pass 2 handles it with the complete
+        // path list so all forward references can resolve correctly.
+        upsertNote(item.rel, item.content, item.mtime, { skipLinks: true })
+      }
+
+      // Pass 2: re-extract links now that all paths are in the notes table,
+      // resolving targets that the per-note upsertNote pass may have missed
+      // (e.g. Note A links to Note B, but Note B was indexed after Note A).
+      const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
+        path: string
+      }>
+      const pathList = allPaths.map((row) => row.path)
+
+      db.exec("DELETE FROM links")
+      for (const item of items) {
+        const parsed = matter(item.content)
+        for (const rawTarget of extractLinks(parsed.content)) {
+          const resolved = resolveLink(rawTarget, pathList)
+          insertLinkStmt.run(item.rel, resolved ?? rawTarget)
+        }
       }
     })()
 
@@ -642,6 +836,97 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  // ── Link queries ────────────────────────────────────────────────
+
+  /** Returns notes that link TO the given path (incoming links / backlinks). */
+  const getBacklinks = (
+    params: { path: string },
+    logger: Logger,
+  ): BacklinkEntry[] => {
+    const sql = `
+      SELECT n.path, n.title
+      FROM links l
+      JOIN notes n ON n.path = l.source
+      WHERE l.target = ?
+      ORDER BY n.title
+    `
+    const rows = db.prepare(sql).all(params.path) as Array<{
+      path: string
+      title: string
+    }>
+    logger.info("get backlinks", {
+      path: params.path,
+      count: rows.length,
+    })
+    return rows
+  }
+
+  /** Returns notes that the given path links TO (outgoing links). */
+  const getOutgoingLinks = (
+    params: { path: string },
+    logger: Logger,
+  ): OutgoingLinkEntry[] => {
+    const sql = `
+      SELECT l.target as path,
+             n.title,
+             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag
+      FROM links l
+      LEFT JOIN notes n ON n.path = l.target
+      WHERE l.source = ?
+      ORDER BY l.target
+    `
+    const rows = db.prepare(sql).all(params.path) as Array<{
+      path: string
+      title: string | null
+      exists_flag: number
+    }>
+    const results = rows.map((row) => ({
+      path: row.path,
+      title: row.title,
+      exists: row.exists_flag === 1,
+    }))
+    logger.info("get outgoing links", {
+      path: params.path,
+      count: results.length,
+    })
+    return results
+  }
+
+  /** Finds notes with no incoming links (orphans). */
+  const findOrphans = (
+    params: { excludeFolders?: string[]; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const excludeFolders = params.excludeFolders ?? [
+      "Daily Notes",
+      "Templates",
+      "About Me",
+    ]
+    const limit = params.limit ?? 50
+
+    const folderExclusions = excludeFolders
+      .map(() => "path NOT LIKE ? || '/%'")
+      .join(" AND ")
+    const whereClause =
+      excludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
+
+    // Self-links (source = target) are excluded from the backlink subquery
+    // so a note that only links to itself is still considered an orphan.
+    const sql = `
+      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      FROM notes
+      WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
+        ${whereClause}
+      ORDER BY mtime DESC
+      LIMIT ?
+    `
+
+    const rows = db.prepare(sql).all(...excludeFolders, limit) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("find orphans", { count: results.length })
+    return results
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -655,6 +940,9 @@ export const createSearchIndex = (dbPath: string) => {
     listPropertyKeys,
     listPropertyValues,
     searchByProperty,
+    getBacklinks,
+    getOutgoingLinks,
+    findOrphans,
   }
 }
 

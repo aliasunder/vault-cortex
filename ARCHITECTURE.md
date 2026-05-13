@@ -207,6 +207,16 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint |
 | `vault_list_memory_files` | —                                | readOnlyHint    |
 
+### Phase 1: Link Queries
+
+| Tool                       | Input                      | Annotation   |
+| -------------------------- | -------------------------- | ------------ |
+| `vault_get_backlinks`      | `path`                     | readOnlyHint |
+| `vault_get_outgoing_links` | `path`                     | readOnlyHint |
+| `vault_find_orphans`       | `exclude_folders?, limit?` | readOnlyHint |
+
+Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.md)` regex during indexing, with fence-aware parsing (skips code blocks). Links are resolved against all known note paths (shortest-path-first for ambiguous basenames). `vault_find_orphans` excludes `Daily Notes`, `Templates`, and `About Me` folders by default.
+
 ### Phase 2: Knowledge Base (R8)
 
 | Tool             | Input          | Annotation   |
