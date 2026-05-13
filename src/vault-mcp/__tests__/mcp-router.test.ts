@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import express, { type Express } from "express"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+  vi,
+} from "vitest"
+import express from "express"
 import type { Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
@@ -75,7 +83,6 @@ type TransportMock = {
 type ServerMock = { connect: ReturnType<typeof vi.fn> }
 
 type Harness = {
-  server: Server
   url: (path?: string) => string
   transportInstances: TransportMock[]
   serverInstances: ServerMock[]
@@ -89,7 +96,6 @@ const denyAuth: express.RequestHandler = (_req, res) => {
 }
 
 let sessionCounter = 0
-let currentHarness: Harness | undefined
 
 const setupHarness = async (
   opts: { authMiddleware?: express.RequestHandler } = {},
@@ -130,37 +136,45 @@ const setupHarness = async (
   const search = {} as SearchIndex
   const provider = {} as OAuthServerProvider
 
-  const app: Express = express()
+  const app = express()
   app.set("trust proxy", true)
   app.use(express.json())
   app.use(createMcpRouter({ vaultPath: VAULT_PATH, search, provider }))
 
-  const server = await new Promise<Server>((resolve) => {
-    const s = app.listen(0, () => resolve(s))
+  const httpServer = await new Promise<Server>((resolve) => {
+    const listener = app.listen(0, () => resolve(listener))
   })
-  const port = (server.address() as AddressInfo).port
+  const port = (httpServer.address() as AddressInfo).port
 
-  currentHarness = {
-    server,
+  // Close the listening socket when the test ends — vitest's onTestFinished
+  // ties cleanup to the same test that called setupHarness, so we don't
+  // need a module-level "current harness" reference to find it in afterEach.
+  onTestFinished(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => (err ? reject(err) : resolve()))
+      }),
+  )
+
+  return {
     url: (path = "/mcp") => `http://127.0.0.1:${port}${path}`,
     transportInstances,
     serverInstances,
     search,
     provider,
   }
-  return currentHarness
 }
 
 const createSession = async (
-  h: Harness,
+  harness: Harness,
 ): Promise<{ sessionId: string; transport: TransportMock }> => {
-  const response = await fetch(h.url(), {
+  const response = await fetch(harness.url(), {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify(initializeBody),
   })
   await response.arrayBuffer()
-  const transport = h.transportInstances.at(-1)
+  const transport = harness.transportInstances.at(-1)
   if (!transport || !transport.sessionId) {
     throw new Error("session was not created")
   }
@@ -178,13 +192,7 @@ beforeEach(() => {
   childSpy = vi.spyOn(logger, "child")
 })
 
-afterEach(async () => {
-  if (currentHarness) {
-    await new Promise<void>((resolve, reject) => {
-      currentHarness!.server.close((err) => (err ? reject(err) : resolve()))
-    })
-    currentHarness = undefined
-  }
+afterEach(() => {
   vi.clearAllMocks()
   infoSpy.mockRestore()
   warnSpy.mockRestore()
@@ -193,30 +201,30 @@ afterEach(async () => {
 
 describe("createMcpRouter — construction", () => {
   it("wires the OAuth provider into requireBearerAuth as the verifier", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
     expect(requireBearerAuth).toHaveBeenCalledTimes(1)
     expect(vi.mocked(requireBearerAuth).mock.calls[0]![0]).toEqual({
-      verifier: h.provider,
+      verifier: harness.provider,
     })
   })
 })
 
 describe("createMcpRouter — POST /mcp", () => {
   describe("on a fresh initialize request", () => {
-    let h: Harness
+    let harness: Harness
     let transport: TransportMock
     let sessionId: string
 
     beforeEach(async () => {
-      h = await setupHarness()
-      const session = await createSession(h)
+      harness = await setupHarness()
+      const session = await createSession(harness)
       transport = session.transport
       sessionId = session.sessionId
     })
 
     it("constructs exactly one transport", () => {
-      expect(h.transportInstances).toHaveLength(1)
+      expect(harness.transportInstances).toHaveLength(1)
     })
 
     it("constructs exactly one McpServer with the documented metadata", () => {
@@ -227,7 +235,9 @@ describe("createMcpRouter — POST /mcp", () => {
     })
 
     it("connects the new server to the new transport", () => {
-      expect(h.serverInstances[0]!.connect).toHaveBeenCalledWith(transport)
+      expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(
+        transport,
+      )
     })
 
     it("forwards the request body to transport.handleRequest", () => {
@@ -238,9 +248,9 @@ describe("createMcpRouter — POST /mcp", () => {
     it("registers tools on the new server with vault context", () => {
       expect(registerTools).toHaveBeenCalledTimes(1)
       const arg = vi.mocked(registerTools).mock.calls[0]![0]
-      expect(arg.server).toBe(h.serverInstances[0])
+      expect(arg.server).toBe(harness.serverInstances[0])
       expect(arg.vaultPath).toBe(VAULT_PATH)
-      expect(arg.search).toBe(h.search)
+      expect(arg.search).toBe(harness.search)
       expect(arg.logger).toBeDefined()
     })
 
@@ -270,21 +280,21 @@ describe("createMcpRouter — POST /mcp", () => {
   })
 
   it("routes a follow-up POST to the existing transport when the session id matches", async () => {
-    const h = await setupHarness()
-    const { sessionId, transport } = await createSession(h)
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockClear()
     infoSpy.mockClear()
     vi.mocked(isInitializeRequest).mockReturnValue(false)
 
     const followUp = { jsonrpc: "2.0", id: 2, method: "tools/list" }
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
       body: JSON.stringify(followUp),
     })
     await response.arrayBuffer()
 
-    expect(h.transportInstances).toHaveLength(1)
+    expect(harness.transportInstances).toHaveLength(1)
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
     expect(transport.handleRequest.mock.calls[0]![2]).toEqual(followUp)
     expect(infoSpy).toHaveBeenCalledWith("mcp_response", {
@@ -296,10 +306,10 @@ describe("createMcpRouter — POST /mcp", () => {
   })
 
   it("returns 400 with 'no session' when there is no session and the body is not an initialize request", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
     vi.mocked(isInitializeRequest).mockReturnValue(false)
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -307,7 +317,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: "no session" })
-    expect(h.transportInstances).toHaveLength(0)
+    expect(harness.transportInstances).toHaveLength(0)
     expect(warnSpy).toHaveBeenCalledWith("mcp_response", {
       clientIp: FORWARDED_IP,
       status: 400,
@@ -316,9 +326,9 @@ describe("createMcpRouter — POST /mcp", () => {
   })
 
   it("returns 404 when the session id is unknown", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": "ghost-session" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -326,7 +336,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "session not found" })
-    expect(h.transportInstances).toHaveLength(0)
+    expect(harness.transportInstances).toHaveLength(0)
     expect(warnSpy).toHaveBeenCalledWith("mcp_response", {
       sessionId: "ghost-session",
       clientIp: FORWARDED_IP,
@@ -336,27 +346,27 @@ describe("createMcpRouter — POST /mcp", () => {
   })
 
   it("returns 401 and never enters the route handler when bearer auth rejects", async () => {
-    const h = await setupHarness({ authMiddleware: denyAuth })
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify(initializeBody),
     })
 
     expect(response.status).toBe(401)
-    expect(h.transportInstances).toHaveLength(0)
+    expect(harness.transportInstances).toHaveLength(0)
     expect(infoSpy).not.toHaveBeenCalled()
   })
 })
 
 describe("createMcpRouter — GET /mcp", () => {
   it("forwards the request to the existing transport without a body argument", async () => {
-    const h = await setupHarness()
-    const { sessionId, transport } = await createSession(h)
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockClear()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
     })
@@ -367,9 +377,9 @@ describe("createMcpRouter — GET /mcp", () => {
   })
 
   it("returns 404 when the mcp-session-id header is missing", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "GET",
       headers: baseHeaders,
     })
@@ -385,9 +395,9 @@ describe("createMcpRouter — GET /mcp", () => {
   })
 
   it("returns 404 when the session id is unknown", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": "missing" },
     })
@@ -397,9 +407,9 @@ describe("createMcpRouter — GET /mcp", () => {
   })
 
   it("returns 401 when bearer auth rejects", async () => {
-    const h = await setupHarness({ authMiddleware: denyAuth })
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": "anything" },
     })
@@ -410,10 +420,10 @@ describe("createMcpRouter — GET /mcp", () => {
 
 describe("createMcpRouter — DELETE /mcp", () => {
   it("closes the transport, removes the session, and returns 200", async () => {
-    const h = await setupHarness()
-    const { sessionId, transport } = await createSession(h)
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
     })
@@ -430,7 +440,7 @@ describe("createMcpRouter — DELETE /mcp", () => {
 
     // The session should be gone from the map — verified via a follow-up
     // GET that should now 404.
-    const followUp = await fetch(h.url(), {
+    const followUp = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
     })
@@ -439,9 +449,9 @@ describe("createMcpRouter — DELETE /mcp", () => {
   })
 
   it("returns 404 when the mcp-session-id header is missing", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: baseHeaders,
     })
@@ -451,9 +461,9 @@ describe("createMcpRouter — DELETE /mcp", () => {
   })
 
   it("returns 404 when the session id is unknown", async () => {
-    const h = await setupHarness()
+    const harness = await setupHarness()
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": "ghost" },
     })
@@ -463,9 +473,9 @@ describe("createMcpRouter — DELETE /mcp", () => {
   })
 
   it("returns 401 when bearer auth rejects", async () => {
-    const h = await setupHarness({ authMiddleware: denyAuth })
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
-    const response = await fetch(h.url(), {
+    const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": "anything" },
     })
@@ -476,15 +486,15 @@ describe("createMcpRouter — DELETE /mcp", () => {
 
 describe("createMcpRouter — transport.onclose", () => {
   it("removes the session from the map and logs 'session_closed'", async () => {
-    const h = await setupHarness()
-    const { sessionId, transport } = await createSession(h)
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
     infoSpy.mockClear()
 
     transport.onclose!()
 
     expect(infoSpy).toHaveBeenCalledWith("session_closed", { sessionId })
     // The session should be gone — confirm with a GET that should 404.
-    const followUp = await fetch(h.url(), {
+    const followUp = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
     })
@@ -493,8 +503,8 @@ describe("createMcpRouter — transport.onclose", () => {
   })
 
   it("is a no-op when the transport has no sessionId", async () => {
-    const h = await setupHarness()
-    const { transport } = await createSession(h)
+    const harness = await setupHarness()
+    const { transport } = await createSession(harness)
     transport.sessionId = undefined
     infoSpy.mockClear()
 
