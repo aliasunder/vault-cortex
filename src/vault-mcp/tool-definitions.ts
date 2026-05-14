@@ -158,7 +158,6 @@ Obsidian syntax: Body content is rendered as Obsidian Flavored Markdown with no 
 - - [ ] at line start = task checkbox
 - --- on its own line = horizontal rule
 - %% = comment block (hidden in reading view)
-- Bare URLs auto-link
 Escape with backslash (\\#, \\[[) or wrap in backticks when unintentional.
 Frontmatter: quote wikilink values ("[[Note]]"), use YAML lists for tags ([tag1, tag2]), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
 
@@ -222,7 +221,7 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation requires a heading target" — replace and insert_before need a heading
 
-Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Watch for: # at line start = heading, #word = tag, [[ = wikilink, - [ ] = checkbox, --- = horizontal rule, %% = comment block, bare URLs auto-link. Escape with backslash (\\#, \\[[) or backticks when unintentional.
+Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Watch for: # at line start = heading, #word = tag, [[ = wikilink, - [ ] = checkbox, --- = horizontal rule, %% = comment block. Escape with backslash (\\#, \\[[) or backticks when unintentional.
 Structural note: inserting heading-level content (e.g. ## New Section) changes the note's section structure — future patch calls targeting headings may resolve differently.
 
 Returns: Confirmation message.`,
@@ -298,7 +297,7 @@ Errors:
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "old_text cannot be empty" — old_text must be at least one character
 
-Obsidian syntax: new_text is rendered as Obsidian Flavored Markdown with no escaping applied. The same patterns that have special meaning in body content (#, [[, - [ ], ---, %%, bare URLs) apply to replacement text. Verify replacements won't introduce unintended Obsidian rendering.
+Obsidian syntax: new_text is rendered as Obsidian Flavored Markdown with no escaping applied. The same patterns that have special meaning in body content (#, [[, - [ ], ---, %%) apply to replacement text. Verify replacements won't introduce unintended Obsidian rendering.
 
 Returns: Confirmation message with replacement count.`,
       inputSchema: {
@@ -713,7 +712,7 @@ Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest
 When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix.
 Prefer vault_write_note for creating entirely new notes (not memory entries).
 
-Obsidian syntax: Entry text is rendered inline as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink, bare URLs auto-link. Escape with backslash or backticks when unintentional.
+Obsidian syntax: Entry text is rendered inline as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
 
 Returns: Confirmation message.`,
       inputSchema: {
