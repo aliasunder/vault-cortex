@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.6.2] — 2026-05-14
+
+### Bug Fixes
+
+- FTS5 hyphen-as-negation in vault_search (#18)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.6.1
+
+
 ## [0.6.1] — 2026-05-14
 
 ### Bug Fixes
