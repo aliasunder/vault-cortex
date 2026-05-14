@@ -108,32 +108,34 @@ title: Inline
 %% private board note %%
 `
 
+// The inline comment is mid-body of the LAST section, with content after it —
+// so a false-positive "trailing block" detection would wrongly preserve it.
 const NOTE_MIDBODY_COMMENT = `---
 title: Midbody
 ---
 
 ## Active
 
-%% reminder: refile these %%
 - [ ] Task A
 
 ## Done
 
 - [x] Task D
+%% reminder: refile these %%
+- [x] Task E
 `
 
-const NOTE_COMMENT_INSIDE_CODE_BLOCK = `---
-title: Docs
+// The `%%` line sits inside a fenced code block at EOF. A non-fence-aware scan
+// would mistake it for a trailing comment opener and stop the section short.
+const NOTE_PERCENT_LINE_IN_CODE_BLOCK = `---
+title: Config example
 ---
 
-## How Kanban settings work
-
-The settings block looks like this:
+## Config example
 
 \`\`\`
-%% kanban:settings
-{"kanban-plugin":"board"}
-%%
+%% example: edit this
+key = value
 \`\`\`
 `
 
@@ -813,27 +815,33 @@ describe("patchNote — trailing comment block preservation", () => {
     )
     const updated = await readTestNote("tasks.md")
     expect(updated).toContain("## Done\nDone section cleared.")
+    // The inline comment is mid-body of Done (Task E follows it), not trailing —
+    // so the whole Done body is replaced, comment and Task E included.
     expect(updated).not.toContain("Task D")
-    // The mid-body comment lives in the Active section — untouched by this edit.
-    expect(updated).toContain("%% reminder: refile these %%")
+    expect(updated).not.toContain("%% reminder: refile these %%")
+    expect(updated).not.toContain("Task E")
+    // The Active section is untouched.
+    expect(updated).toContain("- [ ] Task A")
   })
 
   it("does not treat %% inside a fenced code block as a trailing block", async () => {
-    await writeTestNote("docs.md", NOTE_COMMENT_INSIDE_CODE_BLOCK)
+    await writeTestNote("docs.md", NOTE_PERCENT_LINE_IN_CODE_BLOCK)
     await patchNote(
       {
         vaultPath: vault,
         path: "docs.md",
         operation: "replace",
         content: "Rewritten.\n",
-        heading: "How Kanban settings work",
+        heading: "Config example",
       },
       logger,
     )
     const updated = await readTestNote("docs.md")
-    expect(updated).toContain("## How Kanban settings work\nRewritten.")
-    // The code block (including its %% example lines) was section body — replaced.
-    expect(updated).not.toContain("%% kanban:settings")
+    expect(updated).toContain("## Config example\nRewritten.")
+    // The `%%` line is inside a fenced code block — section body, not a trailing
+    // comment block — so the whole code block is replaced.
+    expect(updated).not.toContain("%% example: edit this")
+    expect(updated).not.toContain("key = value")
     expect(updated).not.toContain("```")
   })
 
