@@ -32,46 +32,27 @@ const COMMENT_DELIMITER = "%%"
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
- * final section's body can stop short of it. Obsidian Kanban boards keep their
- * `%% kanban:settings %%` block at end-of-file; a `replace` on the last heading
- * must not swallow it, and an `append` should land before it, not after.
- *
- * A block is "trailing" when only blank lines follow its closing `%%` (or when
- * an unclosed comment runs to EOF). Returns `lines.length` when there is none.
- *
- * Scanning rules (single forward pass): `%%` toggles comment state; inside a
- * fenced code block — and outside a comment — `%%` is code and ignored; inside
- * a comment, `%%` takes precedence over fences, matching Obsidian's parser (so
- * the closing `%%` is found even though a Kanban block wraps a fenced JSON
- * code block).
+ * final section's body can stop short of it. Returns `lines.length` when none
+ * exists. A block is "trailing" when only blank lines follow its closing `%%`
+ * (or when an unclosed comment runs to EOF).
  *
  * Known limitation: heading detection in `parseHeadings` is NOT comment-aware,
- * so a `## heading` written literally inside a `%% %%` block is still treated
- * as a real heading. Out of scope here — see TASKS card ^bug-kanban-settings-strip.
+ * so a `## heading` inside a `%% %%` block is still treated as a real heading.
  */
 const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
-  // Lexer-style forward scan. `let` carries fence + comment parser state across
-  // lines — a per-line reduce can't express the per-`%%` toggle without
-  // contorted parity math; this mirrors how Phase 1 of parseHeadings scans.
+  // `let` carries fence + comment parser state across lines — a per-line
+  // reduce can't express the per-`%%` toggle cleanly.
   let fence: FenceState = null
-  let inComment = false
-  let openBlockStart = -1 // line where the currently-open comment opened
-  let trailingBlockStart = -1 // start line of the most recent comment block
-  let trailingBlockEnd = -1 // line where that block closed (-1 if unclosed)
-  let trailingReachesEof = false // true while only blank lines follow that block
+  let comment: { openLine: number } | null = null
+  let lastClosedBlock: { startLine: number; endLine: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-
-    // A non-blank, non-comment line after a closed block means it isn't trailing.
-    if (!inComment && trailingBlockStart !== -1 && line.trim() !== "") {
-      trailingReachesEof = false
-    }
-
     const fenceMatch = FENCE_OPEN_REGEX.exec(line)
 
-    if (fence && !inComment) {
-      // Inside a fenced code block — only a matching close fence matters.
+    // Inside a fenced code block (outside comments): only a matching close
+    // fence matters — `%%` is code and ignored.
+    if (fence && !comment) {
       const isFenceClose =
         fenceMatch &&
         fenceMatch[1][0] === fence.char &&
@@ -81,52 +62,52 @@ const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
       continue
     }
 
-    if (fenceMatch && !inComment) {
-      // Opening a fenced code block outside any comment.
+    if (fenceMatch && !comment) {
       fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
       continue
     }
 
-    // Outside fences (or inside a comment): every `%%` on the line toggles
-    // comment state. On open, remember where; on close, mark a trailing candidate.
-    const delimiterCount = line.split(COMMENT_DELIMITER).length - 1
+    // Outside fences (or inside a comment where `%%` takes precedence over
+    // fences, matching Obsidian's parser): each `%%` toggles comment state.
+    const delimiterCount = (line.match(/%%/g) ?? []).length
     for (let occurrence = 0; occurrence < delimiterCount; occurrence++) {
-      if (inComment) {
-        inComment = false
-        trailingBlockStart = openBlockStart
-        trailingBlockEnd = i
-        trailingReachesEof = true
+      if (comment) {
+        // Validate that the closer ends its own line — otherwise the block
+        // isn't cleanly separable from body text and can't be preserved.
+        const validCloser = lines[i].trimEnd().endsWith(COMMENT_DELIMITER)
+        lastClosedBlock = validCloser
+          ? { startLine: comment.openLine, endLine: i }
+          : null
+        comment = null
       } else {
-        inComment = true
-        openBlockStart = i
+        comment = { openLine: i }
       }
     }
   }
 
-  // An unclosed comment runs to EOF and is therefore trailing.
-  if (inComment) {
-    trailingBlockStart = openBlockStart
-    trailingBlockEnd = -1
-    trailingReachesEof = true
-  }
+  // An unclosed comment runs to EOF and is trailing by definition. A closed
+  // block is trailing only when nothing but blank lines follow it.
+  const trailingBlock = comment
+    ? { startLine: comment.openLine }
+    : lastClosedBlock &&
+        lines
+          .slice(lastClosedBlock.endLine + 1)
+          .every((trailingLine) => trailingLine.trim() === "")
+      ? lastClosedBlock
+      : null
 
-  if (trailingBlockStart === -1 || !trailingReachesEof) return lines.length
+  if (!trailingBlock) return lines.length
 
-  // The opener must start its own line, and (if closed) the closer must end its
-  // own line — otherwise the block isn't cleanly separable from body text.
-  if (!lines[trailingBlockStart].trimStart().startsWith(COMMENT_DELIMITER)) {
-    return lines.length
-  }
+  // The opener must start its own line.
   if (
-    trailingBlockEnd !== -1 &&
-    !lines[trailingBlockEnd].trimEnd().endsWith(COMMENT_DELIMITER)
+    !lines[trailingBlock.startLine].trimStart().startsWith(COMMENT_DELIMITER)
   ) {
     return lines.length
   }
 
-  // Absorb blank lines immediately preceding the block so the last section's
-  // body doesn't keep a dangling blank line.
-  let blockStart = trailingBlockStart
+  // Absorb blank lines before the block so the section body doesn't keep
+  // dangling blanks.
+  let blockStart = trailingBlock.startLine
   while (blockStart > 0 && lines[blockStart - 1].trim() === "") blockStart--
   return blockStart
 }
@@ -421,4 +402,8 @@ const replaceInNote = async (
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
 }
 
-export const vaultPatcher = { patchNote, replaceInNote }
+export const vaultPatcher = {
+  patchNote,
+  replaceInNote,
+  findTrailingCommentBlockStart,
+}
