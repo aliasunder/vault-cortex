@@ -27,6 +27,110 @@ const HEADING_REGEX = /^(#{1,6}) (.+)$/
 /** Matches fenced code block openers: 3+ backticks or 3+ tildes (CommonMark §4.5). */
 const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 
+/** Obsidian comment delimiter — each `%%` occurrence toggles comment state. */
+const COMMENT_DELIMITER = "%%"
+
+/**
+ * Finds the line index where a trailing Obsidian comment block begins, so the
+ * final section's body can stop short of it. Obsidian Kanban boards keep their
+ * `%% kanban:settings %%` block at end-of-file; a `replace` on the last heading
+ * must not swallow it, and an `append` should land before it, not after.
+ *
+ * A block is "trailing" when only blank lines follow its closing `%%` (or when
+ * an unclosed comment runs to EOF). Returns `lines.length` when there is none.
+ *
+ * Scanning rules (single forward pass): `%%` toggles comment state; inside a
+ * fenced code block — and outside a comment — `%%` is code and ignored; inside
+ * a comment, `%%` takes precedence over fences, matching Obsidian's parser (so
+ * the closing `%%` is found even though a Kanban block wraps a fenced JSON
+ * code block).
+ *
+ * Known limitation: heading detection in `parseHeadings` is NOT comment-aware,
+ * so a `## heading` written literally inside a `%% %%` block is still treated
+ * as a real heading. Out of scope here — see TASKS card ^bug-kanban-settings-strip.
+ */
+const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
+  // Lexer-style forward scan. `let` carries fence + comment parser state across
+  // lines — a per-line reduce can't express the per-`%%` toggle without
+  // contorted parity math; this mirrors how Phase 1 of parseHeadings scans.
+  let fence: FenceState = null
+  let inComment = false
+  let openBlockStart = -1 // line where the currently-open comment opened
+  let trailingBlockStart = -1 // start line of the most recent comment block
+  let trailingBlockEnd = -1 // line where that block closed (-1 if unclosed)
+  let trailingReachesEof = false // true while only blank lines follow that block
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // A non-blank, non-comment line after a closed block means it isn't trailing.
+    if (!inComment && trailingBlockStart !== -1 && line.trim() !== "") {
+      trailingReachesEof = false
+    }
+
+    const fenceMatch = FENCE_OPEN_REGEX.exec(line)
+
+    if (fence && !inComment) {
+      // Inside a fenced code block — only a matching close fence matters.
+      const isFenceClose =
+        fenceMatch &&
+        fenceMatch[1][0] === fence.char &&
+        fenceMatch[1].length >= fence.length &&
+        line.trim() === fenceMatch[1]
+      if (isFenceClose) fence = null
+      continue
+    }
+
+    if (fenceMatch && !inComment) {
+      // Opening a fenced code block outside any comment.
+      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
+      continue
+    }
+
+    // Outside fences (or inside a comment): every `%%` on the line toggles
+    // comment state. On open, remember where; on close, mark a trailing candidate.
+    const delimiterCount = line.split(COMMENT_DELIMITER).length - 1
+    for (let occurrence = 0; occurrence < delimiterCount; occurrence++) {
+      if (inComment) {
+        inComment = false
+        trailingBlockStart = openBlockStart
+        trailingBlockEnd = i
+        trailingReachesEof = true
+      } else {
+        inComment = true
+        openBlockStart = i
+      }
+    }
+  }
+
+  // An unclosed comment runs to EOF and is therefore trailing.
+  if (inComment) {
+    trailingBlockStart = openBlockStart
+    trailingBlockEnd = -1
+    trailingReachesEof = true
+  }
+
+  if (trailingBlockStart === -1 || !trailingReachesEof) return lines.length
+
+  // The opener must start its own line, and (if closed) the closer must end its
+  // own line — otherwise the block isn't cleanly separable from body text.
+  if (!lines[trailingBlockStart].trimStart().startsWith(COMMENT_DELIMITER)) {
+    return lines.length
+  }
+  if (
+    trailingBlockEnd !== -1 &&
+    !lines[trailingBlockEnd].trimEnd().endsWith(COMMENT_DELIMITER)
+  ) {
+    return lines.length
+  }
+
+  // Absorb blank lines immediately preceding the block so the last section's
+  // body doesn't keep a dangling blank line.
+  let blockStart = trailingBlockStart
+  while (blockStart > 0 && lines[blockStart - 1].trim() === "") blockStart--
+  return blockStart
+}
+
 /**
  * Single-pass heading parser for H1–H6 with code-block awareness.
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
@@ -82,7 +186,10 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   )
 
   // Phase 2: compute body ranges — each section's body ends where the next
-  // heading of the same or higher level starts (or at EOF)
+  // heading of the same or higher level starts. Sections with no such heading
+  // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
+  // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
+  const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
   return collectedHeadings.map((h, i) => {
     const nextSameOrHigher = collectedHeadings
       .slice(i + 1)
@@ -92,7 +199,10 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       level: h.level,
       startLine: h.startLine,
       bodyStartLine: h.startLine + 1,
-      bodyEndLine: nextSameOrHigher?.startLine ?? lines.length,
+      // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
+      bodyEndLine:
+        nextSameOrHigher?.startLine ??
+        Math.max(h.startLine + 1, trailingCommentBlockStart),
     }
   })
 }
