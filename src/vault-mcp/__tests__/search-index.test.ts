@@ -277,6 +277,17 @@ describe("fullTextSearch", () => {
       ),
     ).not.toThrow()
   })
+
+  it("hyphenated query matches content containing the hyphenated term", () => {
+    index.upsertNote(
+      "project.md",
+      "The flux-capacitor enables time travel\n",
+      6000,
+    )
+    const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("project.md")
+  })
 })
 
 describe("sanitizeFtsQuery", () => {
@@ -325,6 +336,41 @@ describe("sanitizeFtsQuery", () => {
       name: "caret and colon stripped",
       input: "field:value ^boost",
       expected: "field value boost",
+    },
+    {
+      name: "hyphenated compound → quoted phrase",
+      input: "vault-cortex",
+      expected: '"vault cortex"',
+    },
+    {
+      name: "multi-hyphen compound → quoted phrase",
+      input: "self-hosted-app",
+      expected: '"self hosted app"',
+    },
+    {
+      name: "hyphenated + bare terms",
+      input: "vault-cortex search",
+      expected: '"vault cortex" search',
+    },
+    {
+      name: "multiple hyphenated terms",
+      input: "vault-cortex self-hosted",
+      expected: '"vault cortex" "self hosted"',
+    },
+    {
+      name: "leading hyphen stripped",
+      input: "-excluded term",
+      expected: "excluded term",
+    },
+    {
+      name: "hyphen inside quoted phrase preserved",
+      input: '"vault-cortex"',
+      expected: '"vault-cortex"',
+    },
+    {
+      name: "mixed: quoted phrase + hyphenated + bare",
+      input: 'search "exact-match" vault-cortex',
+      expected: '"exact-match" "vault cortex" search',
     },
   ]
 

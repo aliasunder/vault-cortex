@@ -30,18 +30,38 @@ const convertFrontmatterDatesToIsoStrings = (
 
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
 
+/** Matches hyphenated compound terms (e.g. vault-cortex, self-hosted-app)
+ *  where at least two word segments are joined by hyphens. */
+const HYPHENATED_COMPOUND_REGEX = /\b(\w+(?:-\w+)+)\b/g
+
 /** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
- *  for exact-phrase matching; unquoted terms are left bare to preserve porter
- *  stemming. FTS5 metacharacters and reserved words are stripped. */
+ *  for exact-phrase matching. Hyphenated compound terms (e.g. vault-cortex)
+ *  are converted to quoted phrases for adjacent-token matching. Remaining
+ *  unquoted terms are left bare to preserve porter stemming. FTS5
+ *  metacharacters and reserved words are stripped. */
 export const sanitizeFtsQuery = (raw: string): string => {
   const phrases: string[] = []
+
+  // Extract "quoted phrases", strip FTS5 metacharacters inside them,
+  // and collect into phrases[]. Hyphens inside quotes are left alone —
+  // the unicode61 tokenizer splits them correctly in phrase queries.
   const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
     const cleaned = phrase.replace(/[*^():]/g, "").trim()
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
     return " "
   })
-  const tokens = remaining
-    .replace(/["*^():]/g, " ")
+
+  // Convert bare hyphenated compounds (vault-cortex → "vault cortex")
+  // so FTS5 doesn't interpret the hyphen as the NOT operator.
+  const afterHyphens = remaining.replace(HYPHENATED_COMPOUND_REGEX, (match) => {
+    phrases.push(`"${match.replace(/-/g, " ")}"`)
+    return " "
+  })
+
+  // Strip remaining FTS5 metacharacters (including stray/leading hyphens),
+  // split into tokens, and drop reserved words (AND, OR, NOT, NEAR).
+  const tokens = afterHyphens
+    .replace(/["*^():-]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 0 && !FTS5_RESERVED.has(t.toUpperCase()))
 
