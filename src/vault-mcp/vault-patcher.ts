@@ -105,11 +105,13 @@ const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
     return lines.length
   }
 
-  // Absorb blank lines before the block so the section body doesn't keep
-  // dangling blanks.
-  let blockStart = trailingBlock.startLine
-  while (blockStart > 0 && lines[blockStart - 1].trim() === "") blockStart--
-  return blockStart
+  // Absorb blank lines before the block so the section body keeps no dangling
+  // blanks. findLastIndex returns -1 when only blanks precede it, so +1 → 0.
+  return (
+    lines
+      .slice(0, trailingBlock.startLine)
+      .findLastIndex((line) => line.trim() !== "") + 1
+  )
 }
 
 /**
