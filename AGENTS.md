@@ -166,7 +166,8 @@ search.fullTextSearch({ query, filters }, reqLogger)
   A person should be able to read and follow the code without
   unnecessary cognitive overload.
 - MCP tool descriptions include `Example:`, `When to use:`,
-  `Errors:` (with remediation guidance), and `Returns:` sections.
+  `Errors:` (with remediation guidance), `Obsidian syntax:`
+  (on write tools), and `Returns:` sections.
 
 ### MCP naming conventions
 
