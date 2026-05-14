@@ -10,7 +10,7 @@ import {
   getDailyNote,
   clearConfigCache,
 } from "../daily-notes.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 // ── momentToLuxonFormat ──────────────────────────────────────────
 

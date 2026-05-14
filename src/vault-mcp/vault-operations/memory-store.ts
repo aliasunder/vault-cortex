@@ -4,7 +4,7 @@ import { readFile, writeFile, readdir } from "node:fs/promises"
 import { join, basename } from "node:path"
 import matter from "gray-matter"
 import { DateTime } from "luxon"
-import type { Logger } from "../logger.js"
+import type { Logger } from "../../logger.js"
 
 const MEMORY_DIR = "About Me"
 

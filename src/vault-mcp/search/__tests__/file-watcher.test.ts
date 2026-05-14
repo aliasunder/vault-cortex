@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 let vault: string
 let index: SearchIndex

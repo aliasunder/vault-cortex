@@ -3,7 +3,7 @@ import { join, dirname, relative, resolve } from "node:path"
 import type { Dirent } from "node:fs"
 import matter from "gray-matter"
 import picomatch from "picomatch"
-import type { Logger } from "../logger.js"
+import type { Logger } from "../../logger.js"
 
 const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
 

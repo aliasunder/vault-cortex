@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { DateTime } from "luxon"
-import type { Logger } from "../logger.js"
+import type { Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 
 // ── Moment.js → Luxon format conversion ────────────────────────

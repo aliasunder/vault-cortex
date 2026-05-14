@@ -3,7 +3,7 @@ import matter from "gray-matter"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, relative, resolve } from "node:path"
-import { logger, type Logger } from "../logger.js"
+import { logger, type Logger } from "../../logger.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 

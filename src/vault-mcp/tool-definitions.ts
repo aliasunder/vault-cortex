@@ -2,11 +2,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
-import { vaultFs } from "./vault-filesystem.js"
-import { vaultPatcher } from "./vault-patcher.js"
-import { memoryStore } from "./memory-store.js"
-import { getDailyNote } from "./daily-notes.js"
-import type { SearchIndex } from "./search-index.js"
+import { vaultFs } from "./vault-operations/vault-filesystem.js"
+import { vaultPatcher } from "./vault-operations/vault-patcher.js"
+import { memoryStore } from "./vault-operations/memory-store.js"
+import { getDailyNote } from "./vault-operations/daily-notes.js"
+import type { SearchIndex } from "./search/search-index.js"
 import type { Logger } from "../logger.js"
 
 export const TOOL_NAMES = {

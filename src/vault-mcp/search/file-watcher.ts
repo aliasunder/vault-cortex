@@ -4,7 +4,7 @@ import { watch } from "chokidar"
 import { readFile, stat } from "node:fs/promises"
 import { relative } from "node:path"
 import type { SearchIndex } from "./search-index.js"
-import { logger } from "../logger.js"
+import { logger } from "../../logger.js"
 
 export type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).

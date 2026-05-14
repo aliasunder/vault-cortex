@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { safeEqual, parseBearer, createBearerMiddleware } from "../../auth.js"
+import { safeEqual, parseBearer, createBearerMiddleware } from "../auth.js"
 import type { Request, Response, NextFunction } from "express"
 
 describe("safeEqual", () => {
