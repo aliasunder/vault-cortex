@@ -32,6 +32,13 @@ const DESTRUCTIVE_TOOLS = [
   TOOL_NAMES.VAULT_DELETE_MEMORY,
 ] as const
 
+const WRITE_TOOLS = [
+  TOOL_NAMES.VAULT_WRITE_NOTE,
+  TOOL_NAMES.VAULT_PATCH_NOTE,
+  TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+  TOOL_NAMES.VAULT_UPDATE_MEMORY,
+] as const
+
 type RegisterToolCall = [
   name: string,
   config: {
@@ -93,6 +100,14 @@ describe("registerTools", () => {
       expect(call[1].description).toContain("When to use")
     }
   })
+
+  it.each(WRITE_TOOLS)(
+    "%s description includes Obsidian syntax guidance",
+    (name) => {
+      const call = findCall(name)!
+      expect(call[1].description).toContain("Obsidian syntax:")
+    },
+  )
 
   it("every tool has all 4 annotation hints", () => {
     for (const call of calls) {
