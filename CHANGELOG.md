@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [0.6.1] — 2026-05-14
+
+### Bug Fixes
+
+- Preserve trailing %% comment blocks in vault_patch_note (#17)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.6.0
+
+### Maintenance
+
+- Update .gitignore
+
+
 ## [0.6.0] — 2026-05-13
 
 ### Features
