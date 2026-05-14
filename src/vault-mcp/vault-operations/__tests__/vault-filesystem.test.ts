@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultFs } from "../vault-filesystem.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 const { readNote, writeNote, deleteNote, listNotes } = vaultFs
 

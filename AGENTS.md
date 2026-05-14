@@ -41,17 +41,20 @@ src/
   vault-mcp/
     server.ts                          # Entry point — config, mount routes, listen
     mcp-router.ts                      # /mcp session routes + transport lifecycle
-    oauth-routes.ts                    # SDK auth router + consent form handler
-    oauth-provider.ts                  # OAuthServerProvider — JWT tokens, SQLite persistence
-    consent-page.ts                    # HTML consent page for OAuth authorization
     tool-definitions.ts                # MCP tool registrations + Zod schemas
-    daily-notes.ts                     # Daily note config reader + path resolver
-    vault-filesystem.ts                # Read/write/list/delete .md files
-    vault-patcher.ts                   # Surgical edits: heading-targeted patch + find-and-replace
-    memory-store.ts                    # About Me/ heading-aware read/append/delete
-    search-index.ts                    # SQLite FTS5 factory (tags, folders, etc)
-    file-watcher.ts                    # chokidar -> keeps index current
+    vault-operations/                  # Vault content read/write/patch
+      vault-filesystem.ts              # Read/write/list/delete .md files
+      vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
+      memory-store.ts                  # About Me/ heading-aware read/append/delete
+      daily-notes.ts                   # Daily note config reader + path resolver
+    search/                            # SQLite FTS5 indexing + file watching
+      search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
+      file-watcher.ts                  # chokidar -> keeps index current
                                        # Phase 2: gains LightRAG ingestion hook
+    auth/                              # OAuth 2.0
+      oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
+      oauth-routes.ts                  # SDK auth router + consent form handler
+      consent-page.ts                  # HTML consent page for OAuth authorization
 ```
 
 ## Tooling

@@ -3,7 +3,7 @@
 import { readFile, writeFile } from "node:fs/promises"
 import matter from "gray-matter"
 import { resolveSafePath } from "./vault-filesystem.js"
-import type { Logger } from "../logger.js"
+import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
 

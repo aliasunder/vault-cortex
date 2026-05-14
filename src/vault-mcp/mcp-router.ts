@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
-import type { SearchIndex } from "./search-index.js"
+import type { SearchIndex } from "./search/search-index.js"
 import { registerTools } from "./tool-definitions.js"
 import { logger } from "../logger.js"
 

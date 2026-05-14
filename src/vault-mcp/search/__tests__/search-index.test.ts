@@ -9,7 +9,7 @@ import {
   resolveLink,
 } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 let index: SearchIndex
 

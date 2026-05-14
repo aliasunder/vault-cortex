@@ -3,7 +3,7 @@
 import express, { Router } from "express"
 import type { Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
-import { safeEqual } from "../auth.js"
+import { safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 

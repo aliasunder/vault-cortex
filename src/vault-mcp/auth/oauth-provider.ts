@@ -25,8 +25,8 @@ import type {
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { InvalidGrantError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
-import { safeEqual } from "../auth.js"
-import { signJwt, verifyJwt } from "../jwt.js"
+import { safeEqual } from "../../auth.js"
+import { signJwt, verifyJwt } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 
 // 24 hours

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { memoryStore } from "../memory-store.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 const { getMemory, updateMemory, listMemoryFiles, deleteMemory } = memoryStore
 

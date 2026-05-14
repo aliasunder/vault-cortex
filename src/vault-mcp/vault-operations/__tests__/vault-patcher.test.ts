@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 const { patchNote, replaceInNote, findTrailingCommentBlockStart } = vaultPatcher
 
