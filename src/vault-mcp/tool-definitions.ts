@@ -9,29 +9,32 @@ import { getDailyNote } from "./daily-notes.js"
 import type { SearchIndex } from "./search-index.js"
 import type { Logger } from "../logger.js"
 
-export type ToolName =
-  | "vault_read_note"
-  | "vault_write_note"
-  | "vault_patch_note"
-  | "vault_replace_in_note"
-  | "vault_list_notes"
-  | "vault_delete_note"
-  | "vault_search"
-  | "vault_search_by_tag"
-  | "vault_search_by_folder"
-  | "vault_list_tags"
-  | "vault_recent_notes"
-  | "vault_get_memory"
-  | "vault_update_memory"
-  | "vault_list_memory_files"
-  | "vault_delete_memory"
-  | "vault_get_daily_note"
-  | "vault_list_property_keys"
-  | "vault_list_property_values"
-  | "vault_search_by_property"
-  | "vault_get_backlinks"
-  | "vault_get_outgoing_links"
-  | "vault_find_orphans"
+export const TOOL_NAMES = {
+  VAULT_READ_NOTE: "vault_read_note",
+  VAULT_WRITE_NOTE: "vault_write_note",
+  VAULT_PATCH_NOTE: "vault_patch_note",
+  VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
+  VAULT_LIST_NOTES: "vault_list_notes",
+  VAULT_DELETE_NOTE: "vault_delete_note",
+  VAULT_SEARCH: "vault_search",
+  VAULT_SEARCH_BY_TAG: "vault_search_by_tag",
+  VAULT_SEARCH_BY_FOLDER: "vault_search_by_folder",
+  VAULT_LIST_TAGS: "vault_list_tags",
+  VAULT_RECENT_NOTES: "vault_recent_notes",
+  VAULT_GET_MEMORY: "vault_get_memory",
+  VAULT_UPDATE_MEMORY: "vault_update_memory",
+  VAULT_LIST_MEMORY_FILES: "vault_list_memory_files",
+  VAULT_DELETE_MEMORY: "vault_delete_memory",
+  VAULT_GET_DAILY_NOTE: "vault_get_daily_note",
+  VAULT_LIST_PROPERTY_KEYS: "vault_list_property_keys",
+  VAULT_LIST_PROPERTY_VALUES: "vault_list_property_values",
+  VAULT_SEARCH_BY_PROPERTY: "vault_search_by_property",
+  VAULT_GET_BACKLINKS: "vault_get_backlinks",
+  VAULT_GET_OUTGOING_LINKS: "vault_get_outgoing_links",
+  VAULT_FIND_ORPHANS: "vault_find_orphans",
+} as const
+
+export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
 
 // ── Response shaping ─────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ export const registerTools = (params: {
   // ── Vault CRUD ──────────────────────────────────────────────
 
   server.registerTool(
-    "vault_read_note",
+    TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
       description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter.
@@ -125,7 +128,7 @@ Returns: Raw markdown string.`,
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_read_note",
+        tool: TOOL_NAMES.VAULT_READ_NOTE,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -137,7 +140,7 @@ Returns: Raw markdown string.`,
   )
 
   server.registerTool(
-    "vault_write_note",
+    TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
       description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).
@@ -172,7 +175,7 @@ Returns: Confirmation message.`,
     async ({ path, body, frontmatter }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_write_note",
+        tool: TOOL_NAMES.VAULT_WRITE_NOTE,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -185,7 +188,7 @@ Returns: Confirmation message.`,
   )
 
   server.registerTool(
-    "vault_patch_note",
+    TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
       description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
@@ -242,7 +245,7 @@ Returns: Confirmation message.`,
     async ({ path, operation, content, heading, heading_level }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_patch_note",
+        tool: TOOL_NAMES.VAULT_PATCH_NOTE,
       })
       reqLogger.info("tool_call", { path, operation, heading })
       return safeHandler(
@@ -265,7 +268,7 @@ Returns: Confirmation message.`,
   )
 
   server.registerTool(
-    "vault_replace_in_note",
+    TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
       description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — frontmatter fields must be edited via vault_write_note's frontmatter parameter.
@@ -307,7 +310,7 @@ Returns: Confirmation message with replacement count.`,
     async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_replace_in_note",
+        tool: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -329,7 +332,7 @@ Returns: Confirmation message with replacement count.`,
   )
 
   server.registerTool(
-    "vault_list_notes",
+    TOOL_NAMES.VAULT_LIST_NOTES,
     {
       title: "List Notes",
       description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
@@ -362,7 +365,7 @@ Returns: JSON array of vault-relative paths.`,
     async ({ folder, glob }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_list_notes",
+        tool: TOOL_NAMES.VAULT_LIST_NOTES,
       })
       reqLogger.info("tool_call", { folder, glob })
       return safeHandler(
@@ -374,7 +377,7 @@ Returns: JSON array of vault-relative paths.`,
   )
 
   server.registerTool(
-    "vault_delete_note",
+    TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
       description: `Permanently delete a markdown note. Protected paths (About Me/, Daily Notes/) are refused to prevent accidental deletion of memory or daily notes.
@@ -401,7 +404,7 @@ Returns: Confirmation message.`,
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_delete_note",
+        tool: TOOL_NAMES.VAULT_DELETE_NOTE,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -415,7 +418,7 @@ Returns: Confirmation message.`,
   // ── Search ──────────────────────────────────────────────────
 
   server.registerTool(
-    "vault_search",
+    TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
       description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and frontmatter properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming.
@@ -466,7 +469,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     async ({ query, filters }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_search",
+        tool: TOOL_NAMES.VAULT_SEARCH,
       })
       reqLogger.info("tool_call", { query })
       return safeHandler(
@@ -478,7 +481,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
   )
 
   server.registerTool(
-    "vault_search_by_tag",
+    TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
       description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
@@ -506,7 +509,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     async ({ tag, exact }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_search_by_tag",
+        tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
       reqLogger.info("tool_call", { tag, exact })
       return safeHandler(
@@ -518,7 +521,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
   )
 
   server.registerTool(
-    "vault_list_tags",
+    TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
       description: `List all tags in the vault with their note counts, ordered by count descending.
@@ -540,7 +543,7 @@ Returns: JSON array of { tag, count } objects.`,
     async (_args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_list_tags",
+        tool: TOOL_NAMES.VAULT_LIST_TAGS,
       })
       reqLogger.info("tool_call")
       return safeHandler(
@@ -552,7 +555,7 @@ Returns: JSON array of { tag, count } objects.`,
   )
 
   server.registerTool(
-    "vault_recent_notes",
+    TOOL_NAMES.VAULT_RECENT_NOTES,
     {
       title: "Recent Notes",
       description: `List recently modified or created notes, sorted by timestamp. Returns the most recent notes first — does not filter by date range.
@@ -580,7 +583,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     async ({ sort_by, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_recent_notes",
+        tool: TOOL_NAMES.VAULT_RECENT_NOTES,
       })
       reqLogger.info("tool_call", { sort_by, limit })
       return safeHandler(
@@ -592,7 +595,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
   )
 
   server.registerTool(
-    "vault_search_by_folder",
+    TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
       description: `Browse notes in a folder with full metadata (tags, type, related, created, modified). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
@@ -623,7 +626,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     async ({ folder, recursive, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_search_by_folder",
+        tool: TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
       })
       reqLogger.info("tool_call", { folder, recursive })
       return safeHandler(
@@ -638,7 +641,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
   // ── Memory ──────────────────────────────────────────────────
 
   server.registerTool(
-    "vault_get_memory",
+    TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
       description: `Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large.
@@ -673,7 +676,7 @@ Returns: Raw markdown text.`,
     async ({ file, section }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_get_memory",
+        tool: TOOL_NAMES.VAULT_GET_MEMORY,
       })
       reqLogger.info("tool_call", { file, section })
       return safeHandler(
@@ -685,7 +688,7 @@ Returns: Raw markdown text.`,
   )
 
   server.registerTool(
-    "vault_update_memory",
+    TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
       description: `Append a dated entry to a section of an About Me/ memory file. The server auto-prefixes today's date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.
@@ -730,7 +733,7 @@ Returns: Confirmation message.`,
     async ({ file, section, entry, options }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_update_memory",
+        tool: TOOL_NAMES.VAULT_UPDATE_MEMORY,
       })
       reqLogger.info("tool_call", { file, section })
       return safeHandler(
@@ -753,7 +756,7 @@ Returns: Confirmation message.`,
   )
 
   server.registerTool(
-    "vault_list_memory_files",
+    TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
       description: `Discovery tool — lists About Me/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.
@@ -774,7 +777,7 @@ Returns: JSON array of file outlines.`,
     async (_args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_list_memory_files",
+        tool: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
       })
       reqLogger.info("tool_call")
       return safeHandler(
@@ -786,7 +789,7 @@ Returns: JSON array of file outlines.`,
   )
 
   server.registerTool(
-    "vault_delete_memory",
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
     {
       title: "Delete Memory Entry",
       description: `Delete a single dated entry from an About Me/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.
@@ -817,7 +820,7 @@ Returns: Confirmation message.`,
     async ({ file, section, date, entry }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_delete_memory",
+        tool: TOOL_NAMES.VAULT_DELETE_MEMORY,
       })
       reqLogger.info("tool_call", { file, section, date })
       return safeHandler(
@@ -835,7 +838,7 @@ Returns: Confirmation message.`,
   // ── Daily Notes ────────────────────────────────────────────
 
   server.registerTool(
-    "vault_get_daily_note",
+    TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
       description: `Read a daily note by date, using the vault's configured Daily Notes folder and date format (from .obsidian/daily-notes.json). Defaults to today if no date is provided.
@@ -866,7 +869,7 @@ Returns: JSON with path (resolved vault-relative path), content (note body or nu
     async ({ date }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_get_daily_note",
+        tool: TOOL_NAMES.VAULT_GET_DAILY_NOTE,
       })
       reqLogger.info("tool_call", { date })
       return safeHandler(
@@ -880,7 +883,7 @@ Returns: JSON with path (resolved vault-relative path), content (note body or nu
   // ── Property Discovery ────────────────────────────────────
 
   server.registerTool(
-    "vault_list_property_keys",
+    TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
       description: `Discover all frontmatter property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
@@ -907,7 +910,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
     async ({ folder }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_list_property_keys",
+        tool: TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
       })
       reqLogger.info("tool_call", { folder })
       return safeHandler(
@@ -919,7 +922,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
   )
 
   server.registerTool(
-    "vault_list_property_values",
+    TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
       description: `List distinct values for a specific frontmatter property key with note counts. Useful for discovering the range of values a property takes before searching.
@@ -950,7 +953,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     async ({ key, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_list_property_values",
+        tool: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
       })
       reqLogger.info("tool_call", { key, folder })
       return safeHandler(
@@ -963,7 +966,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
   )
 
   server.registerTool(
-    "vault_search_by_property",
+    TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
       description: `Find notes where a frontmatter property matches a value (exact match). Unlike vault_search, this does not require a text query — it searches by metadata only. Handles both scalar properties (status: "active") and array properties (tags contains "project").
@@ -990,7 +993,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     async ({ key, value, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_search_by_property",
+        tool: TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
       })
       reqLogger.info("tool_call", { key, value, folder })
       return safeHandler(
@@ -1005,7 +1008,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
   // ── Links ──────────────────────────────────────────────────
 
   server.registerTool(
-    "vault_get_backlinks",
+    TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
       description: `Find all notes that link to a given note (incoming wikilinks and markdown links). Shows which notes reference the target — useful for understanding a note's context and importance in the vault's knowledge graph.
@@ -1037,7 +1040,7 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title })
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_get_backlinks",
+        tool: TOOL_NAMES.VAULT_GET_BACKLINKS,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -1050,7 +1053,7 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title })
   )
 
   server.registerTool(
-    "vault_get_outgoing_links",
+    TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
       description: `Find all notes that a given note links to (outgoing wikilinks and markdown links). Each link includes an exists flag — false means the target note doesn't exist (broken link).
@@ -1077,7 +1080,7 @@ Returns: JSON with path (the queried note), outgoing_links (array of { path, tit
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_get_outgoing_links",
+        tool: TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
       })
       reqLogger.info("tool_call", { path })
       return safeHandler(
@@ -1094,7 +1097,7 @@ Returns: JSON with path (the queried note), outgoing_links (array of { path, tit
   )
 
   server.registerTool(
-    "vault_find_orphans",
+    TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
       description: `Find notes with no incoming links from other notes. Orphan notes are disconnected from the vault's knowledge graph — they may be forgotten or need linking from relevant notes.
@@ -1124,7 +1127,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     async ({ exclude_folders, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
-        tool: "vault_find_orphans",
+        tool: TOOL_NAMES.VAULT_FIND_ORPHANS,
       })
       reqLogger.info("tool_call", { exclude_folders, limit })
       return safeHandler(
@@ -1139,5 +1142,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  sessionLogger.info("registered tools", { count: 22 })
+  sessionLogger.info("registered tools", {
+    count: Object.keys(TOOL_NAMES).length,
+  })
 }
