@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
 import { logger } from "../../logger.js"
 
-const { patchNote, replaceInNote } = vaultPatcher
+const { patchNote, replaceInNote, findTrailingCommentBlockStart } = vaultPatcher
 
 let vault: string
 
@@ -77,6 +77,158 @@ This should be ignored.
 
 More text.
 `
+
+const NOTE_KANBAN = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Task A
+
+## Done
+
+- [x] Task D
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+
+const NOTE_TRAILING_SINGLE_LINE_COMMENT = `---
+title: Inline
+---
+
+## Notes
+
+- [x] Done item
+
+%% private board note %%
+`
+
+// The inline comment is mid-body of the LAST section, with content after it —
+// so a false-positive "trailing block" detection would wrongly preserve it.
+const NOTE_MIDBODY_COMMENT = `---
+title: Midbody
+---
+
+## Active
+
+- [ ] Task A
+
+## Done
+
+- [x] Task D
+%% reminder: refile these %%
+- [x] Task E
+`
+
+// The `%%` line sits inside a fenced code block at EOF. A non-fence-aware scan
+// would mistake it for a trailing comment opener and stop the section short.
+const NOTE_PERCENT_LINE_IN_CODE_BLOCK = `---
+title: Config example
+---
+
+## Config example
+
+\`\`\`
+%% example: edit this
+key = value
+\`\`\`
+`
+
+const NOTE_NESTED_HEADING_KANBAN = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Task D
+
+### Sub
+
+- [x] Sub item
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+
+// ── findTrailingCommentBlockStart (direct unit tests) ──────────
+
+describe("findTrailingCommentBlockStart", () => {
+  it("returns 0 for empty input", () => {
+    expect(findTrailingCommentBlockStart([])).toBe(0)
+  })
+
+  it("returns lines.length when no comment delimiters exist", () => {
+    const lines = ["## Heading", "Some content", "More content"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
+
+  it("finds a multi-line trailing comment block", () => {
+    const lines = [
+      "## Done",
+      "- [x] Task",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("finds a single-line trailing comment", () => {
+    const lines = ["## Notes", "Content", "", "%% private note %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("ignores a mid-body comment followed by more content", () => {
+    const lines = ["%% reminder %%", "- [ ] Task A", "## Done", "- [x] Task D"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
+
+  it("ignores %% inside a fenced code block", () => {
+    const lines = ["## Section", "```", "%% not a comment %%", "```"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
+
+  it("detects a trailing block when it starts on the first line", () => {
+    const lines = ["%% only comment %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
+
+  it("detects the last trailing block when multiple comment blocks exist", () => {
+    const lines = ["%% first %%", "content", "%% second %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("handles an unclosed comment running to EOF", () => {
+    const lines = ["## Heading", "Content", "%% unclosed", "still in comment"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("returns lines.length when the last block has content after it", () => {
+    const lines = ["%% comment %%", "content after"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("absorbs blank lines preceding the trailing block", () => {
+    const lines = ["## Done", "Content", "", "", "%% settings %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("allows trailing blank lines after the closing %%", () => {
+    const lines = ["%% block %%", ""]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
+})
 
 // ── parseHeadings (tested indirectly via patchNote) ─────────────
 
@@ -465,6 +617,27 @@ describe("patchNote — file-level operations", () => {
     expect(updated).toContain("tags:\n  - test\n---\n> [!note] Important")
   })
 
+  it("file-level append lands after a trailing comment block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "append",
+        content: "Appended at EOF.",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    const appendedIdx = lines.findIndex((line) => line === "Appended at EOF.")
+    // File-level append bypasses heading parsing, so content lands after
+    // the trailing block — not before it. This is expected; section-level
+    // append (with a heading target) should be used for Kanban boards.
+    expect(appendedIdx).toBeGreaterThan(settingsIdx)
+  })
+
   it("errors on replace without heading", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
@@ -622,6 +795,266 @@ describe("patchNote — section-level replace", () => {
     expect(updated).not.toContain("Subtasks")
     expect(updated).not.toContain("Sub-task 1")
     expect(updated).toContain("## Up Next")
+  })
+})
+
+describe("patchNote — trailing comment block preservation", () => {
+  it("replace on the final heading preserves a trailing kanban:settings block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "replace",
+        content: "Board archived.\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\nBoard archived.")
+    expect(updated).not.toContain("Task D")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+    expect(updated).toMatch(/%%\n*$/)
+  })
+
+  it("append to the final heading inserts content before the trailing block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "append",
+        content: "- [x] Task E",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
+    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(taskEIdx).toBeGreaterThan(taskDIdx)
+    expect(taskEIdx).toBeLessThan(settingsIdx)
+  })
+
+  it("prepend to the final heading preserves the trailing block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "prepend",
+        content: "- [x] Task E",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toMatch(/## Done\n- \[x\] Task E\n/)
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
+
+  it("insert_before on the final heading preserves the trailing block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "insert_before",
+        content: "## Archived\n- [x] Old task\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Archived")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
+
+  it("replace on the final heading preserves a single-line trailing comment", async () => {
+    await writeTestNote("notes.md", NOTE_TRAILING_SINGLE_LINE_COMMENT)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "notes.md",
+        operation: "replace",
+        content: "Cleared.\n",
+        heading: "Notes",
+      },
+      logger,
+    )
+    const updated = await readTestNote("notes.md")
+    expect(updated).toContain("## Notes\nCleared.")
+    expect(updated).not.toContain("Done item")
+    expect(updated).toContain("%% private board note %%")
+  })
+
+  it("does not treat a mid-body inline comment as a trailing block", async () => {
+    await writeTestNote("tasks.md", NOTE_MIDBODY_COMMENT)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        operation: "replace",
+        content: "Done section cleared.\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("tasks.md")
+    expect(updated).toContain("## Done\nDone section cleared.")
+    // The inline comment is mid-body of Done (Task E follows it), not trailing —
+    // so the whole Done body is replaced, comment and Task E included.
+    expect(updated).not.toContain("Task D")
+    expect(updated).not.toContain("%% reminder: refile these %%")
+    expect(updated).not.toContain("Task E")
+    // The Active section is untouched.
+    expect(updated).toContain("- [ ] Task A")
+  })
+
+  it("does not treat %% inside a fenced code block as a trailing block", async () => {
+    await writeTestNote("docs.md", NOTE_PERCENT_LINE_IN_CODE_BLOCK)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "docs.md",
+        operation: "replace",
+        content: "Rewritten.\n",
+        heading: "Config example",
+      },
+      logger,
+    )
+    const updated = await readTestNote("docs.md")
+    expect(updated).toContain("## Config example\nRewritten.")
+    // The `%%` line is inside a fenced code block — section body, not a trailing
+    // comment block — so the whole code block is replaced.
+    expect(updated).not.toContain("%% example: edit this")
+    expect(updated).not.toContain("key = value")
+    expect(updated).not.toContain("```")
+  })
+
+  it("replace on a heading above a nested EOF section preserves the trailing block", async () => {
+    await writeTestNote("board.md", NOTE_NESTED_HEADING_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "replace",
+        content: "Archived.\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\nArchived.")
+    expect(updated).not.toContain("### Sub")
+    expect(updated).not.toContain("Sub item")
+    expect(updated).toContain("%% kanban:settings")
+  })
+
+  it("replace on a non-final heading leaves the trailing block untouched", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "replace",
+        content: "- [ ] Replaced active\n",
+        heading: "Active",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Active\n- [ ] Replaced active")
+    expect(updated).not.toContain("Task A")
+    expect(updated).toContain("## Done")
+    expect(updated).toContain("%% kanban:settings")
+  })
+
+  it("replace on a heading with only blank lines before the trailing block", async () => {
+    const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("board.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "replace",
+        content: "- [x] New task\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\n- [x] New task")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
+
+  it("append to a heading with only blank lines before the trailing block", async () => {
+    const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("board.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "append",
+        content: "- [x] Appended task",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Appended task",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(appendedIdx)
+  })
+
+  it("replace on the last section is unaffected when there is no trailing block", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "Nothing left.\n",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Done\nNothing left.")
+    expect(updated).not.toContain("Task D")
   })
 })
 

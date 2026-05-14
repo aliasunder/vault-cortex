@@ -27,6 +27,93 @@ const HEADING_REGEX = /^(#{1,6}) (.+)$/
 /** Matches fenced code block openers: 3+ backticks or 3+ tildes (CommonMark §4.5). */
 const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 
+/** Obsidian comment delimiter — each `%%` occurrence toggles comment state. */
+const COMMENT_DELIMITER = "%%"
+
+/**
+ * Finds the line index where a trailing Obsidian comment block begins, so the
+ * final section's body can stop short of it. Returns `lines.length` when none
+ * exists. A block is "trailing" when only blank lines follow its closing `%%`
+ * (or when an unclosed comment runs to EOF).
+ *
+ * Known limitation: heading detection in `parseHeadings` is NOT comment-aware,
+ * so a `## heading` inside a `%% %%` block is still treated as a real heading.
+ */
+const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
+  // `let` carries fence + comment parser state across lines — a per-line
+  // reduce can't express the per-`%%` toggle cleanly.
+  let fence: FenceState = null
+  let comment: { openLine: number } | null = null
+  let lastClosedBlock: { startLine: number; endLine: number } | null = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const fenceMatch = FENCE_OPEN_REGEX.exec(line)
+
+    // Inside a fenced code block (outside comments): only a matching close
+    // fence matters — `%%` is code and ignored.
+    if (fence && !comment) {
+      const isFenceClose =
+        fenceMatch &&
+        fenceMatch[1][0] === fence.char &&
+        fenceMatch[1].length >= fence.length &&
+        line.trim() === fenceMatch[1]
+      if (isFenceClose) fence = null
+      continue
+    }
+
+    if (fenceMatch && !comment) {
+      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
+      continue
+    }
+
+    // Outside fences (or inside a comment where `%%` takes precedence over
+    // fences, matching Obsidian's parser): each `%%` toggles comment state.
+    const delimiterCount = (line.match(/%%/g) ?? []).length
+    for (let occurrence = 0; occurrence < delimiterCount; occurrence++) {
+      if (comment) {
+        // Validate that the closer ends its own line — otherwise the block
+        // isn't cleanly separable from body text and can't be preserved.
+        const validCloser = lines[i].trimEnd().endsWith(COMMENT_DELIMITER)
+        lastClosedBlock = validCloser
+          ? { startLine: comment.openLine, endLine: i }
+          : null
+        comment = null
+      } else {
+        comment = { openLine: i }
+      }
+    }
+  }
+
+  // An unclosed comment runs to EOF and is trailing by definition. A closed
+  // block is trailing only when nothing but blank lines follow it.
+  const trailingBlock = comment
+    ? { startLine: comment.openLine }
+    : lastClosedBlock &&
+        lines
+          .slice(lastClosedBlock.endLine + 1)
+          .every((trailingLine) => trailingLine.trim() === "")
+      ? lastClosedBlock
+      : null
+
+  if (!trailingBlock) return lines.length
+
+  // The opener must start its own line.
+  if (
+    !lines[trailingBlock.startLine].trimStart().startsWith(COMMENT_DELIMITER)
+  ) {
+    return lines.length
+  }
+
+  // Absorb blank lines before the block so the section body keeps no dangling
+  // blanks. findLastIndex returns -1 when only blanks precede it, so +1 → 0.
+  return (
+    lines
+      .slice(0, trailingBlock.startLine)
+      .findLastIndex((line) => line.trim() !== "") + 1
+  )
+}
+
 /**
  * Single-pass heading parser for H1–H6 with code-block awareness.
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
@@ -82,7 +169,10 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   )
 
   // Phase 2: compute body ranges — each section's body ends where the next
-  // heading of the same or higher level starts (or at EOF)
+  // heading of the same or higher level starts. Sections with no such heading
+  // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
+  // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
+  const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
   return collectedHeadings.map((h, i) => {
     const nextSameOrHigher = collectedHeadings
       .slice(i + 1)
@@ -92,7 +182,10 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       level: h.level,
       startLine: h.startLine,
       bodyStartLine: h.startLine + 1,
-      bodyEndLine: nextSameOrHigher?.startLine ?? lines.length,
+      // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
+      bodyEndLine:
+        nextSameOrHigher?.startLine ??
+        Math.max(h.startLine + 1, trailingCommentBlockStart),
     }
   })
 }
@@ -311,4 +404,8 @@ const replaceInNote = async (
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
 }
 
-export const vaultPatcher = { patchNote, replaceInNote }
+export const vaultPatcher = {
+  patchNote,
+  replaceInNote,
+  findTrailingCommentBlockStart,
+}
