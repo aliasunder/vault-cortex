@@ -41,15 +41,25 @@ const HYPHENATED_COMPOUND_REGEX = /\b(\w+(?:-\w+)+)\b/g
  *  metacharacters and reserved words are stripped. */
 export const sanitizeFtsQuery = (raw: string): string => {
   const phrases: string[] = []
+
+  // Extract "quoted phrases", strip FTS5 metacharacters inside them,
+  // and collect into phrases[]. Hyphens inside quotes are left alone —
+  // the unicode61 tokenizer splits them correctly in phrase queries.
   const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
     const cleaned = phrase.replace(/[*^():]/g, "").trim()
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
     return " "
   })
+
+  // Convert bare hyphenated compounds (vault-cortex → "vault cortex")
+  // so FTS5 doesn't interpret the hyphen as the NOT operator.
   const afterHyphens = remaining.replace(HYPHENATED_COMPOUND_REGEX, (match) => {
     phrases.push(`"${match.replace(/-/g, " ")}"`)
     return " "
   })
+
+  // Strip remaining FTS5 metacharacters (including stray/leading hyphens),
+  // split into tokens, and drop reserved words (AND, OR, NOT, NEAR).
   const tokens = afterHyphens
     .replace(/["*^():-]/g, " ")
     .split(/\s+/)

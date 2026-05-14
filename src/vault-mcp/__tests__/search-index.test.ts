@@ -281,10 +281,10 @@ describe("fullTextSearch", () => {
   it("hyphenated query matches content containing the hyphenated term", () => {
     index.upsertNote(
       "project.md",
-      "The vault-cortex server exposes an MCP API\n",
+      "The flux-capacitor enables time travel\n",
       6000,
     )
-    const results = index.fullTextSearch({ query: "vault-cortex" }, logger)
+    const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("project.md")
   })
