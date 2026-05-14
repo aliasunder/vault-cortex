@@ -156,7 +156,7 @@ Obsidian syntax: Body content is rendered as Obsidian Flavored Markdown with no 
 - # at line start = heading; #word (no space) = tag
 - [[ = wikilink, ![[ = embed
 - - [ ] at line start = task checkbox
-- --- on its own line = horizontal rule (can conflict with frontmatter)
+- --- on its own line = horizontal rule
 - %% = comment block (hidden in reading view)
 - Bare URLs auto-link
 Escape with backslash (\\#, \\[[) or wrap in backticks when unintentional.
