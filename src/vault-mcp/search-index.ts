@@ -30,9 +30,15 @@ const convertFrontmatterDatesToIsoStrings = (
 
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
 
+/** Matches hyphenated compound terms (e.g. vault-cortex, self-hosted-app)
+ *  where at least two word segments are joined by hyphens. */
+const HYPHENATED_COMPOUND_REGEX = /\b(\w+(?:-\w+)+)\b/g
+
 /** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
- *  for exact-phrase matching; unquoted terms are left bare to preserve porter
- *  stemming. FTS5 metacharacters and reserved words are stripped. */
+ *  for exact-phrase matching. Hyphenated compound terms (e.g. vault-cortex)
+ *  are converted to quoted phrases for adjacent-token matching. Remaining
+ *  unquoted terms are left bare to preserve porter stemming. FTS5
+ *  metacharacters and reserved words are stripped. */
 export const sanitizeFtsQuery = (raw: string): string => {
   const phrases: string[] = []
   const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
@@ -40,8 +46,12 @@ export const sanitizeFtsQuery = (raw: string): string => {
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
     return " "
   })
-  const tokens = remaining
-    .replace(/["*^():]/g, " ")
+  const afterHyphens = remaining.replace(HYPHENATED_COMPOUND_REGEX, (match) => {
+    phrases.push(`"${match.replace(/-/g, " ")}"`)
+    return " "
+  })
+  const tokens = afterHyphens
+    .replace(/["*^():-]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 0 && !FTS5_RESERVED.has(t.toUpperCase()))
 
