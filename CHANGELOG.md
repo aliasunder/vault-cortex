@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.6.3] — 2026-05-14
+
+### Refactoring
+
+- Organize vault-mcp into domain subdirectories (#20) (#20)
+- Replace magic string tool names with TOOL_NAMES const object map (#19)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.6.2
+
+
 ## [0.6.2] — 2026-05-14
 
 ### Bug Fixes
