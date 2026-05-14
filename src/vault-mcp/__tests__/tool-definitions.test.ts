@@ -1,58 +1,35 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { registerTools } from "../tool-definitions.js"
+import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../logger.js"
 
-const TOOL_NAMES = [
-  "vault_read_note",
-  "vault_write_note",
-  "vault_patch_note",
-  "vault_replace_in_note",
-  "vault_list_notes",
-  "vault_delete_note",
-  "vault_search",
-  "vault_search_by_tag",
-  "vault_search_by_folder",
-  "vault_list_tags",
-  "vault_recent_notes",
-  "vault_get_memory",
-  "vault_update_memory",
-  "vault_list_memory_files",
-  "vault_delete_memory",
-  "vault_get_daily_note",
-  "vault_list_property_keys",
-  "vault_list_property_values",
-  "vault_search_by_property",
-  "vault_get_backlinks",
-  "vault_get_outgoing_links",
-  "vault_find_orphans",
-] as const
+const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
 const READ_ONLY_TOOLS = [
-  "vault_read_note",
-  "vault_list_notes",
-  "vault_search",
-  "vault_search_by_tag",
-  "vault_search_by_folder",
-  "vault_list_tags",
-  "vault_recent_notes",
-  "vault_get_memory",
-  "vault_list_memory_files",
-  "vault_get_daily_note",
-  "vault_list_property_keys",
-  "vault_list_property_values",
-  "vault_search_by_property",
-  "vault_get_backlinks",
-  "vault_get_outgoing_links",
-  "vault_find_orphans",
+  TOOL_NAMES.VAULT_READ_NOTE,
+  TOOL_NAMES.VAULT_LIST_NOTES,
+  TOOL_NAMES.VAULT_SEARCH,
+  TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+  TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+  TOOL_NAMES.VAULT_LIST_TAGS,
+  TOOL_NAMES.VAULT_RECENT_NOTES,
+  TOOL_NAMES.VAULT_GET_MEMORY,
+  TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+  TOOL_NAMES.VAULT_GET_DAILY_NOTE,
+  TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
+  TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
+  TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+  TOOL_NAMES.VAULT_GET_BACKLINKS,
+  TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
+  TOOL_NAMES.VAULT_FIND_ORPHANS,
 ] as const
 
 const DESTRUCTIVE_TOOLS = [
-  "vault_write_note",
-  "vault_delete_note",
-  "vault_update_memory",
-  "vault_delete_memory",
+  TOOL_NAMES.VAULT_WRITE_NOTE,
+  TOOL_NAMES.VAULT_DELETE_NOTE,
+  TOOL_NAMES.VAULT_UPDATE_MEMORY,
+  TOOL_NAMES.VAULT_DELETE_MEMORY,
 ] as const
 
 type RegisterToolCall = [
@@ -83,11 +60,11 @@ const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find((c) => c[0] === name)
 
 describe("registerTools", () => {
-  it("registers exactly 22 tools", () => {
-    expect(mockServer.registerTool).toHaveBeenCalledTimes(22)
+  it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
+    expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
   })
 
-  it.each(TOOL_NAMES)("registers %s", (name) => {
+  it.each(ALL_TOOL_NAMES)("registers %s", (name) => {
     expect(findCall(name)).toBeDefined()
   })
 
@@ -152,7 +129,7 @@ describe("error handling", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
   it("vault_read_note handler returns isError on failure", async () => {
-    const call = findCall("vault_read_note")!
+    const call = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
     const handler = call[2]
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ type: string; text: string }>
@@ -163,7 +140,7 @@ describe("error handling", () => {
   })
 
   it("error text does not contain stack traces", async () => {
-    const call = findCall("vault_read_note")!
+    const call = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
     const handler = call[2]
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ text: string }>
@@ -173,7 +150,7 @@ describe("error handling", () => {
   })
 
   it("vault_get_memory handler returns isError on failure", async () => {
-    const call = findCall("vault_get_memory")!
+    const call = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
     const handler = call[2]
     const result = (await handler(
       { file: "Nonexistent", section: undefined },
