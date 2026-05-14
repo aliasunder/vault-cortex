@@ -1,6 +1,11 @@
 # Changelog
 
 
+## [0.7.0] — 2026-05-14
+
+No notable changes.
+
+
 ## [0.6.3] — 2026-05-14
 
 ### Refactoring
