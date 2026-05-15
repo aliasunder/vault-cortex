@@ -111,6 +111,17 @@ describe("registerTools", () => {
     },
   )
 
+  it("vault_replace_in_note description clarifies in-place scope", () => {
+    const call = findCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)!
+    expect(call[1].description).toContain("in place")
+    expect(call[1].description).toContain("vault_read_note")
+  })
+
+  it("vault_patch_note description includes cross-section move guidance", () => {
+    const call = findCall(TOOL_NAMES.VAULT_PATCH_NOTE)!
+    expect(call[1].description).toContain("Cross-section move")
+  })
+
   it("every tool has all 4 annotation hints", () => {
     for (const call of calls) {
       const annotations = call[1].annotations!
