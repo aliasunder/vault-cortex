@@ -8,6 +8,7 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 - [Architecture](#architecture)
 - [Authentication](#authentication)
+- [Configuration](#configuration)
 - [Deployment](#deployment)
 - [CI/CD](#cicd)
 - [Local development](#local-development)
@@ -79,6 +80,45 @@ npm run lightsail:up
 ```
 
 Existing JWTs signed with the old key become invalid immediately. OAuth clients will silently re-authenticate on their next token refresh.
+
+## Configuration
+
+vault-cortex reads configuration from environment variables at startup. All settings have sensible defaults — only `MCP_AUTH_TOKEN`, `VAULT_PATH`, and `PUBLIC_URL` are required.
+
+### Memory system
+
+The memory tools (`vault_get_memory`, `vault_update_memory`, `vault_list_memory_files`, `vault_delete_memory`) read and write structured files in a configurable folder inside the vault. These files use H2 headings as sections and dated bullets (`- **YYYY-MM-DD**: text`) as entries.
+
+Example memory files are provided in `templates/memory/`. Copy them into your vault's memory folder to get started:
+
+```bash
+cp templates/memory/Principles.md ~/your-vault/About\ Me/
+cp templates/memory/Opinions.md ~/your-vault/About\ Me/
+```
+
+### Environment variables
+
+| Variable                    | Default                                      | Description                                                                                                                                                             |
+| --------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MEMORY_DIR`                | `About Me`                                   | Vault folder containing memory files. Tool descriptions, error messages, and protected-path defaults all derive from this value.                                        |
+| `PROTECTED_PATHS`           | `MEMORY_DIR, Daily Notes`                    | Comma-separated folders that `vault_delete_note` refuses to delete. Overrides the default entirely when set — include your memory dir if you want it protected.         |
+| `ORPHAN_EXCLUDE_FOLDERS`    | `Daily Notes, Templates, MEMORY_DIR`         | Comma-separated folders excluded from `vault_find_orphans` results. These folders contain standalone notes (daily notes, templates, memory) that are orphans by design. |
+| `SERVICE_DOCUMENTATION_URL` | `https://github.com/aliasunder/vault-cortex` | URL returned in OAuth `.well-known` discovery metadata. Set this if you fork the project.                                                                               |
+
+**Smart defaults:** When you set `MEMORY_DIR`, the default values for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` automatically include the new folder name. You only need to set those explicitly if you want a completely custom list.
+
+**Custom daily notes folder:** If you've renamed Obsidian's daily notes folder (e.g. to "Journal"), add it to `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` manually — the `vault_get_daily_note` tool reads the folder name from `.obsidian/daily-notes.json` at runtime, but the protection and orphan-exclusion defaults use "Daily Notes".
+
+### Validation
+
+All folder-name env vars are validated at startup:
+
+- Empty or whitespace-only values are treated as unset (defaults apply)
+- Path traversal (`..`) and absolute paths (`/`) are rejected
+- Trailing slashes are stripped automatically
+- `SERVICE_DOCUMENTATION_URL` must be a valid URL
+
+Invalid config crashes the server immediately with a descriptive error.
 
 ## Deployment
 
