@@ -108,6 +108,11 @@ jobs:
           VAULT_NAME: ${{ vars.VAULT_NAME }}
           VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
           GHCR_USER: ${{ vars.GHCR_USER }}
+          MEMORY_DIR: ${{ vars.MEMORY_DIR }}
+          PROTECTED_PATHS: ${{ vars.PROTECTED_PATHS }}
+          ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
+          SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
+          TZ: ${{ vars.TZ }}
         run: |
           umask 077
           cat > "$RUNNER_TEMP/lightsail.env" <<EOF
@@ -117,13 +122,17 @@ jobs:
           VAULT_NAME=$VAULT_NAME
           VAULT_PASSWORD=$VAULT_PASSWORD
           GHCR_USER=$GHCR_USER
+          MEMORY_DIR=${MEMORY_DIR:-About Me}
+          PROTECTED_PATHS=$PROTECTED_PATHS
+          ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS
+          SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL
           PUID=1000
           PGID=1000
           DEVICE_NAME=vault-cortex-lightsail
           CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
-          TZ=America/New_York
+          TZ=${TZ:-UTC}
           EOF
 
       - name: Ship compose + .env to instance

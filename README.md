@@ -8,6 +8,7 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 - [Architecture](#architecture)
 - [Authentication](#authentication)
+- [Configuration](#configuration)
 - [Deployment](#deployment)
 - [CI/CD](#cicd)
 - [Local development](#local-development)
@@ -80,6 +81,45 @@ npm run lightsail:up
 
 Existing JWTs signed with the old key become invalid immediately. OAuth clients will silently re-authenticate on their next token refresh.
 
+## Configuration
+
+vault-cortex reads configuration from environment variables at startup. All settings have sensible defaults — only `MCP_AUTH_TOKEN`, `VAULT_PATH`, and `PUBLIC_URL` are required.
+
+### Memory system
+
+The memory tools (`vault_get_memory`, `vault_update_memory`, `vault_list_memory_files`, `vault_delete_memory`) read and write structured files in a configurable folder inside the vault. These files use H2 headings as sections and dated bullets (`- **YYYY-MM-DD**: text`) as entries.
+
+Example memory files are provided in [`templates/memory/`](./templates/memory/). Copy them into your vault's memory folder to get started:
+
+```bash
+cp templates/memory/Principles.md ~/your-vault/About\ Me/
+cp templates/memory/Opinions.md ~/your-vault/About\ Me/
+```
+
+### Environment variables
+
+| Variable                    | Default                                      | Description                                                                                                                                                             |
+| --------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MEMORY_DIR`                | `About Me`                                   | Vault folder containing memory files. Tool descriptions, error messages, and protected-path defaults all derive from this value.                                        |
+| `PROTECTED_PATHS`           | `MEMORY_DIR, Daily Notes`                    | Comma-separated folders that `vault_delete_note` refuses to delete. Overrides the default entirely when set — include your memory dir if you want it protected.         |
+| `ORPHAN_EXCLUDE_FOLDERS`    | `Daily Notes, Templates, MEMORY_DIR`         | Comma-separated folders excluded from `vault_find_orphans` results. These folders contain standalone notes (daily notes, templates, memory) that are orphans by design. |
+| `SERVICE_DOCUMENTATION_URL` | `https://github.com/aliasunder/vault-cortex` | URL returned in OAuth `.well-known` discovery metadata. Set this if you fork the project.                                                                               |
+
+**Smart defaults:** When you set `MEMORY_DIR`, the default values for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` automatically include the new folder name. You only need to set those explicitly if you want a completely custom list.
+
+**Custom daily notes folder:** If you've renamed Obsidian's daily notes folder (e.g. to "Journal"), add it to `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` manually — the `vault_get_daily_note` tool reads the folder name from `.obsidian/daily-notes.json` at runtime, but the protection and orphan-exclusion defaults use "Daily Notes".
+
+### Validation
+
+All folder-name env vars are validated at startup:
+
+- Empty or whitespace-only values are treated as unset (defaults apply)
+- Path traversal (`..`) and absolute paths (`/`) are rejected
+- Trailing slashes are stripped automatically
+- `SERVICE_DOCUMENTATION_URL` must be a valid URL
+
+Invalid config crashes the server immediately with a descriptive error.
+
 ## Deployment
 
 SST uses a stage name based on your OS username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use the default.
@@ -132,6 +172,8 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | `VAULT_NAME`          | Your Obsidian vault name (exact, case-sensitive)                         |
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                         |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                          |
+
+The [`.env.example`](./.env.example) file also includes optional configuration for the memory system (`MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see [Configuration](#configuration) for details.
 
 ```bash
 docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest
@@ -217,13 +259,18 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
 
-| Variable              | Purpose                                                                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
-| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
-| `PUBLIC_URL`          | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
-| `SST_STAGE`           | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
-| `VAULT_NAME`          | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
+| Variable                    | Purpose                                                                                                                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`       | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
+| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
+| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
+| `SST_STAGE`                 | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
+| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See [Configuration](#configuration).                                                                                         |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                      |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                    |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                    |
+| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).     |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
 

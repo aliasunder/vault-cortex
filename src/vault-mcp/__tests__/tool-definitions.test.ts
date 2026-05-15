@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
+import { loadConfig } from "../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { SearchIndex } from "../search/search-index.js"
 import { logger } from "../../logger.js"
@@ -59,6 +60,7 @@ beforeEach(() => {
     vaultPath: "/test-vault",
     search: {} as SearchIndex,
     logger,
+    config: loadConfig({}),
   })
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
@@ -137,6 +139,69 @@ describe("annotations", () => {
     for (const call of calls) {
       expect(call[1].annotations?.openWorldHint).toBe(false)
     }
+  })
+})
+
+describe("config interpolation in descriptions", () => {
+  const CUSTOM_MEMORY_DIR = "Profile"
+  const customConfig = loadConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
+  let customCalls: RegisterToolCall[]
+
+  beforeEach(() => {
+    const customServer = { registerTool: vi.fn() }
+    registerTools({
+      server: customServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: customConfig,
+    })
+    customCalls = customServer.registerTool.mock.calls as RegisterToolCall[]
+  })
+
+  const findCustomCall = (name: string): RegisterToolCall | undefined =>
+    customCalls.find((c) => c[0] === name)
+
+  it("vault_get_memory description references the configured memory dir", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    expect(call[1].description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_update_memory description references the configured memory dir", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)!
+    expect(call[1].description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_list_memory_files description references the configured memory dir", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_LIST_MEMORY_FILES)!
+    expect(call[1].description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_delete_memory description references the configured memory dir", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_DELETE_MEMORY)!
+    expect(call[1].description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_delete_note description lists configured protected paths", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)!
+    expect(call[1].description).toContain("Profile/")
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_read_note description references the configured memory dir", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    expect(call[1].description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+    expect(call[1].description).not.toContain("About Me/")
+  })
+
+  it("vault_find_orphans description references configured exclusion folders", () => {
+    const call = findCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)!
+    expect(call[1].description).toContain(CUSTOM_MEMORY_DIR)
+    expect(call[1].description).not.toContain("About Me")
   })
 })
 

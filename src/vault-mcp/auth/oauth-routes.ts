@@ -11,12 +11,14 @@ export type OAuthRoutesOptions = {
   authToken: string
   serverUrl: URL
   oauthProvider: OAuthProvider
+  serviceDocumentationUrl: string
 }
 
 export const createOAuthRoutes = ({
   authToken,
   serverUrl,
   oauthProvider,
+  serviceDocumentationUrl,
 }: OAuthRoutesOptions): Router => {
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
     oauthProvider
@@ -45,9 +47,7 @@ export const createOAuthRoutes = ({
     mcpAuthRouter({
       provider,
       issuerUrl: serverUrl,
-      serviceDocumentationUrl: new URL(
-        "https://github.com/aliasunder/vault-cortex",
-      ),
+      serviceDocumentationUrl: new URL(serviceDocumentationUrl),
       scopesSupported: ["vault"],
       authorizationOptions: { rateLimit },
       clientRegistrationOptions: { rateLimit },

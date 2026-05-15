@@ -40,7 +40,7 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
-      TZ: ${TZ:-America/New_York}
+      TZ: ${TZ:-UTC}
     volumes:
       - vault_data:/vault
       - obsidian_config:/home/obsidian/.config
@@ -55,7 +55,7 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   vault-mcp:
-    image: ghcr.io/${GHCR_USER:-aliasunder}/vault-mcp:latest
+    image: ghcr.io/${GHCR_USER:?GHCR_USER required}/vault-mcp:latest
     container_name: vault-mcp
     restart: unless-stopped
     depends_on:
@@ -70,7 +70,11 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      TZ: ${TZ:-America/New_York}
+      TZ: ${TZ:-UTC}
+      MEMORY_DIR: ${MEMORY_DIR:-About Me}
+      PROTECTED_PATHS: ${PROTECTED_PATHS:-}
+      ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
+      SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
     volumes:
       - vault_data:/vault:rw
       - mcp_index_data:/data

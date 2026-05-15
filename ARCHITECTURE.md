@@ -25,7 +25,7 @@ container, a new watcher callback, and a new tool.
 | R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder. |
 | R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.         |
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.           |
-| R5  | Memory tools                    | 1     | Read/append to `About Me/` semantic memory files.                   |
+| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).   |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.0 + static bearer token.             |
 | R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.            |
 | R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                |
@@ -173,7 +173,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
 
-`vault_delete_note` refuses paths under `About Me/` or `Daily Notes/` as a server-side guardrail; use `vault_delete_memory` for individual entries in those files.
+`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files.
 
 ### Phase 1: Search (R4)
 
@@ -215,7 +215,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_get_outgoing_links` | `path`                     | readOnlyHint |
 | `vault_find_orphans`       | `exclude_folders?, limit?` | readOnlyHint |
 
-Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.md)` regex during indexing, with fence-aware parsing (skips code blocks). Links are resolved against all known note paths (shortest-path-first for ambiguous basenames). `vault_find_orphans` excludes `Daily Notes`, `Templates`, and `About Me` folders by default.
+Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.md)` regex during indexing, with fence-aware parsing (skips code blocks). Links are resolved against all known note paths (shortest-path-first for ambiguous basenames). `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
 ### Phase 2: Knowledge Base (R8)
 

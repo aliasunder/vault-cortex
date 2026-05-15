@@ -9,6 +9,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import type { SearchIndex } from "./search/search-index.js"
+import type { VaultConfig } from "./config.js"
 import { registerTools } from "./tool-definitions.js"
 import { logger } from "../logger.js"
 
@@ -16,12 +17,14 @@ export type McpRouterOptions = {
   vaultPath: string
   search: SearchIndex
   provider: OAuthServerProvider
+  config: VaultConfig
 }
 
 export const createMcpRouter = ({
   vaultPath,
   search,
   provider,
+  config,
 }: McpRouterOptions): Router => {
   const router = Router()
   const bearerAuth = requireBearerAuth({ verifier: provider })
@@ -61,11 +64,10 @@ export const createMcpRouter = ({
           {
             name: "vault-cortex",
             version: "1.0.0",
-            description:
-              "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+            description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`,
           },
           {
-            instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
+            instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
           },
@@ -75,7 +77,13 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
           sessionId: transport.sessionId,
           clientIp,
         })
-        registerTools({ server, vaultPath, search, logger: sessionLogger })
+        registerTools({
+          server,
+          vaultPath,
+          search,
+          logger: sessionLogger,
+          config,
+        })
 
         await server.connect(transport)
         await transport.handleRequest(req, res, body)

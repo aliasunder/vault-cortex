@@ -4,9 +4,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { vaultFs } from "./vault-operations/vault-filesystem.js"
 import { vaultPatcher } from "./vault-operations/vault-patcher.js"
-import { memoryStore } from "./vault-operations/memory-store.js"
+import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { getDailyNote } from "./vault-operations/daily-notes.js"
 import type { SearchIndex } from "./search/search-index.js"
+import type { VaultConfig } from "./config.js"
 import type { Logger } from "../logger.js"
 
 export const TOOL_NAMES = {
@@ -93,8 +94,10 @@ export const registerTools = (params: {
   vaultPath: string
   search: SearchIndex
   logger: Logger
+  config: VaultConfig
 }): void => {
-  const { server, vaultPath, search, logger: sessionLogger } = params
+  const { server, vaultPath, search, logger: sessionLogger, config } = params
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
   // ── Vault CRUD ──────────────────────────────────────────────
 
@@ -107,7 +110,7 @@ export const registerTools = (params: {
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 
 When to use: You know the exact path and need the full content of a specific note.
-Prefer vault_search when you don't know the path. Prefer vault_get_memory for About Me/ files (returns content without frontmatter).
+Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without frontmatter).
 
 Returns: Raw markdown string.`,
       inputSchema: {
@@ -115,7 +118,7 @@ Returns: Raw markdown string.`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (e.g. "About Me/Principles.md")',
+            `Vault-relative path to the note (e.g. "${config.memoryDir}/Principles.md")`,
           ),
       },
       annotations: {
@@ -148,7 +151,7 @@ Returns: Raw markdown string.`,
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", frontmatter: { tags: ["project"], type: "project" } })
 
 When to use: Creating a new note or fully replacing an existing note's body.
-Prefer vault_update_memory for appending dated entries to About Me/ memory files.
+Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.
 
 Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
@@ -358,7 +361,7 @@ Returns: JSON array of vault-relative paths.`,
         folder: z
           .string()
           .optional()
-          .describe('Folder to list (e.g. "About Me", "Projects")'),
+          .describe(`Folder to list (e.g. "${config.memoryDir}", "Projects")`),
         glob: z
           .string()
           .optional()
@@ -391,12 +394,12 @@ Returns: JSON array of vault-relative paths.`,
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note. Protected paths (About Me/, Daily Notes/) are refused to prevent accidental deletion of memory or daily notes.
+      description: `Permanently delete a markdown note. Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental deletion of memory or daily notes.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 
 When to use: Removing a note you no longer need.
-Prefer vault_delete_memory for removing individual dated entries from About Me/ memory files.
+Prefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -420,7 +423,11 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
-        () => vaultFs.deleteNote({ vaultPath, path }, reqLogger),
+        () =>
+          vaultFs.deleteNote(
+            { vaultPath, path, protectedPaths: config.protectedPaths },
+            reqLogger,
+          ),
         () => `Deleted ${path}`,
       )
     },
@@ -611,7 +618,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       title: "Search by Folder",
       description: `Browse notes in a folder with full metadata (tags, type, related, created, modified). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
 
-Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "About Me", recursive: false })
+Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "${config.memoryDir}", recursive: false })
 
 When to use: Exploring a folder's contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.
 Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
@@ -620,7 +627,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       inputSchema: {
         folder: z
           .string()
-          .describe('Folder path (e.g. "Projects", "About Me")'),
+          .describe(`Folder path (e.g. "Projects", "${config.memoryDir}")`),
         recursive: z
           .boolean()
           .optional()
@@ -655,11 +662,11 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 
-When to use: Reading user preferences, principles, opinions, or other persistent context stored in About Me/ files. Call vault_list_memory_files first to discover valid file and section names.
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names.
 Prefer vault_read_note for reading non-memory notes.
 
 Returns: Raw markdown text.`,
@@ -702,7 +709,7 @@ Returns: Raw markdown text.`,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of an About Me/ memory file. The server auto-prefixes today's date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.
+      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server auto-prefixes today's date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
@@ -763,7 +770,7 @@ Returns: Confirmation message.`,
             },
             reqLogger,
           ),
-        () => `Added entry to About Me/${file}.md → ## ${section}`,
+        () => `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`,
       )
     },
   )
@@ -772,7 +779,7 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists About Me/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.
 
 Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)" and entry counts.
 
@@ -805,7 +812,7 @@ Returns: JSON array of file outlines.`,
     TOOL_NAMES.VAULT_DELETE_MEMORY,
     {
       title: "Delete Memory Entry",
-      description: `Delete a single dated entry from an About Me/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.
+      description: `Delete a single dated entry from a ${config.memoryDir}/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.
 
 Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
 
@@ -843,7 +850,8 @@ Returns: Confirmation message.`,
             { vaultPath, file, section, date, entry },
             reqLogger,
           ),
-        () => `Deleted entry from About Me/${file}.md → ## ${section}`,
+        () =>
+          `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`,
       )
     },
   )
@@ -1115,9 +1123,9 @@ Returns: JSON with path (the queried note), outgoing_links (array of { path, tit
       title: "Find Orphans",
       description: `Find notes with no incoming links from other notes. Orphan notes are disconnected from the vault's knowledge graph — they may be forgotten or need linking from relevant notes.
 
-Example: vault_find_orphans() or vault_find_orphans({ exclude_folders: ["Daily Notes", "Templates", "About Me"] })
+Example: vault_find_orphans() or vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance and organization. Helps identify notes that might be forgotten or need integration into the knowledge graph. Daily Notes, Templates, and About Me folders are excluded by default since those are standalone by design.
+When to use: Vault maintenance and organization. Helps identify notes that might be forgotten or need integration into the knowledge graph. ${config.orphanExcludeFolders.join(", ")} folders are excluded by default since those are standalone by design.
 To add links to an orphan, use vault_patch_note to mention it from a relevant note.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
@@ -1126,7 +1134,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .array(z.string())
           .optional()
           .describe(
-            'Folders to exclude (default: ["Daily Notes", "Templates", "About Me"])',
+            `Folders to exclude (default: ${JSON.stringify(config.orphanExcludeFolders)})`,
           ),
         limit: z.number().optional().describe("Max results (default 50)"),
       },
@@ -1147,7 +1155,12 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         reqLogger,
         async () =>
           search.findOrphans(
-            { excludeFolders: exclude_folders, limit },
+            {
+              excludeFolders: exclude_folders ?? [
+                ...config.orphanExcludeFolders,
+              ],
+              limit,
+            },
             reqLogger,
           ),
         (results) => JSON.stringify(results.map(formatNoteMetadata)),

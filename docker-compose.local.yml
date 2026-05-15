@@ -20,6 +20,11 @@ services:
       MCP_AUTH_TOKEN: local-dev-token
       PUBLIC_URL: http://localhost:8000
       LOG_LEVEL: debug
+      MEMORY_DIR: ${MEMORY_DIR:-About Me}
+      TZ: ${TZ:-UTC}
+      PROTECTED_PATHS: ${PROTECTED_PATHS:-}
+      ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
+      SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
     volumes:
       - ~/Vault:/vault:ro
       - mcp_local_data:/data

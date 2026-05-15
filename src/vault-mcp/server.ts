@@ -9,6 +9,7 @@ import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./auth/oauth-provider.js"
 import { createOAuthRoutes } from "./auth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-router.js"
+import { loadConfig } from "./config.js"
 import { logger } from "../logger.js"
 
 export const createErrorMiddleware =
@@ -36,6 +37,7 @@ export const requireEnv = (name: string): string => {
 }
 
 const startServer = async (): Promise<void> => {
+  const config = loadConfig()
   const authToken = requireEnv("MCP_AUTH_TOKEN")
   const vaultPath = requireEnv("VAULT_PATH")
   const publicUrl = requireEnv("PUBLIC_URL")
@@ -71,12 +73,20 @@ const startServer = async (): Promise<void> => {
     res.json({ ok: true })
   })
 
-  app.use(createOAuthRoutes({ authToken, serverUrl, oauthProvider }))
+  app.use(
+    createOAuthRoutes({
+      authToken,
+      serverUrl,
+      oauthProvider,
+      serviceDocumentationUrl: config.serviceDocumentationUrl,
+    }),
+  )
   app.use(
     createMcpRouter({
       vaultPath,
       search,
       provider: oauthProvider.provider,
+      config,
     }),
   )
 

@@ -1106,16 +1106,19 @@ describe("findOrphans", () => {
     expect(orphanPaths).not.toContain("connected.md")
   })
 
-  it("excludes Daily Notes by default", () => {
+  it("includes all folders when no exclusions provided", () => {
     const orphans = index.findOrphans({}, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
+    expect(orphanPaths).toContain("Daily Notes/2026-05-13.md")
   })
 
-  it("includes Daily Notes when excluded folders are overridden", () => {
-    const orphans = index.findOrphans({ excludeFolders: [] }, logger)
+  it("excludes Daily Notes when passed in excludeFolders", () => {
+    const orphans = index.findOrphans(
+      { excludeFolders: ["Daily Notes"] },
+      logger,
+    )
     const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).toContain("Daily Notes/2026-05-13.md")
+    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
   })
 
   it("respects limit", () => {
