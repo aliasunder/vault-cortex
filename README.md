@@ -264,6 +264,7 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 | `PUBLIC_URL`          | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
 | `SST_STAGE`           | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
 | `VAULT_NAME`          | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
+| `MEMORY_DIR`          | Optional. Memory folder name in the vault (default: `About Me`). See [Configuration](#configuration).                                                                                         |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
 

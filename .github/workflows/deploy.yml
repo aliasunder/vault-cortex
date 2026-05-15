@@ -108,6 +108,7 @@ jobs:
           VAULT_NAME: ${{ vars.VAULT_NAME }}
           VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
           GHCR_USER: ${{ vars.GHCR_USER }}
+          MEMORY_DIR: ${{ vars.MEMORY_DIR }}
         run: |
           umask 077
           cat > "$RUNNER_TEMP/lightsail.env" <<EOF
@@ -117,6 +118,7 @@ jobs:
           VAULT_NAME=$VAULT_NAME
           VAULT_PASSWORD=$VAULT_PASSWORD
           GHCR_USER=$GHCR_USER
+          MEMORY_DIR=${MEMORY_DIR:-About Me}
           PUID=1000
           PGID=1000
           DEVICE_NAME=vault-cortex-lightsail
