@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [0.8.1] — 2026-05-15
+
+### Documentation
+
+- Improve tool descriptions for structural edit safety (#23)
+- Update CHANGELOG.md for v0.8.0
+
+
 ## [0.8.0] — 2026-05-15
 
 ### Features
