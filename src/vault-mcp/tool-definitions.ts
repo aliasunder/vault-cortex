@@ -168,7 +168,7 @@ Returns: Confirmation message.`,
           .string()
           .describe("Markdown body content (no frontmatter fences)"),
         frontmatter: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .optional()
           .describe(
             "Optional YAML frontmatter properties. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
@@ -470,7 +470,10 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .optional()
               .describe("Frontmatter type field value"),
             properties: z
-              .record(z.union([z.string(), z.number(), z.boolean()]))
+              .record(
+                z.string(),
+                z.union([z.string(), z.number(), z.boolean()]),
+              )
               .optional()
               .describe("Arbitrary frontmatter key-value filters"),
             limit: z.number().optional().describe("Max results (default 20)"),
