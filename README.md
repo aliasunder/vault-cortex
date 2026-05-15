@@ -89,7 +89,7 @@ vault-cortex reads configuration from environment variables at startup. All sett
 
 The memory tools (`vault_get_memory`, `vault_update_memory`, `vault_list_memory_files`, `vault_delete_memory`) read and write structured files in a configurable folder inside the vault. These files use H2 headings as sections and dated bullets (`- **YYYY-MM-DD**: text`) as entries.
 
-Example memory files are provided in `templates/memory/`. Copy them into your vault's memory folder to get started:
+Example memory files are provided in [`templates/memory/`](./templates/memory/). Copy them into your vault's memory folder to get started:
 
 ```bash
 cp templates/memory/Principles.md ~/your-vault/About\ Me/
@@ -173,7 +173,7 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                         |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                          |
 
-The `.env.example` file also includes optional configuration for the memory system (`MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see [Configuration](#configuration) for details.
+The [`.env.example`](./.env.example) file also includes optional configuration for the memory system (`MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see [Configuration](#configuration) for details.
 
 ```bash
 docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest

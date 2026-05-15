@@ -9,18 +9,22 @@ import { z } from "zod"
 const vaultFolderName = z
   .string()
   .min(1, "folder name cannot be empty")
-  .transform((s) => s.trim().replace(/\/+$/, ""))
+  // Strip leading/trailing whitespace and any trailing path separators
+  .transform((value) => value.trim().replace(/\/+$/, ""))
   .pipe(
     z
       .string()
-      .refine((s) => s.length > 0, "folder name cannot be blank")
-      .refine((s) => !s.includes(".."), "path traversal (..) not allowed")
-      .refine((s) => !s.startsWith("/"), "absolute paths not allowed"),
+      .refine((value) => value.length > 0, "folder name cannot be blank")
+      .refine(
+        (value) => !value.includes(".."),
+        "path traversal (..) not allowed",
+      )
+      .refine((value) => !value.startsWith("/"), "absolute paths not allowed"),
   )
 
-/** Splits a comma-separated string into an array of validated folder names.
- *  Empty entries (from trailing commas) are filtered out. */
-const parseCommaSeparated = (raw: string): string[] =>
+/** Splits a comma-separated string into an array of folder names.
+ *  Trims each entry; empty entries (from trailing commas) are filtered out. */
+const splitCommaSeparatedFolders = (raw: string): string[] =>
   raw.split(",").reduce<string[]>((acc, entry) => {
     const trimmed = entry.trim()
     if (trimmed.length > 0) acc.push(trimmed)
@@ -50,21 +54,19 @@ export const loadConfig = (
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPaths = protectedPathsRaw
-    ? parseCommaSeparated(protectedPathsRaw).map((folder) =>
+    ? splitCommaSeparatedFolders(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
     : [memoryDir, "Daily Notes"]
 
-  const orphanExcludeFoldersRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-  const orphanExcludeFolders = orphanExcludeFoldersRaw
-    ? parseCommaSeparated(orphanExcludeFoldersRaw).map((folder) =>
-        vaultFolderName.parse(folder),
+  const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
+    ? splitCommaSeparatedFolders(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
+        (folder) => vaultFolderName.parse(folder),
       )
     : ["Daily Notes", "Templates", memoryDir]
 
-  const serviceDocUrlRaw = env.SERVICE_DOCUMENTATION_URL?.trim()
-  const serviceDocumentationUrl = serviceDocUrlRaw
-    ? z.string().url().parse(serviceDocUrlRaw)
+  const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
+    ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())
     : "https://github.com/aliasunder/vault-cortex"
 
   return Object.freeze({
