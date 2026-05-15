@@ -83,8 +83,8 @@ describe("loadConfig", () => {
     })
 
     it("accepts folder names with spaces", () => {
-      const config = loadConfig({ MEMORY_DIR: "About Me" })
-      expect(config.memoryDir).toBe("About Me")
+      const config = loadConfig({ MEMORY_DIR: "My Profile" })
+      expect(config.memoryDir).toBe("My Profile")
     })
 
     it("accepts nested folder paths", () => {

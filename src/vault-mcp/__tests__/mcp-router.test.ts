@@ -104,7 +104,10 @@ const denyAuth: express.RequestHandler = (_req, res) => {
 }
 
 const setupHarness = async (
-  opts: { authMiddleware?: express.RequestHandler } = {},
+  opts: {
+    authMiddleware?: express.RequestHandler
+    config?: ReturnType<typeof loadConfig>
+  } = {},
 ): Promise<Harness> => {
   const transportInstances: TransportMock[] = []
   const serverInstances: ServerMock[] = []
@@ -149,7 +152,7 @@ const setupHarness = async (
       vaultPath: VAULT_PATH,
       search,
       provider,
-      config: DEFAULT_CONFIG,
+      config: opts.config ?? DEFAULT_CONFIG,
     }),
   )
 
@@ -247,6 +250,25 @@ describe("createMcpRouter — POST /mcp", () => {
       const [info, options] = vi.mocked(McpServer).mock.calls[0]!
       expect(info).toEqual(SERVER_INFO)
       expect(options).toEqual(SERVER_OPTIONS)
+    })
+
+    it("McpServer description and instructions interpolate config.memoryDir", async () => {
+      const customConfig = loadConfig({ MEMORY_DIR: "Profile" })
+      const harness = await setupHarness({ config: customConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const [info, options] = vi.mocked(McpServer).mock.calls[0]! as [
+        { description: string },
+        { instructions: string },
+      ]
+      expect(info.description).toContain("Profile/")
+      expect(info.description).not.toContain("About Me/")
+      expect(options.instructions).toContain("Profile/")
+      expect(options.instructions).not.toContain("About Me/")
     })
 
     it("connects the new server to the new transport", async () => {
