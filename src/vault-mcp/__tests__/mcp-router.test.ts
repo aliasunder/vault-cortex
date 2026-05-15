@@ -261,10 +261,9 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const [info, options] = vi.mocked(McpServer).mock.calls[0]! as [
-        { description: string },
-        { instructions: string },
-      ]
+      const callArgs = vi.mocked(McpServer).mock.calls[0]!
+      const info = callArgs[0] as { description?: string }
+      const options = callArgs[1] as { instructions?: string }
       expect(info.description).toContain("Profile/")
       expect(info.description).not.toContain("About Me/")
       expect(options.instructions).toContain("Profile/")

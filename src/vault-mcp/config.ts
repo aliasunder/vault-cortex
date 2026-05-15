@@ -55,16 +55,16 @@ export const loadConfig = (
       )
     : [memoryDir, "Daily Notes"]
 
-  const orphanExcludeRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-  const orphanExcludeFolders = orphanExcludeRaw
-    ? parseCommaSeparated(orphanExcludeRaw).map((folder) =>
+  const orphanExcludeFoldersRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
+  const orphanExcludeFolders = orphanExcludeFoldersRaw
+    ? parseCommaSeparated(orphanExcludeFoldersRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
     : ["Daily Notes", "Templates", memoryDir]
 
-  const serviceDocUrlRaw = env.SERVICE_DOCUMENTATION_URL?.trim()
-  const serviceDocumentationUrl = serviceDocUrlRaw
-    ? z.string().url().parse(serviceDocUrlRaw)
+  const serviceDocumentationUrlRaw = env.SERVICE_DOCUMENTATION_URL?.trim()
+  const serviceDocumentationUrl = serviceDocumentationUrlRaw
+    ? z.string().url().parse(serviceDocumentationUrlRaw)
     : "https://github.com/aliasunder/vault-cortex"
 
   return Object.freeze({
