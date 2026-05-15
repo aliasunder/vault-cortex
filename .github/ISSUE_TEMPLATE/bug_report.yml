@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a bug with vault-cortex
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Connect to the MCP server with '...'
+        2. Call tool '...' with arguments '...'
+        3. See error '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Include error messages or logs if available.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of vault-cortex is affected?
+      options:
+        - MCP Tools
+        - Search / Indexing
+        - Auth / OAuth
+        - Docker / Deployment
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please provide your environment details.
+      value: |
+        - Node.js version:
+        - OS:
+        - MCP client (e.g. Claude Desktop, Claude Code, Cursor):
+        - Docker version (if applicable):
+        - vault-cortex version/commit:
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other context, screenshots, or log output.
+    validations:
+      required: false

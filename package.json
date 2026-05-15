@@ -1,6 +1,24 @@
 {
   "name": "vault-cortex",
+  "version": "0.8.1",
   "private": true,
+  "description": "Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aliasunder/vault-cortex.git"
+  },
+  "homepage": "https://github.com/aliasunder/vault-cortex",
+  "bugs": {
+    "url": "https://github.com/aliasunder/vault-cortex/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "obsidian",
+    "vault",
+    "remote-mcp-server"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22.0.0 <23.0.0"
@@ -62,6 +80,5 @@
     "typescript": "^5.8.0",
     "typescript-eslint": "8.59.2",
     "vitest": "4.1.5"
-  },
-  "version": "0.8.1"
+  }
 }
