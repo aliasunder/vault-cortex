@@ -502,7 +502,7 @@ Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged projec
 When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties). Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -616,7 +616,7 @@ Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folde
 When to use: Exploring a folder's contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.
 Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties).`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         folder: z
           .string()
@@ -989,7 +989,7 @@ Example: vault_search_by_property({ key: "status", value: "in-progress" })
 When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties).`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         key: z.string().describe("Property key name"),
         value: z.string().describe("Value to match (exact, case-sensitive)"),
