@@ -31,7 +31,7 @@ describe("path traversal", () => {
     "deleteNote rejects %s",
     async (path) => {
       await expect(
-        deleteNote({ vaultPath: vault, path }, logger),
+        deleteNote({ vaultPath: vault, path, protectedPaths: [] }, logger),
       ).rejects.toThrow("path traversal blocked")
     },
   )
@@ -136,10 +136,19 @@ describe("writeNote", () => {
   })
 })
 
+const DEFAULT_PROTECTED = ["About Me", "Daily Notes"]
+
 describe("deleteNote", () => {
   it("deletes an existing file", async () => {
     await writeFile(join(vault, "delete-me.md"), "bye", "utf8")
-    await deleteNote({ vaultPath: vault, path: "delete-me.md" }, logger)
+    await deleteNote(
+      {
+        vaultPath: vault,
+        path: "delete-me.md",
+        protectedPaths: DEFAULT_PROTECTED,
+      },
+      logger,
+    )
     await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow()
   })
 
@@ -147,14 +156,46 @@ describe("deleteNote", () => {
     "rejects protected path %s",
     async (path) => {
       await expect(
-        deleteNote({ vaultPath: vault, path }, logger),
+        deleteNote(
+          { vaultPath: vault, path, protectedPaths: DEFAULT_PROTECTED },
+          logger,
+        ),
       ).rejects.toThrow("cannot delete protected path")
     },
   )
 
+  it("rejects custom protected paths", async () => {
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "Secrets/keys.md",
+          protectedPaths: ["Secrets"],
+        },
+        logger,
+      ),
+    ).rejects.toThrow("cannot delete protected path")
+  })
+
+  it("allows deletion when path is not in protected list", async () => {
+    await writeFile(join(vault, "ok.md"), "ok", "utf8")
+    await deleteNote(
+      { vaultPath: vault, path: "ok.md", protectedPaths: ["Locked"] },
+      logger,
+    )
+    await expect(readFile(join(vault, "ok.md"))).rejects.toThrow()
+  })
+
   it("throws on non-existent file", async () => {
     await expect(
-      deleteNote({ vaultPath: vault, path: "ghost.md" }, logger),
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "ghost.md",
+          protectedPaths: DEFAULT_PROTECTED,
+        },
+        logger,
+      ),
     ).rejects.toThrow()
   })
 })

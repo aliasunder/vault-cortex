@@ -37,7 +37,11 @@ const expandHome = (p: string): string =>
   p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
 const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
-const ghcrUser = env.GHCR_USER ?? "aliasunder"
+const ghcrUser = env.GHCR_USER
+if (!ghcrUser) {
+  console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
+  process.exit(1)
+}
 const image = `ghcr.io/${ghcrUser}/vault-mcp:latest`
 
 const run = (cmd: string): void => {

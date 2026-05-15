@@ -1,12 +1,10 @@
-/** About Me/ memory store — heading-aware parser/writer for semantic memory files. */
+/** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
 import { readFile, writeFile, readdir } from "node:fs/promises"
 import { join, basename } from "node:path"
 import matter from "gray-matter"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
-
-const MEMORY_DIR = "About Me"
 
 // Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
 // The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
@@ -97,254 +95,255 @@ const findSection = (
   )
 }
 
-/** Resolves the full path to a memory file in the About Me/ directory. */
-const memoryFilePath = (vaultPath: string, file: string): string =>
-  join(vaultPath, MEMORY_DIR, `${file}.md`)
+// ── Factory ────────────────────────────────────────────────────
 
-/** Reads a memory file, throwing a descriptive error if not found. */
-const readMemoryFile = async (
-  vaultPath: string,
-  file: string,
-): Promise<string> => {
-  try {
-    return await readFile(memoryFilePath(vaultPath, file), "utf8")
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`memory file not found: "About Me/${file}.md"`, {
-        cause: err,
-      })
-    }
-    throw err
-  }
-}
+export const createMemoryStore = (options: { memoryDir: string }) => {
+  const { memoryDir } = options
 
-// ── Exported functions ──────────────────────────────────────────
+  const memoryFilePath = (vaultPath: string, file: string): string =>
+    join(vaultPath, memoryDir, `${file}.md`)
 
-/** Reads memory content — all files concatenated, one file, or one section. */
-const getMemory = async (
-  params: { vaultPath: string; file?: string; section?: string },
-  logger: Logger,
-): Promise<string> => {
-  if (!params.file) {
-    const dir = join(params.vaultPath, MEMORY_DIR)
-    const entries = await readdir(dir).catch((err) => {
+  const readMemoryFile = async (
+    vaultPath: string,
+    file: string,
+  ): Promise<string> => {
+    try {
+      return await readFile(memoryFilePath(vaultPath, file), "utf8")
+    } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new Error("About Me directory not found")
+        throw new Error(`memory file not found: "${memoryDir}/${file}.md"`, {
+          cause: err,
+        })
       }
       throw err
+    }
+  }
+
+  // ── Exported functions ──────────────────────────────────────────
+
+  const getMemory = async (
+    params: { vaultPath: string; file?: string; section?: string },
+    logger: Logger,
+  ): Promise<string> => {
+    if (!params.file) {
+      const dir = join(params.vaultPath, memoryDir)
+      const entries = await readdir(dir).catch((err) => {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new Error(`${memoryDir} directory not found`)
+        }
+        throw err
+      })
+      const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
+      const contents = await Promise.all(
+        mdFiles.map(async (f) => {
+          const raw = await readFile(join(dir, f), "utf8")
+          return matter(raw).content.trim()
+        }),
+      )
+      logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
+      return contents.join("\n\n---\n\n")
+    }
+
+    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const parsed = matter(raw)
+
+    if (!params.section) {
+      logger.info("get memory", { mode: "file", file: params.file })
+      return parsed.content.trim()
+    }
+
+    const lines = parsed.content.split("\n")
+    const sections = parseSections(lines)
+    const match = findSection(sections, params.section, 2)
+    if (!match) {
+      throw new Error(
+        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+      )
+    }
+
+    // Extract only the lines between this heading and the next
+    const body = lines
+      .slice(match.bodyStartLine, match.bodyEndLine)
+      .join("\n")
+      .trim()
+    logger.info("get memory", {
+      mode: "section",
+      file: params.file,
+      section: params.section,
     })
+    return body
+  }
+
+  const updateMemory = async (
+    params: {
+      vaultPath: string
+      file: string
+      section: string
+      entry: string
+      date?: string
+      position?: "top" | "bottom"
+    },
+    logger: Logger,
+  ): Promise<void> => {
+    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const parsed = matter(raw)
+    const lines = parsed.content.split("\n")
+    const sections = parseSections(lines)
+    const match = findSection(sections, params.section, 2)
+    if (!match) {
+      throw new Error(
+        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+      )
+    }
+
+    const date = params.date ?? DateTime.now().toISODate()
+    const position = params.position ?? "top"
+    const bullet = `- **${date}**: ${params.entry}`
+
+    // Find the first and last dated bullet within the section body to determine
+    // where to insert. Offsets are relative to the section's bodyStartLine.
+    const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
+    const firstBulletOffset = bodyLines.findIndex((l) => ENTRY_PATTERN.test(l))
+    const lastBulletOffset = bodyLines.reduce(
+      (last, l, i) => (ENTRY_PATTERN.test(l) ? i : last),
+      -1,
+    )
+
+    // Compute the absolute line index in the full content array for insertion.
+    // "top" inserts before the first existing bullet (newest-first ordering).
+    // "bottom" inserts after the last existing bullet.
+    // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+    const insertIndex =
+      position === "top"
+        ? firstBulletOffset >= 0
+          ? match.bodyStartLine + firstBulletOffset
+          : match.bodyEndLine
+        : lastBulletOffset >= 0
+          ? match.bodyStartLine + lastBulletOffset + 1
+          : match.bodyEndLine
+
+    // Splice the new bullet into the content lines
+    const updatedLines = [
+      ...lines.slice(0, insertIndex),
+      bullet,
+      ...lines.slice(insertIndex),
+    ]
+
+    const newContent = updatedLines.join("\n")
+    const serialized = matter.stringify(newContent, parsed.data)
+    await writeFile(
+      memoryFilePath(params.vaultPath, params.file),
+      serialized,
+      "utf8",
+    )
+    logger.info("updated memory", {
+      file: params.file,
+      section: params.section,
+      date,
+    })
+  }
+
+  const listMemoryFiles = async (
+    params: { vaultPath: string },
+    logger: Logger,
+  ): Promise<MemoryFileOutline[]> => {
+    const dir = join(params.vaultPath, memoryDir)
+    const entries = await readdir(dir).catch((err) => {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+      throw err
+    })
+
     const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
-    const contents = await Promise.all(
+
+    const outlines = await Promise.all(
       mdFiles.map(async (f) => {
         const raw = await readFile(join(dir, f), "utf8")
-        return matter(raw).content.trim()
+        const parsed = matter(raw)
+        const name = basename(f, ".md")
+        const title = isString(parsed.data.title) ? parsed.data.title : name
+        const lines = parsed.content.split("\n")
+        const sections = parseSections(lines)
+
+        const headings: MemoryHeading[] = sections.map((s) =>
+          s.level === 1
+            ? { level: 1 as const, text: s.heading }
+            : { level: 2 as const, text: s.heading, entryCount: s.entryCount },
+        )
+
+        return { file: name, title, headings }
       }),
     )
-    logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
-    return contents.join("\n\n---\n\n")
+
+    logger.info("listed memory files", { count: outlines.length })
+    return outlines
   }
 
-  const raw = await readMemoryFile(params.vaultPath, params.file)
-  const parsed = matter(raw)
-
-  if (!params.section) {
-    logger.info("get memory", { mode: "file", file: params.file })
-    return parsed.content.trim()
-  }
-
-  const lines = parsed.content.split("\n")
-  const sections = parseSections(lines)
-  const match = findSection(sections, params.section, 2)
-  if (!match) {
-    throw new Error(
-      `section not found: "${params.section}" in About Me/${params.file}.md`,
-    )
-  }
-
-  // Extract only the lines between this heading and the next
-  const body = lines
-    .slice(match.bodyStartLine, match.bodyEndLine)
-    .join("\n")
-    .trim()
-  logger.info("get memory", {
-    mode: "section",
-    file: params.file,
-    section: params.section,
-  })
-  return body
-}
-
-/** Appends a dated entry to a section of a memory file. */
-const updateMemory = async (
-  params: {
-    vaultPath: string
-    file: string
-    section: string
-    entry: string
-    date?: string
-    position?: "top" | "bottom"
-  },
-  logger: Logger,
-): Promise<void> => {
-  const raw = await readMemoryFile(params.vaultPath, params.file)
-  const parsed = matter(raw)
-  const lines = parsed.content.split("\n")
-  const sections = parseSections(lines)
-  const match = findSection(sections, params.section, 2)
-  if (!match) {
-    throw new Error(
-      `section not found: "${params.section}" in About Me/${params.file}.md`,
-    )
-  }
-
-  const date = params.date ?? DateTime.now().toISODate()
-  const position = params.position ?? "top"
-  const bullet = `- **${date}**: ${params.entry}`
-
-  // Find the first and last dated bullet within the section body to determine
-  // where to insert. Offsets are relative to the section's bodyStartLine.
-  const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
-  const firstBulletOffset = bodyLines.findIndex((l) => ENTRY_PATTERN.test(l))
-  const lastBulletOffset = bodyLines.reduce(
-    (last, l, i) => (ENTRY_PATTERN.test(l) ? i : last),
-    -1,
-  )
-
-  // Compute the absolute line index in the full content array for insertion.
-  // "top" inserts before the first existing bullet (newest-first ordering).
-  // "bottom" inserts after the last existing bullet.
-  // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
-  const insertIndex =
-    position === "top"
-      ? firstBulletOffset >= 0
-        ? match.bodyStartLine + firstBulletOffset
-        : match.bodyEndLine
-      : lastBulletOffset >= 0
-        ? match.bodyStartLine + lastBulletOffset + 1
-        : match.bodyEndLine
-
-  // Splice the new bullet into the content lines
-  const updatedLines = [
-    ...lines.slice(0, insertIndex),
-    bullet,
-    ...lines.slice(insertIndex),
-  ]
-
-  const newContent = updatedLines.join("\n")
-  const serialized = matter.stringify(newContent, parsed.data)
-  await writeFile(
-    memoryFilePath(params.vaultPath, params.file),
-    serialized,
-    "utf8",
-  )
-  logger.info("updated memory", {
-    file: params.file,
-    section: params.section,
-    date,
-  })
-}
-
-/** Returns outlines of all About Me/ files — headings and entry counts, no content. */
-const listMemoryFiles = async (
-  params: { vaultPath: string },
-  logger: Logger,
-): Promise<MemoryFileOutline[]> => {
-  const dir = join(params.vaultPath, MEMORY_DIR)
-  const entries = await readdir(dir).catch((err) => {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw err
-  })
-
-  const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
-
-  const outlines = await Promise.all(
-    mdFiles.map(async (f) => {
-      const raw = await readFile(join(dir, f), "utf8")
-      const parsed = matter(raw)
-      const name = basename(f, ".md")
-      const title = isString(parsed.data.title) ? parsed.data.title : name
-      const lines = parsed.content.split("\n")
-      const sections = parseSections(lines)
-
-      const headings: MemoryHeading[] = sections.map((s) =>
-        s.level === 1
-          ? { level: 1 as const, text: s.heading }
-          : { level: 2 as const, text: s.heading, entryCount: s.entryCount },
+  const deleteMemory = async (
+    params: {
+      vaultPath: string
+      file: string
+      section: string
+      date: string
+      entry: string
+    },
+    logger: Logger,
+  ): Promise<void> => {
+    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const parsed = matter(raw)
+    const lines = parsed.content.split("\n")
+    const sections = parseSections(lines)
+    const match = findSection(sections, params.section, 2)
+    if (!match) {
+      throw new Error(
+        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
       )
-
-      return { file: name, title, headings }
-    }),
-  )
-
-  logger.info("listed memory files", { count: outlines.length })
-  return outlines
-}
-
-/** Removes a single dated entry from a memory file by exact match. */
-const deleteMemory = async (
-  params: {
-    vaultPath: string
-    file: string
-    section: string
-    date: string
-    entry: string
-  },
-  logger: Logger,
-): Promise<void> => {
-  const raw = await readMemoryFile(params.vaultPath, params.file)
-  const parsed = matter(raw)
-  const lines = parsed.content.split("\n")
-  const sections = parseSections(lines)
-  const match = findSection(sections, params.section, 2)
-  if (!match) {
-    throw new Error(
-      `section not found: "${params.section}" in About Me/${params.file}.md`,
-    )
-  }
-
-  // Build the exact bullet string and find matching lines within the section
-  const needle = `- **${params.date}**: ${params.entry}`
-  const matchingIndices = lines.reduce<number[]>((acc, line, i) => {
-    if (i >= match.bodyStartLine && i < match.bodyEndLine && line === needle) {
-      acc.push(i)
     }
-    return acc
-  }, [])
 
-  if (matchingIndices.length === 0) {
-    throw new Error(
-      `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in About Me/${params.file}.md`,
+    // Build the exact bullet string and find matching lines within the section
+    const needle = `- **${params.date}**: ${params.entry}`
+    const matchingIndices = lines.reduce<number[]>((acc, line, i) => {
+      if (
+        i >= match.bodyStartLine &&
+        i < match.bodyEndLine &&
+        line === needle
+      ) {
+        acc.push(i)
+      }
+      return acc
+    }, [])
+
+    if (matchingIndices.length === 0) {
+      throw new Error(
+        `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+      )
+    }
+    if (matchingIndices.length > 1) {
+      throw new Error(
+        `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+      )
+    }
+
+    // Remove the single matched line, preserving everything before and after it
+    const updatedLines = [
+      ...lines.slice(0, matchingIndices[0]),
+      ...lines.slice(matchingIndices[0] + 1),
+    ]
+
+    const newContent = updatedLines.join("\n")
+    const serialized = matter.stringify(newContent, parsed.data)
+    await writeFile(
+      memoryFilePath(params.vaultPath, params.file),
+      serialized,
+      "utf8",
     )
-  }
-  if (matchingIndices.length > 1) {
-    throw new Error(
-      `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in About Me/${params.file}.md`,
-    )
+    logger.info("deleted memory entry", {
+      file: params.file,
+      section: params.section,
+      date: params.date,
+    })
   }
 
-  // Remove the single matched line, preserving everything before and after it
-  const updatedLines = [
-    ...lines.slice(0, matchingIndices[0]),
-    ...lines.slice(matchingIndices[0] + 1),
-  ]
-
-  const newContent = updatedLines.join("\n")
-  const serialized = matter.stringify(newContent, parsed.data)
-  await writeFile(
-    memoryFilePath(params.vaultPath, params.file),
-    serialized,
-    "utf8",
-  )
-  logger.info("deleted memory entry", {
-    file: params.file,
-    section: params.section,
-    date: params.date,
-  })
+  return { getMemory, updateMemory, listMemoryFiles, deleteMemory }
 }
 
-export const memoryStore = {
-  getMemory,
-  updateMemory,
-  listMemoryFiles,
-  deleteMemory,
-}
+export type MemoryStore = ReturnType<typeof createMemoryStore>

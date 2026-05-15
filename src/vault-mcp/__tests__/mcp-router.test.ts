@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto"
 import type { Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
+import { loadConfig } from "../config.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
@@ -50,16 +51,16 @@ vi.mock("../tool-definitions.js", () => ({ registerTools: vi.fn() }))
 
 const FORWARDED_IP = "192.0.2.10"
 const VAULT_PATH = "/test-vault"
+const DEFAULT_CONFIG = loadConfig({})
 
 const SERVER_INFO = {
   name: "vault-cortex",
   version: "1.0.0",
-  description:
-    "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+  description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
 }
 
 const SERVER_OPTIONS = {
-  instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
+  instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
 }
@@ -143,7 +144,14 @@ const setupHarness = async (
   const app = express()
   app.set("trust proxy", true)
   app.use(express.json())
-  app.use(createMcpRouter({ vaultPath: VAULT_PATH, search, provider }))
+  app.use(
+    createMcpRouter({
+      vaultPath: VAULT_PATH,
+      search,
+      provider,
+      config: DEFAULT_CONFIG,
+    }),
+  )
 
   const httpServer = await new Promise<Server>((resolve) => {
     const listener = app.listen(0, () => resolve(listener))
@@ -254,7 +262,7 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(transport.handleRequest.mock.calls[0]![2]).toEqual(initializeBody)
     })
 
-    it("registers tools on the new server with vault context", async () => {
+    it("registers tools on the new server with vault context and config", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerTools).toHaveBeenCalledTimes(1)
       const arg = vi.mocked(registerTools).mock.calls[0]![0]
@@ -262,6 +270,7 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(arg.vaultPath).toBe(VAULT_PATH)
       expect(arg.search).toBe(harness.search)
       expect(arg.logger).toBeDefined()
+      expect(arg.config).toBe(DEFAULT_CONFIG)
     })
 
     it("scopes the logger for registerTools to the sessionId and clientIp", async () => {

@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { memoryStore } from "../memory-store.js"
+import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const { getMemory, updateMemory, listMemoryFiles, deleteMemory } = memoryStore
+const { getMemory, updateMemory, listMemoryFiles, deleteMemory } =
+  createMemoryStore({ memoryDir: "About Me" })
 
 let vault: string
 
@@ -522,5 +523,44 @@ describe("listMemoryFiles", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     expect(outlines).toEqual([])
     await rm(emptyVault, { recursive: true })
+  })
+})
+
+describe("custom memoryDir", () => {
+  const customStore = createMemoryStore({ memoryDir: "Profile" })
+
+  it("reads from the configured directory", async () => {
+    const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    await mkdir(join(customVault, "Profile"), { recursive: true })
+    await writeFile(
+      join(customVault, "Profile/Principles.md"),
+      PRINCIPLES_MD,
+      "utf8",
+    )
+    const result = await customStore.getMemory(
+      { vaultPath: customVault, file: "Principles" },
+      logger,
+    )
+    expect(result).toContain("# Principles")
+    await rm(customVault, { recursive: true })
+  })
+
+  it("error messages reference the configured directory name", async () => {
+    const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    await expect(
+      customStore.getMemory(
+        { vaultPath: customVault, file: "Nonexistent" },
+        logger,
+      ),
+    ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
+    await rm(customVault, { recursive: true })
+  })
+
+  it("directory-not-found error references the configured name", async () => {
+    const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    await expect(
+      customStore.getMemory({ vaultPath: customVault }, logger),
+    ).rejects.toThrow("Profile directory not found")
+    await rm(customVault, { recursive: true })
   })
 })

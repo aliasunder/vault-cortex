@@ -123,7 +123,7 @@ jobs:
           CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
-          TZ=America/New_York
+          TZ=UTC
           EOF
 
       - name: Ship compose + .env to instance

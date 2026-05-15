@@ -917,11 +917,7 @@ export const createSearchIndex = (dbPath: string) => {
     params: { excludeFolders?: string[]; limit?: number },
     logger: Logger,
   ): NoteMetadata[] => {
-    const excludeFolders = params.excludeFolders ?? [
-      "Daily Notes",
-      "Templates",
-      "About Me",
-    ]
+    const excludeFolders = params.excludeFolders ?? []
     const limit = params.limit ?? 50
 
     const folderExclusions = excludeFolders

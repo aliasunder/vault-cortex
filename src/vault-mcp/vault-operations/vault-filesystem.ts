@@ -5,8 +5,6 @@ import matter from "gray-matter"
 import picomatch from "picomatch"
 import type { Logger } from "../../logger.js"
 
-const PROTECTED_PATHS = ["About Me/", "Daily Notes/"] as const
-
 /** Resolves a note path within the vault, throwing on traversal attempts. */
 export const resolveSafePath = (
   vaultPath: string,
@@ -90,12 +88,19 @@ const writeNote = async (
   logger.info("wrote note", { path: params.path })
 }
 
-/** Deletes a note. Rejects paths under PROTECTED_PATHS. */
+/** Deletes a note. Rejects paths under the configured protected paths. */
 const deleteNote = async (
-  params: { vaultPath: string; path: string },
+  params: {
+    vaultPath: string
+    path: string
+    protectedPaths: readonly string[]
+  },
   logger: Logger,
 ): Promise<void> => {
-  if (PROTECTED_PATHS.some((p) => params.path.startsWith(p))) {
+  const protectedPrefixes = params.protectedPaths.map((folder) =>
+    folder.endsWith("/") ? folder : `${folder}/`,
+  )
+  if (protectedPrefixes.some((prefix) => params.path.startsWith(prefix))) {
     throw new Error(
       `cannot delete protected path "${params.path}" (use vault_delete_memory for individual entries)`,
     )

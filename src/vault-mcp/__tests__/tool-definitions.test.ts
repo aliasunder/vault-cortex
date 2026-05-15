@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
+import { loadConfig } from "../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { SearchIndex } from "../search/search-index.js"
 import { logger } from "../../logger.js"
@@ -59,6 +60,7 @@ beforeEach(() => {
     vaultPath: "/test-vault",
     search: {} as SearchIndex,
     logger,
+    config: loadConfig({}),
   })
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })

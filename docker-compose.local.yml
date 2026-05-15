@@ -20,6 +20,7 @@ services:
       MCP_AUTH_TOKEN: local-dev-token
       PUBLIC_URL: http://localhost:8000
       LOG_LEVEL: debug
+      MEMORY_DIR: ${MEMORY_DIR:-About Me}
     volumes:
       - ~/Vault:/vault:ro
       - mcp_local_data:/data
