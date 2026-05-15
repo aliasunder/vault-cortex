@@ -5,13 +5,13 @@
 # GOTCHA: build deps (python3/make/g++) are needed as fallback if
 # prebuilds don't exist for your arch. They stay in the build stage.
 
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3
 
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
@@ -20,13 +20,13 @@ COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly.
 # libstdc++: required by better-sqlite3.node native addon on Alpine.
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly.
 # libstdc++: required by better-sqlite3.node native addon on Alpine.
-# node:22-alpine ships a `node` user at UID 1000 — matches obsidian-sync's
+# node:24-alpine ships a `node` user at UID 1000 — matches obsidian-sync's
 # PUID so both containers can read/write the shared /vault volume.
 RUN apk add --no-cache tini libstdc++
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
