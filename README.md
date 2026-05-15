@@ -257,14 +257,17 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
 
-| Variable              | Purpose                                                                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN` | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
-| `GHCR_USER`           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
-| `PUBLIC_URL`          | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
-| `SST_STAGE`           | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
-| `VAULT_NAME`          | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
-| `MEMORY_DIR`          | Optional. Memory folder name in the vault (default: `About Me`). See [Configuration](#configuration).                                                                                         |
+| Variable                    | Purpose                                                                                                                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`       | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
+| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
+| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.us-east-1.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                             |
+| `SST_STAGE`                 | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
+| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See [Configuration](#configuration).                                                                                         |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion. Overrides the default when set.                                                                                                    |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection. Overrides the default when set.                                                                                             |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL shown in OAuth discovery metadata. Set to your fork's URL.                                                                                                                      |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
 
