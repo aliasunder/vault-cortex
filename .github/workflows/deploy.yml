@@ -112,6 +112,7 @@ jobs:
           PROTECTED_PATHS: ${{ vars.PROTECTED_PATHS }}
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
           SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
+          TZ: ${{ vars.TZ }}
         run: |
           umask 077
           cat > "$RUNNER_TEMP/lightsail.env" <<EOF
@@ -131,7 +132,7 @@ jobs:
           CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
-          TZ=UTC
+          TZ=${TZ:-UTC}
           EOF
 
       - name: Ship compose + .env to instance
