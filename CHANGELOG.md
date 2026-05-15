@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.8.0] — 2026-05-15
+
+### Features
+
+- Externalize configuration for open-source adoption (#22)
+
+### Documentation
+
+- Document sort order in search-by-tag/folder/property tool descriptions
+- Update CHANGELOG.md for v0.7.0
+
+
 ## [0.7.0] — 2026-05-14
 
 No notable changes.
