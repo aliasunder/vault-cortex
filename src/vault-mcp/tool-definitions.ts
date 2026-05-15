@@ -204,8 +204,13 @@ Returns: Confirmation message.`,
 
 Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })
 
+Cross-section move (e.g. completing a task on a board):
+1. vault_read_note to get current content and verify exact text
+2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source
+3. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
+
 When to use: Modifying part of an existing note without overwriting the entire body.
-Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_replace_in_note for find-and-replace edits.
+Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
@@ -287,8 +292,8 @@ Returns: Confirmation message.`,
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
-When to use: Targeted text changes — fixing typos, updating values, renaming terms in the note body.
-Prefer vault_patch_note for heading-targeted structural edits.
+When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a specific line (new_text=""). Replaces text in place; does not move content across sections.
+To relocate content between headings, use vault_replace_in_note to remove from the source (new_text=""), then vault_patch_note to append at the target. Read the note first with vault_read_note to confirm exact text.
 
 Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
 
