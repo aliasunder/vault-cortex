@@ -54,15 +54,25 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       startLine: number
       entryCount: number
     }>
-  >((acc, line, i) => {
+  >((acc, line, lineIndex) => {
     const h1 = /^# (.+)$/.exec(line)
     if (h1) {
-      acc.push({ heading: h1[1].trim(), level: 1, startLine: i, entryCount: 0 })
+      acc.push({
+        heading: h1[1].trim(),
+        level: 1,
+        startLine: lineIndex,
+        entryCount: 0,
+      })
       return acc
     }
     const h2 = /^## (.+)$/.exec(line)
     if (h2) {
-      acc.push({ heading: h2[1].trim(), level: 2, startLine: i, entryCount: 0 })
+      acc.push({
+        heading: h2[1].trim(),
+        level: 2,
+        startLine: lineIndex,
+        entryCount: 0,
+      })
       return acc
     }
     // Count dated bullets under the most recently seen heading
@@ -73,12 +83,13 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
   }, [])
 
   // Phase 2: compute body ranges — each section's body ends where the next heading starts
-  return raw.map((section, i) => ({
+  return raw.map((section, index) => ({
     heading: section.heading,
     level: section.level,
     startLine: section.startLine,
     bodyStartLine: section.startLine + 1,
-    bodyEndLine: i + 1 < raw.length ? raw[i + 1].startLine : lines.length,
+    bodyEndLine:
+      index + 1 < raw.length ? raw[index + 1].startLine : lines.length,
     entryCount: section.entryCount,
   }))
 }
@@ -91,7 +102,8 @@ const findSection = (
 ): ParsedSection | undefined => {
   const needle = sectionName.trim().toLowerCase()
   return sections.find(
-    (s) => s.level === level && s.heading.toLowerCase() === needle,
+    (section) =>
+      section.level === level && section.heading.toLowerCase() === needle,
   )
 }
 
@@ -127,16 +139,21 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<string> => {
     if (!params.file) {
       const dir = join(params.vaultPath, memoryDir)
-      const entries = await readdir(dir).catch((err) => {
+      let entries: string[]
+      try {
+        entries = await readdir(dir)
+      } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`${memoryDir} directory not found`)
+          throw new Error(`${memoryDir} directory not found`, { cause: err })
         }
         throw err
-      })
-      const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
+      }
+      const mdFiles = entries
+        .filter((filename) => filename.endsWith(".md"))
+        .sort()
       const contents = await Promise.all(
-        mdFiles.map(async (f) => {
-          const raw = await readFile(join(dir, f), "utf8")
+        mdFiles.map(async (filename) => {
+          const raw = await readFile(join(dir, filename), "utf8")
           return matter(raw).content.trim()
         }),
       )
@@ -203,9 +220,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // Find the first and last dated bullet within the section body to determine
     // where to insert. Offsets are relative to the section's bodyStartLine.
     const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
-    const firstBulletOffset = bodyLines.findIndex((l) => ENTRY_PATTERN.test(l))
+    const firstBulletOffset = bodyLines.findIndex((line) =>
+      ENTRY_PATTERN.test(line),
+    )
     const lastBulletOffset = bodyLines.reduce(
-      (last, l, i) => (ENTRY_PATTERN.test(l) ? i : last),
+      (last, line, index) => (ENTRY_PATTERN.test(line) ? index : last),
       -1,
     )
 
@@ -248,26 +267,35 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
     const dir = join(params.vaultPath, memoryDir)
-    const entries = await readdir(dir).catch((err) => {
+    let entries: string[]
+    try {
+      entries = await readdir(dir)
+    } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
       throw err
-    })
+    }
 
-    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort()
+    const mdFiles = entries
+      .filter((filename) => filename.endsWith(".md"))
+      .sort()
 
     const outlines = await Promise.all(
-      mdFiles.map(async (f) => {
-        const raw = await readFile(join(dir, f), "utf8")
+      mdFiles.map(async (filename) => {
+        const raw = await readFile(join(dir, filename), "utf8")
         const parsed = matter(raw)
-        const name = basename(f, ".md")
+        const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = parsed.content.split("\n")
         const sections = parseSections(lines)
 
-        const headings: MemoryHeading[] = sections.map((s) =>
-          s.level === 1
-            ? { level: 1 as const, text: s.heading }
-            : { level: 2 as const, text: s.heading, entryCount: s.entryCount },
+        const headings: MemoryHeading[] = sections.map((section) =>
+          section.level === 1
+            ? { level: 1 as const, text: section.heading }
+            : {
+                level: 2 as const,
+                text: section.heading,
+                entryCount: section.entryCount,
+              },
         )
 
         return { file: name, title, headings }
@@ -301,13 +329,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     // Build the exact bullet string and find matching lines within the section
     const needle = `- **${params.date}**: ${params.entry}`
-    const matchingIndices = lines.reduce<number[]>((acc, line, i) => {
+    const matchingIndices = lines.reduce<number[]>((acc, line, index) => {
       if (
-        i >= match.bodyStartLine &&
-        i < match.bodyEndLine &&
+        index >= match.bodyStartLine &&
+        index < match.bodyEndLine &&
         line === needle
       ) {
-        acc.push(i)
+        acc.push(index)
       }
       return acc
     }, [])
