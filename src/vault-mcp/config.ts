@@ -62,9 +62,9 @@ export const loadConfig = (
       )
     : ["Daily Notes", "Templates", memoryDir]
 
-  const serviceDocumentationUrlRaw = env.SERVICE_DOCUMENTATION_URL?.trim()
-  const serviceDocumentationUrl = serviceDocumentationUrlRaw
-    ? z.string().url().parse(serviceDocumentationUrlRaw)
+  const serviceDocUrlRaw = env.SERVICE_DOCUMENTATION_URL?.trim()
+  const serviceDocumentationUrl = serviceDocUrlRaw
+    ? z.string().url().parse(serviceDocUrlRaw)
     : "https://github.com/aliasunder/vault-cortex"
 
   return Object.freeze({
