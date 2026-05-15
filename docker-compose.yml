@@ -72,6 +72,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
+      PROTECTED_PATHS: ${PROTECTED_PATHS:-}
+      ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
+      SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
     volumes:
       - vault_data:/vault:rw
       - mcp_index_data:/data
