@@ -173,6 +173,8 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                         |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                          |
 
+The `.env.example` file also includes optional configuration for the memory system (`MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see [Configuration](#configuration) for details.
+
 ```bash
 docker run --rm -it --entrypoint get-token ghcr.io/belphemur/obsidian-headless-sync-docker:latest
 ```
