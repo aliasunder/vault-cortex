@@ -265,9 +265,9 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 | `SST_STAGE`                 | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
 | `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
 | `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See [Configuration](#configuration).                                                                                         |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion. Overrides the default when set.                                                                                                    |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection. Overrides the default when set.                                                                                             |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL shown in OAuth discovery metadata. Set to your fork's URL.                                                                                                                      |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                      |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                    |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                    |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).     |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
