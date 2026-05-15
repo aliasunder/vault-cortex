@@ -1,0 +1,50 @@
+name: Feature Request
+description: Suggest an idea for vault-cortex
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear description of the problem. E.g. "I'm always frustrated when..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear and concise description of what you want to happen.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of vault-cortex does this relate to?
+      options:
+        - MCP Tools
+        - Search / Indexing
+        - Auth / OAuth
+        - Docker / Deployment
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or features you've considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other context or screenshots about the feature request.
+    validations:
+      required: false
