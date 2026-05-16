@@ -1,5 +1,17 @@
 # Changelog
 
+
+## [0.11.2] — 2026-05-16
+
+### Documentation
+
+- OAuth 2.0 → OAuth 2.1 (#36)
+- Update CHANGELOG.md for v0.11.1
+
+### Maintenance
+
+- Align Node references on Node 24 and fix doc inaccuracies (#37)
+
 All notable changes to this project will be documented in this file.
 
 
