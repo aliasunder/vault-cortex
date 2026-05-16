@@ -250,7 +250,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-Forks don't inherit GitHub Actions variables or secrets. Before using the deploy or release workflows, set your own `AWS_DEPLOY_ROLE_ARN`, `SST_STAGE`, and other required values — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [Required repo configuration](#required-repo-configuration) above.
+Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is scoped to both a specific AWS account and repo. Before using the deploy or release workflows, provision your own AWS infrastructure and configure your fork's variables — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [Required repo configuration](#required-repo-configuration) above.
 
 ---
 
