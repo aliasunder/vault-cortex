@@ -14,10 +14,9 @@ vault-cortex replaces all of that with Docker and your vault folder.
 
 **What makes it different:**
 
-- **No Obsidian running.** Works with just `.md` files on disk. No desktop app
-  dependency, no electron process consuming resources.
-- **No plugins.** No Local REST API, no community plugin trust decisions, no
-  plugin version compatibility issues.
+- **Obsidian doesn't need to be running.** Headless sync keeps the vault
+  current, and the server works directly with `.md` files on disk.
+- **No plugins.** No Local REST API, no community plugin dependencies.
 - **Remote-first.** The only Obsidian MCP server that works from your phone,
   claude.ai, or a CI pipeline — via Obsidian Sync in Docker + API Gateway +
   OAuth 2.0.

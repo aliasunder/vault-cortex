@@ -21,7 +21,7 @@ vault-cortex gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenC
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. vault-cortex replaces all of that with Docker and your vault folder.
 
-- **Plugin-free** — works with `.md` files on disk, no Obsidian desktop required
+- **Plugin-free** — Obsidian doesn't need to be running; headless sync keeps the vault current, and the server works directly with `.md` files on disk
 - **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.0
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
