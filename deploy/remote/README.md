@@ -62,9 +62,24 @@ search index as files arrive.
 
 ## HTTPS access
 
-MCP clients need to reach your server over the network. Three options:
+MCP clients need to reach your server over the network. Four options:
 
-### Reverse proxy (recommended)
+### API Gateway (AWS — no domain needed)
+
+This is the approach vault-cortex's own production deployment uses. AWS API
+Gateway acts as a TLS-terminating reverse proxy in front of your server — no
+domain, no certificate management. You get an HTTPS URL immediately:
+
+```
+https://<id>.execute-api.<region>.amazonaws.com
+```
+
+Create an HTTP API in API Gateway with a route that proxies to
+`http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
+URL. See the project's [full cloud deployment](../../README.md#deployment) for
+the SST IaC approach, which adds a Lambda authorizer for an extra auth layer.
+
+### Reverse proxy (requires a domain)
 
 Use [Caddy](https://caddyserver.com/) or nginx with a domain and TLS
 certificate. Set `PUBLIC_URL` to `https://vault.yourdomain.com`. Caddy handles
