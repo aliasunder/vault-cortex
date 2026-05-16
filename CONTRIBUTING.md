@@ -5,7 +5,7 @@ to get started.
 
 ## Quick Start
 
-1. **Prerequisites:** Node.js >= 22 (see `.nvmrc`), Docker (optional, for
+1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
    container mode)
 
 2. **Clone and install:**

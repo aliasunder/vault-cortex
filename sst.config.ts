@@ -190,7 +190,7 @@ export default $config({
         function: {
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
-          runtime: "nodejs22.x",
+          runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",
         },
