@@ -1,5 +1,5 @@
 /**
- * OAuth 2.0 provider for vault-cortex.
+ * OAuth 2.1 provider for vault-cortex.
  *
  * - Dynamic client registration (Claude Desktop, Perplexity self-register)
  * - Authorization code flow with PKCE

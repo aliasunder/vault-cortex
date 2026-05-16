@@ -5,7 +5,7 @@
 vault-cortex is a remote MCP server that exposes an Obsidian vault over HTTPS.
 The attack surface includes:
 
-- **Authentication and authorization** — OAuth 2.0 (Authorization Code + PKCE),
+- **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   JWT tokens (HS256), static bearer token fallback, Lambda authorizer, Express
   middleware (defense in depth)
 - **API Gateway** — HTTP API fronting the Lightsail instance, path-aware
