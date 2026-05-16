@@ -245,9 +245,3 @@ The README is the front door — humans land there first. The full AWS/SST
 deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
 Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
 file focused on conventions; don't duplicate procedure here.
-
-## Before going public
-
-Before this repo is made public, work through the pre-public hardening
-checklist: SSH `0.0.0.0/0` → admin IP, API Gateway throttling, full
-git-history secret scan, etc.
