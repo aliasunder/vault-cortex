@@ -13,6 +13,12 @@ const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
+/** Appends "(newest first)" to a section name if not already present (case-insensitive). */
+const ensureNewestFirstSuffix = (sectionName: string): string =>
+  sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
+    ? sectionName
+    : `${sectionName} (newest first)`
+
 /** Converts a string to kebab-case for use as a tag. */
 const toKebabCase = (text: string): string =>
   text
@@ -307,17 +313,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     // File does not exist — create directory + file with section and entry
     if (existingContent === null) {
+      const newSection = ensureNewestFirstSuffix(params.section)
       const filePath = memoryFilePath(params.vaultPath, params.file)
       await mkdir(dirname(filePath), { recursive: true })
       const content = buildNewMemoryFile({
         fileName: params.file,
-        section: params.section,
+        section: newSection,
         bullet,
       })
       await writeFile(filePath, content, "utf8")
       logger.info("created memory file", {
         file: params.file,
-        section: params.section,
+        section: newSection,
         date,
       })
       return
@@ -330,7 +337,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     // File exists but section does not — append new H2 + entry at end
     if (!match) {
-      const appendedLines = [...contentLines, `## ${params.section}`, bullet]
+      const newSection = ensureNewestFirstSuffix(params.section)
+      const appendedLines = [...contentLines, `## ${newSection}`, bullet]
       const newContent = appendedLines.join("\n")
       const serialized = matter.stringify(newContent, parsed.data)
       await writeFile(
@@ -340,7 +348,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       )
       logger.info("created memory section", {
         file: params.file,
-        section: params.section,
+        section: newSection,
         date,
       })
       return

@@ -303,7 +303,11 @@ describe("updateMemory", () => {
       logger,
     )
     const result = await getMemory(
-      { vaultPath: vault, file: "Ghost", section: "New section" },
+      {
+        vaultPath: vault,
+        file: "Ghost",
+        section: "New section (newest first)",
+      },
       logger,
     )
     expect(result).toBe("- **2026-05-15**: first entry")
@@ -321,7 +325,11 @@ describe("updateMemory", () => {
       logger,
     )
     const result = await getMemory(
-      { vaultPath: vault, file: "Principles", section: "Brand new section" },
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Brand new section (newest first)",
+      },
       logger,
     )
     expect(result).toBe("- **2026-05-15**: section entry")
@@ -345,7 +353,7 @@ describe("updateMemory auto-creation", () => {
       {
         vaultPath: emptyVault,
         file: "Preferences",
-        section: "Editor settings",
+        section: "Editor settings (newest first)",
       },
       logger,
     )
@@ -394,7 +402,7 @@ describe("updateMemory auto-creation", () => {
       "utf8",
     )
     expect(raw).toContain("# Preferences")
-    expect(raw).toContain("## Editor settings")
+    expect(raw).toContain("## Editor settings (newest first)")
     expect(raw).toContain("- **2026-05-15**: Dark mode")
     await rm(emptyVault, { recursive: true })
   })
@@ -414,7 +422,7 @@ describe("updateMemory auto-creation", () => {
     expect(raw).toContain("## Decision heuristics (newest first)")
     expect(raw).toContain("Secrets invisible at every layer")
     expect(raw).toContain("## Working style (newest first)")
-    expect(raw).toContain("## New category")
+    expect(raw).toContain("## New category (newest first)")
     expect(raw).toContain("- **2026-05-15**: appended entry")
     expect(raw).toContain("title: Principles — About Me")
   })
@@ -431,10 +439,32 @@ describe("updateMemory auto-creation", () => {
       logger,
     )
     const result = await getMemory(
-      { vaultPath: vault, file: "Opinions", section: "Design preferences" },
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Design preferences (newest first)",
+      },
       logger,
     )
     expect(result).toBe("- **2026-05-15**: Minimalist UI")
+  })
+
+  it("does not double-append suffix when section already has it", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Design preferences (newest first)",
+        entry: "Already suffixed",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const raw = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
+    expect(raw).toContain("## Design preferences (newest first)")
+    expect(raw).not.toContain(
+      "## Design preferences (newest first) (newest first)",
+    )
   })
 })
 
