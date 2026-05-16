@@ -1563,4 +1563,53 @@ Hello World.
       ),
     ).rejects.toThrow(/x{80}…/)
   })
+
+  it("collapses blank lines when deleting text with empty new_text", async () => {
+    const content = `---
+title: Board
+---
+
+## Active
+
+- [ ] Task A
+- [ ] Task B
+`
+    await writeTestNote("board.md", content)
+    await replaceInNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        oldText: "- [ ] Task A\n",
+        newText: "",
+      },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).not.toMatch(/\n{3,}/)
+    expect(updated).toContain("## Active\n\n- [ ] Task B")
+  })
+
+  it("does not collapse blank lines when new_text is non-empty", async () => {
+    const content = `---
+title: Spaced
+---
+
+Line one
+
+
+Line two
+`
+    await writeTestNote("spaced.md", content)
+    await replaceInNote(
+      {
+        vaultPath: vault,
+        path: "spaced.md",
+        oldText: "Line one",
+        newText: "Line replaced",
+      },
+      logger,
+    )
+    const updated = await readTestNote("spaced.md")
+    expect(updated).toContain("Line replaced\n\n\nLine two")
+  })
 })
