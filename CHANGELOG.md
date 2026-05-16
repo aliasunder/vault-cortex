@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.11.1] — 2026-05-16
+
+### Bug Fixes
+
+- Env-var import — default import, not namespace (#35)
+
+
 ## [0.10.0] — 2026-05-16
 
 ### Features
