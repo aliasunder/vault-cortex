@@ -1,0 +1,62 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.aliasunder/vault-cortex",
+  "title": "vault-cortex",
+  "description": "Remote MCP server — full-text search, structured memory, link graph, and 22 tools for Obsidian vaults. Runs locally via Docker or remotely with Obsidian Sync + OAuth 2.0.",
+  "version": "0.10.0",
+  "websiteUrl": "https://github.com/aliasunder/vault-cortex",
+  "repository": {
+    "url": "https://github.com/aliasunder/vault-cortex",
+    "source": "github",
+    "id": "aliasunder/vault-cortex"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/aliasunder/vault-cortex",
+      "version": "latest",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:8000/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_AUTH_TOKEN",
+          "description": "Bearer token for MCP client authentication. Generate with: openssl rand -hex 32",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "VAULT_PATH",
+          "description": "Absolute path to your Obsidian vault (mounted into the container)",
+          "isRequired": true,
+          "format": "filepath"
+        },
+        {
+          "name": "PUBLIC_URL",
+          "description": "Public URL for OAuth discovery metadata. Required for remote deployments with OAuth.",
+          "isRequired": false
+        },
+        {
+          "name": "MEMORY_DIR",
+          "description": "Vault folder for structured memory files",
+          "default": "About Me",
+          "isRequired": false
+        },
+        {
+          "name": "TZ",
+          "description": "IANA timezone for timestamps and daily note resolution",
+          "default": "UTC",
+          "isRequired": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging verbosity",
+          "default": "info",
+          "choices": ["debug", "info", "warn", "error"],
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import type { Request, Response, NextFunction } from "express"
-import { createErrorMiddleware, requireEnv } from "../server.js"
+import { createErrorMiddleware } from "../server.js"
 import { logger } from "../../logger.js"
 
 type MockRes = {
@@ -121,52 +121,5 @@ describe("createErrorMiddleware", () => {
     middleware(new Error("x"), req, res, next)
 
     expect(next).not.toHaveBeenCalled()
-  })
-})
-
-describe("requireEnv", () => {
-  const envSnapshot = { ...process.env }
-  let errorSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    process.env = { ...envSnapshot }
-    errorSpy.mockRestore()
-  })
-
-  it("returns the value when the env var is set", () => {
-    process.env.VAULT_CORTEX_TEST_VAR = "the-value"
-    expect(requireEnv("VAULT_CORTEX_TEST_VAR")).toBe("the-value")
-  })
-
-  it("throws a descriptive error when the env var is undefined", () => {
-    delete process.env.VAULT_CORTEX_TEST_VAR
-    expect(() => requireEnv("VAULT_CORTEX_TEST_VAR")).toThrow(
-      "VAULT_CORTEX_TEST_VAR environment variable is required",
-    )
-  })
-
-  it("throws when the env var is set to an empty string", () => {
-    process.env.VAULT_CORTEX_TEST_VAR = ""
-    expect(() => requireEnv("VAULT_CORTEX_TEST_VAR")).toThrow(
-      "VAULT_CORTEX_TEST_VAR environment variable is required",
-    )
-  })
-
-  it("logs 'missing required env' with the var name before throwing", () => {
-    delete process.env.VAULT_CORTEX_TEST_VAR
-    expect(() => requireEnv("VAULT_CORTEX_TEST_VAR")).toThrow()
-    expect(errorSpy).toHaveBeenCalledWith("missing required env", {
-      var: "VAULT_CORTEX_TEST_VAR",
-    })
-  })
-
-  it("does not log when the env var is set", () => {
-    process.env.VAULT_CORTEX_TEST_VAR = "present"
-    requireEnv("VAULT_CORTEX_TEST_VAR")
-    expect(errorSpy).not.toHaveBeenCalled()
   })
 })

@@ -4,21 +4,30 @@
 // to be dynamically imported inside `run()`. See readSshPublicKey
 // below for the only filesystem access we need.
 
+// Module-level so app() and run() share the same value.
+// env-var can't be used here (SST forbids imports outside run()).
+const awsRegion = process.env.AWS_REGION ?? "us-east-1"
+
 export default $config({
   app() {
     return {
       name: "vault-cortex",
       removal: "retain",
       home: "aws",
-      providers: { aws: { region: "us-east-1" } },
+      providers: { aws: { region: awsRegion } },
     }
   },
 
   async run() {
-    // SST 4 forbids static `import` at the top of sst.config.ts —
-    // everything has to be dynamic and inside this function.
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
+    const env = (await import("env-var")).get
+
+    // ── Environment ──────────────────────────────────────────────
+    // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
+    // Neither is individually required — readSshPublicKey errors if all three miss.
+    const sshPubkey = env("SSH_PUBKEY").asString()
+    const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
     const expandHome = (p: string): string =>
       p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
@@ -31,11 +40,9 @@ export default $config({
      *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
-      if (process.env.SSH_PUBKEY?.trim()) {
-        return process.env.SSH_PUBKEY.trim()
-      }
-      const candidates = process.env.SSH_PUBKEY_PATH
-        ? [expandHome(process.env.SSH_PUBKEY_PATH)]
+      if (sshPubkey) return sshPubkey
+      const candidates = sshPubkeyPath
+        ? [expandHome(sshPubkeyPath)]
         : [expandHome("~/.ssh/vault-cortex.pub")]
       for (const path of candidates) {
         if (existsSync(path)) return readFileSync(path, "utf8").trim()
@@ -51,15 +58,14 @@ export default $config({
     // ── Secrets ────────────────────────────────────────────────────
     // Set once, then deploy:
     //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
-    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>"
-    //   sst secret set ObsidianVaultName "My Vault"
     //   sst deploy
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
+    // OBSIDIAN_AUTH_TOKEN and VAULT_NAME are NOT SST secrets — they
+    // flow to Docker containers via the .env file (local) or GitHub
+    // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
-    const _obsidianAuthToken = new sst.Secret("ObsidianAuthToken")
-    const _obsidianVaultName = new sst.Secret("ObsidianVaultName")
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
@@ -116,7 +122,7 @@ export default $config({
       "VaultCortexVm",
       {
         name: `vault-cortex-${$app.stage}`,
-        availabilityZone: "us-east-1a",
+        availabilityZone: `${awsRegion}a`,
         blueprintId: "ubuntu_22_04",
         bundleId: "small_3_0",
         keyPairName: keyPair.name,
@@ -167,7 +173,7 @@ export default $config({
 
     // ── API Gateway HTTP API ──────────────────────────────────────
     // No custom domain — you get a free HTTPS URL:
-    //   https://<id>.execute-api.us-east-1.amazonaws.com
+    //   https://<id>.execute-api.<region>.amazonaws.com
     //
     // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
     // MCP clients point at this URL with their bearer token.
