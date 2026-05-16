@@ -354,7 +354,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return
     }
 
-    // File + section exist — insert entry at requested position
+    // File + section exist — find the first and last dated bullet within the
+    // section body to determine where to insert. Offsets are relative to bodyStartLine.
     const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine)
     const firstBulletOffset = bodyLines.findIndex((line) =>
       ENTRY_PATTERN.test(line),
