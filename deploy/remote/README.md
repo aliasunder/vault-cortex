@@ -79,15 +79,15 @@ requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL. See the project's [full cloud deployment](../../README.md#deployment) for
-the SST IaC approach, which adds a Lambda authorizer for an extra auth layer.
+URL. See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
+approach, which adds a Lambda authorizer for an extra auth layer.
 
 > **Need a VPS?** [AWS Lightsail](https://aws.amazon.com/lightsail/) runs
 > vault-cortex on a 2 GB RAM / 60 GB SSD instance for ~$12/mo. Paired with API
 > Gateway (~$0) and this compose file, the total cost is ~$12/mo. For a fully
 > automated setup, vault-cortex also includes an
-> [SST IaC deployment](../../README.md#deployment) that provisions Lightsail, API
-> Gateway, and a Lambda authorizer in one command.
+> [SST IaC deployment](../../DEPLOY.md) that provisions Lightsail, API Gateway,
+> and a Lambda authorizer in one command.
 
 ### Reverse proxy (requires a domain)
 

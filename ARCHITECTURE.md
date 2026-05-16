@@ -4,6 +4,32 @@ vault-cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
+## Why This Exists
+
+The typical Obsidian + MCP setup requires three moving parts running
+simultaneously: Obsidian open → Local REST API plugin installed → a separate
+MCP server (Python/uv or npx) wrapping the REST API.
+
+vault-cortex replaces all of that with Docker and your vault folder.
+
+**What makes it different:**
+
+- **No Obsidian running.** Works with just `.md` files on disk. No desktop app
+  dependency, no electron process consuming resources.
+- **No plugins.** No Local REST API, no community plugin trust decisions, no
+  plugin version compatibility issues.
+- **Remote-first.** The only Obsidian MCP server that works from your phone,
+  claude.ai, or a CI pipeline — via Obsidian Sync in Docker + API Gateway +
+  OAuth 2.0.
+- **Better search.** SQLite FTS5 with BM25 ranking, porter stemming, phrase
+  matching, and tag/property/folder filtering. Ranked results, not grep.
+- **Structured memory.** A dedicated memory layer with dated entries, section
+  targeting, and auto-initialization — designed for AI agent personalization
+  across conversations.
+- **Obsidian-native.** Frontmatter-aware, wikilink-aware, tag-aware,
+  heading-aware, daily-note-aware. The 22 tools understand Obsidian conventions,
+  not just raw markdown.
+
 ## Phasing
 
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the

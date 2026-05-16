@@ -10,7 +10,10 @@ export default $config({
       name: "vault-cortex",
       removal: "retain",
       home: "aws",
-      providers: { aws: { region: "us-east-1" } },
+      providers: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SST types region as a string literal union; env var is dynamic
+        aws: { region: (process.env.AWS_REGION ?? "us-east-1") as any },
+      },
     }
   },
 
@@ -116,7 +119,7 @@ export default $config({
       "VaultCortexVm",
       {
         name: `vault-cortex-${$app.stage}`,
-        availabilityZone: "us-east-1a",
+        availabilityZone: `${process.env.AWS_REGION ?? "us-east-1"}a`,
         blueprintId: "ubuntu_22_04",
         bundleId: "small_3_0",
         keyPairName: keyPair.name,
@@ -167,7 +170,7 @@ export default $config({
 
     // ── API Gateway HTTP API ──────────────────────────────────────
     // No custom domain — you get a free HTTPS URL:
-    //   https://<id>.execute-api.us-east-1.amazonaws.com
+    //   https://<id>.execute-api.<region>.amazonaws.com
     //
     // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
     // MCP clients point at this URL with their bearer token.

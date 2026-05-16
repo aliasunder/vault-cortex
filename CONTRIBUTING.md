@@ -56,7 +56,7 @@ PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/you
 npx @modelcontextprotocol/inspector
 ```
 
-See the [README](./README.md#local-development) for full details on each mode.
+See the [README](./README.md#development) for full details on each mode.
 
 ## Code Conventions
 
@@ -100,7 +100,7 @@ Releases are cut by the maintainer. Two paths:
 - **Tag push:** bump `package.json`, commit on `main`, then
   `git tag v<version> && git push --tags`
 
-See the [README CI/CD section](./README.md#cicd) for details on each workflow.
+See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
 ## License
 
