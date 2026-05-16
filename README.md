@@ -11,8 +11,28 @@ Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Contex
 
 > **Status:** Phase 1 complete — 22 MCP tools, deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
+## Quickstart
+
+### Local (Docker + your vault folder)
+
+Run vault-cortex on your machine against an existing Obsidian vault. No cloud,
+no Obsidian Sync — just Docker and a folder of `.md` files.
+
+**[→ Local quickstart guide](./deploy/local/)**
+
+### Remote (Docker + Obsidian Sync on a VPS)
+
+Run vault-cortex on a VPS with Obsidian Sync for access from any device. Your
+vault stays in sync; MCP tools work from Claude Desktop, Claude Code, or any MCP
+client — anywhere.
+
+**[→ Remote quickstart guide](./deploy/remote/)**
+
+---
+
 ## Contents
 
+- [Quickstart](#quickstart)
 - [Architecture](#architecture)
 - [Authentication](#authentication)
 - [Configuration](#configuration)

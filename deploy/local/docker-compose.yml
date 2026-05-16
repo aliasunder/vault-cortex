@@ -1,0 +1,52 @@
+# vault-cortex — local quickstart
+#
+# Run vault-cortex against a local Obsidian vault with just Docker.
+# No cloud, no Obsidian Sync, no AWS — just your vault folder and a bearer token.
+#
+# 1. cp .env.example .env   (then fill in MCP_AUTH_TOKEN and VAULT_PATH)
+# 2. docker compose up
+# 3. Connect your MCP client to http://localhost:8000/mcp
+#
+# Full docs: https://github.com/aliasunder/vault-cortex
+
+name: vault-cortex
+
+services:
+  vault-mcp:
+    image: ghcr.io/aliasunder/vault-mcp:latest
+    container_name: vault-mcp
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      VAULT_PATH: /vault
+      INDEX_DB_PATH: /data/index.db
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env — see .env.example}"
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      MEMORY_DIR: ${MEMORY_DIR:-About Me}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      # Uncomment to override smart defaults (see Configuration in the main README):
+      # PROTECTED_PATHS: ${PROTECTED_PATHS:-}
+      # ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
+      # SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
+    volumes:
+      - "${VAULT_PATH:?Set VAULT_PATH to your Obsidian vault folder}:/vault:rw"
+      - mcp_data:/data
+    ports:
+      - "${PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mcp_data:
