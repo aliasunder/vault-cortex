@@ -11,8 +11,10 @@ simultaneously: Obsidian open → Local REST API plugin installed → a separate
 MCP server wrapping the REST API. That chain is local-only — it can't serve
 requests from your phone, a remote server, or claude.ai. vault-cortex
 replaces all of that with Docker, adds remote access via Obsidian Sync +
-OAuth 2.0, and works from anywhere. See the [README](./README.md#what-is-this)
-for the full value proposition.
+OAuth 2.0, and works from anywhere. It follows MCP best practices:
+streamable-http transport (current spec) and dual-layer auth (OAuth 2.0 +
+static bearer token). See the [README](./README.md#what-is-this) for the
+full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but vault-cortex runs anywhere Docker does.
