@@ -160,6 +160,24 @@ docker logs -f obsidian-sync
 docker compose ps
 ```
 
+## Restart
+
+The server runs startup tasks on every boot: rebuilds the search index, creates
+memory template files if the memory folder doesn't exist, and starts the file
+watcher. To re-run the startup flow (e.g., after changing config or to test
+bootstrap behavior):
+
+```bash
+# Restart just vault-mcp (obsidian-sync keeps running):
+docker compose restart vault-mcp
+
+# Restart all services:
+docker compose restart
+```
+
+The container also restarts automatically on crash (`restart: unless-stopped`
+policy), Docker daemon restart, or system reboot.
+
 ## Stop
 
 ```bash
