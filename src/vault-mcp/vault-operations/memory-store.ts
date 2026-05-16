@@ -1,6 +1,7 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
-import { readFile, writeFile, readdir, mkdir } from "node:fs/promises"
+import { readFile, writeFile, readdir, mkdir, access } from "node:fs/promises"
+import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
 import matter from "gray-matter"
 import { DateTime } from "luxon"
@@ -129,11 +130,45 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }> = [
     {
       fileName: "Opinions",
-      content: `---\ntitle: Opinions\ntype: profile\ntags:\n  - memory\n  - opinions\n---\n\n# Opinions\n\n## Tools and workflows (newest first)\n\n## Code patterns (newest first)\n\n## Communication preferences (newest first)\n`,
+      content: [
+        "---",
+        "title: Opinions",
+        "type: profile",
+        "tags:",
+        "  - memory",
+        "  - opinions",
+        "---",
+        "",
+        "# Opinions",
+        "",
+        "## Tools and workflows (newest first)",
+        "",
+        "## Code patterns (newest first)",
+        "",
+        "## Communication preferences (newest first)",
+        "",
+      ].join("\n"),
     },
     {
       fileName: "Principles",
-      content: `---\ntitle: Principles\ntype: profile\ntags:\n  - memory\n  - principles\n---\n\n# Principles\n\n## Decision heuristics (newest first)\n\n## Working style (newest first)\n\n## Non-negotiables (newest first)\n`,
+      content: [
+        "---",
+        "title: Principles",
+        "type: profile",
+        "tags:",
+        "  - memory",
+        "  - principles",
+        "---",
+        "",
+        "# Principles",
+        "",
+        "## Decision heuristics (newest first)",
+        "",
+        "## Working style (newest first)",
+        "",
+        "## Non-negotiables (newest first)",
+        "",
+      ].join("\n"),
     },
   ]
 
@@ -178,7 +213,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
     }
-    const body = `\n# ${params.fileName}\n\n## ${params.section}\n${params.bullet}\n`
+    const body = [
+      "",
+      `# ${params.fileName}`,
+      "",
+      `## ${params.section}`,
+      params.bullet,
+      "",
+    ].join("\n")
     return matter.stringify(body, frontmatter)
   }
 
@@ -314,6 +356,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       -1,
     )
 
+    // "top" inserts before the first existing bullet (newest-first ordering).
+    // "bottom" inserts after the last existing bullet.
+    // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
     const insertIndex =
       position === "top"
         ? firstBulletOffset >= 0
@@ -460,7 +505,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<void> => {
     const dirPath = join(params.vaultPath, memoryDir)
     try {
-      await readdir(dirPath)
+      await access(dirPath, constants.F_OK)
       return
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
