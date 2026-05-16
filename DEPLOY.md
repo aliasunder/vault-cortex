@@ -229,7 +229,7 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 
 **Steps:**
 
-1. Take a manual snapshot first: `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
+1. Take a manual snapshot first (rollback point if the replacement goes wrong — see [RECOVERY.md](./RECOVERY.md) Scenario B): `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
 2. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
 3. [Unprotect the instance](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc) (required — `protect: true` blocks replacement)
 4. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
