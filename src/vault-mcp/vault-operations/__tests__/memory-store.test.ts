@@ -373,7 +373,7 @@ describe("updateMemory auto-creation", () => {
     expect(parsed.data.title).toBe("Working Preferences")
     expect(parsed.data.type).toBe("profile")
     expect(parsed.data.tags).toEqual(["memory", "working-preferences"])
-    expect(parsed.data.created).toBeDefined()
+    expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
     await rm(emptyVault, { recursive: true })
   })
 
@@ -740,11 +740,16 @@ describe("bootstrapMemoryDir", () => {
   })
 
   it("is a no-op when memory directory already exists", async () => {
+    const contentBefore = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
     await bootstrapMemoryDir({ vaultPath: vault }, logger)
-    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    expect(outlines).toHaveLength(2)
-    expect(outlines[0].file).toBe("Opinions")
-    expect(outlines[1].file).toBe("Principles")
+    const contentAfter = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(contentAfter).toBe(contentBefore)
   })
 
   it("preserves existing files when directory already exists", async () => {
