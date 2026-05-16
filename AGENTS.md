@@ -50,6 +50,7 @@ src/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
     server.ts                          # Entry point — config, mount routes, listen
+    config.ts                          # Env-var loader + ServerConfig type (loadConfig)
     mcp-router.ts                      # /mcp session routes + transport lifecycle
     tool-definitions.ts                # MCP tool registrations + Zod schemas
     vault-operations/                  # Vault content read/write/patch
@@ -240,13 +241,13 @@ If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 
 ## Operational docs
 
-Deployment walkthrough lives in `README.md` (it's the front door —
-humans land there first). Keep
-this file focused on conventions; don't duplicate procedure here.
+The README is the front door — humans land there first. The full AWS/SST
+deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
+Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
+file focused on conventions; don't duplicate procedure here.
 
 ## Before going public
 
 Before this repo is made public, work through the pre-public hardening
-checklist (SSH `0.0.0.0/0` → admin IP, API Gateway throttling, full
-git-history secret scan, etc). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full list
-once it's written.
+checklist: SSH `0.0.0.0/0` → admin IP, API Gateway throttling, full
+git-history secret scan, etc.

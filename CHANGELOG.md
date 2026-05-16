@@ -1,11 +1,25 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
 
 ## [0.11.1] — 2026-05-16
 
 ### Bug Fixes
 
 - Env-var import — default import, not namespace (#35)
+
+
+## [0.11.0] — 2026-05-16
+
+### Bug Fixes
+
+- Collapse blank lines when vault_replace_in_note deletes text (#34)
+
+### Documentation
+
+- README rewrite and deployment docs for open-source (#33)
+- Update CHANGELOG.md for v0.10.0
 
 
 ## [0.10.0] — 2026-05-16
@@ -59,6 +73,17 @@
 ## [0.7.0] — 2026-05-14
 
 No notable changes.
+
+
+## [0.6.4] — 2026-05-14
+
+### Features
+
+- Add Obsidian syntax guidance to write tool descriptions (#21)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.6.3
 
 
 ## [0.6.3] — 2026-05-14
@@ -176,3 +201,57 @@ All notable changes to this project will be documented in this file.
 ### Bug Fixes
 
 - **ci:** Inline deploy + release in manual_release so the chain fires (#6)
+
+
+## [0.1.1] — 2026-05-11
+
+Initial tagged release — Phase 1 scaffold and core implementation.
+
+### Features
+
+- Phase 1 scaffold (vault-cortex remote MCP server) (#1)
+- Implement vault-filesystem and search-index (Phase 1 Session 1)
+- Implement Phase 1 Session 2 — memory-store, file-watcher, tool-definitions, server
+- Add OAuth 2.0 with JWT tokens and defense-in-depth auth
+- Add server description and instructions for Claude Desktop connector UI
+
+### Bug Fixes
+
+- Use dedicated deploy key to prevent instance replacement
+- Run vault-mcp as UID 1000 (node user) to match vault volume
+- Add init container to fix obsidian config volume permissions
+- Mount obsidian config volume at correct path
+- Store session in Map after handleRequest sets the session ID
+- Serve MCP at /mcp endpoint (Claude Desktop compatibility iteration)
+- Proper rate limiting with Forwarded header key generator, trust proxy = 1
+- Disable rate limiting on OAuth endpoints
+- Remove authorizer identity source so OAuth paths aren't auto-rejected
+- Rebuild better-sqlite3 native addon after --ignore-scripts
+- Docker build fails on husky not found and missing sst-env.d.ts
+- **ci:** Add default bump value so mobile UI can dispatch manual_release (#4)
+
+### Refactoring
+
+- Extract MCP and OAuth routes from server.ts
+
+### CI / Infrastructure
+
+- Add GitHub Actions for build, deploy, and release (#3)
+
+### Maintenance
+
+- Collapse Dockerfile to single stage, add local dev workflow
+- Add Prettier, ESLint, Husky, lint-staged and fix Node types
+- Split CLAUDE.md into AGENTS.md for multi-agent support
+- Pin Node 22 with strict engines, harden mermaid subgraph IDs (#2)
+- Add version 0.1.0 to package.json (#5)
+
+### Documentation
+
+- Comprehensive README, AGENTS, ARCHITECTURE for OAuth, init container, UID, volumes
+- Split one-time setup into copy-pasteable blocks
+- Fix GHCR login to pipe token from .env
+- Fix token setup and rotation instructions in README
+- Fix refresh token lifetime in ARCHITECTURE.md (no expiry, not 7d)
+- Add public repo portability constraint to AGENTS.md
+- Clarify MCP Inspector requires running server, add two-terminal flow
