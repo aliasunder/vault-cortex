@@ -119,7 +119,7 @@ The memory tools (`vault_get_memory`, `vault_update_memory`, `vault_list_memory_
 
 **Auto-initialization:** On first startup, if the memory folder doesn't exist, the server creates it with template files (Principles.md, Opinions.md) so agents have a ready structure to discover. Additionally, `vault_update_memory` auto-creates files and sections on write — agents can save preferences immediately without manual setup.
 
-Example memory files are also provided in [`templates/memory/`](./templates/memory/) for reference or manual setup.
+Example memory files and a full explanation of the dated-entry design (why timestamps matter, how they enable temporal queries in Phase 2) are in [`templates/memory/`](./templates/memory/).
 
 ### Environment variables
 
