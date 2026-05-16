@@ -140,23 +140,69 @@ GitHub Actions runs lint/test/build on every PR and push to main, and handles re
 
 > **Why two release paths?** Tag pushes done by `GITHUB_TOKEN` from inside a workflow can't trigger other workflows (GitHub's anti-loop guard). So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
 
+### GitHub OIDC setup (for forkers)
+
+The deploy workflow uses [GitHub OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) to assume an AWS IAM role without long-lived credentials. If you're forking this project, you need to create your own OIDC provider and IAM role in your AWS account.
+
+**1. Create the OIDC identity provider** in IAM (one-time, per AWS account):
+
+- Provider URL: `https://token.actions.githubusercontent.com`
+- Audience: `sts.amazonaws.com`
+
+See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html).
+
+**2. Create an IAM role** with this trust policy (replace the repo reference with your fork):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_FORK:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+**3. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+
+**4. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` variable in your fork's GitHub Actions settings.
+
+### SST stage
+
+SST creates a stage on your first `sst deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` variable must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
+
+To find your stage: `cat .sst/stage` (after your first deploy).
+
 ### Required repo configuration
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
 
-| Variable                    | Purpose                                                                                                                                                                                       |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN`       | IAM role assumed via GitHub OIDC by `aws-actions/configure-aws-credentials`. Trust policy is scoped to this repo. ARN is an identifier, not a credential — use a repo variable, not a secret. |
-| `AWS_REGION`                | Optional. AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                     |
-| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                      |
-| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                              |
-| `SST_STAGE`                 | SST stage name. Must match the stage your laptop deploys to so CI lands on the same Lightsail instance and SST state.                                                                         |
-| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                   |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                  |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                      |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                    |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                    |
-| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).     |
+| Variable                    | Purpose                                                                                                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`       | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above. An identifier, not a credential — use a repo variable, not a secret.                                            |
+| `AWS_REGION`                | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                           |
+| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                  |
+| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                          |
+| `SST_STAGE`                 | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                           |
+| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                               |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                              |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                  |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                |
+| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`). |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
 
