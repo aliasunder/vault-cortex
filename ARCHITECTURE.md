@@ -12,7 +12,7 @@ MCP server wrapping the REST API. That chain is local-only.
 
 vault-cortex replaces it:
 
-- **Docker-based** — no Obsidian desktop, no plugins, works with `.md` files on disk
+- **Docker-based** — no Obsidian desktop required to be running, no plugins, works with `.md` files on disk
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
 - **MCP spec-compliant** — streamable-http transport, OAuth 2.0 with PKCE
 
