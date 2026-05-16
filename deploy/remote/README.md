@@ -74,10 +74,20 @@ domain, no certificate management. You get an HTTPS URL immediately:
 https://<id>.execute-api.<region>.amazonaws.com
 ```
 
+HTTP API pricing is $1.00 per million requests with a free tier of 1M
+requests/month for 12 months — effectively free for personal use.
+
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
 URL. See the project's [full cloud deployment](../../README.md#deployment) for
 the SST IaC approach, which adds a Lambda authorizer for an extra auth layer.
+
+> **Need a VPS?** [AWS Lightsail](https://aws.amazon.com/lightsail/) starts at
+> ~$10/mo for a 1GB instance — enough for vault-cortex. Paired with API Gateway
+> (~$0) and this compose file, the total cost is ~$10/mo. For a fully automated
+> setup, vault-cortex also includes an
+> [SST IaC deployment](../../README.md#deployment) that provisions Lightsail, API
+> Gateway, and a Lambda authorizer in one command.
 
 ### Reverse proxy (requires a domain)
 
