@@ -132,7 +132,7 @@ Two methods, both validated at two layers (Lambda authorizer + Express middlewar
 
 OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate).
 
-See [ARCHITECTURE.md § Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
+See [ARCHITECTURE.md — Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
 
 ## How It Works
 
