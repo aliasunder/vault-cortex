@@ -225,7 +225,17 @@ Both halves come from the dedicated deploy keypair set up in [Prerequisites](#pr
 
 ### Rotating SSH keys
 
-Regenerate the same path: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""` (overwrite when prompted). Run `npx sst deploy` locally to upload the new pubkey to the Lightsail KeyPair — this triggers a VM replacement (named volumes survive due to SST `removal: "retain"`, but the local disk is wiped). Then update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets to the new values. Both halves must change together — they're a matched pair.
+**Simple (no VM replacement):** SSH into the instance with the current key and update `authorized_keys` directly. Then update `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets. This doesn't touch SST/Pulumi — the Lightsail KeyPair stays the same.
+
+```bash
+# Add the new public key
+ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
+  "cat >> ~/.ssh/authorized_keys" < ~/.ssh/new-key.pub
+
+# Verify you can connect with the new key, then remove the old one
+```
+
+**Full rotation (replaces the VM):** Regenerate the deploy key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. This changes the public key, which triggers a Lightsail KeyPair replacement, which cascades to an Instance replacement. With `protect: true` (current default), `sst deploy` will **refuse** the replacement — you'd need to [unprotect first](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc). A replaced VM gets a fresh disk: **all Docker volumes are wiped** (vault re-syncs from Obsidian, search index rebuilds, but OAuth state in `oauth.db` is lost — clients re-authenticate). Update `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets after.
 
 ### Rotating `MCP_AUTH_TOKEN`
 

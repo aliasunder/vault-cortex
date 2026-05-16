@@ -230,8 +230,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 `Resource.McpAuthToken` (used by `src/functions/authorizer.ts`) is
 typed via `sst-env.d.ts` at the project root, which SST writes when
-it runs the resource graph. The file is gitignored (auto-generated)
-so on a fresh clone, `npm run build` fails with
+it runs the resource graph. The file is committed but auto-generated
+— on a fresh clone it may be stale, and `npm run build` can fail with
 `Property 'McpAuthToken' does not exist on type 'Resource'` until
 you've run `npx sst deploy` (or `sst dev`) once for your stage.
 
