@@ -8,12 +8,15 @@ Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
 The typical Obsidian + MCP setup requires three moving parts running
 simultaneously: Obsidian open → Local REST API plugin installed → a separate
-MCP server wrapping the REST API. That chain is local-only — it can't serve
-requests from your phone, a remote server, or claude.ai. vault-cortex
-replaces all of that with Docker, adds remote access via Obsidian Sync,
-and works from anywhere. It follows the current MCP spec: streamable-http
-transport and OAuth 2.0 with PKCE for authentication. See the
-[README](./README.md#what-is-this) for the full value proposition.
+MCP server wrapping the REST API. That chain is local-only.
+
+vault-cortex replaces it:
+
+- **Docker-based** — no Obsidian desktop, no plugins, works with `.md` files on disk
+- **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
+- **MCP spec-compliant** — streamable-http transport, OAuth 2.0 with PKCE
+
+See the [README](./README.md#what-is-this) for the full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but vault-cortex runs anywhere Docker does.
