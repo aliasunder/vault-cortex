@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [0.9.0] — 2026-05-16
+
+### Bug Fixes
+
+- **deps:** Resolve dependabot security alerts (#30)
+
+### Documentation
+
+- Add community files for open-source release (#24)
+- Update CHANGELOG.md for v0.8.1
+
+### Maintenance
+
+- **deps:** Update all dependencies, Node 24, TypeScript 6 (#27)
+
+
 ## [0.8.1] — 2026-05-15
 
 ### Documentation
