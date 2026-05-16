@@ -225,17 +225,24 @@ Both halves come from the dedicated deploy keypair set up in [Prerequisites](#pr
 
 ### Rotating SSH keys
 
-**Simple (no VM replacement):** SSH into the instance with the current key and update `authorized_keys` directly. Then update `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets. This doesn't touch SST/Pulumi — the Lightsail KeyPair stays the same.
+Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitHub secret flows through CI → `sst deploy` → `readSshPublicKey()` → Lightsail KeyPair `publicKey`. A changed public key replaces the KeyPair, which cascades to an Instance replacement. There's no way to rotate the SST-managed key without replacing the VM.
+
+**Steps:**
+
+1. Take a manual snapshot first: `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
+2. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
+3. [Unprotect the instance](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc) (required — `protect: true` blocks replacement)
+4. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
+5. Deploy — the VM is replaced with a fresh disk
+
+**Data implications:** vault re-syncs from Obsidian, search index rebuilds automatically, but OAuth state (`oauth.db`) is lost — clients re-authenticate on next use.
+
+**Adding a personal SSH key (no rotation):** To SSH with an additional key without touching SST, add it to `authorized_keys` directly:
 
 ```bash
-# Add the new public key
 ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
-  "cat >> ~/.ssh/authorized_keys" < ~/.ssh/new-key.pub
-
-# Verify you can connect with the new key, then remove the old one
+  "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub
 ```
-
-**Full rotation (replaces the VM):** Regenerate the deploy key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. This changes the public key, which triggers a Lightsail KeyPair replacement, which cascades to an Instance replacement. With `protect: true` (current default), `sst deploy` will **refuse** the replacement — you'd need to [unprotect first](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc). A replaced VM gets a fresh disk: **all Docker volumes are wiped** (vault re-syncs from Obsidian, search index rebuilds, but OAuth state in `oauth.db` is lost — clients re-authenticate). Update `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets after.
 
 ### Rotating `MCP_AUTH_TOKEN`
 
