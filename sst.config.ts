@@ -19,10 +19,13 @@ export default $config({
   },
 
   async run() {
-    // SST 4 forbids static `import` at the top of sst.config.ts —
-    // everything has to be dynamic and inside this function.
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
+    const env = (await import("env-var")).get
+
+    // ── Environment ──────────────────────────────────────────────
+    const sshPubkey = env("SSH_PUBKEY").asString()
+    const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
     const expandHome = (p: string): string =>
       p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
@@ -35,11 +38,9 @@ export default $config({
      *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
-      if (process.env.SSH_PUBKEY?.trim()) {
-        return process.env.SSH_PUBKEY.trim()
-      }
-      const candidates = process.env.SSH_PUBKEY_PATH
-        ? [expandHome(process.env.SSH_PUBKEY_PATH)]
+      if (sshPubkey) return sshPubkey
+      const candidates = sshPubkeyPath
+        ? [expandHome(sshPubkeyPath)]
         : [expandHome("~/.ssh/vault-cortex.pub")]
       for (const path of candidates) {
         if (existsSync(path)) return readFileSync(path, "utf8").trim()
