@@ -31,7 +31,17 @@ package.json                           # single package, all deps
 tsconfig.json                          # single config
 Dockerfile                             # vault-mcp Docker image
 docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
+docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env
+deploy/                                # End-user quickstart (no clone needed)
+  local/                               #   vault-mcp + bind-mounted vault
+    README.md                          #     quickstart walkthrough
+    docker-compose.yml                 #     just: docker compose up
+    .env.example                       #     MCP_AUTH_TOKEN + VAULT_PATH
+  remote/                              #   vault-mcp + Obsidian Sync + named volumes
+    README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
+    docker-compose.yml                 #     just: docker compose up
+    .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
