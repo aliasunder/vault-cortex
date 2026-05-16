@@ -12,7 +12,7 @@ import { createOAuthRoutes } from "./auth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-router.js"
 import { loadConfig } from "./config.js"
 import { logger } from "../logger.js"
-import * as env from "env-var"
+import env from "env-var"
 
 export const createErrorMiddleware =
   () =>
