@@ -6,7 +6,7 @@
 [![MCP Server](https://badge.mcpx.dev?type=server&features=tools)](https://modelcontextprotocol.io)
 
 <p align="center">
-  <img src="./assets/banner.svg" width="600" alt="vault-cortex">
+  <img src="./assets/banner.svg" width="720" alt="vault-cortex">
 </p>
 
 <!-- TODO: Uncomment when demo GIF is recorded (see ^demo-gif task)
@@ -179,6 +179,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup.
 ### For Claude users
 
 The [obsidian-vault](https://github.com/aliasunder/cowork-plugins) skill teaches Claude how to write Obsidian-compatible content — frontmatter, wikilinks, tags, callouts, and plugin-specific syntax. vault-cortex delivers the content; obsidian-vault ensures it renders correctly in Obsidian. Available for Claude Code and Claude Desktop.
+
+## Acknowledgments
+
+vault-cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a headless Obsidian Sync client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible.
 
 ## Contributing
 
