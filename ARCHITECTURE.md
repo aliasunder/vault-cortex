@@ -207,6 +207,8 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint |
 | `vault_list_memory_files` | —                                | readOnlyHint    |
 
+**Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Principles.md, Opinions.md) so agents discover a ready structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
+
 ### Phase 1: Link Queries
 
 | Tool                       | Input                      | Annotation   |
@@ -311,7 +313,9 @@ Three services run in order via `depends_on`:
    for incremental sync — critical for Phase 2 LightRAG ingestion).
 3. **`vault-mcp`** — MCP server. Runs as the `node` user (UID 1000),
    matching obsidian-sync's `PUID` so both containers can read/write the
-   shared `/vault` volume.
+   shared `/vault` volume. On startup: builds the FTS5 search index,
+   bootstraps memory templates if the memory folder doesn't exist, then
+   starts the file watcher.
 
 ### Durability
 

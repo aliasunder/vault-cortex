@@ -9,7 +9,16 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 complete — 22 MCP tools, deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+> **Status:** Phase 1 complete — 22 MCP tools, deployed.
+
+### Roadmap
+
+| Phase | What                                                                                | Status   |
+| ----- | ----------------------------------------------------------------------------------- | -------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.0                        | Complete |
+| **2** | Semantic search + knowledge graph via [LightRAG](https://github.com/HKUDS/LightRAG) | Planned  |
+
+Phase 2 adds a LightRAG container for semantic and knowledge-graph queries over the vault — temporal recall, concept relationships, and richer retrieval beyond keyword search. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design and Phase 1/2 boundaries.
 
 ## Quickstart
 
@@ -117,12 +126,9 @@ vault-cortex reads configuration from environment variables at startup. All sett
 
 The memory tools (`vault_get_memory`, `vault_update_memory`, `vault_list_memory_files`, `vault_delete_memory`) read and write structured files in a configurable folder inside the vault. These files use H2 headings as sections and dated bullets (`- **YYYY-MM-DD**: text`) as entries.
 
-Example memory files are provided in [`templates/memory/`](./templates/memory/). Copy them into your vault's memory folder to get started:
+**Auto-initialization:** On first startup, if the memory folder doesn't exist, the server creates it with template files (Principles.md, Opinions.md) so agents have a ready structure to discover. Additionally, `vault_update_memory` auto-creates files and sections on write — agents can save preferences immediately without manual setup.
 
-```bash
-cp templates/memory/Principles.md ~/your-vault/About\ Me/
-cp templates/memory/Opinions.md ~/your-vault/About\ Me/
-```
+Example memory files and a full explanation of the dated-entry design (why timestamps matter, how they enable temporal queries in Phase 2) are in [`templates/memory/`](./templates/memory/).
 
 ### Environment variables
 

@@ -160,6 +160,24 @@ docker logs -f obsidian-sync
 docker compose ps
 ```
 
+## Restart
+
+The server runs startup tasks on every boot: rebuilds the search index, creates
+memory template files if the memory folder doesn't exist, and starts the file
+watcher. To re-run the startup flow (e.g., after changing config or to test
+bootstrap behavior):
+
+```bash
+# Restart just vault-mcp (obsidian-sync keeps running):
+docker compose restart vault-mcp
+
+# Restart all services:
+docker compose restart
+```
+
+The container also restarts automatically on crash (`restart: unless-stopped`
+policy), Docker daemon restart, or system reboot.
+
 ## Stop
 
 ```bash
@@ -169,6 +187,13 @@ docker compose down
 # Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
 docker compose down -v
 ```
+
+## Memory
+
+On first startup, if your vault doesn't already have a memory folder (default:
+`About Me/`), the server creates one with template files (Principles.md,
+Opinions.md). Agents can also create new memory files and sections on the fly
+via `vault_update_memory` — no manual setup needed.
 
 ## Configuration
 

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import matter from "gray-matter"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
@@ -148,11 +149,10 @@ describe("getMemory", () => {
     ).rejects.toThrow('section not found: "Nonexistent section"')
   })
 
-  it("throws when About Me directory does not exist", async () => {
+  it("returns empty string when About Me directory does not exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "empty-vault-"))
-    await expect(getMemory({ vaultPath: emptyVault }, logger)).rejects.toThrow(
-      "About Me directory not found",
-    )
+    const result = await getMemory({ vaultPath: emptyVault }, logger)
+    expect(result).toBe("")
     await rm(emptyVault, { recursive: true })
   })
 })
@@ -291,27 +291,180 @@ describe("updateMemory", () => {
     expect(result).toContain("- **2026-05-08**: case test")
   })
 
-  it("throws on non-existent file", async () => {
-    await expect(
-      updateMemory(
-        { vaultPath: vault, file: "Ghost", section: "Section", entry: "entry" },
-        logger,
-      ),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+  it("auto-creates file when it does not exist", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Ghost",
+        section: "New section",
+        entry: "first entry",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Ghost",
+        section: "New section (newest first)",
+      },
+      logger,
+    )
+    expect(result).toBe("- **2026-05-15**: first entry")
   })
 
-  it("throws on non-existent section", async () => {
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Principles",
-          section: "Nonexistent",
-          entry: "entry",
-        },
-        logger,
-      ),
-    ).rejects.toThrow('section not found: "Nonexistent"')
+  it("auto-creates section in existing file", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Brand new section",
+        entry: "section entry",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Brand new section (newest first)",
+      },
+      logger,
+    )
+    expect(result).toBe("- **2026-05-15**: section entry")
+  })
+})
+
+describe("updateMemory auto-creation", () => {
+  it("auto-creates directory and file when neither exist", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-"))
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Preferences",
+        section: "Editor settings",
+        entry: "Prefers dark mode",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const result = await getMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Preferences",
+        section: "Editor settings (newest first)",
+      },
+      logger,
+    )
+    expect(result).toBe("- **2026-05-15**: Prefers dark mode")
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("auto-created file has correct frontmatter", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "fm-test-"))
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Working Preferences",
+        section: "Tools",
+        entry: "Uses VS Code",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const raw = await readFile(
+      join(emptyVault, "About Me/Working Preferences.md"),
+      "utf8",
+    )
+    const parsed = matter(raw)
+    expect(parsed.data.title).toBe("Working Preferences")
+    expect(parsed.data.type).toBe("profile")
+    expect(parsed.data.tags).toEqual(["memory", "working-preferences"])
+    expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("auto-created file has correct H1 and H2 structure", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "structure-"))
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Preferences",
+        section: "Editor settings",
+        entry: "Dark mode",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const raw = await readFile(
+      join(emptyVault, "About Me/Preferences.md"),
+      "utf8",
+    )
+    expect(raw).toContain("# Preferences")
+    expect(raw).toContain("## Editor settings (newest first)")
+    expect(raw).toContain("- **2026-05-15**: Dark mode")
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("auto-created section preserves existing file content", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "New category",
+        entry: "appended entry",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).toContain("## Decision heuristics (newest first)")
+    expect(raw).toContain("Secrets invisible at every layer")
+    expect(raw).toContain("## Working style (newest first)")
+    expect(raw).toContain("## New category (newest first)")
+    expect(raw).toContain("- **2026-05-15**: appended entry")
+    expect(raw).toContain("title: Principles — About Me")
+  })
+
+  it("auto-created section entry is readable via getMemory", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Design preferences",
+        entry: "Minimalist UI",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Design preferences (newest first)",
+      },
+      logger,
+    )
+    expect(result).toBe("- **2026-05-15**: Minimalist UI")
+  })
+
+  it("does not double-append suffix when section already has it", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Design preferences (newest first)",
+        entry: "Already suffixed",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    const raw = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
+    expect(raw).toContain("## Design preferences (newest first)")
+    expect(raw).not.toContain(
+      "## Design preferences (newest first) (newest first)",
+    )
   })
 })
 
@@ -556,11 +709,84 @@ describe("custom memoryDir", () => {
     await rm(customVault, { recursive: true })
   })
 
-  it("directory-not-found error references the configured name", async () => {
+  it("returns empty string when configured directory does not exist", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
-    await expect(
-      customStore.getMemory({ vaultPath: customVault }, logger),
-    ).rejects.toThrow("Profile directory not found")
+    const result = await customStore.getMemory(
+      { vaultPath: customVault },
+      logger,
+    )
+    expect(result).toBe("")
     await rm(customVault, { recursive: true })
+  })
+})
+
+describe("bootstrapMemoryDir", () => {
+  const { bootstrapMemoryDir, listMemoryFiles } = createMemoryStore({
+    memoryDir: "About Me",
+  })
+
+  it("creates memory directory and template files when dir does not exist", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    expect(outlines).toHaveLength(2)
+    expect(outlines.map((outline) => outline.file).sort()).toEqual([
+      "Opinions",
+      "Principles",
+    ])
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("template files have correct frontmatter", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-fm-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const raw = await readFile(
+      join(emptyVault, "About Me/Principles.md"),
+      "utf8",
+    )
+    const parsed = matter(raw)
+    expect(parsed.data.title).toBe("Principles")
+    expect(parsed.data.type).toBe("profile")
+    expect(parsed.data.tags).toEqual(["memory", "principles"])
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("template files have correct H2 sections", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-h2-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
+    const sectionNames = principles.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
+    expect(sectionNames).toEqual([
+      "Decision heuristics (newest first)",
+      "Working style (newest first)",
+      "Non-negotiables (newest first)",
+    ])
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("is a no-op when memory directory already exists", async () => {
+    const contentBefore = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    await bootstrapMemoryDir({ vaultPath: vault }, logger)
+    const contentAfter = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(contentAfter).toBe(contentBefore)
+  })
+
+  it("preserves existing files when directory already exists", async () => {
+    await bootstrapMemoryDir({ vaultPath: vault }, logger)
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    const parsed = matter(raw)
+    expect(parsed.data.title).toBe("Principles — About Me")
+    expect(raw).toContain("Secrets invisible at every layer")
   })
 })

@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from "express"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
+import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./auth/oauth-provider.js"
 import { createOAuthRoutes } from "./auth/oauth-routes.js"
@@ -53,6 +54,9 @@ const startServer = async (): Promise<void> => {
   const search = createSearchIndex(searchDbPath)
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
+
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 
   await startFileWatcher(vaultPath, search)
 
