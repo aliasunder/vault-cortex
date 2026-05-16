@@ -136,14 +136,17 @@ See [ARCHITECTURE.md § Auth](./ARCHITECTURE.md#auth-oauth-20--defense-in-depth)
 
 ## How It Works
 
-Three services in Docker Compose: `init-config-perms` (one-shot volume fix) → `obsidian-sync` (bidirectional Obsidian Sync) → `vault-mcp` (MCP server). The vault `.md` files are the source of truth; SQLite FTS5 is rebuildable derived state.
+```mermaid
+graph LR
+    Client["MCP Client"] -->|OAuth 2.0 / Bearer| Server["vault-mcp"]
+    Server -->|read/write| Vault[("/vault<br/>.md files")]
+    Server -->|query| SQLite[("SQLite FTS5")]
+    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
+```
 
-- **Edge:** API Gateway HTTP API + Lambda bearer-token authorizer
-- **Backend:** Lightsail (~$12/mo) or any VPS running Docker
-- **IaC:** SST v4 (optional — only for the full AWS deployment)
-- **Search:** SQLite FTS5 with BM25 ranking, stemming, and phrase matching
+The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, component diagram, and Phase 1/2 boundaries.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
 
 ## Deployment Options
 

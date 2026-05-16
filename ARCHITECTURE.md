@@ -8,26 +8,12 @@ Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
 The typical Obsidian + MCP setup requires three moving parts running
 simultaneously: Obsidian open → Local REST API plugin installed → a separate
-MCP server (Python/uv or npx) wrapping the REST API.
+MCP server wrapping the REST API. vault-cortex replaces all of that with
+Docker and your vault folder. See the [README](./README.md#what-is-this) for
+the full value proposition.
 
-vault-cortex replaces all of that with Docker and your vault folder.
-
-**What makes it different:**
-
-- **Obsidian doesn't need to be running.** Headless sync keeps the vault
-  current, and the server works directly with `.md` files on disk.
-- **No plugins.** No Local REST API, no community plugin dependencies.
-- **Remote-first.** The only Obsidian MCP server that works from your phone,
-  claude.ai, or a CI pipeline — via Obsidian Sync in Docker + API Gateway +
-  OAuth 2.0.
-- **Better search.** SQLite FTS5 with BM25 ranking, porter stemming, phrase
-  matching, and tag/property/folder filtering. Ranked results, not grep.
-- **Structured memory.** A dedicated memory layer with dated entries, section
-  targeting, and auto-initialization — designed for AI agent personalization
-  across conversations.
-- **Obsidian-native.** Frontmatter-aware, wikilink-aware, tag-aware,
-  heading-aware, daily-note-aware. The 22 tools understand Obsidian conventions,
-  not just raw markdown.
+This document covers the architecture of the reference deployment — Lightsail,
+API Gateway, SST — but vault-cortex runs anywhere Docker does.
 
 ## Phasing
 
