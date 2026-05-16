@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [0.10.0] — 2026-05-16
+
+### Features
+
+- Auto-create memory files on first write (#32)
+- Add local and remote Docker quickstart deploys (#31)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.9.0
+
+
 ## [0.9.0] — 2026-05-16
 
 ### Bug Fixes
