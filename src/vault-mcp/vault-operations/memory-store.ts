@@ -1,7 +1,7 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
-import { readFile, writeFile, readdir } from "node:fs/promises"
-import { join, basename } from "node:path"
+import { readFile, writeFile, readdir, mkdir } from "node:fs/promises"
+import { join, basename, dirname } from "node:path"
 import matter from "gray-matter"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
@@ -11,6 +11,14 @@ import type { Logger } from "../../logger.js"
 const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
 const isString = (value: unknown): value is string => typeof value === "string"
+
+/** Converts a string to kebab-case for use as a tag. */
+const toKebabCase = (text: string): string =>
+  text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -115,6 +123,20 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   const memoryFilePath = (vaultPath: string, file: string): string =>
     join(vaultPath, memoryDir, `${file}.md`)
 
+  const MEMORY_TEMPLATES: ReadonlyArray<{
+    fileName: string
+    content: string
+  }> = [
+    {
+      fileName: "Opinions",
+      content: `---\ntitle: Opinions\ntype: profile\ntags:\n  - memory\n  - opinions\n---\n\n# Opinions\n\n## Tools and workflows (newest first)\n\n## Code patterns (newest first)\n\n## Communication preferences (newest first)\n`,
+    },
+    {
+      fileName: "Principles",
+      content: `---\ntitle: Principles\ntype: profile\ntags:\n  - memory\n  - principles\n---\n\n# Principles\n\n## Decision heuristics (newest first)\n\n## Working style (newest first)\n\n## Non-negotiables (newest first)\n`,
+    },
+  ]
+
   const readMemoryFile = async (
     vaultPath: string,
     file: string,
@@ -131,6 +153,35 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
+  /** Like readMemoryFile, but returns null when the file does not exist. */
+  const readMemoryFileOrNull = async (
+    vaultPath: string,
+    file: string,
+  ): Promise<string | null> => {
+    try {
+      return await readFile(memoryFilePath(vaultPath, file), "utf8")
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
+      throw err
+    }
+  }
+
+  /** Builds a new memory file with frontmatter, H1 title, H2 section, and initial entry. */
+  const buildNewMemoryFile = (params: {
+    fileName: string
+    section: string
+    bullet: string
+  }): string => {
+    const frontmatter = {
+      title: params.fileName,
+      type: "profile",
+      tags: ["memory", toKebabCase(params.fileName)],
+      created: DateTime.now().toISO(),
+    }
+    const body = `\n# ${params.fileName}\n\n## ${params.section}\n${params.bullet}\n`
+    return matter.stringify(body, frontmatter)
+  }
+
   // ── Exported functions ──────────────────────────────────────────
 
   const getMemory = async (
@@ -144,7 +195,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         entries = await readdir(dir)
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`${memoryDir} directory not found`, { cause: err })
+          logger.info("get memory", { mode: "all", fileCount: 0 })
+          return ""
         }
         throw err
       }
@@ -202,23 +254,54 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     },
     logger: Logger,
   ): Promise<void> => {
-    const raw = await readMemoryFile(params.vaultPath, params.file)
-    const parsed = matter(raw)
-    const lines = parsed.content.split("\n")
-    const sections = parseSections(lines)
-    const match = findSection(sections, params.section, 2)
-    if (!match) {
-      throw new Error(
-        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
-      )
-    }
-
     const date = params.date ?? DateTime.now().toISODate()
     const position = params.position ?? "top"
     const bullet = `- **${date}**: ${params.entry}`
 
-    // Find the first and last dated bullet within the section body to determine
-    // where to insert. Offsets are relative to the section's bodyStartLine.
+    const raw = await readMemoryFileOrNull(params.vaultPath, params.file)
+
+    // File does not exist — create directory + file with section and entry
+    if (raw === null) {
+      const filePath = memoryFilePath(params.vaultPath, params.file)
+      await mkdir(dirname(filePath), { recursive: true })
+      const content = buildNewMemoryFile({
+        fileName: params.file,
+        section: params.section,
+        bullet,
+      })
+      await writeFile(filePath, content, "utf8")
+      logger.info("created memory file", {
+        file: params.file,
+        section: params.section,
+        date,
+      })
+      return
+    }
+
+    const parsed = matter(raw)
+    const lines = parsed.content.split("\n")
+    const sections = parseSections(lines)
+    const match = findSection(sections, params.section, 2)
+
+    // File exists but section does not — append new H2 + entry at end
+    if (!match) {
+      const appendedLines = [...lines, `## ${params.section}`, bullet]
+      const newContent = appendedLines.join("\n")
+      const serialized = matter.stringify(newContent, parsed.data)
+      await writeFile(
+        memoryFilePath(params.vaultPath, params.file),
+        serialized,
+        "utf8",
+      )
+      logger.info("created memory section", {
+        file: params.file,
+        section: params.section,
+        date,
+      })
+      return
+    }
+
+    // File + section exist — insert entry at requested position
     const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
     const firstBulletOffset = bodyLines.findIndex((line) =>
       ENTRY_PATTERN.test(line),
@@ -228,10 +311,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       -1,
     )
 
-    // Compute the absolute line index in the full content array for insertion.
-    // "top" inserts before the first existing bullet (newest-first ordering).
-    // "bottom" inserts after the last existing bullet.
-    // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
     const insertIndex =
       position === "top"
         ? firstBulletOffset >= 0
@@ -241,7 +320,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           ? match.bodyStartLine + lastBulletOffset + 1
           : match.bodyEndLine
 
-    // Splice the new bullet into the content lines
     const updatedLines = [
       ...lines.slice(0, insertIndex),
       bullet,
@@ -371,7 +449,41 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     })
   }
 
-  return { getMemory, updateMemory, listMemoryFiles, deleteMemory }
+  /** Creates the memory directory with template files if it doesn't exist. Idempotent. */
+  const bootstrapMemoryDir = async (
+    params: { vaultPath: string },
+    logger: Logger,
+  ): Promise<void> => {
+    const dirPath = join(params.vaultPath, memoryDir)
+    try {
+      await readdir(dirPath)
+      return
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
+    }
+    await mkdir(dirPath, { recursive: true })
+    await Promise.all(
+      MEMORY_TEMPLATES.map((template) =>
+        writeFile(
+          join(dirPath, `${template.fileName}.md`),
+          template.content,
+          "utf8",
+        ),
+      ),
+    )
+    logger.info("bootstrapped memory directory", {
+      memoryDir,
+      fileCount: MEMORY_TEMPLATES.length,
+    })
+  }
+
+  return {
+    getMemory,
+    updateMemory,
+    listMemoryFiles,
+    deleteMemory,
+    bootstrapMemoryDir,
+  }
 }
 
 export type MemoryStore = ReturnType<typeof createMemoryStore>

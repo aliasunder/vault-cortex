@@ -670,7 +670,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 
@@ -722,7 +722,8 @@ Returns: Raw markdown text.`,
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix.
-Prefer vault_write_note for creating entirely new notes (not memory entries).
+Auto-creates: If the file does not exist, it is created with standard frontmatter. If the file exists but the section does not, the section is appended.
+For non-memory notes, use vault_write_note instead.
 
 Obsidian syntax: Entry text is rendered inline as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
 
