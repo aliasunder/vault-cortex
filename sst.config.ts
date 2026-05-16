@@ -4,16 +4,17 @@
 // to be dynamically imported inside `run()`. See readSshPublicKey
 // below for the only filesystem access we need.
 
+// Module-level so app() and run() share the same value.
+// env-var can't be used here (SST forbids imports outside run()).
+const awsRegion = process.env.AWS_REGION ?? "us-east-1"
+
 export default $config({
   app() {
     return {
       name: "vault-cortex",
       removal: "retain",
       home: "aws",
-      providers: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SST types region as a string literal union; env var is dynamic
-        aws: { region: (process.env.AWS_REGION ?? "us-east-1") as any },
-      },
+      providers: { aws: { region: awsRegion } },
     }
   },
 
@@ -119,7 +120,7 @@ export default $config({
       "VaultCortexVm",
       {
         name: `vault-cortex-${$app.stage}`,
-        availabilityZone: `${process.env.AWS_REGION ?? "us-east-1"}a`,
+        availabilityZone: `${awsRegion}a`,
         blueprintId: "ubuntu_22_04",
         bundleId: "small_3_0",
         keyPairName: keyPair.name,

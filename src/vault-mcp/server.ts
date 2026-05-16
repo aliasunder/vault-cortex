@@ -12,6 +12,7 @@ import { createOAuthRoutes } from "./auth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-router.js"
 import { loadConfig } from "./config.js"
 import { logger } from "../logger.js"
+import * as env from "env-var"
 
 export const createErrorMiddleware =
   () =>
@@ -28,28 +29,18 @@ export const createErrorMiddleware =
     }
   }
 
-export const requireEnv = (name: string): string => {
-  const value = process.env[name]
-  if (!value) {
-    logger.error("missing required env", { var: name })
-    throw new Error(`${name} environment variable is required`)
-  }
-  return value
-}
-
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
-  const authToken = requireEnv("MCP_AUTH_TOKEN")
-  const vaultPath = requireEnv("VAULT_PATH")
-  const publicUrl = requireEnv("PUBLIC_URL")
+  const authToken = env.get("MCP_AUTH_TOKEN").required().asString()
+  const vaultPath = env.get("VAULT_PATH").required().asString()
+  const publicUrl = env.get("PUBLIC_URL").required().asString()
 
-  const dataDir = process.env.INDEX_DB_PATH
-    ? process.env.INDEX_DB_PATH.replace(/\/[^/]+$/, "")
-    : "/data"
-  const searchDbPath = process.env.INDEX_DB_PATH ?? `${dataDir}/search.db`
+  const indexDbPath = env.get("INDEX_DB_PATH").asString()
+  const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
+  const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
-  const port = parseInt(process.env.PORT ?? "8000", 10)
-  const host = process.env.HOST ?? "0.0.0.0"
+  const port = env.get("PORT").default("8000").asPortNumber()
+  const host = env.get("HOST").default("0.0.0.0").asString()
 
   const search = createSearchIndex(searchDbPath)
   const count = await search.rebuildFromVault(vaultPath)
