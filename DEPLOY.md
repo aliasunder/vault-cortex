@@ -235,7 +235,7 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 4. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
 5. Deploy — the VM is replaced with a fresh disk
 
-**Data implications:** vault re-syncs from Obsidian, search index rebuilds automatically, but OAuth state (`oauth.db`) is lost — clients re-authenticate on next use.
+**Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
 **Adding a personal SSH key (no rotation):** To SSH with an additional key without touching SST, add it to `authorized_keys` directly:
 
