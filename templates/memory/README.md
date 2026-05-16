@@ -12,8 +12,10 @@ templates:
 1. Copy the example files into your vault's memory folder (default: `About Me/`):
 
 ```bash
+cp templates/memory/Me.md ~/your-vault/About\ Me/
 cp templates/memory/Principles.md ~/your-vault/About\ Me/
 cp templates/memory/Opinions.md ~/your-vault/About\ Me/
+cp templates/memory/Routines.md ~/your-vault/About\ Me/    # optional
 ```
 
 2. If you use a different folder name, set `MEMORY_DIR` in your `.env`:

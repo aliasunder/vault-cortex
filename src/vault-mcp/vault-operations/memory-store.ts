@@ -135,6 +135,27 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     content: string
   }> = [
     {
+      fileName: "Me",
+      content: [
+        "---",
+        "title: Me",
+        "type: profile",
+        "tags:",
+        "  - memory",
+        "  - identity",
+        "---",
+        "",
+        "# Me",
+        "",
+        "## Identity (newest first)",
+        "",
+        "## Interests (newest first)",
+        "",
+        "## Context (newest first)",
+        "",
+      ].join("\n"),
+    },
+    {
       fileName: "Opinions",
       content: [
         "---",
