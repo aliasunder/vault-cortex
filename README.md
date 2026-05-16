@@ -22,7 +22,7 @@
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **vault-cortex** replaces all of that with Docker and your vault folder.
 
 - **Plugin-free** — Obsidian doesn't need to be running; headless sync keeps the vault current, and the server works directly with `.md` files on disk
-- **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.0
+- **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -31,7 +31,7 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 
 | Phase | What                                                                                | Status   |
 | ----- | ----------------------------------------------------------------------------------- | -------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.0                        | Complete |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                        | Complete |
 | **2** | Semantic search + knowledge graph via [LightRAG](https://github.com/HKUDS/LightRAG) | Planned  |
 
 ## Quick Start
@@ -127,18 +127,18 @@ Two methods, both validated at two layers (Lambda authorizer + Express middlewar
 
 | Method            | Used by                                                  | Token format         |
 | ----------------- | -------------------------------------------------------- | -------------------- |
-| **OAuth 2.0**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 24h)     |
+| **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 24h)     |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
 
 OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate).
 
-See [ARCHITECTURE.md § Auth](./ARCHITECTURE.md#auth-oauth-20--defense-in-depth) for the full flow diagram.
+See [ARCHITECTURE.md § Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
 
 ## How It Works
 
 ```mermaid
 graph LR
-    Client["MCP Client"] -->|OAuth 2.0 / Bearer| Server["vault-mcp"]
+    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
     Server -->|read/write| Vault[("/vault<br/>.md files")]
     Server -->|query| SQLite[("SQLite FTS5")]
     Sync["obsidian-sync"] <-->|Obsidian Sync| Vault

@@ -61,7 +61,7 @@ src/
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
                                        # Phase 2: gains LightRAG ingestion hook
-    auth/                              # OAuth 2.0
+    auth/                              # OAuth 2.1
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization

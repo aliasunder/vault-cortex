@@ -14,7 +14,7 @@ vault-cortex replaces it:
 
 - **Docker-based** — no Obsidian desktop required to be running, no plugins, works with `.md` files on disk
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
-- **MCP spec-compliant** — streamable-http transport, OAuth 2.0 with PKCE
+- **MCP spec-compliant** — streamable-http transport, OAuth 2.1
 
 See the [README](./README.md#what-is-this) for the full value proposition.
 
@@ -43,7 +43,7 @@ container, a new watcher callback, and a new tool.
 | R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.         |
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.           |
 | R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).   |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.0 + static bearer token.             |
+| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.             |
 | R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.            |
 | R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                |
 
@@ -96,9 +96,9 @@ graph TB
     MCP_SERVER -->|read/write| VAULT_FS
     MCP_SERVER -->|query| SQLITE
     MCP_SERVER -.->|Phase 2: semantic query| LIGHTRAG
-    CC -->|OAuth 2.0 / Bearer token| APIGW
-    CD -->|OAuth 2.0| APIGW
-    CU -->|OAuth 2.0 / Bearer token| APIGW
+    CC -->|OAuth 2.1 / Bearer token| APIGW
+    CD -->|OAuth 2.1| APIGW
+    CU -->|OAuth 2.1 / Bearer token| APIGW
     APIGW -->|proxy| MCP_SERVER
 ```
 
@@ -248,13 +248,13 @@ Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.
 
 See `sst.config.ts` for full IaC.
 
-### Auth: OAuth 2.0 + defense in depth
+### Auth: OAuth 2.1 + defense in depth
 
 Two authentication methods, both validated at two layers:
 
 | Method                                | Used by                                                      | Token format                | Lifetime                                    |
 | ------------------------------------- | ------------------------------------------------------------ | --------------------------- | ------------------------------------------- |
-| OAuth 2.0 (Authorization Code + PKCE) | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
+| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, Claude Mobile, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
 | Static bearer token                   | Claude Code, MCP Inspector, curl                             | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
@@ -371,7 +371,7 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Lightsail over ECS                  | $12 vs ~$50+. Single-user server.                                                                                                     |
 | API Gateway over Caddy              | Free HTTPS URL, no domain needed, SST native.                                                                                         |
-| OAuth 2.0 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                        |
+| OAuth 2.1 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                        |
 | JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                            |
 | 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                         |
 | Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state. |
