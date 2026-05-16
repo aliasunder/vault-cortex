@@ -9,7 +9,16 @@
 
 Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol.
 
-> **Status:** Phase 1 complete — 22 MCP tools, deployed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+> **Status:** Phase 1 complete — 22 MCP tools, deployed.
+
+### Roadmap
+
+| Phase | What                                                                                | Status   |
+| ----- | ----------------------------------------------------------------------------------- | -------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.0                        | Complete |
+| **2** | Semantic search + knowledge graph via [LightRAG](https://github.com/HKUDS/LightRAG) | Planned  |
+
+Phase 2 adds a LightRAG container for semantic and knowledge-graph queries over the vault — temporal recall, concept relationships, and richer retrieval beyond keyword search. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design and Phase 1/2 boundaries.
 
 ## Quickstart
 
