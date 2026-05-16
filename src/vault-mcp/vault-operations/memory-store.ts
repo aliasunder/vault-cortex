@@ -258,10 +258,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const position = params.position ?? "top"
     const bullet = `- **${date}**: ${params.entry}`
 
-    const raw = await readMemoryFileOrNull(params.vaultPath, params.file)
+    const existingContent = await readMemoryFileOrNull(
+      params.vaultPath,
+      params.file,
+    )
 
     // File does not exist — create directory + file with section and entry
-    if (raw === null) {
+    if (existingContent === null) {
       const filePath = memoryFilePath(params.vaultPath, params.file)
       await mkdir(dirname(filePath), { recursive: true })
       const content = buildNewMemoryFile({
@@ -278,14 +281,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return
     }
 
-    const parsed = matter(raw)
-    const lines = parsed.content.split("\n")
-    const sections = parseSections(lines)
+    const parsed = matter(existingContent)
+    const contentLines = parsed.content.split("\n")
+    const sections = parseSections(contentLines)
     const match = findSection(sections, params.section, 2)
 
     // File exists but section does not — append new H2 + entry at end
     if (!match) {
-      const appendedLines = [...lines, `## ${params.section}`, bullet]
+      const appendedLines = [...contentLines, `## ${params.section}`, bullet]
       const newContent = appendedLines.join("\n")
       const serialized = matter.stringify(newContent, parsed.data)
       await writeFile(
@@ -302,7 +305,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     // File + section exist — insert entry at requested position
-    const bodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
+    const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine)
     const firstBulletOffset = bodyLines.findIndex((line) =>
       ENTRY_PATTERN.test(line),
     )
@@ -320,10 +323,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           ? match.bodyStartLine + lastBulletOffset + 1
           : match.bodyEndLine
 
+    // Splice the new bullet into the content lines
     const updatedLines = [
-      ...lines.slice(0, insertIndex),
+      ...contentLines.slice(0, insertIndex),
       bullet,
-      ...lines.slice(insertIndex),
+      ...contentLines.slice(insertIndex),
     ]
 
     const newContent = updatedLines.join("\n")

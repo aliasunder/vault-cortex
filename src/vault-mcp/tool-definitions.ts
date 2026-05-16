@@ -721,9 +721,9 @@ Returns: Raw markdown text.`,
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
-When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix.
-Auto-creates: If the file does not exist, it is created with standard frontmatter. If the file exists but the section does not, the section is appended.
-For non-memory notes, use vault_write_note instead.
+When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix. Always call vault_list_memory_files first to discover existing files and sections, and use matching names to keep entries organized alongside existing content.
+Auto-creates: If the file or section does not exist, it is created automatically. Use existing file and section names from vault_list_memory_files when available.
+Prefer vault_write_note for creating entirely new notes (not memory entries).
 
 Obsidian syntax: Entry text is rendered inline as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
 
