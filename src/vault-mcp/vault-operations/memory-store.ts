@@ -364,6 +364,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       -1,
     )
 
+    // Compute the absolute line index in the full content array for insertion.
     // "top" inserts before the first existing bullet (newest-first ordering).
     // "bottom" inserts after the last existing bullet.
     // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
