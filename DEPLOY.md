@@ -250,7 +250,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-The `SST_STAGE` and `AWS_DEPLOY_ROLE_ARN` variables point at infrastructure scoped to this account. Forks must set their own values and provision their own Lightsail/IAM before dispatching `manual_release.yml`, otherwise the workflow will either fail OIDC assumption or attempt to deploy to someone else's stack.
+Forks don't inherit GitHub Actions variables or secrets. Before using the deploy or release workflows, set your own `AWS_DEPLOY_ROLE_ARN`, `SST_STAGE`, and other required values — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [Required repo configuration](#required-repo-configuration) above.
 
 ---
 
