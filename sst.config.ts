@@ -24,6 +24,8 @@ export default $config({
     const env = (await import("env-var")).get
 
     // ── Environment ──────────────────────────────────────────────
+    // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
+    // Neither is individually required — readSshPublicKey errors if all three miss.
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
@@ -56,15 +58,14 @@ export default $config({
     // ── Secrets ────────────────────────────────────────────────────
     // Set once, then deploy:
     //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
-    //   sst secret set ObsidianAuthToken "<from Belphemur get-token>"
-    //   sst secret set ObsidianVaultName "My Vault"
     //   sst deploy
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
+    // OBSIDIAN_AUTH_TOKEN and VAULT_NAME are NOT SST secrets — they
+    // flow to Docker containers via the .env file (local) or GitHub
+    // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
-    const _obsidianAuthToken = new sst.Secret("ObsidianAuthToken")
-    const _obsidianVaultName = new sst.Secret("ObsidianVaultName")
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared

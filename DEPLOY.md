@@ -23,14 +23,14 @@ SST uses a stage name based on your OS username (run `npx sst secret list` once 
 npm install
 ```
 
-**2. Generate MCP auth token and set SST secrets** (placeholders are fine for smoke-testing infra):
+**2. Generate MCP auth token and set SST secret:**
 
 ```bash
 MCP_AUTH_TOKEN=$(openssl rand -hex 32)
-npx sst secret set McpAuthToken      "$MCP_AUTH_TOKEN"
-npx sst secret set ObsidianAuthToken "dev-placeholder"
-npx sst secret set ObsidianVaultName "dev-placeholder"
+npx sst secret set McpAuthToken "$MCP_AUTH_TOKEN"
 ```
+
+`McpAuthToken` is the only SST secret — it's linked to the Lambda authorizer. Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
 
 **3. Create the deploy `.env` file** (secrets live outside the repo at `~/.config/vault-cortex/.env`):
 
