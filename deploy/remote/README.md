@@ -188,6 +188,13 @@ docker compose down
 docker compose down -v
 ```
 
+## Memory
+
+On first startup, if your vault doesn't already have a memory folder (default:
+`About Me/`), the server creates one with template files (Principles.md,
+Opinions.md). Agents can also create new memory files and sections on the fly
+via `vault_update_memory` — no manual setup needed.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
