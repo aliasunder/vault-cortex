@@ -17,9 +17,9 @@
 
 ## What is this?
 
-vault-cortex gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your Obsidian vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 22 tools over a single Docker container.
+**vault-cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your Obsidian vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 22 tools over a single Docker container.
 
-The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. vault-cortex replaces all of that with Docker and your vault folder.
+The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **vault-cortex** replaces all of that with Docker and your vault folder.
 
 - **Plugin-free** — Obsidian doesn't need to be running; headless sync keeps the vault current, and the server works directly with `.md` files on disk
 - **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.0
