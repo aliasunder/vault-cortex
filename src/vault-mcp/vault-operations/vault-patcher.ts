@@ -398,7 +398,12 @@ const replaceInNote = async (
           body.slice(0, idx) + newText + body.slice(idx + oldText.length),
       }
 
-  const updatedLines = updatedBody.split("\n")
+  // When deleting text (newText is empty), collapse runs of 3+ blank
+  // lines down to 1 blank line so removals don't leave visible gaps.
+  const normalizedBody =
+    newText.length === 0 ? updatedBody.replace(/\n{3,}/g, "\n\n") : updatedBody
+
+  const updatedLines = normalizedBody.split("\n")
   await writePatchedNote(fullPath, data, updatedLines)
   logger.info("replaced in note", { path, count })
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
