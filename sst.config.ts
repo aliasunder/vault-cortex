@@ -171,17 +171,9 @@ export default $config({
       ],
     })
 
-    // ── API Gateway HTTP API ──────────────────────────────────────
-    // No custom domain — you get a free HTTPS URL:
-    //   https://<id>.execute-api.<region>.amazonaws.com
-    //
-    // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
-    // MCP clients point at this URL with their bearer token.
-    //
     // Stage throttle: 20 req/sec, 40 burst. GOTCHA: throttlingRateLimit
     // and throttlingBurstLimit must BOTH be set — partial config is
     // interpreted as 0 and rejects all traffic (pulumi/pulumi-aws#2363).
-    // ──────────────────────────────────────────────────────────────
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
       transform: {
         stage: {
