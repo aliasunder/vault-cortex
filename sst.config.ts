@@ -177,8 +177,31 @@ export default $config({
     //
     // Free tier: 1M requests/mo for 12 months, then $1/M (HTTP API).
     // MCP clients point at this URL with their bearer token.
+    //
+    // Stage-level throttle: caps both the runaway-bill scenario (every
+    // request bills $1/M + a Lambda authorizer invocation — authorizer
+    // result caching is disabled via empty identitySources) and the
+    // backend-saturation scenario (Lightsail small_3_0 is 2 vCPU).
+    // Sized for a personal MCP server with parallel tool fan-out;
+    // steady-state is normally << 1 RPS, so 20 RPS gives 20× headroom
+    // and a 40 burst absorbs a worst-case parallel-tool turn. Account
+    // default is 10k RPS / 5k burst region-wide — effectively unbounded
+    // for a personal server, so the stage default is opt-in protection.
+    //
+    // Tune as needed. GOTCHA: throttlingRateLimit and throttlingBurstLimit
+    // MUST be set together — setting only one is interpreted as 0 and
+    // makes the stage reject ALL traffic.
     // ──────────────────────────────────────────────────────────────
-    const api = new sst.aws.ApiGatewayV2("VaultCortexApi")
+    const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
+      transform: {
+        stage: {
+          defaultRouteSettings: {
+            throttlingRateLimit: 20,
+            throttlingBurstLimit: 40,
+          },
+        },
+      },
+    })
 
     // Smart Lambda authorizer — path-aware, defense in depth:
     //   - OAuth paths (/.well-known/*, /authorize, /token, etc.) → pass through
