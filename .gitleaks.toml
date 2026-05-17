@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholder used in local-dev quickstarts (README, CONTRIBUTING, docker-compose.local.yml). Not a real credential."
+regexTarget = "match"
+regexes = ['''local-dev-token''']
