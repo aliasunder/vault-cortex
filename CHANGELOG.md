@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [0.11.3] — 2026-05-17
+
+### Features
+
+- Throttle API Gateway stage to 20 RPS / 40 burst (#39)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.11.2
+
+### CI / Infrastructure
+
+- Add gitleaks secret scanning (#38)
+
+
 ## [0.11.2] — 2026-05-16
 
 ### Documentation
