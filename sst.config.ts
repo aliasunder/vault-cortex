@@ -170,7 +170,7 @@ export default $config({
         // SSH: configurable via SSH_CIDRS env var.
         // "none" removes port 22 from the public firewall (Tailscale-only).
         // Comma-separated CIDRs restrict to specific IPs (e.g. "100.64.0.0/10").
-        // Default (unset): 0.0.0.0/0 (backward-compat for forkers).
+        // Default (unset): 0.0.0.0/0 (backward-compat).
         ...(sshCidrs?.toLowerCase() === "none"
           ? []
           : [
