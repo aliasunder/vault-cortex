@@ -169,25 +169,26 @@ export default $config({
       instanceName: instance.name,
     })
 
+    /** RFC 5737 TEST-NET — no real source IP matches this CIDR. */
+    const NON_ROUTABLE_CIDR = "192.0.2.1/32"
+    const OPEN_TO_ALL = ["0.0.0.0/0"]
+
     /**
      * Parse a CIDR env var into a firewall allowlist.
-     * - undefined → fallback (typically 0.0.0.0/0, open to all)
-     * - "none" → non-routable CIDR (RFC 5737 TEST-NET, blocks all public access)
+     * - undefined → open to all
+     * - "none" → non-routable CIDR (blocks all public access)
      * - "a/b,c/d" → split into individual CIDRs
      *
      * Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
      */
-    const parseCidrs = (
-      raw: string | undefined,
-      fallback: string[],
-    ): string[] => {
-      if (!raw) return fallback
-      if (raw.toLowerCase() === "none") return ["192.0.2.1/32"]
+    const parseCidrs = (raw: string | undefined): string[] => {
+      if (!raw) return OPEN_TO_ALL
+      if (raw.toLowerCase() === "none") return [NON_ROUTABLE_CIDR]
       return raw.split(",").map((cidr) => cidr.trim())
     }
 
-    const sshFirewallCidrs = parseCidrs(sshCidrs, ["0.0.0.0/0"])
-    const mcpFirewallCidrs = parseCidrs(mcpPortCidrs, ["0.0.0.0/0"])
+    const sshFirewallCidrs = parseCidrs(sshCidrs)
+    const mcpFirewallCidrs = parseCidrs(mcpPortCidrs)
 
     // GOTCHA: port_info is ForceNew in the Pulumi/Terraform provider.
     // Adding or removing entries triggers a REPLACEMENT, and the
