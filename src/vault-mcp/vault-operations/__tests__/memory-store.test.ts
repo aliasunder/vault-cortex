@@ -19,7 +19,7 @@ tags:
   - principles
 created: 2026-04-22T20:51:21-04:00
 related:
-  - "[[People/Tanisha Aberdeen|Tanisha Aberdeen]]"
+  - "[[People/Alex Rivera|Alex Rivera]]"
 ---
 
 # Principles

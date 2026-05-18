@@ -52,7 +52,7 @@ describe("OAuth refresh token sliding expiry", () => {
     dbPath = join(dir, "oauth.db")
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
-      serverUrl: new URL("https://example.com"),
+
       dbPath,
     })
     db = new Database(dbPath)
@@ -203,7 +203,7 @@ describe("OAuth refresh token schema migration", () => {
 
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-      serverUrl: new URL("https://example.com"),
+
       dbPath,
     })
 
@@ -227,14 +227,14 @@ describe("OAuth refresh token schema migration", () => {
   it("is idempotent — re-running on a migrated DB doesn't error", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-      serverUrl: new URL("https://example.com"),
+
       dbPath,
     })
 
     expect(() =>
       createOAuthProvider({
         authToken: AUTH_TOKEN,
-        serverUrl: new URL("https://example.com"),
+
         dbPath,
       }),
     ).not.toThrow()

@@ -103,11 +103,6 @@ export const readDailyNotesConfig = async (
   return cachedConfig
 }
 
-/** Clears the cached config. Exposed for testing only. */
-export const clearConfigCache = (): void => {
-  cachedConfig = null
-}
-
 // ── Path resolution + read ──────────────────────────────────────
 
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */

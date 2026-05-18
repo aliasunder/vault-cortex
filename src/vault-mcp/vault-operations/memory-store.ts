@@ -565,5 +565,3 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     bootstrapMemoryDir,
   }
 }
-
-export type MemoryStore = ReturnType<typeof createMemoryStore>

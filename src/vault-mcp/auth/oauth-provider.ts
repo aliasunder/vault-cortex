@@ -54,7 +54,6 @@ type StoredAuthCode = {
 
 export type OAuthProviderOptions = {
   authToken: string
-  serverUrl: URL
   dbPath: string
 }
 

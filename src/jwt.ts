@@ -5,7 +5,7 @@
  * two deployment targets. HS256-only — the only algorithm we need.
  */
 
-import { createHmac } from "node:crypto"
+import { createHmac, timingSafeEqual } from "node:crypto"
 
 export type JwtPayload = {
   sub: string
@@ -36,17 +36,10 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   const [header, payload, sig] = parts as [string, string, string]
   const expected = hmac(`${header}.${payload}`, secret)
 
-  if (sig.length !== expected.length) return null
   const sigBuf = Buffer.from(sig, "base64url")
   const expBuf = Buffer.from(expected, "base64url")
   if (sigBuf.length !== expBuf.length) return null
-
-  // Constant-time comparison: XOR each byte pair and accumulate.
-  // If any byte differs, `match` becomes non-zero — but every byte
-  // is always compared, preventing timing attacks that leak signature bytes.
-  let match = 0
-  for (let i = 0; i < sigBuf.length; i++) match |= sigBuf[i]! ^ expBuf[i]!
-  if (match !== 0) return null
+  if (!timingSafeEqual(sigBuf, expBuf)) return null
 
   try {
     const decoded = JSON.parse(

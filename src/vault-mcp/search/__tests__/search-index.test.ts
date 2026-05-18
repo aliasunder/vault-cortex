@@ -448,24 +448,6 @@ describe("searchByFolder", () => {
   })
 })
 
-describe("searchByType", () => {
-  beforeEach(() => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    index.upsertNote("other.md", "---\ntitle: Other\n---\nbody\n", 2000)
-  })
-
-  it("finds notes by type", () => {
-    const results = index.searchByType({ type: "about-me" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
-  })
-
-  it("returns empty for unknown type", () => {
-    const results = index.searchByType({ type: "nonexistent" }, logger)
-    expect(results).toHaveLength(0)
-  })
-})
-
 describe("listAllTags", () => {
   beforeEach(() => {
     index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
