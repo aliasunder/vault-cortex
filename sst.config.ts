@@ -160,29 +160,24 @@ export default $config({
       instanceName: instance.name,
     })
 
-    // GOTCHA: InstancePublicPorts is DECLARATIVE — it replaces ALL
-    // existing rules on every deploy. If you omit port 22 here,
-    // you lock yourself out of SSH via the public IP (but Tailscale
-    // SSH still works — it bypasses the Lightsail firewall entirely).
+    // GOTCHA #1: InstancePublicPorts is DECLARATIVE — it replaces ALL
+    // existing rules on every deploy.
+    // GOTCHA #2: port_info is ForceNew in the Pulumi/Terraform provider.
+    // Adding or removing entries triggers a resource REPLACEMENT (delete
+    // all ports → recreate). Only cidrs can be changed in-place. So we
+    // ALWAYS keep both entries and map "none" to a non-routable CIDR
+    // instead of removing the port 22 entry.
+    const sshFirewallCidrs =
+      sshCidrs?.toLowerCase() === "none"
+        ? ["192.0.2.1/32"] // RFC 5737 TEST-NET — non-routable, effectively blocks all SSH
+        : sshCidrs
+          ? sshCidrs.split(",").map((cidr) => cidr.trim())
+          : ["0.0.0.0/0"]
+
     new aws.lightsail.InstancePublicPorts("VaultCortexPorts", {
       instanceName: instance.name,
       portInfos: [
-        // SSH: configurable via SSH_CIDRS env var.
-        // "none" removes port 22 from the public firewall (Tailscale-only).
-        // Comma-separated CIDRs restrict to specific IPs (e.g. "100.64.0.0/10").
-        // Default (unset): 0.0.0.0/0 (backward-compat).
-        ...(sshCidrs?.toLowerCase() === "none"
-          ? []
-          : [
-              {
-                protocol: "tcp",
-                fromPort: 22,
-                toPort: 22,
-                cidrs: sshCidrs
-                  ? sshCidrs.split(",").map((cidr) => cidr.trim())
-                  : ["0.0.0.0/0"],
-              },
-            ]),
+        { protocol: "tcp", fromPort: 22, toPort: 22, cidrs: sshFirewallCidrs },
         // API Gateway calls Lightsail on this port. Bearer token is
         // enforced upstream by the Lambda authorizer, so 0.0.0.0/0
         // is acceptable — the token is the real security boundary.
