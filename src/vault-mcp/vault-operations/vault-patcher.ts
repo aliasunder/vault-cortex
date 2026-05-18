@@ -53,17 +53,19 @@ const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
     // Inside a fenced code block (outside comments): only a matching close
     // fence matters — `%%` is code and ignored.
     if (fence && !comment) {
+      const fenceChars = fenceMatch?.[1]
       const isFenceClose =
-        fenceMatch &&
-        fenceMatch[1][0] === fence.char &&
-        fenceMatch[1].length >= fence.length &&
-        line.trim() === fenceMatch[1]
+        fenceChars &&
+        fenceChars[0] === fence.char &&
+        fenceChars.length >= fence.length &&
+        line.trim() === fenceChars
       if (isFenceClose) fence = null
       continue
     }
 
     if (fenceMatch && !comment) {
-      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length }
+      const fenceChars = fenceMatch[1]
+      fence = { char: fenceChars[0], length: fenceChars.length }
       continue
     }
 
@@ -131,19 +133,21 @@ const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       if (state.fence) {
         // Inside a fenced block — only exit when we see a closing fence of the
         // same character with length >= the opener, and nothing else on the line
+        const fenceChars = fenceMatch?.[1]
         const isFenceClose =
-          fenceMatch &&
-          fenceMatch[1][0] === state.fence.char &&
-          fenceMatch[1].length >= state.fence.length &&
-          line.trim() === fenceMatch[1]
+          fenceChars &&
+          fenceChars[0] === state.fence.char &&
+          fenceChars.length >= state.fence.length &&
+          line.trim() === fenceChars
         return isFenceClose ? { headings: state.headings, fence: null } : state
       }
 
       // Opening a new fenced code block
       if (fenceMatch) {
+        const fenceChars = fenceMatch[1]
         return {
           headings: state.headings,
-          fence: { char: fenceMatch[1][0], length: fenceMatch[1].length },
+          fence: { char: fenceChars[0], length: fenceChars.length },
         }
       }
 

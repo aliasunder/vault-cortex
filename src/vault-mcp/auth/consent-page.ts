@@ -15,15 +15,15 @@ export const renderConsentPage = ({
   requestId,
   error,
 }: ConsentPageParams): string => {
-  const esc = (s: string): string =>
-    s
+  const escapeHtml = (text: string): string =>
+    text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
 
   const scopeList = scopes.length
-    ? scopes.map((s) => `<li>${esc(s)}</li>`).join("")
+    ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
     : "<li><em>No specific scopes requested</em></li>"
 
   return `<!DOCTYPE html>
@@ -57,21 +57,21 @@ export const renderConsentPage = ({
 <body>
 <div class="card">
   <h1>Authorize access</h1>
-  ${error ? `<div class="error">${esc(error)}</div>` : ""}
+  ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
   <div class="field">
     <div class="label">Application</div>
-    <div class="value">${esc(clientName)}</div>
+    <div class="value">${escapeHtml(clientName)}</div>
   </div>
   <div class="field">
     <div class="label">Client ID</div>
-    <div class="value">${esc(clientId)}</div>
+    <div class="value">${escapeHtml(clientId)}</div>
   </div>
   <div class="field">
     <div class="label">Requested scopes</div>
     <ul>${scopeList}</ul>
   </div>
   <form method="POST" action="/oauth/decide">
-    <input type="hidden" name="request_id" value="${esc(requestId)}">
+    <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
     <div class="field">
       <div class="label">Server token</div>
       <input type="password" name="token" placeholder="Enter your MCP_AUTH_TOKEN" required autocomplete="off">

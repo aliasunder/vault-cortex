@@ -21,17 +21,17 @@ export const startFileWatcher = (
 ): Promise<void> => {
   const handleChange = async (filePath: string): Promise<void> => {
     if (!filePath.endsWith(".md")) return
-    const relPath = relative(vaultPath, filePath)
+    const relativePath = relative(vaultPath, filePath)
     try {
       const [content, fileStat] = await Promise.all([
         readFile(filePath, "utf8"),
         stat(filePath),
       ])
-      search.upsertNote(relPath, content, fileStat.mtimeMs)
-      logger.debug("indexed", { path: relPath })
+      search.upsertNote(relativePath, content, fileStat.mtimeMs)
+      logger.debug("indexed", { path: relativePath })
     } catch (err) {
       logger.error("failed to index file", {
-        path: relPath,
+        path: relativePath,
         error: err instanceof Error ? err.message : String(err),
       })
     }
@@ -39,17 +39,17 @@ export const startFileWatcher = (
 
   const handleDelete = (filePath: string): void => {
     if (!filePath.endsWith(".md")) return
-    const relPath = relative(vaultPath, filePath)
-    search.removeNote(relPath)
-    logger.debug("removed from index", { path: relPath })
+    const relativePath = relative(vaultPath, filePath)
+    search.removeNote(relativePath)
+    logger.debug("removed from index", { path: relativePath })
   }
 
   const watcher = watch(vaultPath, {
     // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
-      const rel = relative(vaultPath, path)
-      if (!rel) return false
-      return rel.split("/").some((seg) => seg.startsWith("."))
+      const relativePath = relative(vaultPath, path)
+      if (!relativePath) return false
+      return relativePath.split("/").some((segment) => segment.startsWith("."))
     },
     persistent: true,
     ignoreInitial: true,
