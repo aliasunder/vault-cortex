@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.12.1] — 2026-05-18
+
+### Bug Fixes
+
+- Prevent port 8000 wipe by avoiding ForceNew on InstancePublicPorts (#42)
+
+
 ## [0.11.3] — 2026-05-17
 
 ### Features
