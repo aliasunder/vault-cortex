@@ -169,18 +169,22 @@ export default $config({
       instanceName: instance.name,
     })
 
-    // "none" maps to a non-routable CIDR (RFC 5737 TEST-NET) so no
-    // real source IP ever matches — effectively blocks all public access.
-    // Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
+    /**
+     * Parse a CIDR env var into a firewall allowlist.
+     * - undefined → fallback (typically 0.0.0.0/0, open to all)
+     * - "none" → non-routable CIDR (RFC 5737 TEST-NET, blocks all public access)
+     * - "a/b,c/d" → split into individual CIDRs
+     *
+     * Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
+     */
     const parseCidrs = (
       raw: string | undefined,
       fallback: string[],
-    ): string[] =>
-      raw?.toLowerCase() === "none"
-        ? ["192.0.2.1/32"]
-        : raw
-          ? raw.split(",").map((cidr) => cidr.trim())
-          : fallback
+    ): string[] => {
+      if (!raw) return fallback
+      if (raw.toLowerCase() === "none") return ["192.0.2.1/32"]
+      return raw.split(",").map((cidr) => cidr.trim())
+    }
 
     const sshFirewallCidrs = parseCidrs(sshCidrs, ["0.0.0.0/0"])
     const mcpFirewallCidrs = parseCidrs(mcpPortCidrs, ["0.0.0.0/0"])
