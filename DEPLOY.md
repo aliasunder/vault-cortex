@@ -237,6 +237,8 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
+**Tailscale note:** If using `SSH_CIDRS=none` (Tailscale-only SSH), the new VM won't have Tailscale. Temporarily set `SSH_CIDRS=0.0.0.0/0` for the replacement deploy, SSH in to reinstall Tailscale, then set `SSH_CIDRS=none` and redeploy. See [SSH Hardening with Tailscale](#ssh-hardening-with-tailscale-optional).
+
 **Adding a personal SSH key (no rotation):** To SSH with an additional key without touching SST, add it to `authorized_keys` directly:
 
 ```bash
@@ -325,11 +327,129 @@ Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 
 ---
 
+## SSH Hardening with Tailscale (Optional)
+
+By default, SSH (port 22) is open to all IPs on the Lightsail firewall. For production or public-facing deployments, restrict SSH to your Tailscale network.
+
+### How it works
+
+Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By removing port 22 from the firewall, public SSH is blocked while SSH via the Tailscale IP continues to work.
+
+### Setup
+
+**Prerequisites:** Tailscale installed on your laptop/phone (client) and the Lightsail VM (server).
+
+**1. Install Tailscale on the Lightsail VM** (one-time, via SSH):
+
+```bash
+ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --auth-key=<YOUR_AUTH_KEY> --hostname=vault-cortex --advertise-tags=tag:server --reset
+```
+
+Use a **reusable, non-expiring** auth key from https://login.tailscale.com/admin/settings/keys with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
+
+**2. Verify Tailscale SSH** from your laptop:
+
+```bash
+ssh -i ~/.ssh/vault-cortex ubuntu@vault-cortex
+```
+
+This connects via MagicDNS. You can also use the Tailscale IP directly (`100.x.y.z` from `tailscale status`).
+
+**3. Close public SSH** — set `SSH_CIDRS=none` and deploy:
+
+```bash
+SSH_CIDRS=none npx sst deploy
+```
+
+This removes port 22 from the Lightsail firewall. SSH via the public IP is now blocked; SSH via Tailscale continues to work.
+
+**4. Update local dev** — add to `~/.config/vault-cortex/.env`:
+
+```
+LIGHTSAIL_SSH_HOST=vault-cortex
+```
+
+Now `npm run lightsail:up` connects via Tailscale instead of the public IP.
+
+### CI/CD with Tailscale
+
+The deploy workflow supports optional Tailscale connectivity for SSH steps. Gated by the presence of `TAILSCALE_SSH_HOST` — if not set, CI uses the public IP (default behavior).
+
+**GitHub repo settings:**
+
+| Type     | Name                            | Value                                               |
+| -------- | ------------------------------- | --------------------------------------------------- |
+| Variable | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
+| Variable | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
+| Secret   | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
+| Secret   | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
+
+**Tailscale admin setup:**
+
+1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential → OAuth → Continue — scopes: Devices Core (Read + Write), tag: `tag:ci`
+2. Add tag owners and ACL grants in https://login.tailscale.com/admin/acls:
+   ```json
+   {
+     "tagOwners": {
+       "tag:server": ["autogroup:owner"],
+       "tag:ci": ["autogroup:owner"]
+     },
+     "grants": [
+       { "src": ["autogroup:owner"], "dst": ["*"], "ip": ["*"] },
+       { "src": ["tag:ci"], "dst": ["tag:server"], "ip": ["22"] }
+     ]
+   }
+   ```
+
+CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth client auth method.
+
+### SSH_CIDRS reference
+
+`SSH_CIDRS` accepts any of these values:
+
+| Value                          | Effect                                                  |
+| ------------------------------ | ------------------------------------------------------- |
+| (unset)                        | `0.0.0.0/0` — open to all (default, backward-compat)    |
+| `none`                         | Port 22 removed from firewall entirely (Tailscale-only) |
+| `100.64.0.0/10`                | Tailscale CIDR only (belt-and-suspenders)               |
+| `203.0.113.42/32`              | Single IP (e.g., home IP)                               |
+| `100.64.0.0/10,203.0.113.0/24` | Multiple CIDRs (comma-separated)                        |
+
+### Fresh VM bootstrap (chicken-and-egg)
+
+If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is closed on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
+
+1. Temporarily set `SSH_CIDRS=0.0.0.0/0` (or remove the variable)
+2. Deploy — port 22 re-opens
+3. SSH in, install Tailscale, authenticate with the reusable auth key
+4. Set `SSH_CIDRS=none` and redeploy
+
+### Rollback
+
+To revert to public SSH at any time:
+
+```bash
+# Re-open port 22 via SST (no SSH needed — runs from your laptop)
+SSH_CIDRS=0.0.0.0/0 npx sst deploy
+```
+
+Or via AWS CLI for immediate effect (overwritten on next SST deploy):
+
+```bash
+aws lightsail put-instance-public-ports \
+  --instance-name vault-cortex-<stage> \
+  --port-infos '[{"protocol":"tcp","fromPort":22,"toPort":22,"cidrs":["0.0.0.0/0"]},{"protocol":"tcp","fromPort":8000,"toPort":8000,"cidrs":["0.0.0.0/0"]}]'
+```
+
+---
+
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the three secrets first (one-time setup step 2).
-- **`curl <lightsailIp>` hangs** — use `:8000`. The security group only allows ports 22 and 8000.
+- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be closed if `SSH_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.
