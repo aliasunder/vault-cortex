@@ -308,9 +308,16 @@ generator extracts the real client IP from API Gateway's `Forwarded` header
 (express-rate-limit's built-in validators are disabled — they assume
 direct-to-server traffic, not reverse-proxy deployments).
 
-**Why both layers:** Lightsail port 8000 is publicly bound. If the API Gateway
-authorizer is misconfigured, or someone hits the public IP directly, Express
-still rejects. `/healthz` bypasses auth for docker-compose healthchecks.
+**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
+API Gateway authorizer is misconfigured, or someone hits the public IP
+directly, Express still rejects. `/healthz` bypasses auth for docker-compose
+healthchecks.
+
+**Optional: close port 8000.** Set `ORIGIN_URL` to route API Gateway through
+a tunnel or reverse proxy (e.g., Cloudflare Tunnel), then set
+`MCP_PORT_CIDRS=none` to block direct access. With this configuration, bearer
+tokens never travel in plaintext on any network segment — all traffic is
+HTTPS end-to-end. See [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
 **Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
 both. Existing JWTs signed with the old key become invalid immediately.
