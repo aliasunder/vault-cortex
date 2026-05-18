@@ -70,7 +70,9 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   process.exit(1)
 }
 
-const lightsailIp = (): string => {
+const sshHost = (): string => {
+  if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
+
   if (!existsSync(".sst/outputs.json")) {
     console.error("✕  .sst/outputs.json not found. Run `npx sst deploy` first.")
     process.exit(1)
@@ -129,7 +131,7 @@ switch (sub) {
       )
       process.exit(1)
     }
-    const ip = lightsailIp()
+    const ip = sshHost()
     const id = sshIdentity()
     run(
       `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,

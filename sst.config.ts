@@ -29,6 +29,10 @@ export default $config({
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
+    // SSH firewall CIDRs. Comma-separated. Default: open (backward-compat).
+    // Set to "none" to remove port 22 entirely (Tailscale-only SSH).
+    const sshCidrs = env("SSH_CIDRS").asString()
+
     const expandHome = (p: string): string =>
       p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
@@ -158,12 +162,27 @@ export default $config({
 
     // GOTCHA: InstancePublicPorts is DECLARATIVE — it replaces ALL
     // existing rules on every deploy. If you omit port 22 here,
-    // you lock yourself out of SSH permanently.
+    // you lock yourself out of SSH via the public IP (but Tailscale
+    // SSH still works — it bypasses the Lightsail firewall entirely).
     new aws.lightsail.InstancePublicPorts("VaultCortexPorts", {
       instanceName: instance.name,
       portInfos: [
-        // TODO: Restrict SSH to your admin IP (e.g. "203.0.113.42/32")
-        { protocol: "tcp", fromPort: 22, toPort: 22, cidrs: ["0.0.0.0/0"] },
+        // SSH: configurable via SSH_CIDRS env var.
+        // "none" removes port 22 from the public firewall (Tailscale-only).
+        // Comma-separated CIDRs restrict to specific IPs (e.g. "100.64.0.0/10").
+        // Default (unset): 0.0.0.0/0 (backward-compat for forkers).
+        ...(sshCidrs?.toLowerCase() === "none"
+          ? []
+          : [
+              {
+                protocol: "tcp",
+                fromPort: 22,
+                toPort: 22,
+                cidrs: sshCidrs
+                  ? sshCidrs.split(",").map((cidr) => cidr.trim())
+                  : ["0.0.0.0/0"],
+              },
+            ]),
         // API Gateway calls Lightsail on this port. Bearer token is
         // enforced upstream by the Lambda authorizer, so 0.0.0.0/0
         // is acceptable — the token is the real security boundary.
