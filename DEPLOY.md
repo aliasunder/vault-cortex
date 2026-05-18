@@ -409,13 +409,13 @@ CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth clien
 
 `SSH_CIDRS` accepts any of these values:
 
-| Value                          | Effect                                                  |
-| ------------------------------ | ------------------------------------------------------- |
-| (unset)                        | `0.0.0.0/0` — open to all (default, backward-compat)    |
-| `none`                         | Port 22 removed from firewall entirely (Tailscale-only) |
-| `100.64.0.0/10`                | Tailscale CIDR only (belt-and-suspenders)               |
-| `203.0.113.42/32`              | Single IP (e.g., home IP)                               |
-| `100.64.0.0/10,203.0.113.0/24` | Multiple CIDRs (comma-separated)                        |
+| Value                          | Effect                                               |
+| ------------------------------ | ---------------------------------------------------- |
+| (unset)                        | `0.0.0.0/0` — open to all (default, backward-compat) |
+| `none`                         | Port 22 set to non-routable CIDR (Tailscale-only)    |
+| `100.64.0.0/10`                | Tailscale CIDR only (belt-and-suspenders)            |
+| `203.0.113.42/32`              | Single IP (e.g., home IP)                            |
+| `100.64.0.0/10,203.0.113.0/24` | Multiple CIDRs (comma-separated)                     |
 
 ### Fresh VM bootstrap (chicken-and-egg)
 

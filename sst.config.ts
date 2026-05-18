@@ -30,7 +30,7 @@ export default $config({
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
     // SSH firewall CIDRs. Comma-separated. Default: open (backward-compat).
-    // Set to "none" to remove port 22 entirely (Tailscale-only SSH).
+    // Set to "none" to block public SSH (Tailscale-only).
     const sshCidrs = env("SSH_CIDRS").asString()
 
     const expandHome = (p: string): string =>
@@ -160,35 +160,48 @@ export default $config({
       instanceName: instance.name,
     })
 
-    // GOTCHA: InstancePublicPorts is DECLARATIVE — it replaces ALL
-    // existing rules on every deploy. If you omit port 22 here,
-    // you lock yourself out of SSH via the public IP (but Tailscale
-    // SSH still works — it bypasses the Lightsail firewall entirely).
-    new aws.lightsail.InstancePublicPorts("VaultCortexPorts", {
-      instanceName: instance.name,
-      portInfos: [
-        // SSH: configurable via SSH_CIDRS env var.
-        // "none" removes port 22 from the public firewall (Tailscale-only).
-        // Comma-separated CIDRs restrict to specific IPs (e.g. "100.64.0.0/10").
-        // Default (unset): 0.0.0.0/0 (backward-compat).
-        ...(sshCidrs?.toLowerCase() === "none"
-          ? []
-          : [
-              {
-                protocol: "tcp",
-                fromPort: 22,
-                toPort: 22,
-                cidrs: sshCidrs
-                  ? sshCidrs.split(",").map((cidr) => cidr.trim())
-                  : ["0.0.0.0/0"],
-              },
-            ]),
-        // API Gateway calls Lightsail on this port. Bearer token is
-        // enforced upstream by the Lambda authorizer, so 0.0.0.0/0
-        // is acceptable — the token is the real security boundary.
-        { protocol: "tcp", fromPort: 8000, toPort: 8000, cidrs: ["0.0.0.0/0"] },
-      ],
-    })
+    // "none" maps to a non-routable CIDR (RFC 5737 TEST-NET) so no
+    // real source IP ever matches — effectively blocks all public SSH.
+    // Tailscale SSH still works (bypasses the Lightsail firewall).
+    const sshFirewallCidrs =
+      sshCidrs?.toLowerCase() === "none"
+        ? ["192.0.2.1/32"]
+        : sshCidrs
+          ? sshCidrs.split(",").map((cidr) => cidr.trim())
+          : ["0.0.0.0/0"]
+
+    // GOTCHA: port_info is ForceNew in the Pulumi/Terraform provider.
+    // Adding or removing entries triggers a REPLACEMENT, and the
+    // default create-before-delete order wipes newly created ports
+    // (PutInstancePublicPorts is a replace-all API). pulumi/pulumi-aws#1511.
+    // Two defenses:
+    //   1. Always keep both entries — "none" changes cidrs only (not ForceNew).
+    //   2. deleteBeforeReplace — if replacement is ever triggered,
+    //      delete runs first so create sets the final state.
+    new aws.lightsail.InstancePublicPorts(
+      "VaultCortexPorts",
+      {
+        instanceName: instance.name,
+        portInfos: [
+          {
+            protocol: "tcp",
+            fromPort: 22,
+            toPort: 22,
+            cidrs: sshFirewallCidrs,
+          },
+          // Auth enforced at two layers (Lambda authorizer + Express
+          // middleware), so 0.0.0.0/0 is fine even on a direct hit.
+          {
+            protocol: "tcp",
+            fromPort: 8000,
+            toPort: 8000,
+            cidrs: ["0.0.0.0/0"],
+          },
+        ],
+      },
+      // Prevents create-before-delete from wiping ports. See GOTCHA above.
+      { deleteBeforeReplace: true },
+    )
 
     // Stage throttle: 20 req/sec, 40 burst. GOTCHA: throttlingRateLimit
     // and throttlingBurstLimit must BOTH be set — partial config is
