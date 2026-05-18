@@ -86,11 +86,12 @@ On startup, docker-compose runs three services in order: `init-config-perms` (ch
 ## Verify
 
 ```bash
-# Direct hit on the Lightsail VM (skips API Gateway):
-curl http://<lightsailIp>:8000/healthz
-
 # Full chain via API Gateway (validates the bearer token):
 curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
+
+# Direct hit on the Lightsail VM (skips API Gateway).
+# Skips this if you've set MCP_PORT_CIDRS=none (port 8000 closed).
+curl http://<lightsailIp>:8000/healthz
 ```
 
 `<lightsailIp>` and `<apiUrl>` come from the `sst deploy` output (also in `.sst/outputs.json`).
