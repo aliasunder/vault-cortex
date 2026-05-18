@@ -10,14 +10,6 @@ declare module "sst" {
       type: "sst.sst.Secret"
       value: string
     }
-    ObsidianAuthToken: {
-      type: "sst.sst.Secret"
-      value: string
-    }
-    ObsidianVaultName: {
-      type: "sst.sst.Secret"
-      value: string
-    }
     VaultCortexApi: {
       type: "sst.aws.ApiGatewayV2"
       url: string
