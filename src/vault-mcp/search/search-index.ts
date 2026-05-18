@@ -432,8 +432,7 @@ export const createSearchIndex = (dbPath: string) => {
       const relativePath = relative(normalizedVault, absolutePath)
       if (relativePath.split("/").some((segment) => segment.startsWith(".")))
         return acc
-      acc.push({ relativePath, absolutePath })
-      return acc
+      return [...acc, { relativePath, absolutePath }]
     }, [])
 
     const noteContents = await Promise.all(
