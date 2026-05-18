@@ -388,7 +388,7 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 
 **Tailscale admin setup:**
 
-1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential — scopes: Devices Core (Read + Write), tag: `tag:ci`
+1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential → OAuth → Continue — scopes: Devices Core (Read + Write), tag: `tag:ci`
 2. Add tag owners and ACL grants in https://login.tailscale.com/admin/acls:
    ```json
    {
