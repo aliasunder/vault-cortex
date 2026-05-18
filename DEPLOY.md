@@ -518,12 +518,12 @@ curl https://<api-gateway-url>/healthz
 
 `MCP_PORT_CIDRS` accepts any of these values:
 
-| Value                          | Effect                                                     |
-| ------------------------------ | ---------------------------------------------------------- |
-| (unset)                        | `0.0.0.0/0` — open to all (default, backward-compat)       |
-| `none`                         | Port 8000 set to non-routable CIDR (use with `ORIGIN_URL`) |
-| `203.0.113.42/32`              | Single IP                                                  |
-| `203.0.113.0/24,198.51.100/24` | Multiple CIDRs (comma-separated)                           |
+| Value             | Effect                                                     |
+| ----------------- | ---------------------------------------------------------- |
+| (unset)           | `0.0.0.0/0` — open to all (default, backward-compat)       |
+| `none`            | Port 8000 set to non-routable CIDR (use with `ORIGIN_URL`) |
+| `<your-ip>/32`    | Single IP (e.g., your home IP)                             |
+| `<cidr1>,<cidr2>` | Multiple CIDRs (comma-separated)                           |
 
 ### Fresh VM bootstrap
 
