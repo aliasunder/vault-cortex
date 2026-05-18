@@ -344,10 +344,10 @@ Tailscale creates a WireGuard mesh network between your devices. Traffic between
 ```bash
 ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --auth-key=<YOUR_AUTH_KEY> --hostname=vault-cortex --advertise-tags=tag:server
+sudo tailscale up --auth-key=<YOUR_AUTH_KEY> --hostname=vault-cortex --advertise-tags=tag:server --reset
 ```
 
-Use a **reusable, non-expiring** auth key from https://login.tailscale.com/admin/settings/keys with tag `tag:server`. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
+Use a **reusable, non-expiring** auth key from https://login.tailscale.com/admin/settings/keys with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
 
 **2. Verify Tailscale SSH** from your laptop:
 
@@ -379,31 +379,27 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 
 **GitHub repo settings:**
 
-| Type     | Name                            | Value                                           |
-| -------- | ------------------------------- | ----------------------------------------------- |
-| Variable | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP   |
-| Variable | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)   |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → OAuth clients |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                          |
+| Type     | Name                            | Value                                               |
+| -------- | ------------------------------- | --------------------------------------------------- |
+| Variable | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
+| Variable | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
+| Secret   | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
+| Secret   | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
 
 **Tailscale admin setup:**
 
-1. Create an OAuth client at https://login.tailscale.com/admin/settings/oauth — scopes: `devices:write`, tag: `tag:ci`
-2. Add ACL rules in https://login.tailscale.com/admin/acls:
+1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential — scopes: Devices Core (Read + Write), tag: `tag:ci`
+2. Add tag owners and ACL grants in https://login.tailscale.com/admin/acls:
    ```json
    {
-     "acls": [
-       { "action": "accept", "src": ["tag:ci"], "dst": ["tag:server:22"] },
-       {
-         "action": "accept",
-         "src": ["autogroup:owner"],
-         "dst": ["tag:server:*"]
-       }
-     ],
      "tagOwners": {
-       "tag:ci": ["autogroup:owner"],
-       "tag:server": ["autogroup:owner"]
-     }
+       "tag:server": ["autogroup:owner"],
+       "tag:ci": ["autogroup:owner"]
+     },
+     "grants": [
+       { "src": ["autogroup:owner"], "dst": ["*"], "ip": ["*"] },
+       { "src": ["tag:ci"], "dst": ["tag:server"], "ip": ["22"] }
+     ]
    }
    ```
 
