@@ -62,6 +62,8 @@ const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
   format: "YYYY-MM-DD",
 }
 
+// TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
+// createMemoryStore) so the cache lives in the closure instead of at module scope.
 // Mutable module-level cache — justified because the config is read from
 // the filesystem once and never changes during the server's lifetime.
 // Avoids re-reading .obsidian/daily-notes.json on every tool call.
