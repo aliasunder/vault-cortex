@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [0.13.0] — 2026-05-18
+
+### Features
+
+- Close port 8000 with configurable origin routing (#43)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.12.1
+
+
 ## [0.12.1] — 2026-05-18
 
 ### Bug Fixes
