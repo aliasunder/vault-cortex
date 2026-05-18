@@ -445,11 +445,132 @@ aws lightsail put-instance-public-ports \
 
 ---
 
+## Port 8000 Hardening (Optional)
+
+By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and close port 8000 entirely.
+
+### How it works
+
+`ORIGIN_URL` tells API Gateway where to route MCP traffic. When set, API Gateway sends requests to this URL instead of `http://<lightsail-ip>:8000`. The URL can be a Cloudflare Tunnel, Caddy reverse proxy, Tailscale Funnel, or any HTTPS frontend that proxies to `localhost:8000` on the Lightsail instance.
+
+`MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead).
+
+Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` closes the direct path.
+
+### Example: Cloudflare Tunnel
+
+Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is removed from the firewall entirely. The tunnel hostname serves as the HTTPS endpoint.
+
+**Prerequisites:** A free [Cloudflare account](https://dash.cloudflare.com/sign-up) with at least one domain using Cloudflare's nameservers. The tunnel routes through a subdomain on that domain (e.g., `tunnel.yourdomain.dev`).
+
+**1. Create a tunnel** in the Cloudflare dashboard:
+
+Go to [Zero Trust](https://one.dash.cloudflare.com/) → Networks → Tunnels → Create a tunnel → Cloudflared → name it (e.g., `vault-cortex`). Cloudflare generates a tunnel token.
+
+**2. Install `cloudflared` on the Lightsail VM** (one-time, via SSH):
+
+```bash
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] \
+  https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+sudo apt-get update && sudo apt-get install -y cloudflared
+sudo cloudflared service install <TUNNEL_TOKEN>
+```
+
+After install, `cloudflared` runs as a systemd service, survives reboots, and is invisible to the Docker stack.
+
+**3. Configure the tunnel route** in the Cloudflare dashboard:
+
+In the tunnel's Public Hostname tab, add a route:
+
+- Subdomain: your chosen subdomain (e.g., `tunnel`)
+- Domain: select your Cloudflare-managed domain
+- Service: `http://localhost:8000`
+
+**4. Verify the tunnel** before closing port 8000:
+
+```bash
+curl https://<subdomain>.<yourdomain>/healthz
+# Should return 200 OK
+```
+
+**5. Close port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+
+```bash
+ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+```
+
+**6. Verify port 8000 is closed:**
+
+```bash
+# Direct access — should timeout (port closed on firewall)
+curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
+
+# API Gateway — should return 200 (routed through tunnel)
+curl https://<api-gateway-url>/healthz
+```
+
+### MCP_PORT_CIDRS reference
+
+`MCP_PORT_CIDRS` accepts any of these values:
+
+| Value             | Effect                                                     |
+| ----------------- | ---------------------------------------------------------- |
+| (unset)           | `0.0.0.0/0` — open to all (default, backward-compat)       |
+| `none`            | Port 8000 set to non-routable CIDR (use with `ORIGIN_URL`) |
+| `<your-ip>/32`    | Single IP (e.g., your home IP)                             |
+| `<cidr1>,<cidr2>` | Multiple CIDRs (comma-separated)                           |
+
+### Fresh VM bootstrap
+
+If the VM is replaced (bundle upgrade for Phase 2, key rotation) and `MCP_PORT_CIDRS=none`, port 8000 is closed — but `cloudflared` isn't running on the new VM yet. Recovery:
+
+1. Temporarily open both ports and disable tunnel routing:
+   ```bash
+   SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npx sst deploy
+   ```
+2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
+3. Install `cloudflared` and register with the existing tunnel token:
+   ```bash
+   sudo apt-get update && sudo apt-get install -y cloudflared
+   sudo cloudflared service install <TUNNEL_TOKEN>
+   ```
+4. Verify the tunnel: `curl https://<subdomain>.<yourdomain>/healthz`
+5. Re-harden:
+   ```bash
+   SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+   ```
+
+The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
+
+### Rollback
+
+To revert to direct port 8000 access at any time:
+
+```bash
+# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop)
+ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npx sst deploy
+```
+
+Or via AWS CLI for immediate firewall change (overwritten on next SST deploy):
+
+```bash
+aws lightsail put-instance-public-ports \
+  --instance-name vault-cortex-<stage> \
+  --port-infos '[{"protocol":"tcp","fromPort":22,"toPort":22,"cidrs":["0.0.0.0/0"]},{"protocol":"tcp","fromPort":8000,"toPort":8000,"cidrs":["0.0.0.0/0"]}]'
+```
+
+---
+
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the three secrets first (one-time setup step 2).
-- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be closed if `SSH_CIDRS=none`).
+- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be closed if `SSH_CIDRS=none`, port 8000 may be closed if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.

@@ -40,6 +40,8 @@ jobs:
         env:
           SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
           SSH_CIDRS: ${{ vars.SSH_CIDRS }}
+          ORIGIN_URL: ${{ vars.ORIGIN_URL }}
+          MCP_PORT_CIDRS: ${{ vars.MCP_PORT_CIDRS }}
         run: npx sst deploy --stage "$SST_STAGE"
 
       - name: Connect to Tailscale

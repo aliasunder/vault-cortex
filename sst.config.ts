@@ -33,6 +33,15 @@ export default $config({
     // Set to "none" to block public SSH (Tailscale-only).
     const sshCidrs = env("SSH_CIDRS").asString()
 
+    // MCP port firewall CIDRs. Same format as SSH_CIDRS.
+    // Set to "none" to block direct access to port 8000 (use with ORIGIN_URL).
+    const mcpPortCidrs = env("MCP_PORT_CIDRS").asString()
+
+    // When set, API Gateway routes through this URL instead of directly to
+    // the Lightsail IP on port 8000. Use with a Cloudflare Tunnel, Caddy
+    // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
+    const originUrl = env("ORIGIN_URL").asString()
+
     const expandHome = (p: string): string =>
       p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
@@ -160,15 +169,26 @@ export default $config({
       instanceName: instance.name,
     })
 
-    // "none" maps to a non-routable CIDR (RFC 5737 TEST-NET) so no
-    // real source IP ever matches — effectively blocks all public SSH.
-    // Tailscale SSH still works (bypasses the Lightsail firewall).
-    const sshFirewallCidrs =
-      sshCidrs?.toLowerCase() === "none"
-        ? ["192.0.2.1/32"]
-        : sshCidrs
-          ? sshCidrs.split(",").map((cidr) => cidr.trim())
-          : ["0.0.0.0/0"]
+    /** RFC 5737 TEST-NET — no real source IP matches this CIDR. */
+    const NON_ROUTABLE_CIDR = "192.0.2.1/32"
+    const OPEN_TO_ALL = ["0.0.0.0/0"]
+
+    /**
+     * Parse a CIDR env var into a firewall allowlist.
+     * - undefined → open to all
+     * - "none" → non-routable CIDR (blocks all public access)
+     * - "a/b,c/d" → split into individual CIDRs
+     *
+     * Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
+     */
+    const parseCidrs = (raw: string | undefined): string[] => {
+      if (!raw) return OPEN_TO_ALL
+      if (raw.toLowerCase() === "none") return [NON_ROUTABLE_CIDR]
+      return raw.split(",").map((cidr) => cidr.trim())
+    }
+
+    const sshFirewallCidrs = parseCidrs(sshCidrs)
+    const mcpFirewallCidrs = parseCidrs(mcpPortCidrs)
 
     // GOTCHA: port_info is ForceNew in the Pulumi/Terraform provider.
     // Adding or removing entries triggers a REPLACEMENT, and the
@@ -189,13 +209,15 @@ export default $config({
             toPort: 22,
             cidrs: sshFirewallCidrs,
           },
-          // Auth enforced at two layers (Lambda authorizer + Express
-          // middleware), so 0.0.0.0/0 is fine even on a direct hit.
+          // MCP_PORT_CIDRS controls who can reach port 8000 directly.
+          // With ORIGIN_URL set (tunnel/proxy), set MCP_PORT_CIDRS=none
+          // to block direct access — traffic flows through the tunnel.
+          // Without ORIGIN_URL, 0.0.0.0/0 is the default (API GW needs it).
           {
             protocol: "tcp",
             fromPort: 8000,
             toPort: 8000,
-            cidrs: ["0.0.0.0/0"],
+            cidrs: mcpFirewallCidrs,
           },
         ],
       },
@@ -237,12 +259,21 @@ export default $config({
 
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
     // the bare root "/". You need both routes.
-    api.routeUrl(
-      "ANY /{proxy+}",
-      $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`,
-      { auth: { lambda: authorizer.id } },
-    )
-    api.routeUrl("ANY /", $interpolate`http://${staticIp.ipAddress}:8000`, {
+    //
+    // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
+    // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
+    // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
+    const proxyTarget = originUrl
+      ? `${originUrl}/{proxy}`
+      : $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`
+    const rootTarget = originUrl
+      ? originUrl
+      : $interpolate`http://${staticIp.ipAddress}:8000`
+
+    api.routeUrl("ANY /{proxy+}", proxyTarget, {
+      auth: { lambda: authorizer.id },
+    })
+    api.routeUrl("ANY /", rootTarget, {
       auth: { lambda: authorizer.id },
     })
 
