@@ -160,23 +160,24 @@ export default $config({
       instanceName: instance.name,
     })
 
-    // GOTCHA #1: InstancePublicPorts is DECLARATIVE — it replaces ALL
-    // existing rules on every deploy.
-    // GOTCHA #2: port_info is ForceNew in the Pulumi/Terraform provider.
-    // Adding or removing entries triggers a resource REPLACEMENT. The
-    // default create-before-delete order causes the "delete old" step
-    // to wipe the newly created ports (PutInstancePublicPorts is a
-    // replace-all API). deleteBeforeReplace reverses the order so the
-    // create happens last and sticks. See pulumi/pulumi-aws#1511.
-    // To avoid triggering replacements entirely, we always keep both
-    // port entries and map "none" to a non-routable CIDR.
+    // "none" maps to a non-routable CIDR (RFC 5737 TEST-NET) so no
+    // real source IP ever matches — effectively blocks all public SSH.
+    // Tailscale SSH still works (bypasses the Lightsail firewall).
     const sshFirewallCidrs =
       sshCidrs?.toLowerCase() === "none"
-        ? ["192.0.2.1/32"] // RFC 5737 TEST-NET — non-routable, effectively blocks all SSH
+        ? ["192.0.2.1/32"]
         : sshCidrs
           ? sshCidrs.split(",").map((cidr) => cidr.trim())
           : ["0.0.0.0/0"]
 
+    // GOTCHA: port_info is ForceNew in the Pulumi/Terraform provider.
+    // Adding or removing entries triggers a REPLACEMENT, and the
+    // default create-before-delete order wipes newly created ports
+    // (PutInstancePublicPorts is a replace-all API). pulumi/pulumi-aws#1511.
+    // Two defenses:
+    //   1. Always keep both entries — "none" changes cidrs only (not ForceNew).
+    //   2. deleteBeforeReplace — if replacement is ever triggered,
+    //      delete runs first so create sets the final state.
     new aws.lightsail.InstancePublicPorts(
       "VaultCortexPorts",
       {
@@ -188,9 +189,8 @@ export default $config({
             toPort: 22,
             cidrs: sshFirewallCidrs,
           },
-          // API Gateway calls Lightsail on this port. Bearer token is
-          // enforced upstream by the Lambda authorizer, so 0.0.0.0/0
-          // is acceptable — the token is the real security boundary.
+          // Auth enforced at two layers (Lambda authorizer + Express
+          // middleware), so 0.0.0.0/0 is fine even on a direct hit.
           {
             protocol: "tcp",
             fromPort: 8000,
@@ -199,6 +199,7 @@ export default $config({
           },
         ],
       },
+      // Prevents create-before-delete from wiping ports. See GOTCHA above.
       { deleteBeforeReplace: true },
     )
 
