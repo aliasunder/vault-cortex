@@ -171,7 +171,7 @@ export default $config({
 
     // "none" maps to a non-routable CIDR (RFC 5737 TEST-NET) so no
     // real source IP ever matches — effectively blocks all public access.
-    // Tailscale/cloudflared still work (bypass the Lightsail firewall).
+    // Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
     const parseCidrs = (
       raw: string | undefined,
       fallback: string[],
