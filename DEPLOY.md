@@ -461,7 +461,7 @@ Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` clos
 
 Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is removed from the firewall entirely. The tunnel hostname serves as the HTTPS endpoint.
 
-**Prerequisites:** A free [Cloudflare account](https://dash.cloudflare.com/sign-up) with at least one domain using Cloudflare's nameservers. The tunnel routes through a subdomain on that domain (e.g., `o1.yourdomain.dev`).
+**Prerequisites:** A free [Cloudflare account](https://dash.cloudflare.com/sign-up) with at least one domain using Cloudflare's nameservers. The tunnel routes through a subdomain on that domain (e.g., `tunnel.yourdomain.dev`).
 
 **1. Create a tunnel** in the Cloudflare dashboard:
 
@@ -487,7 +487,7 @@ After install, `cloudflared` runs as a systemd service, survives reboots, and is
 
 In the tunnel's Public Hostname tab, add a route:
 
-- Subdomain: your chosen subdomain (e.g., `o1`)
+- Subdomain: your chosen subdomain (e.g., `tunnel`)
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
