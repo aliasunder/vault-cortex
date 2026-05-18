@@ -35,8 +35,6 @@ export const TOOL_NAMES = {
   VAULT_FIND_ORPHANS: "vault_find_orphans",
 } as const
 
-export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
-
 // ── Response shaping ─────────────────────────────────────────────
 
 // Frontmatter keys that are already top-level fields on NoteMetadata.

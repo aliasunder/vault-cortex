@@ -54,7 +54,6 @@ const startServer = async (): Promise<void> => {
   const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
     authToken,
-    serverUrl,
     dbPath: oauthDbPath,
   })
 

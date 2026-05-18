@@ -94,7 +94,7 @@ Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
   "requestId": "1",
   "sessionId": "abc",
   "tool": "vault_read_note",
-  "clientIp": "73.48.22.1",
+  "clientIp": "203.0.113.42",
   "path": "About Me/Principles.md"
 }
 ```

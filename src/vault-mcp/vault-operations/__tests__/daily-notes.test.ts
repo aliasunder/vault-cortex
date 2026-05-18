@@ -1,15 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import {
-  momentToLuxonFormat,
-  readDailyNotesConfig,
-  getDailyNotePath,
-  getDailyNote,
-  clearConfigCache,
-} from "../daily-notes.js"
+import { momentToLuxonFormat } from "../daily-notes.js"
 import { logger } from "../../../logger.js"
 
 // ── momentToLuxonFormat ──────────────────────────────────────────
@@ -79,7 +73,7 @@ describe("readDailyNotesConfig", () => {
   let vaultDir: string
 
   beforeEach(async () => {
-    clearConfigCache()
+    vi.resetModules()
     vaultDir = await mkdtemp(join(tmpdir(), "daily-notes-test-"))
     await mkdir(join(vaultDir, ".obsidian"), { recursive: true })
   })
@@ -89,6 +83,7 @@ describe("readDailyNotesConfig", () => {
   })
 
   it("reads folder and format from .obsidian/daily-notes.json", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD-dddd" }),
@@ -100,12 +95,14 @@ describe("readDailyNotesConfig", () => {
   })
 
   it("falls back to defaults when file is missing", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     const config = await readDailyNotesConfig(vaultDir)
     expect(config.folder).toBe("Daily Notes")
     expect(config.format).toBe("YYYY-MM-DD")
   })
 
   it("falls back to defaults when file is malformed JSON", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       "not valid json{{{",
@@ -117,6 +114,7 @@ describe("readDailyNotesConfig", () => {
   })
 
   it("uses default folder when config has empty folder string", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "", format: "YYYY-MM-DD" }),
@@ -127,6 +125,7 @@ describe("readDailyNotesConfig", () => {
   })
 
   it("uses default format when config has empty format string", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "Journal" }),
@@ -137,6 +136,7 @@ describe("readDailyNotesConfig", () => {
   })
 
   it("caches the config after first read", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD" }),
@@ -161,7 +161,7 @@ describe("getDailyNotePath", () => {
   let vaultDir: string
 
   beforeEach(async () => {
-    clearConfigCache()
+    vi.resetModules()
     vaultDir = await mkdtemp(join(tmpdir(), "daily-path-test-"))
     await mkdir(join(vaultDir, ".obsidian"), { recursive: true })
   })
@@ -171,11 +171,13 @@ describe("getDailyNotePath", () => {
   })
 
   it("resolves a specific date with default config", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     const path = await getDailyNotePath(vaultDir, "2026-05-13")
     expect(path).toBe("Daily Notes/2026-05-13.md")
   })
 
   it("resolves with custom folder and format", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
@@ -186,6 +188,7 @@ describe("getDailyNotePath", () => {
   })
 
   it("defaults to today when no date provided", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     const path = await getDailyNotePath(vaultDir)
     // Use Luxon's local-timezone today (same as the code under test) to
     // avoid UTC/local date mismatch near midnight
@@ -194,24 +197,28 @@ describe("getDailyNotePath", () => {
   })
 
   it("throws on invalid date format", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     await expect(getDailyNotePath(vaultDir, "not-a-date")).rejects.toThrow(
       "invalid date",
     )
   })
 
   it("rejects partial ISO dates (year only)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     await expect(getDailyNotePath(vaultDir, "2026")).rejects.toThrow(
       "invalid date",
     )
   })
 
   it("rejects partial ISO dates (year-month only)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     await expect(getDailyNotePath(vaultDir, "2026-05")).rejects.toThrow(
       "invalid date",
     )
   })
 
   it("rejects full ISO timestamps", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
     await expect(
       getDailyNotePath(vaultDir, "2026-05-13T14:30:00Z"),
     ).rejects.toThrow("invalid date")
@@ -224,7 +231,7 @@ describe("getDailyNote", () => {
   let vaultDir: string
 
   beforeEach(async () => {
-    clearConfigCache()
+    vi.resetModules()
     vaultDir = await mkdtemp(join(tmpdir(), "daily-read-test-"))
     await mkdir(join(vaultDir, ".obsidian"), { recursive: true })
     await mkdir(join(vaultDir, "Daily Notes"), { recursive: true })
@@ -235,6 +242,7 @@ describe("getDailyNote", () => {
   })
 
   it("reads an existing daily note", async () => {
+    const { getDailyNote } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, "Daily Notes", "2026-05-13.md"),
       "---\ndate: 2026-05-13\n---\n\n# 2026-05-13\n\nToday's notes.\n",
@@ -250,6 +258,7 @@ describe("getDailyNote", () => {
   })
 
   it("returns exists: false for missing daily note", async () => {
+    const { getDailyNote } = await import("../daily-notes.js")
     const result = await getDailyNote(
       { vaultPath: vaultDir, date: "2026-01-01" },
       logger,
@@ -260,6 +269,7 @@ describe("getDailyNote", () => {
   })
 
   it("rethrows non-ENOENT errors (e.g. path traversal)", async () => {
+    const { getDailyNote } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
       JSON.stringify({ folder: "../escape", format: "YYYY-MM-DD" }),

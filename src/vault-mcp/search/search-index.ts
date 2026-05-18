@@ -632,29 +632,6 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
-  /** Finds notes by their frontmatter `type` field. */
-  const searchByType = (
-    params: { type: string; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
-      FROM notes
-      WHERE type = ?
-      LIMIT ?
-    `
-
-    const rows = db
-      .prepare(sql)
-      .all(params.type, params.limit ?? 20) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("search by type", {
-      type: params.type,
-      resultCount: results.length,
-    })
-    return results
-  }
-
   /** Returns all tags in the vault with their note counts. */
   const listAllTags = (logger: Logger): TagCount[] => {
     const sql = `
@@ -950,7 +927,6 @@ export const createSearchIndex = (dbPath: string) => {
     fullTextSearch,
     searchByTag,
     searchByFolder,
-    searchByType,
     listAllTags,
     recentNotes,
     listPropertyKeys,

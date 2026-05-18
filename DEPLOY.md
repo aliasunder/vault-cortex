@@ -307,7 +307,7 @@ docker logs vault-mcp 2>&1 | jq 'select(.level == "error")'
 docker logs vault-mcp 2>&1 | jq 'select(.requestId == "1")'
 
 # All activity from a specific client IP
-docker logs vault-mcp 2>&1 | jq 'select(.clientIp == "73.48.22.1")'
+docker logs vault-mcp 2>&1 | jq 'select(.clientIp == "203.0.113.42")'
 
 # All tool calls
 docker logs vault-mcp 2>&1 | jq 'select(.message == "tool_call")'
