@@ -104,15 +104,15 @@ export const registerTools = (params: {
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
-      description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter, or just the parsed properties when properties_only is set.
+      description: `Read a markdown note by its vault-relative path. Returns the full raw content including properties, or just the parsed properties when properties_only is set.
 
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 Example: vault_read_note({ path: "Projects/vault-cortex.md", properties_only: true })
 
-When to use: You know the exact path and need the full content of a specific note. Use properties_only: true when you only need frontmatter fields (saves tokens on large notes).
-Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without frontmatter).
+When to use: You know the exact path and need the full content of a specific note. Use properties_only: true when you only need properties (saves tokens on large notes).
+Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).
 
-Returns: Raw markdown string (default), or JSON object of frontmatter properties (when properties_only: true).`,
+Returns: Raw markdown string (default), or JSON object of properties (when properties_only: true).`,
       inputSchema: {
         path: z
           .string()
@@ -124,7 +124,7 @@ Returns: Raw markdown string (default), or JSON object of frontmatter properties
           .boolean()
           .optional()
           .describe(
-            "If true, returns parsed frontmatter properties as JSON instead of full note content",
+            "If true, returns parsed properties as JSON instead of full note content",
           ),
       },
       annotations: {
@@ -166,7 +166,7 @@ Returns: Raw markdown string (default), or JSON object of frontmatter properties
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 
 When to use: Creating a new note or fully replacing an existing note's body.
-Prefer vault_update_properties for frontmatter-only edits (no body round-trip).
+Prefer vault_update_properties for property-only edits (no body round-trip).
 Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.
 
 Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
@@ -187,7 +187,7 @@ Returns: Confirmation message.`,
           .record(z.string(), z.unknown())
           .optional()
           .describe(
-            "Optional frontmatter properties. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
+            "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
           ),
       },
       annotations: {
@@ -304,7 +304,7 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — frontmatter fields must be edited via vault_write_note's frontmatter parameter.
+      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
@@ -458,11 +458,11 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update frontmatter properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Body content is never modified.
+      description: `Update properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Body content is never modified.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", priority: 1 } })
 
-When to use: Changing tags, status, type, or any frontmatter field without reading/rewriting the full note body. Saves tokens on large notes.
+When to use: Changing tags, status, type, or any property without reading/rewriting the full note body. Saves tokens on large notes.
 Prefer vault_write_note when creating a new note or replacing the body.
 
 Errors:
@@ -508,7 +508,7 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
-      description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and frontmatter properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming.
+      description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming.
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 
@@ -539,7 +539,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
                 z.union([z.string(), z.number(), z.boolean()]),
               )
               .optional()
-              .describe("Arbitrary frontmatter key-value filters"),
+              .describe("Arbitrary property key-value filters"),
             limit: z.number().optional().describe("Max results (default 20)"),
             snippet_tokens: z
               .number()
@@ -581,7 +581,7 @@ Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged projec
 When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted frontmatter keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -980,11 +980,11 @@ Returns: JSON with path (resolved vault-relative path), content (note body or nu
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
-      description: `Discover all frontmatter property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
+      description: `Discover all property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
 
 Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_values: ["session-log", "project"] }, ...]
 
-When to use: Discovering what frontmatter properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.
+When to use: Discovering what properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.
 Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values for quick orientation.`,
@@ -1019,7 +1019,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
-      description: `List distinct values for a specific frontmatter property key with note counts. Useful for discovering the range of values a property takes before searching.
+      description: `List distinct values for a specific property key with note counts. Useful for discovering the range of values a property takes before searching.
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
 
@@ -1063,7 +1063,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value (exact match). Unlike vault_search, this does not require a text query — it searches by metadata only. Handles both scalar properties (status: "active") and array properties (tags contains "project").
+      description: `Find notes where a property matches a value (exact match). Unlike vault_search, this does not require a text query — it searches by metadata only. Handles both scalar properties (status: "active") and array properties (tags contains "project").
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 
