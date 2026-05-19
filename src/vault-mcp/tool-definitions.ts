@@ -33,6 +33,7 @@ export const TOOL_NAMES = {
   VAULT_GET_BACKLINKS: "vault_get_backlinks",
   VAULT_GET_OUTGOING_LINKS: "vault_get_outgoing_links",
   VAULT_FIND_ORPHANS: "vault_find_orphans",
+  VAULT_UPDATE_PROPERTIES: "vault_update_properties",
 } as const
 
 // ── Response shaping ─────────────────────────────────────────────
@@ -103,20 +104,27 @@ export const registerTools = (params: {
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
-      description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter.
+      description: `Read a markdown note by its vault-relative path. Returns the full raw content including YAML frontmatter, or just the parsed properties when properties_only is set.
 
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
+Example: vault_read_note({ path: "Projects/vault-cortex.md", properties_only: true })
 
-When to use: You know the exact path and need the full content of a specific note.
+When to use: You know the exact path and need the full content of a specific note. Use properties_only: true when you only need frontmatter fields (saves tokens on large notes).
 Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without frontmatter).
 
-Returns: Raw markdown string.`,
+Returns: Raw markdown string (default), or JSON object of frontmatter properties (when properties_only: true).`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe(
             `Vault-relative path to the note (e.g. "${config.memoryDir}/Principles.md")`,
+          ),
+        properties_only: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, returns parsed frontmatter properties as JSON instead of full note content",
           ),
       },
       annotations: {
@@ -126,12 +134,21 @@ Returns: Raw markdown string.`,
         openWorldHint: false,
       },
     },
-    async ({ path }, extra) => {
+    async ({ path, properties_only }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_NOTE,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, properties_only })
+
+      if (properties_only) {
+        return safeHandler(
+          reqLogger,
+          () => vaultFs.readNoteProperties({ vaultPath, path }, reqLogger),
+          (properties) => JSON.stringify(properties, null, 2),
+        )
+      }
+
       return safeHandler(
         reqLogger,
         () => vaultFs.readNote({ vaultPath, path }, reqLogger),
@@ -144,11 +161,12 @@ Returns: Raw markdown string.`,
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Frontmatter is passed separately and merged with any existing frontmatter (new keys added, matching keys overwritten, unmentioned keys preserved).
+      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Properties are passed separately and merged with any existing properties (new keys added, matching keys overwritten, unmentioned keys preserved).
 
-Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", frontmatter: { tags: ["project"], type: "project" } })
+Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 
 When to use: Creating a new note or fully replacing an existing note's body.
+Prefer vault_update_properties for frontmatter-only edits (no body round-trip).
 Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.
 
 Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
@@ -157,7 +175,7 @@ Obsidian syntax: Body content is rendered as Obsidian Flavored Markdown with no 
 - #word (no space after #) = tag — escape with \\# or backticks
 - [[ = wikilink, ![[ = embed — escape with \\[[
 - %% = comment block (hidden in reading view)
-Frontmatter: quote wikilink values ("[[Note]]"), use YAML lists for tags ([tag1, tag2]), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
+Properties: quote wikilink values ("[[Note]]"), use YAML lists for tags ([tag1, tag2]), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -165,11 +183,11 @@ Returns: Confirmation message.`,
         body: z
           .string()
           .describe("Markdown body content (no frontmatter fences)"),
-        frontmatter: z
+        properties: z
           .record(z.string(), z.unknown())
           .optional()
           .describe(
-            "Optional YAML frontmatter properties. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
+            "Optional frontmatter properties. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
           ),
       },
       annotations: {
@@ -179,7 +197,7 @@ Returns: Confirmation message.`,
         openWorldHint: false,
       },
     },
-    async ({ path, body, frontmatter }, extra) => {
+    async ({ path, body, properties }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_WRITE_NOTE,
@@ -188,7 +206,7 @@ Returns: Confirmation message.`,
       return safeHandler(
         reqLogger,
         () =>
-          vaultFs.writeNote({ vaultPath, path, body, frontmatter }, reqLogger),
+          vaultFs.writeNote({ vaultPath, path, body, properties }, reqLogger),
         () => `Wrote ${path}`,
       )
     },
@@ -432,6 +450,54 @@ Returns: Confirmation message.`,
             reqLogger,
           ),
         () => `Deleted ${path}`,
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+    {
+      title: "Update Properties",
+      description: `Update frontmatter properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Body content is never modified.
+
+Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", priority: 1 } })
+
+When to use: Changing tags, status, type, or any frontmatter field without reading/rewriting the full note body. Saves tokens on large notes.
+Prefer vault_write_note when creating a new note or replacing the body.
+
+Errors:
+- "note not found" — path does not exist; create the note first with vault_write_note
+- "path traversal blocked" — path escapes vault root
+
+Obsidian syntax: Property values follow YAML conventions. Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
+
+Returns: Confirmation message.`,
+      inputSchema: {
+        path: z.string().min(1).describe("Vault-relative path to the note"),
+        properties: z
+          .record(z.string(), z.unknown())
+          .describe(
+            "Properties to merge. New keys are added; existing keys are overwritten; unmentioned keys are preserved.",
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ path, properties }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        () =>
+          vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
+        () => `Updated properties on ${path}`,
       )
     },
   )

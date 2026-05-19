@@ -38,24 +38,24 @@ const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   }
 }
 
-/** Combines body + frontmatter into a gray-matter serialized string. Merges frontmatter if file already exists. */
+/** Combines body + properties into a gray-matter serialized string. Merges properties if file already exists. */
 const serializeNote = (
   existing: string | null,
   body: string,
-  frontmatter?: Record<string, unknown>,
+  properties?: Record<string, unknown>,
 ): string => {
-  if (!existing) return matter.stringify(body, frontmatter ?? {})
+  if (!existing) return matter.stringify(body, properties ?? {})
 
   const parsed = matter(existing)
-  const mergedData = frontmatter
-    ? { ...parsed.data, ...frontmatter }
+  const mergedData = properties
+    ? { ...parsed.data, ...properties }
     : parsed.data
   return matter.stringify(body, mergedData)
 }
 
 // ── Exported functions ──────────────────────────────────────────
 
-/** Reads a .md note by relative path. Returns raw content including frontmatter. */
+/** Reads a .md note by relative path. Returns raw content including properties. */
 const readNote = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
@@ -69,13 +69,27 @@ const readNote = async (
   return content
 }
 
-/** Creates or updates a note. Merges frontmatter losslessly if the file exists. */
+/** Reads just the YAML frontmatter properties of a note, parsed as an object. */
+const readNoteProperties = async (
+  params: { vaultPath: string; path: string },
+  logger: Logger,
+): Promise<Record<string, unknown>> => {
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const content = await readFileOrNull(fullPath)
+  if (content === null) {
+    throw new Error(`note not found: "${params.path}"`)
+  }
+  logger.info("read note properties", { path: params.path })
+  return matter(content).data
+}
+
+/** Creates or updates a note. Merges properties losslessly if the file exists. */
 const writeNote = async (
   params: {
     vaultPath: string
     path: string
     body: string
-    frontmatter?: Record<string, unknown>
+    properties?: Record<string, unknown>
   },
   logger: Logger,
 ): Promise<void> => {
@@ -83,9 +97,33 @@ const writeNote = async (
   await mkdir(dirname(fullPath), { recursive: true })
 
   const existing = await readFileOrNull(fullPath)
-  const serialized = serializeNote(existing, params.body, params.frontmatter)
+  const serialized = serializeNote(existing, params.body, params.properties)
   await writeFile(fullPath, serialized, "utf8")
   logger.info("wrote note", { path: params.path })
+}
+
+/** Merges properties into an existing note's frontmatter without touching the body. */
+const updateProperties = async (
+  params: {
+    vaultPath: string
+    path: string
+    properties: Record<string, unknown>
+  },
+  logger: Logger,
+): Promise<void> => {
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const existing = await readFileOrNull(fullPath)
+  if (existing === null) {
+    throw new Error(`note not found: "${params.path}"`)
+  }
+  const parsed = matter(existing)
+  const mergedProperties = { ...parsed.data, ...params.properties }
+  await writeFile(
+    fullPath,
+    matter.stringify(parsed.content, mergedProperties),
+    "utf8",
+  )
+  logger.info("updated properties", { path: params.path })
 }
 
 /** Deletes a note. Rejects paths under the configured protected paths. */
@@ -140,4 +178,11 @@ const listNotes = async (
   return result
 }
 
-export const vaultFs = { readNote, writeNote, deleteNote, listNotes }
+export const vaultFs = {
+  readNote,
+  readNoteProperties,
+  writeNote,
+  updateProperties,
+  deleteNote,
+  listNotes,
+}
