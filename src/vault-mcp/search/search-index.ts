@@ -26,6 +26,12 @@ const convertFrontmatterDatesToIsoStrings = (
     ]),
   )
 
+/** Coerces a YAML frontmatter field to a string array.
+ *  gray-matter may parse multi-value YAML fields as a single string
+ *  or an array depending on syntax (flow vs block). */
+const coerceToArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value : value ? [String(value)] : []
+
 // ── FTS5 query sanitization ─────────────────────────────────────
 
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
@@ -334,35 +340,32 @@ export const createSearchIndex = (dbPath: string) => {
   ): void => {
     const skipLinks = options?.skipLinks ?? false
     const parsed = matter(rawContent)
-    const { data } = parsed
+    const { data: frontmatter } = parsed
 
-    // gray-matter may parse tags/related as a single string or array depending on YAML syntax
-    const tags = Array.isArray(data.tags)
-      ? data.tags
-      : data.tags
-        ? [data.tags]
-        : []
-    const related = Array.isArray(data.related)
-      ? data.related
-      : data.related
-        ? [data.related]
-        : []
+    const tags = coerceToArray(frontmatter.tags)
+    const related = coerceToArray(frontmatter.related)
 
+    // gray-matter auto-parses YAML dates to JS Date objects (YAML 1.1);
+    // handle both Date and string forms to normalize to ISO
     const note = {
       path: filePath,
-      title: isString(data.title) ? data.title : basename(filePath, ".md"),
+      title: isString(frontmatter.title)
+        ? frontmatter.title
+        : basename(filePath, ".md"),
       content: parsed.content,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
-      type: isString(data.type) ? data.type : null,
-      created: isDate(data.created)
-        ? DateTime.fromJSDate(data.created).toISO()
-        : isString(data.created)
-          ? DateTime.fromISO(data.created).toISO()
+      type: isString(frontmatter.type) ? frontmatter.type : null,
+      created: isDate(frontmatter.created)
+        ? DateTime.fromJSDate(frontmatter.created).toISO()
+        : isString(frontmatter.created)
+          ? DateTime.fromISO(frontmatter.created).toISO()
           : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(convertFrontmatterDatesToIsoStrings(data)),
+      properties: JSON.stringify(
+        convertFrontmatterDatesToIsoStrings(frontmatter),
+      ),
     }
 
     deleteFtsStmt.run(note.path)
@@ -420,35 +423,41 @@ export const createSearchIndex = (dbPath: string) => {
       withFileTypes: true,
     })
 
-    const files = entries.reduce<{ rel: string; full: string }[]>(
-      (acc, entry) => {
-        if (!entry.isFile() || !entry.name.endsWith(".md")) return acc
-        const full = join(entry.parentPath, entry.name)
-        const rel = relative(normalizedVault, full)
-        if (rel.split("/").some((seg) => seg.startsWith("."))) return acc
-        acc.push({ rel, full })
-        return acc
-      },
-      [],
-    )
+    // Filter directory entries to visible .md files, then load their content
+    const markdownFiles = entries.reduce<
+      { relativePath: string; absolutePath: string }[]
+    >((filteredFiles, directoryEntry) => {
+      if (!directoryEntry.isFile() || !directoryEntry.name.endsWith(".md"))
+        return filteredFiles
+      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
+      const relativePath = relative(normalizedVault, absolutePath)
+      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
+        return filteredFiles
+      return [...filteredFiles, { relativePath, absolutePath }]
+    }, [])
 
-    const items = await Promise.all(
-      files.map(async (file) => {
+    const noteContents = await Promise.all(
+      markdownFiles.map(async (file) => {
         const [content, fileStat] = await Promise.all([
-          readFile(file.full, "utf8"),
-          stat(file.full),
+          readFile(file.absolutePath, "utf8"),
+          stat(file.absolutePath),
         ])
-        return { rel: file.rel, content, mtime: fileStat.mtimeMs }
+        return {
+          relativePath: file.relativePath,
+          content,
+          modifiedAtMs: fileStat.mtimeMs,
+        }
       }),
     )
 
+    // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
-      for (const item of items) {
-        // Skip link extraction here — Pass 2 handles it with the complete
-        // path list so all forward references can resolve correctly.
-        upsertNote(item.rel, item.content, item.mtime, { skipLinks: true })
+      for (const note of noteContents) {
+        upsertNote(note.relativePath, note.content, note.modifiedAtMs, {
+          skipLinks: true,
+        })
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
@@ -460,17 +469,17 @@ export const createSearchIndex = (dbPath: string) => {
       const pathList = allPaths.map((row) => row.path)
 
       db.exec("DELETE FROM links")
-      for (const item of items) {
-        const parsed = matter(item.content)
+      for (const note of noteContents) {
+        const parsed = matter(note.content)
         for (const rawTarget of extractLinks(parsed.content)) {
           const resolved = resolveLink(rawTarget, pathList)
-          insertLinkStmt.run(item.rel, resolved ?? rawTarget)
+          insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
       }
     })()
 
-    logger.info("rebuilt index", { count: items.length })
-    return items.length
+    logger.info("rebuilt index", { count: noteContents.length })
+    return noteContents.length
   }
 
   // ── Query methods ──────────────────────────────────────────────
@@ -480,6 +489,7 @@ export const createSearchIndex = (dbPath: string) => {
     params: { query: string; filters?: SearchFilters },
     logger: Logger,
   ): SearchResult[] => {
+    // Build WHERE clause dynamically: each filter appends a condition + its bind params
     const conditions: string[] = []
     const queryParams: unknown[] = []
 
@@ -501,11 +511,11 @@ export const createSearchIndex = (dbPath: string) => {
     }
 
     if (params.filters?.related) {
-      for (const rel of params.filters.related) {
+      for (const relatedNote of params.filters.related) {
         conditions.push(
           "EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)",
         )
-        queryParams.push(rel)
+        queryParams.push(relatedNote)
       }
     }
 
@@ -564,7 +574,11 @@ export const createSearchIndex = (dbPath: string) => {
         resultCount: results.length,
       })
       return results
-    } catch {
+    } catch (error) {
+      logger.warn("full text search failed", {
+        query: params.query,
+        error: error instanceof Error ? error.message : String(error),
+      })
       return []
     }
   }
@@ -682,10 +696,10 @@ export const createSearchIndex = (dbPath: string) => {
       : ""
 
     const keySql = `
-      SELECT je.key, COUNT(DISTINCT n.path) as count
-      FROM notes n, json_each(n.properties) je
+      SELECT property.key, COUNT(DISTINCT n.path) as count
+      FROM notes n, json_each(n.properties) property
       ${folderCondition}
-      GROUP BY je.key
+      GROUP BY property.key
       ORDER BY count DESC
     `
     const keySqlParams: Record<string, string> = {}
@@ -897,8 +911,9 @@ export const createSearchIndex = (dbPath: string) => {
     const excludeFolders = params.excludeFolders ?? []
     const limit = params.limit ?? 50
 
-    const folderExclusions = excludeFolders
-      .map(() => "path NOT LIKE ? || '/%'")
+    // One exclusion clause per folder, each bound to a positional parameter
+    const folderExclusions = Array(excludeFolders.length)
+      .fill("path NOT LIKE ? || '/%'")
       .join(" AND ")
     const whereClause =
       excludeFolders.length > 0 ? `AND ${folderExclusions}` : ""

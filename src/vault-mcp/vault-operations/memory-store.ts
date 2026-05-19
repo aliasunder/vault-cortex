@@ -382,7 +382,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       ENTRY_PATTERN.test(line),
     )
     const lastBulletOffset = bodyLines.reduce(
-      (last, line, index) => (ENTRY_PATTERN.test(line) ? index : last),
+      (lastMatchIndex, line, index) =>
+        ENTRY_PATTERN.test(line) ? index : lastMatchIndex,
       -1,
     )
 
