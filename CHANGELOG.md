@@ -4,6 +4,17 @@
 
 
 
+
+## [0.15.2] — 2026-05-19
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.1
+
+### CI / Infrastructure
+
+- Authenticate release pushes via GitHub App token (#52)
+
 ## [0.15.1] — 2026-05-19
 
 ### Features
