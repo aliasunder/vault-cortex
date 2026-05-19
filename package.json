@@ -1,6 +1,6 @@
 {
   "name": "vault-cortex",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "private": true,
   "description": "Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol",
   "license": "MIT",
