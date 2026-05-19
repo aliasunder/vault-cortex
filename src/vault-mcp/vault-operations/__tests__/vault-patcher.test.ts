@@ -228,6 +228,59 @@ describe("findTrailingCommentBlockStart", () => {
     const lines = ["%% block %%", ""]
     expect(findTrailingCommentBlockStart(lines)).toBe(0)
   })
+
+  it("ignores a single mid-line %% before a multi-line trailing block", () => {
+    // Stray `%%` in card text (e.g. `100%%`) is not at a line boundary, so it
+    // must not toggle comment state. A per-substring count would treat the
+    // `%% kanban:settings` opener as a *closer* to the stray comment opened
+    // on line 0, shifting the detected block to the trailing `%%` on line 6
+    // — yielding 6 instead of 1.
+    const lines = [
+      "- [x] Card with 100%% off",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
+  })
+
+  it("ignores an odd count of mid-line %% before a multi-line trailing block", () => {
+    // Three mid-line `%%` leave a per-substring counter in "open" state
+    // before the real block; the real opener gets misread as a closer to the
+    // stray comment, shifting the detected block to the trailing `%%` —
+    // yielding 8 instead of 3.
+    const lines = [
+      "- [x] 50%% off",
+      "- [x] 75%% discount",
+      "- [x] 33%% savings",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
+
+  it("ignores %% embedded mid-word with no surrounding whitespace", () => {
+    // `100%%done` has no whitespace around the `%%`, so it is not a
+    // delimiter. Same regression scenario as the single-mid-line case: a
+    // per-substring count would shift the block to line 6.
+    const lines = [
+      "- [x] Score: 100%%done bonus",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
+  })
 })
 
 // ── parseHeadings (tested indirectly via patchNote) ─────────────
@@ -974,6 +1027,247 @@ describe("patchNote — trailing comment block preservation", () => {
     expect(updated).not.toContain("Task A")
     expect(updated).toContain("## Done")
     expect(updated).toContain("%% kanban:settings")
+  })
+
+  it("append to a large Done section with assorted Kanban patterns inserts before trailing block", async () => {
+    // Exercises common TASKS.md patterns: escaped pipes in wikilinks, block IDs,
+    // backtick-wrapped code, very long lines, indented sub-items, and many items.
+    // All task text is fictional — the fixture only exists to vary the
+    // structural shape of cards inside a single board.
+    const doneItems = [
+      "- [x] Initial project scaffold ➕ 2026-04-20 ✅ 2026-04-20 ^scaffold",
+      "- [x] Set up CI/CD pipeline ➕ 2026-04-21 ✅ 2026-04-22",
+      "- [x] [[Notes/projects/sample-task-a\\|Sample: refactor configuration loader]] ➕ 2026-04-23 ✅ 2026-04-25 ^sample-a",
+      "- [x] Add full-text search backend ➕ 2026-04-24 ✅ 2026-04-26",
+      "- [x] [[Notes/projects/sample-task-b\\|Sample: section-aware document operations]] ➕ 2026-04-25 ✅ 2026-04-27 ^sample-b",
+      "\t- [x] Add section filtering",
+      "\t- [x] Add append-with-dates support",
+      "\t- [x] Handle auto-create of missing files",
+      "- [x] Wire up handler module with 20+ endpoints ➕ 2026-04-26 ✅ 2026-04-28",
+      "- [x] Quickstart: local development setup ➕ 2026-05-01 ✅ 2026-05-02",
+      "- [x] Quickstart: production deployment ➕ 2026-05-01 ✅ 2026-05-03",
+      "- [x] Community files: LICENSE, CONTRIBUTING, CODE_OF_CONDUCT ➕ 2026-05-04 ✅ 2026-05-04",
+      "- [x] Upgrade runtime and core dependencies (pinned versions) ➕ 2026-05-04 ✅ 2026-05-05",
+      "- [x] [[Notes/projects/sample-task-c\\|Sample: improved API documentation pass]] ➕ 2026-05-05 ✅ 2026-05-06 ^sample-c",
+      "- [x] README rewrite (progressive disclosure, 494→200 lines) ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Add deployment walkthrough doc ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Add registry manifest file ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Fix architecture doc accuracy + release automation ➕ 2026-05-08 ✅ 2026-05-08",
+      "- [x] Dead code cleanup pass ➕ 2026-05-09 ✅ 2026-05-09",
+      "- [x] Readability pass: explicit names, doc comments, early returns ➕ 2026-05-09 ✅ 2026-05-10",
+      "- [x] Add token verification test coverage ➕ 2026-05-10 ✅ 2026-05-10",
+      "- [x] Add `update_properties` + `properties_only` flag ➕ 2026-05-10 ✅ 2026-05-11 ^props",
+      "- [x] Add static analysis to CI pipeline ➕ 2026-05-11 ✅ 2026-05-12",
+      "- [x] Restrict ingress to a single proxied endpoint ➕ 2026-05-12 ✅ 2026-05-13 ^ingress",
+      "\t- [x] Add `ORIGIN_URL` + `PORT_CIDRS` env vars",
+      "\t- [x] Add `parseCidrs` helper with named constants",
+      "\t- [x] Set up reverse proxy as a systemd service",
+      "\t- [x] Configure tunnel route `tunnel.example.com` → `localhost:8000`",
+      "\t- [x] Migrate DNS to the new provider",
+      "- [x] Restrict admin access to private overlay network ➕ 2026-05-13 ✅ 2026-05-14 ^admin-net",
+      "- [x] Fix IaC `ForceNew` race on port resource — always-two-entries + `deleteBeforeReplace` ➕ 2026-05-13 ✅ 2026-05-14",
+      "- [x] Organize source tree into domain subdirectories (`operations/`, `search/`, `auth/`) ➕ 2026-05-14 ✅ 2026-05-14",
+      "- [x] Add Markdown syntax guidance to 4 write tool descriptions ➕ 2026-05-14 ✅ 2026-05-14",
+      "- [x] Audit + fix `replace_in_note` scope: positively scoped + cross-section move recipe ➕ 2026-05-15 ✅ 2026-05-15",
+      "- [x] Add sort-order docs + `date` frontmatter convention to tool descriptions ➕ 2026-05-15 ✅ 2026-05-15",
+      "- [x] Externalize config (`config.ts`, factory pattern, config threading) ➕ 2026-05-15 ✅ 2026-05-16 ^config-ext",
+      "- [x] Bootstrap templates for new installs (`templates/`) ➕ 2026-05-16 ✅ 2026-05-16",
+      "- [x] `update_memory` auto-create + graceful `get_memory` + newest-first suffix ➕ 2026-05-16 ✅ 2026-05-16",
+      "- [x] First public release v1.0.0 ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] CI hardened: secrets pulled from secret store, sensitive logs masked ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] A very long task description that exceeds two hundred characters to test line-length handling in the parser — this kind of verbose description sometimes appears when tasks are auto-generated from detailed session logs or copied from PR descriptions with full context ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] Fix `#` rendering in card with code: `heading.match(/^#{1,6} /)` ➕ 2026-05-18 ✅ 2026-05-18",
+      '- [x] Handle edge case where `config["key"]` has escaped quotes ➕ 2026-05-18 ✅ 2026-05-18',
+    ]
+    const content = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Phase 2: LightRAG integration ➕ 2026-05-19 ^lightrag
+
+## Up Next
+
+- [ ] Rate limiting middleware ➕ 2026-05-18
+- [ ] Caddy TLS termination ➕ 2026-05-18
+
+## Waiting On
+
+## Someday
+
+- [ ] Mobile-friendly OAuth consent page ➕ 2026-05-10
+
+## Done
+
+${doneItems.join("\n")}
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","hide-tags-in-title":true}
+\`\`\`
+%%
+`
+    await writeTestNote("big-board.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "big-board.md",
+        operation: "append",
+        content: "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("big-board.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) =>
+        line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    // The appended task must land BEFORE the kanban:settings block
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+    // Verify the settings block is still intact
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain(
+      '{"kanban-plugin":"board","hide-tags-in-title":true}',
+    )
+    expect(updated).toMatch(/%%\n*$/)
+  })
+
+  it("append to Done survives a stray %% in card text that toggles comment state", async () => {
+    // A card containing a stray `%%` in its text (e.g. `100%%`) used to flip
+    // the parser's comment state. The actual `%% kanban:settings` opener was
+    // then misinterpreted as a closer, and the trailing block was not
+    // detected — so append landed AFTER it.
+    const content = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Current work
+
+## Done
+
+- [x] Normal task one ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Fixed the 100%% rendering bug ➕ 2026-05-02 ✅ 2026-05-02
+- [x] Normal task two ➕ 2026-05-03 ✅ 2026-05-03
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("stray-pct.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "stray-pct.md",
+        operation: "append",
+        content: "- [x] Appended after stray %% card",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("stray-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Appended after stray %% card",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    // Appended content must be BEFORE the kanban:settings block
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
+
+  it("append to Done when a card has an inline Obsidian comment with %%", async () => {
+    // An inline comment like `%% note to self %%` has TWO `%%` on one line,
+    // toggling open then closed — comment state returns to "off". This should
+    // NOT break trailing block detection.
+    const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Task with %% inline comment %% in it ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Another task ➕ 2026-05-02 ✅ 2026-05-02
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("inline-comment.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "inline-comment.md",
+        operation: "append",
+        content: "- [x] New task after inline comment card",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("inline-comment.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] New task after inline comment card",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
+
+  it("append to Done when an odd number of stray %% lines appear in cards", async () => {
+    // Three separate lines each containing a single mid-line `%%` — under the
+    // old per-substring count, the odd total left the parser "open" before
+    // reaching the trailing block, so the block opener was misinterpreted as
+    // a closer to the stray comment.
+    const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Card with 50%% off deal ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Another 75%% discount card ➕ 2026-05-02 ✅ 2026-05-02
+- [x] And 33%% savings here ➕ 2026-05-03 ✅ 2026-05-03
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("odd-pct.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "odd-pct.md",
+        operation: "append",
+        content: "- [x] Task appended after triple stray %%",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("odd-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Task appended after triple stray %%",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
   })
 
   it("replace on a heading with only blank lines before the trailing block", async () => {
