@@ -3,6 +3,32 @@
 
 
 
+
+## [0.15.1] — 2026-05-19
+
+### Features
+
+- Persist logs across deploys, prune dangling images (#50)
+
+### Bug Fixes
+
+- Only toggle %% comment state at line boundaries (#51)
+- Bust camo proxy cache for license badge
+- Format server.json + run prettier after jq in release workflow
+
+### Documentation
+
+- Add Gitleaks workflow status badge
+- Update CHANGELOG.md for v0.15.0
+
+### CI / Infrastructure
+
+- Use secrets for sensitive deploy config, mask IP in logs
+
+### Maintenance
+
+- **deps-dev:** Bump brace-expansion from 5.0.5 to 5.0.6 (#49)
+
 ## [0.15.0] — 2026-05-19
 
 ### Features
