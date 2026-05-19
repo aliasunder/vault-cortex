@@ -106,7 +106,7 @@ Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent
 
 All settings are environment variables with sensible defaults.
 
-| Variable                    | Required    | Default                              | Description                                                |
+| Variable                    | Required?   | Default                              | Description                                                |
 | --------------------------- | ----------- | ------------------------------------ | ---------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH`                | Local only  | —                                    | Path to the vault inside the container                     |
