@@ -248,6 +248,9 @@ describe("OAuth refresh token schema migration", () => {
   })
 })
 
+// Each test gets a fresh OAuth provider + SQLite DB in a temp directory.
+// The second DB connection (`db`) is for seeding test state (revoked tokens)
+// without going through the provider's API — isolating what we're testing.
 describe("verifyAccessToken", () => {
   let dir: string
   let dbPath: string
