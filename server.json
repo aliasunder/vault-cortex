@@ -53,12 +53,7 @@
           "name": "LOG_LEVEL",
           "description": "Logging verbosity",
           "default": "info",
-          "choices": [
-            "debug",
-            "info",
-            "warn",
-            "error"
-          ],
+          "choices": ["debug", "info", "warn", "error"],
           "isRequired": false
         }
       ]
