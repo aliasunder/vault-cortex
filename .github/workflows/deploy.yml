@@ -17,8 +17,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      SST_STAGE: ${{ vars.SST_STAGE }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      SST_STAGE: ${{ secrets.SST_STAGE }}
       IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
     steps:
       - uses: actions/checkout@v6
@@ -33,19 +33,21 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: SST deploy
         env:
           SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
-          SSH_CIDRS: ${{ vars.SSH_CIDRS }}
-          ORIGIN_URL: ${{ vars.ORIGIN_URL }}
-          MCP_PORT_CIDRS: ${{ vars.MCP_PORT_CIDRS }}
+          SSH_CIDRS: ${{ secrets.SSH_CIDRS }}
+          ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
+          MCP_PORT_CIDRS: ${{ secrets.MCP_PORT_CIDRS }}
         run: npx sst deploy --stage "$SST_STAGE"
 
       - name: Connect to Tailscale
-        if: vars.TAILSCALE_SSH_HOST != ''
+        if: env.TAILSCALE_SSH_HOST != ''
+        env:
+          TAILSCALE_SSH_HOST: ${{ secrets.TAILSCALE_SSH_HOST }}
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
@@ -65,7 +67,7 @@ jobs:
       - name: Resolve SSH target
         id: ssh
         env:
-          TAILSCALE_HOST: ${{ vars.TAILSCALE_SSH_HOST }}
+          TAILSCALE_HOST: ${{ secrets.TAILSCALE_SSH_HOST }}
           PUBLIC_IP: ${{ steps.sst.outputs.ip }}
         run: |
           if [ -n "$TAILSCALE_HOST" ]; then
@@ -125,10 +127,10 @@ jobs:
 
       - name: Write Lightsail .env from secrets
         env:
-          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
           MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
           OBSIDIAN_AUTH_TOKEN: ${{ secrets.OBSIDIAN_AUTH_TOKEN }}
-          VAULT_NAME: ${{ vars.VAULT_NAME }}
+          VAULT_NAME: ${{ secrets.VAULT_NAME }}
           VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
           GHCR_USER: ${{ vars.GHCR_USER }}
           MEMORY_DIR: ${{ vars.MEMORY_DIR }}
@@ -174,5 +176,5 @@ jobs:
 
       - name: Healthcheck
         env:
-          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
         run: curl -fsS --retry 6 --retry-delay 5 "$PUBLIC_URL/healthz"

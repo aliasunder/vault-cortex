@@ -37,6 +37,12 @@ const expandHome = (p: string): string =>
   p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
 const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
+
+/** In GitHub Actions, masks a value so it appears as *** in logs. No-op locally. */
+const mask = (value: string): void => {
+  if (env.CI) console.log(`::add-mask::${value}`)
+}
+
 const ghcrUser = env.GHCR_USER
 if (!ghcrUser) {
   console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
@@ -132,6 +138,7 @@ switch (sub) {
       process.exit(1)
     }
     const ip = sshHost()
+    mask(ip)
     const id = sshIdentity()
     run(
       `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
