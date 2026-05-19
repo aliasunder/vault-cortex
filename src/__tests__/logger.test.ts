@@ -9,7 +9,7 @@ import {
 } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { Settings } from "luxon"
+import { DateTime, Settings } from "luxon"
 import { createFileSinkExtension, pruneOldLogFiles } from "../logger.js"
 
 const createTempDir = (): string => {
@@ -26,14 +26,14 @@ const createTempDir = (): string => {
 
 const sampleLine = (message: string): string =>
   JSON.stringify({
-    timestamp: new Date().toISOString(),
+    timestamp: DateTime.now().toISO(),
     level: "info",
     name: "test",
     message,
   }) + "\n"
 
 const sampleEntry = (message: string) => ({
-  timestamp: new Date().toISOString(),
+  timestamp: DateTime.now().toISO(),
   level: "info" as const,
   name: "test",
   message,
@@ -48,7 +48,7 @@ describe("createFileSinkExtension", () => {
     extension(sampleEntry("hello"), sampleLine("hello"))
     extension(sampleEntry("world"), sampleLine("world"))
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = DateTime.now().toISODate()
     const content = readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")
     expect(content).toContain('"message":"hello"')
     expect(content).toContain('"message":"world"')
@@ -65,7 +65,7 @@ describe("createFileSinkExtension", () => {
 
   it("appends to an existing log file", () => {
     const logDir = createTempDir()
-    const today = new Date().toISOString().slice(0, 10)
+    const today = DateTime.now().toISODate()
     const logFile = join(logDir, `vault-mcp-${today}.log`)
 
     writeFileSync(logFile, '{"message":"existing"}\n')
@@ -130,7 +130,7 @@ describe("pruneOldLogFiles", () => {
 
     writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "old")
     writeFileSync(join(logDir, "vault-mcp-2020-06-15.log"), "also old")
-    const today = new Date().toISOString().slice(0, 10)
+    const today = DateTime.now().toISODate()
     writeFileSync(join(logDir, `vault-mcp-${today}.log`), "current")
 
     pruneOldLogFiles(logDir, 30)
@@ -156,10 +156,8 @@ describe("pruneOldLogFiles", () => {
   it("keeps files within retention window", () => {
     const logDir = createTempDir()
 
-    const today = new Date().toISOString().slice(0, 10)
-    const yesterday = new Date(Date.now() - 86_400_000)
-      .toISOString()
-      .slice(0, 10)
+    const today = DateTime.now().toISODate()
+    const yesterday = DateTime.now().minus({ days: 1 }).toISODate()
     writeFileSync(join(logDir, `vault-mcp-${today}.log`), "today")
     writeFileSync(join(logDir, `vault-mcp-${yesterday}.log`), "yesterday")
 
@@ -172,9 +170,7 @@ describe("pruneOldLogFiles", () => {
   it("respects custom retention days", () => {
     const logDir = createTempDir()
 
-    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000)
-      .toISOString()
-      .slice(0, 10)
+    const twoDaysAgo = DateTime.now().minus({ days: 2 }).toISODate()
     writeFileSync(join(logDir, `vault-mcp-${twoDaysAgo}.log`), "old-ish")
 
     pruneOldLogFiles(logDir, 1)
