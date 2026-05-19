@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "vault-cortex",
   "description": "Remote MCP server — full-text search, structured memory, link graph, and 22 tools for Obsidian vaults. Runs locally via Docker or remotely with Obsidian Sync + OAuth 2.1.",
-  "version": "0.10.0",
+  "version": "0.13.0",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",

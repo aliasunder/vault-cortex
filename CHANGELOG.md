@@ -19,6 +19,17 @@
 - Prevent port 8000 wipe by avoiding ForceNew on InstancePublicPorts (#42)
 
 
+## [0.12.0] — 2026-05-18
+
+### Features
+
+- Restrict SSH to Tailscale with configurable firewall CIDRs (#40)
+
+### Maintenance
+
+- Remove unneeded type
+
+
 ## [0.11.3] — 2026-05-17
 
 ### Features
@@ -44,8 +55,6 @@
 ### Maintenance
 
 - Align Node references on Node 24 and fix doc inaccuracies (#37)
-
-All notable changes to this project will be documented in this file.
 
 
 ## [0.11.1] — 2026-05-16
@@ -228,7 +237,6 @@ No notable changes.
 
 - Update CHANGELOG.md for v0.2.0
 
-All notable changes to this project will be documented in this file.
 
 ## [0.2.0] — 2026-05-11
 
