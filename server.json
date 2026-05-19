@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "vault-cortex",
   "description": "Remote MCP server for Obsidian vaults — search, memory, link graph, 23 tools, OAuth-protected.",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -14,7 +14,7 @@
     {
       "registryType": "oci",
       "identifier": "ghcr.io/aliasunder/vault-cortex",
-      "version": "0.15.2",
+      "version": "0.15.3",
       "transport": {
         "type": "streamable-http",
         "url": "http://localhost:8000/mcp"
