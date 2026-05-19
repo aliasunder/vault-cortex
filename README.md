@@ -76,7 +76,7 @@ Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent
 
 **[Full remote guide →](./deploy/remote/)**
 
-## Tools (22)
+## Tools (23)
 
 | Category        | Tool                         | Description                                              |
 | --------------- | ---------------------------- | -------------------------------------------------------- |
