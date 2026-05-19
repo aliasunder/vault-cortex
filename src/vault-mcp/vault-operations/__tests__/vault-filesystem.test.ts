@@ -2,10 +2,18 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import matter from "gray-matter"
 import { vaultFs } from "../vault-filesystem.js"
 import { logger } from "../../../logger.js"
 
-const { readNote, writeNote, deleteNote, listNotes } = vaultFs
+const {
+  readNote,
+  readNoteProperties,
+  writeNote,
+  updateProperties,
+  deleteNote,
+  listNotes,
+} = vaultFs
 
 let vault: string
 
@@ -71,7 +79,7 @@ describe("writeNote", () => {
         vaultPath: vault,
         path: "new.md",
         body: "# New\n",
-        frontmatter: { title: "New" },
+        properties: { title: "New" },
       },
       logger,
     )
@@ -126,7 +134,7 @@ describe("writeNote", () => {
         vaultPath: vault,
         path: "merge.md",
         body: "body\n",
-        frontmatter: { status: "active" },
+        properties: { status: "active" },
       },
       logger,
     )
@@ -251,5 +259,157 @@ describe("listNotes", () => {
     await writeFile(join(vault, "notes/z.md"), "z", "utf8")
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
+  })
+})
+
+describe("readNoteProperties", () => {
+  it("returns parsed frontmatter as an object", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ntitle: Test\ntags: [a, b]\nstatus: active\n---\n\n# Body\n",
+      "utf8",
+    )
+    const properties = await readNoteProperties(
+      { vaultPath: vault, path: "test.md" },
+      logger,
+    )
+    expect(properties).toEqual({
+      title: "Test",
+      tags: ["a", "b"],
+      status: "active",
+    })
+  })
+
+  it("throws on non-existent file", async () => {
+    await expect(
+      readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger),
+    ).rejects.toThrow("note not found")
+  })
+
+  it("returns empty object for file with no frontmatter", async () => {
+    await writeFile(join(vault, "plain.md"), "# No frontmatter\n", "utf8")
+    const properties = await readNoteProperties(
+      { vaultPath: vault, path: "plain.md" },
+      logger,
+    )
+    expect(properties).toEqual({})
+  })
+
+  it("parses YAML arrays and nested values", async () => {
+    await writeFile(
+      join(vault, "nested.md"),
+      '---\ntags:\n  - one\n  - two\nrelated:\n  - "[[Note A]]"\n---\nbody\n',
+      "utf8",
+    )
+    const properties = await readNoteProperties(
+      { vaultPath: vault, path: "nested.md" },
+      logger,
+    )
+    expect(properties.tags).toEqual(["one", "two"])
+    expect(properties.related).toEqual(["[[Note A]]"])
+  })
+})
+
+describe("updateProperties", () => {
+  it("merges new keys without changing body", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ntitle: Original\n---\nBody content\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: "active" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    const parsed = matter(content)
+    expect(parsed.content.trim()).toBe("Body content")
+    expect(parsed.data.status).toBe("active")
+    expect(parsed.data.title).toBe("Original")
+  })
+
+  it("overwrites existing key values", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\nstatus: draft\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: "published" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toContain("status: published")
+    expect(content).not.toContain("status: draft")
+  })
+
+  it("preserves unmentioned keys", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ntitle: Keep\ntags: [a, b]\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: "active" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    const parsed = matter(content)
+    expect(parsed.data.title).toBe("Keep")
+    expect(parsed.data.tags).toEqual(["a", "b"])
+    expect(parsed.data.status).toBe("active")
+  })
+
+  it("throws on non-existent file", async () => {
+    await expect(
+      updateProperties(
+        {
+          vaultPath: vault,
+          path: "missing.md",
+          properties: { key: "val" },
+        },
+        logger,
+      ),
+    ).rejects.toThrow("note not found")
+  })
+
+  it("adds frontmatter block to file with no existing frontmatter", async () => {
+    await writeFile(join(vault, "plain.md"), "# Just a body\n", "utf8")
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "plain.md",
+        properties: { status: "active" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "plain.md"), "utf8")
+    expect(content).toContain("status: active")
+    expect(content).toContain("Just a body")
+  })
+
+  it("blocks path traversal", async () => {
+    await expect(
+      updateProperties(
+        {
+          vaultPath: vault,
+          path: "../escape.md",
+          properties: { key: "val" },
+        },
+        logger,
+      ),
+    ).rejects.toThrow("path traversal blocked")
   })
 })
