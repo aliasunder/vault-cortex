@@ -463,7 +463,7 @@ Returns: Confirmation message.`,
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", priority: 1 } })
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body. Saves tokens on large notes.
-For array properties (tags, related): read current values first with vault_read_note({ properties_only: true }), then pass the complete array — merge overwrites the key, it does not append to arrays.
+Read current properties first with vault_read_note({ properties_only: true }) — merge overwrites each key entirely (arrays are replaced, not appended to).
 Prefer vault_write_note when creating a new note or replacing the body.
 
 Errors:
