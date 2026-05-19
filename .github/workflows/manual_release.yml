@@ -71,7 +71,7 @@ jobs:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
           npm version "$NEXT" --no-git-tag-version
-          jq --arg v "$NEXT" '.version = $v' server.json > server.json.tmp && mv server.json.tmp server.json
+          jq --arg v "$NEXT" '.version = $v | .packages[0].version = $v' server.json > server.json.tmp && mv server.json.tmp server.json
           npx prettier --write server.json
 
       - name: Commit, tag, and push

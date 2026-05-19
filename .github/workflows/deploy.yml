@@ -93,6 +93,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:v${{ inputs.version }}
+            ${{ env.IMAGE }}:${{ inputs.version }}
             ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
