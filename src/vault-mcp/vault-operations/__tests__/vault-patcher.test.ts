@@ -1044,7 +1044,7 @@ describe("patchNote — trailing comment block preservation", () => {
       "\t- [x] Add `ORIGIN_URL` + `MCP_PORT_CIDRS` env vars",
       "\t- [x] Add `parseCidrs` helper with named constants",
       "\t- [x] Set up `cloudflared` systemd service on Lightsail",
-      "\t- [x] Configure tunnel route `o1.aliasunder.dev` → `localhost:8000`",
+      "\t- [x] Configure tunnel route `tunnel.example.com` → `localhost:8000`",
       "\t- [x] Migrate DNS from Porkbun to Cloudflare",
       "- [x] SSH Tailscale hardening: `SSH_CIDRS` env var, ephemeral nodes ➕ 2026-05-13 ✅ 2026-05-14 ^ssh-tailscale",
       "- [x] Fix Pulumi `ForceNew` on `port_info` — always-two-entries + `deleteBeforeReplace` ➕ 2026-05-13 ✅ 2026-05-14",
