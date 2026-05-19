@@ -5,6 +5,22 @@
 
 
 
+
+## [0.15.3] — 2026-05-19
+
+### Documentation
+
+- Link Obsidian, Obsidian Sync, and headless docs on first mention (#54)
+- Update CHANGELOG.md for v0.15.2
+
+### CI / Infrastructure
+
+- Skip Auto Release when triggered by release App push (#53)
+
+### Maintenance
+
+- Registry-listing prep — server.json, glama.json, README count, release automation (#55)
+
 ## [0.15.2] — 2026-05-19
 
 ### Documentation
