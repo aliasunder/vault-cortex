@@ -14,7 +14,7 @@
     {
       "registryType": "oci",
       "identifier": "ghcr.io/aliasunder/vault-cortex",
-      "version": "0.15.3",
+      "version": "0.15.2",
       "transport": {
         "type": "streamable-http",
         "url": "http://localhost:8000/mcp"
