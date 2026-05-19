@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -26,6 +27,12 @@ const seedClient = (db: Database.Database): OAuthClientInformationFull => {
     JSON.stringify(client),
   )
   return client
+}
+
+const seedRevokedToken = (db: Database.Database, token: string): void => {
+  db.prepare(
+    "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
+  ).run(token, DateTime.now().toUnixInteger())
 }
 
 const seedRefreshToken = (
@@ -238,5 +245,121 @@ describe("OAuth refresh token schema migration", () => {
         dbPath,
       }),
     ).not.toThrow()
+  })
+})
+
+// Each test gets a fresh OAuth provider + SQLite DB in a temp directory.
+// The second DB connection (`db`) is for seeding test state (revoked tokens)
+// without going through the provider's API — isolating what we're testing.
+describe("verifyAccessToken", () => {
+  let dir: string
+  let dbPath: string
+  let oauth: OAuthProvider
+  let db: Database.Database
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
+    dbPath = join(dir, "oauth.db")
+    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath })
+    db = new Database(dbPath)
+  })
+
+  afterEach(async () => {
+    db.close()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it("accepts the static auth token", async () => {
+    const result = await oauth.provider.verifyAccessToken!(AUTH_TOKEN)
+    expect(result.clientId).toBe("static")
+    expect(result.scopes).toEqual(["vault"])
+    expect(result.token).toBe(AUTH_TOKEN)
+  })
+
+  it("returns correct auth info for a valid JWT", async () => {
+    const token = signJwt(
+      {
+        sub: "client-123",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+
+    const result = await oauth.provider.verifyAccessToken!(token)
+    expect(result.clientId).toBe("client-123")
+    expect(result.scopes).toEqual(["vault"])
+    expect(result.token).toBe(token)
+    expect(result.expiresAt).toBeDefined()
+  })
+
+  it("parses multiple scopes from JWT scope claim", async () => {
+    const token = signJwt(
+      {
+        sub: "client-456",
+        scope: "vault read write",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+
+    const result = await oauth.provider.verifyAccessToken!(token)
+    expect(result.scopes).toEqual(["vault", "read", "write"])
+  })
+
+  it("returns empty scopes when JWT scope claim is empty", async () => {
+    const token = signJwt(
+      {
+        sub: "client-789",
+        scope: "",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+
+    const result = await oauth.provider.verifyAccessToken!(token)
+    expect(result.scopes).toEqual([])
+  })
+
+  it("rejects a revoked JWT", async () => {
+    const token = signJwt(
+      {
+        sub: "client-123",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+    seedRevokedToken(db, token)
+
+    await expect(oauth.provider.verifyAccessToken!(token)).rejects.toThrow(
+      "Token has been revoked",
+    )
+  })
+
+  it("rejects an expired JWT", async () => {
+    const token = signJwt(
+      {
+        sub: "client-123",
+        scope: "vault",
+        exp: DateTime.now().minus({ seconds: 10 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(oauth.provider.verifyAccessToken!(token)).rejects.toThrow(
+      "Token expired or invalid",
+    )
+  })
+
+  it("rejects a garbage token", async () => {
+    await expect(
+      oauth.provider.verifyAccessToken!("not-a-jwt-not-the-static-token"),
+    ).rejects.toThrow("Token expired or invalid")
   })
 })
