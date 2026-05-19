@@ -18,7 +18,7 @@
 
 ## What is this?
 
-**vault-cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your Obsidian vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools over a single Docker container.
+**vault-cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools over a single Docker container.
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **vault-cortex** replaces all of that with Docker and your vault folder.
 
@@ -60,7 +60,7 @@ Connect Claude Desktop or Claude Code — add a remote MCP server with URL `http
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
-Run vault-cortex on a VPS with Obsidian Sync for remote access from any device.
+Run vault-cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
 
 ```bash
 # On your VPS:
@@ -192,7 +192,7 @@ The [obsidian-vault](https://github.com/aliasunder/cowork-plugins) skill teaches
 
 ## Acknowledgments
 
-vault-cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a headless Obsidian Sync client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible.
+vault-cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible.
 
 ## Contributing
 

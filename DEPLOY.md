@@ -2,7 +2,7 @@
 
 Full cloud deployment using SST v4 for infrastructure-as-code. Provisions a Lightsail VM, API Gateway with Lambda authorizer, and CI/CD via GitHub Actions.
 
-For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + Obsidian Sync).
+For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)).
 
 ---
 
@@ -14,6 +14,8 @@ SST uses a stage name based on your OS username (run `npx sst secret list` once 
 - Docker installed locally
 - A GitHub PAT with `read:packages` + `write:packages` scopes
 - A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
+- An [Obsidian](https://obsidian.md) vault (the data this server exposes)
+- An [Obsidian Sync](https://obsidian.md/sync) subscription (the remote deploy uses obsidian-sync to mirror the vault between this VM and your Obsidian apps)
 
 ## One-time setup
 
