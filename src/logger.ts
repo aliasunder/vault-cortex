@@ -1,4 +1,7 @@
 import { env } from "node:process"
+import { mkdirSync, readdirSync, unlinkSync, appendFileSync } from "node:fs"
+import { join } from "node:path"
+import { DateTime } from "luxon"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -10,7 +13,7 @@ type LogEntry = {
   data: Record<string, unknown>
 }
 
-type LogExtension = (entry: LogEntry) => void
+type LogExtension = (entry: LogEntry, line: string) => void
 
 export type Logger = {
   debug: (message: string, data?: Record<string, unknown>) => void
@@ -43,6 +46,72 @@ const getCallerSource = (): string => {
   return `${file}:${frame.getLineNumber()}`
 }
 
+// ── File sink extension ─────────────────────────────────────
+
+const LOG_FILE_PREFIX = "vault-mcp-"
+const LOG_FILE_SUFFIX = ".log"
+/** Matches date-stamped log files: vault-mcp-YYYY-MM-DD.log */
+const LOG_FILE_PATTERN = /^vault-mcp-(\d{4}-\d{2}-\d{2})\.log$/
+
+const DEFAULT_RETENTION_DAYS = 30
+
+const todayDateString = (): string => DateTime.now().toISODate()
+
+/** Deletes log files older than retentionDays. */
+export const pruneOldLogFiles = (
+  logDir: string,
+  retentionDays: number,
+): void => {
+  const cutoffDate = DateTime.now().minus({ days: retentionDays }).toISODate()
+
+  for (const filename of readdirSync(logDir)) {
+    const logFileMatch = LOG_FILE_PATTERN.exec(filename)
+    const [, fileDate] = logFileMatch ?? []
+    if (fileDate && fileDate < cutoffDate) {
+      unlinkSync(join(logDir, filename))
+    }
+  }
+}
+
+/** Creates a LogExtension that appends each line to a date-stamped file.
+ *  Rolls to a new file at midnight. Prunes files older than retentionDays on creation. */
+export const createFileSinkExtension = (
+  logDir: string,
+  retentionDays: number = DEFAULT_RETENTION_DAYS,
+): LogExtension => {
+  mkdirSync(logDir, { recursive: true })
+  pruneOldLogFiles(logDir, retentionDays)
+
+  const logPath = (): string =>
+    join(logDir, `${LOG_FILE_PREFIX}${todayDateString()}${LOG_FILE_SUFFIX}`)
+
+  // `line` is the same JSON string already written to stdout/stderr by emit()
+  return (_entry: LogEntry, line: string): void => {
+    appendFileSync(logPath(), line)
+  }
+}
+
+// ── Logger ──────────────────────────────────────────────────
+
+const parseRetentionDays = (
+  envValue: string | undefined,
+): number | undefined => {
+  if (!envValue) return undefined
+  const retentionDays = parseInt(envValue, 10)
+  return Number.isNaN(retentionDays) ? undefined : retentionDays
+}
+
+const fileSinkExtension: LogExtension | undefined = env.LOG_DIR
+  ? createFileSinkExtension(
+      env.LOG_DIR,
+      parseRetentionDays(env.LOG_RETENTION_DAYS),
+    )
+  : undefined
+
+const defaultExtensions: LogExtension[] = fileSinkExtension
+  ? [fileSinkExtension]
+  : []
+
 const createLogger = (
   name: string,
   options?: {
@@ -65,7 +134,7 @@ const createLogger = (
 
     const mergedData = { ...baseProps, ...data }
     const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: DateTime.now().toISO(),
       level,
       name,
       message,
@@ -84,8 +153,8 @@ const createLogger = (
     if (level === "error") process.stderr.write(line)
     else process.stdout.write(line)
 
-    for (const ext of extensions) {
-      ext(entry)
+    for (const extension of extensions) {
+      extension(entry, line)
     }
   }
 
@@ -102,4 +171,6 @@ const createLogger = (
   }
 }
 
-export const logger = createLogger("vault-cortex")
+export const logger = createLogger("vault-cortex", {
+  extensions: defaultExtensions,
+})

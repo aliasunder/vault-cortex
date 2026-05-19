@@ -69,6 +69,8 @@ services:
       PUBLIC_URL: "${PUBLIC_URL:?Set PUBLIC_URL to your server's public URL}"
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /data/logs
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
       # Uncomment to override smart defaults (see Configuration in the main README):
       # PROTECTED_PATHS: ${PROTECTED_PATHS:-}

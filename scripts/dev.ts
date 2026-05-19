@@ -161,7 +161,7 @@ switch (sub) {
     )
     run(`scp ${id} ${sshOpts} ${ENV_PATH} ubuntu@${ip}:/opt/vault-cortex/.env`)
     run(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d'`,
+      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d && docker image prune -f'`,
     )
     console.log(`✓ vault-mcp deployed to ${ip}:8000`)
     break
