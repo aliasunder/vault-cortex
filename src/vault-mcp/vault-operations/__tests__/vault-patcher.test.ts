@@ -976,6 +976,256 @@ describe("patchNote — trailing comment block preservation", () => {
     expect(updated).toContain("%% kanban:settings")
   })
 
+  it("append to a large Done section with real-world Kanban patterns inserts before trailing block", async () => {
+    // Exercises real TASKS.md patterns: escaped pipes in wikilinks, block IDs,
+    // backtick-wrapped code, very long lines, indented sub-items, and many items.
+    const doneItems = [
+      "- [x] Initial project scaffold ➕ 2026-04-20 ✅ 2026-04-20 ^scaffold",
+      "- [x] Set up CI/CD pipeline with GitHub Actions ➕ 2026-04-21 ✅ 2026-04-22",
+      "- [x] [[Code Projects/vault-cortex/task-notes/config-externalize\\|Config: externalize hardcoded paths]] ➕ 2026-04-23 ✅ 2026-04-25 ^config-ext",
+      "- [x] Add `vault_search` FTS5 full-text search ➕ 2026-04-24 ✅ 2026-04-26",
+      "- [x] [[Code Projects/vault-cortex/task-notes/memory-store\\|Memory: About Me/ heading-aware read/append]] ➕ 2026-04-25 ✅ 2026-04-27 ^memory-store",
+      "\t- [x] Add `getMemory` with section filtering",
+      "\t- [x] Add `updateMemory` with append-with-dates",
+      "\t- [x] Handle auto-create of missing memory files",
+      "- [x] Wire up `tool-definitions.ts` with 20+ MCP tools ➕ 2026-04-26 ✅ 2026-04-28",
+      "- [x] Docker quickstart: `deploy/local/` with bind-mounted vault ➕ 2026-05-01 ✅ 2026-05-02",
+      "- [x] Docker quickstart: `deploy/remote/` with Obsidian Sync ➕ 2026-05-01 ✅ 2026-05-03",
+      "- [x] Community files: LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md ➕ 2026-05-04 ✅ 2026-05-04",
+      "- [x] Upgrade to Node 24 + TypeScript 6 + Zod 4 (pinned deps) ➕ 2026-05-04 ✅ 2026-05-05",
+      "- [x] [[Code Projects/vault-cortex/task-notes/tool-desc-safety\\|Tool descriptions: structural edit safety (Pink Elephant Problem)]] ➕ 2026-05-05 ✅ 2026-05-06 ^tool-desc-safety",
+      "- [x] README rewrite for open-source (progressive disclosure, 494→200 lines) ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Add `DEPLOY.md` with full AWS/SST deployment walkthrough ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Add `server.json` MCP server registry manifest ➕ 2026-05-06 ✅ 2026-05-07",
+      "- [x] Fix `ARCHITECTURE.md` doc accuracy + release automation ➕ 2026-05-08 ✅ 2026-05-08",
+      "- [x] Dead code cleanup pass ➕ 2026-05-09 ✅ 2026-05-09",
+      "- [x] Readability pass: explicit names, doc comments, early returns ➕ 2026-05-09 ✅ 2026-05-10",
+      "- [x] `verifyAccessToken` test coverage (was untested) ➕ 2026-05-10 ✅ 2026-05-10",
+      "- [x] `vault_update_properties` + `properties_only` flag ➕ 2026-05-10 ✅ 2026-05-11 ^props-tool",
+      "- [x] Git history secret scan + `.gitleaks.toml` + CI workflow ➕ 2026-05-11 ✅ 2026-05-12",
+      "- [x] Close port 8000: Cloudflare Tunnel + DNS migration ➕ 2026-05-12 ✅ 2026-05-13 ^cf-tunnel",
+      "\t- [x] Add `ORIGIN_URL` + `MCP_PORT_CIDRS` env vars",
+      "\t- [x] Add `parseCidrs` helper with named constants",
+      "\t- [x] Set up `cloudflared` systemd service on Lightsail",
+      "\t- [x] Configure tunnel route `o1.aliasunder.dev` → `localhost:8000`",
+      "\t- [x] Migrate DNS from Porkbun to Cloudflare",
+      "- [x] SSH Tailscale hardening: `SSH_CIDRS` env var, ephemeral nodes ➕ 2026-05-13 ✅ 2026-05-14 ^ssh-tailscale",
+      "- [x] Fix Pulumi `ForceNew` on `port_info` — always-two-entries + `deleteBeforeReplace` ➕ 2026-05-13 ✅ 2026-05-14",
+      "- [x] Organize `vault-mcp/` into domain subdirectories (`vault-operations/`, `search/`, `auth/`) ➕ 2026-05-14 ✅ 2026-05-14",
+      "- [x] Add Obsidian syntax guidance to 4 write tool descriptions ➕ 2026-05-14 ✅ 2026-05-14",
+      "- [x] Audit + fix `vault_replace_in_note` scope: positively scoped + cross-section move recipe ➕ 2026-05-15 ✅ 2026-05-15",
+      "- [x] Add sort-order docs + `date` frontmatter convention to tool descriptions ➕ 2026-05-15 ✅ 2026-05-15",
+      "- [x] Externalize config for OSS adoption (`config.ts`, memory-store factory, config threading) ➕ 2026-05-15 ✅ 2026-05-16 ^config-oss",
+      "- [x] Bootstrap templates for new vaults (`templates/memory/`) ➕ 2026-05-16 ✅ 2026-05-16",
+      "- [x] `updateMemory` auto-create + graceful `getMemory` + newest-first suffix ➕ 2026-05-16 ✅ 2026-05-16",
+      "- [x] Repo went public at v0.15.0, 23 tools, 480 tests ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] CI hardened: secrets for deploy vars, IP masking in logs ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] A very long task description that exceeds two hundred characters to test line-length handling in the parser — this kind of verbose description sometimes appears when tasks are auto-generated from detailed session logs or copied from PR descriptions with full context ➕ 2026-05-18 ✅ 2026-05-18",
+      "- [x] Fix `#` rendering in card with code: `heading.match(/^#{1,6} /)` ➕ 2026-05-18 ✅ 2026-05-18",
+      '- [x] Handle edge case where `config["key"]` has escaped quotes ➕ 2026-05-18 ✅ 2026-05-18',
+    ]
+    const content = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Phase 2: LightRAG integration ➕ 2026-05-19 ^lightrag
+
+## Up Next
+
+- [ ] Rate limiting middleware ➕ 2026-05-18
+- [ ] Caddy TLS termination ➕ 2026-05-18
+
+## Waiting On
+
+## Someday
+
+- [ ] Mobile-friendly OAuth consent page ➕ 2026-05-10
+
+## Done
+
+${doneItems.join("\n")}
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","hide-tags-in-title":true}
+\`\`\`
+%%
+`
+    await writeTestNote("big-board.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "big-board.md",
+        operation: "append",
+        content: "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("big-board.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) =>
+        line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    // The appended task must land BEFORE the kanban:settings block
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+    // Verify the settings block is still intact
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain(
+      '{"kanban-plugin":"board","hide-tags-in-title":true}',
+    )
+    expect(updated).toMatch(/%%\n*$/)
+  })
+
+  it.fails(
+    "append to Done survives a stray %% in card text that toggles comment state",
+    async () => {
+      // This is the most likely cause of the reported bug: a card containing
+      // `%%` in its text (e.g., an inline Obsidian comment or accidental
+      // double-percent) flips the parser's comment state. The actual
+      // `%% kanban:settings` opener is then misinterpreted as a *closer*,
+      // and the trailing block is not detected — so append lands AFTER it.
+      const content = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Current work
+
+## Done
+
+- [x] Normal task one ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Fixed the 100%% rendering bug ➕ 2026-05-02 ✅ 2026-05-02
+- [x] Normal task two ➕ 2026-05-03 ✅ 2026-05-03
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+      await writeTestNote("stray-pct.md", content)
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "stray-pct.md",
+          operation: "append",
+          content: "- [x] Appended after stray %% card",
+          heading: "Done",
+        },
+        logger,
+      )
+      const updated = await readTestNote("stray-pct.md")
+      const lines = updated.split("\n")
+      const appendedIdx = lines.findIndex(
+        (line) => line === "- [x] Appended after stray %% card",
+      )
+      const settingsIdx = lines.findIndex(
+        (line) => line === "%% kanban:settings",
+      )
+      expect(appendedIdx).toBeGreaterThan(-1)
+      expect(settingsIdx).toBeGreaterThan(-1)
+      // Appended content must be BEFORE the kanban:settings block
+      expect(appendedIdx).toBeLessThan(settingsIdx)
+    },
+  )
+
+  it("append to Done when a card has an inline Obsidian comment with %%", async () => {
+    // An inline comment like `%% note to self %%` has TWO `%%` on one line,
+    // toggling open then closed — comment state returns to "off". This should
+    // NOT break trailing block detection.
+    const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Task with %% inline comment %% in it ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Another task ➕ 2026-05-02 ✅ 2026-05-02
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+    await writeTestNote("inline-comment.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "inline-comment.md",
+        operation: "append",
+        content: "- [x] New task after inline comment card",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("inline-comment.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] New task after inline comment card",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
+
+  it.fails(
+    "append to Done when an odd number of stray %% lines appear in cards",
+    async () => {
+      // Three separate lines each containing a single `%%` — odd count means
+      // the parser ends in "comment open" state before reaching the actual
+      // trailing block. This is the worst case: the trailing block opener
+      // would be treated as a closer to the stray comment.
+      const content = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Card with 50%% off deal ➕ 2026-05-01 ✅ 2026-05-01
+- [x] Another 75%% discount card ➕ 2026-05-02 ✅ 2026-05-02
+- [x] And 33%% savings here ➕ 2026-05-03 ✅ 2026-05-03
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`
+      await writeTestNote("odd-pct.md", content)
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "odd-pct.md",
+          operation: "append",
+          content: "- [x] Task appended after triple stray %%",
+          heading: "Done",
+        },
+        logger,
+      )
+      const updated = await readTestNote("odd-pct.md")
+      const lines = updated.split("\n")
+      const appendedIdx = lines.findIndex(
+        (line) => line === "- [x] Task appended after triple stray %%",
+      )
+      const settingsIdx = lines.findIndex(
+        (line) => line === "%% kanban:settings",
+      )
+      expect(appendedIdx).toBeGreaterThan(-1)
+      expect(settingsIdx).toBeGreaterThan(-1)
+      expect(appendedIdx).toBeLessThan(settingsIdx)
+    },
+  )
+
   it("replace on a heading with only blank lines before the trailing block", async () => {
     const content = `---
 kanban-plugin: board
