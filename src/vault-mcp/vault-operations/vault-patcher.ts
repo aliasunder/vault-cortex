@@ -27,8 +27,28 @@ const HEADING_REGEX = /^(#{1,6}) (.+)$/
 /** Matches fenced code block openers: 3+ backticks or 3+ tildes (CommonMark §4.5). */
 const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 
-/** Obsidian comment delimiter — each `%%` occurrence toggles comment state. */
+/** Obsidian comment delimiter — toggles comment state when it occurs at a
+ * line boundary (start or end of trimmed line). Mid-line `%%` (e.g. `100%%`
+ * embedded in card text) is not a delimiter. */
 const COMMENT_DELIMITER = "%%"
+
+/**
+ * Counts how many comment-state toggles a single line produces. Obsidian
+ * treats `%%` as a comment delimiter only at line boundaries — mid-line
+ * occurrences like `100%%` or `text %% mid` do not toggle state.
+ *
+ * Returns 0, 1, or 2:
+ * - 0 — trimmed line has no `%%` at start or end
+ * - 1 — trimmed line is exactly `%%`, OR starts XOR ends with `%%`
+ * - 2 — trimmed line both starts and ends with `%%` (inline `%% comment %%`)
+ */
+const countCommentToggles = (line: string): number => {
+  const trimmed = line.trim()
+  if (trimmed === COMMENT_DELIMITER) return 1
+  const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER)
+  const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER)
+  return (startsWithDelimiter ? 1 : 0) + (endsWithDelimiter ? 1 : 0)
+}
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
@@ -70,9 +90,11 @@ const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
     }
 
     // Outside fences (or inside a comment where `%%` takes precedence over
-    // fences, matching Obsidian's parser): each `%%` toggles comment state.
-    const delimiterCount = (line.match(/%%/g) ?? []).length
-    for (let occurrence = 0; occurrence < delimiterCount; occurrence++) {
+    // fences, matching Obsidian's parser): `%%` at the start or end of the
+    // trimmed line toggles comment state. Mid-line `%%` (e.g. `100%%` in
+    // card text) is not a delimiter and is ignored.
+    const toggleCount = countCommentToggles(line)
+    for (let occurrence = 0; occurrence < toggleCount; occurrence++) {
       if (comment) {
         // Validate that the closer ends its own line — otherwise the block
         // isn't cleanly separable from body text and can't be preserved.

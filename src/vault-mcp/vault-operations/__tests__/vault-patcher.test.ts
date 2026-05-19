@@ -228,6 +228,43 @@ describe("findTrailingCommentBlockStart", () => {
     const lines = ["%% block %%", ""]
     expect(findTrailingCommentBlockStart(lines)).toBe(0)
   })
+
+  it("ignores a mid-line %% inside card text (e.g. 100%%)", () => {
+    const lines = [
+      "## Done",
+      "- [x] Fixed the 100%% rendering bug",
+      "",
+      "%% settings %%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("ignores multiple mid-line %% on separate lines (odd substring count)", () => {
+    const lines = [
+      "## Done",
+      "- [x] 50%% off",
+      "- [x] 75%% discount",
+      "- [x] 33%% savings",
+      "",
+      "%% settings %%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
+
+  it("ignores %% embedded mid-word with no surrounding whitespace", () => {
+    const lines = ["## Done", "- [x] Score: 100%%done", "", "%% settings %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("treats a line that is exactly %% as a single toggle", () => {
+    const lines = ["%% opener", "content", "%%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
+
+  it("toggles for a line that ends with %% (multi-line closer)", () => {
+    const lines = ["## Done", "Content", "", "%% opener", "content %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 })
 
 // ── parseHeadings (tested indirectly via patchNote) ─────────────
@@ -1083,15 +1120,12 @@ ${doneItems.join("\n")}
     expect(updated).toMatch(/%%\n*$/)
   })
 
-  it.fails(
-    "append to Done survives a stray %% in card text that toggles comment state",
-    async () => {
-      // This is the most likely cause of the reported bug: a card containing
-      // `%%` in its text (e.g., an inline Obsidian comment or accidental
-      // double-percent) flips the parser's comment state. The actual
-      // `%% kanban:settings` opener is then misinterpreted as a *closer*,
-      // and the trailing block is not detected — so append lands AFTER it.
-      const content = `---
+  it("append to Done survives a stray %% in card text that toggles comment state", async () => {
+    // A card containing a stray `%%` in its text (e.g. `100%%`) used to flip
+    // the parser's comment state. The actual `%% kanban:settings` opener was
+    // then misinterpreted as a closer, and the trailing block was not
+    // detected — so append landed AFTER it.
+    const content = `---
 kanban-plugin: board
 ---
 
@@ -1111,31 +1145,28 @@ kanban-plugin: board
 \`\`\`
 %%
 `
-      await writeTestNote("stray-pct.md", content)
-      await patchNote(
-        {
-          vaultPath: vault,
-          path: "stray-pct.md",
-          operation: "append",
-          content: "- [x] Appended after stray %% card",
-          heading: "Done",
-        },
-        logger,
-      )
-      const updated = await readTestNote("stray-pct.md")
-      const lines = updated.split("\n")
-      const appendedIdx = lines.findIndex(
-        (line) => line === "- [x] Appended after stray %% card",
-      )
-      const settingsIdx = lines.findIndex(
-        (line) => line === "%% kanban:settings",
-      )
-      expect(appendedIdx).toBeGreaterThan(-1)
-      expect(settingsIdx).toBeGreaterThan(-1)
-      // Appended content must be BEFORE the kanban:settings block
-      expect(appendedIdx).toBeLessThan(settingsIdx)
-    },
-  )
+    await writeTestNote("stray-pct.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "stray-pct.md",
+        operation: "append",
+        content: "- [x] Appended after stray %% card",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("stray-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Appended after stray %% card",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    // Appended content must be BEFORE the kanban:settings block
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
 
   it("append to Done when a card has an inline Obsidian comment with %%", async () => {
     // An inline comment like `%% note to self %%` has TWO `%%` on one line,
@@ -1178,14 +1209,12 @@ kanban-plugin: board
     expect(appendedIdx).toBeLessThan(settingsIdx)
   })
 
-  it.fails(
-    "append to Done when an odd number of stray %% lines appear in cards",
-    async () => {
-      // Three separate lines each containing a single `%%` — odd count means
-      // the parser ends in "comment open" state before reaching the actual
-      // trailing block. This is the worst case: the trailing block opener
-      // would be treated as a closer to the stray comment.
-      const content = `---
+  it("append to Done when an odd number of stray %% lines appear in cards", async () => {
+    // Three separate lines each containing a single mid-line `%%` — under the
+    // old per-substring count, the odd total left the parser "open" before
+    // reaching the trailing block, so the block opener was misinterpreted as
+    // a closer to the stray comment.
+    const content = `---
 kanban-plugin: board
 ---
 
@@ -1201,30 +1230,27 @@ kanban-plugin: board
 \`\`\`
 %%
 `
-      await writeTestNote("odd-pct.md", content)
-      await patchNote(
-        {
-          vaultPath: vault,
-          path: "odd-pct.md",
-          operation: "append",
-          content: "- [x] Task appended after triple stray %%",
-          heading: "Done",
-        },
-        logger,
-      )
-      const updated = await readTestNote("odd-pct.md")
-      const lines = updated.split("\n")
-      const appendedIdx = lines.findIndex(
-        (line) => line === "- [x] Task appended after triple stray %%",
-      )
-      const settingsIdx = lines.findIndex(
-        (line) => line === "%% kanban:settings",
-      )
-      expect(appendedIdx).toBeGreaterThan(-1)
-      expect(settingsIdx).toBeGreaterThan(-1)
-      expect(appendedIdx).toBeLessThan(settingsIdx)
-    },
-  )
+    await writeTestNote("odd-pct.md", content)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "odd-pct.md",
+        operation: "append",
+        content: "- [x] Task appended after triple stray %%",
+        heading: "Done",
+      },
+      logger,
+    )
+    const updated = await readTestNote("odd-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Task appended after triple stray %%",
+    )
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
 
   it("replace on a heading with only blank lines before the trailing block", async () => {
     const content = `---
