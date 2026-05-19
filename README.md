@@ -119,6 +119,8 @@ All settings are environment variables with sensible defaults.
 | `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                  |
 | `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                |
 | `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                     |
+| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.    |
+| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup              |
 
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list.
 
