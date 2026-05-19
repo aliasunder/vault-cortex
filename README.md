@@ -97,7 +97,7 @@ Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent
 | **Properties**  | `vault_list_property_keys`   | All frontmatter keys with sample values                  |
 |                 | `vault_list_property_values` | Distinct values for a property key                       |
 |                 | `vault_search_by_property`   | Find notes by frontmatter key-value                      |
-|                 | `vault_update_properties`    | Merge properties without touching the body               |
+|                 | `vault_update_properties`    | Add or update properties without touching the body       |
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                            |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                  |
 |                 | `vault_find_orphans`         | Notes with no incoming links                             |
