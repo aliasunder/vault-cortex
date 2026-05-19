@@ -38,17 +38,17 @@ const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   }
 }
 
-/** Combines body + properties into a gray-matter serialized string. Merges with existing frontmatter if file already exists. */
+/** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists. */
 const serializeNote = (
   existing: string | null,
   body: string,
-  properties?: Record<string, unknown>,
+  frontmatter?: Record<string, unknown>,
 ): string => {
-  if (!existing) return matter.stringify(body, properties ?? {})
+  if (!existing) return matter.stringify(body, frontmatter ?? {})
 
   const parsed = matter(existing)
-  const mergedData = properties
-    ? { ...parsed.data, ...properties }
+  const mergedData = frontmatter
+    ? { ...parsed.data, ...frontmatter }
     : parsed.data
   return matter.stringify(body, mergedData)
 }
