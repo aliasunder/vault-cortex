@@ -202,6 +202,9 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 - Every test must actually verify the behavior it claims to test.
   A folder-filter test must include data both inside and outside the
   folder to confirm exclusion works — not just data inside.
+- Tests must fail when the verified behavior breaks. If a test
+  claims "body is unchanged", it must assert the full body — not
+  a substring that would still match if the body were modified.
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.
