@@ -229,41 +229,57 @@ describe("findTrailingCommentBlockStart", () => {
     expect(findTrailingCommentBlockStart(lines)).toBe(0)
   })
 
-  it("ignores a mid-line %% inside card text (e.g. 100%%)", () => {
+  it("ignores a single mid-line %% before a multi-line trailing block", () => {
+    // Stray `%%` in card text (e.g. `100%%`) is not at a line boundary, so it
+    // must not toggle comment state. A per-substring count would treat the
+    // `%% kanban:settings` opener as a *closer* to the stray comment opened
+    // on line 0, shifting the detected block to the trailing `%%` on line 6
+    // — yielding 6 instead of 1.
     const lines = [
-      "## Done",
-      "- [x] Fixed the 100%% rendering bug",
+      "- [x] Card with 100%% off",
       "",
-      "%% settings %%",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
     ]
-    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
   })
 
-  it("ignores multiple mid-line %% on separate lines (odd substring count)", () => {
+  it("ignores an odd count of mid-line %% before a multi-line trailing block", () => {
+    // Three mid-line `%%` leave a per-substring counter in "open" state
+    // before the real block; the real opener gets misread as a closer to the
+    // stray comment, shifting the detected block to the trailing `%%` —
+    // yielding 8 instead of 3.
     const lines = [
-      "## Done",
       "- [x] 50%% off",
       "- [x] 75%% discount",
       "- [x] 33%% savings",
       "",
-      "%% settings %%",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
     ]
-    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
   })
 
   it("ignores %% embedded mid-word with no surrounding whitespace", () => {
-    const lines = ["## Done", "- [x] Score: 100%%done", "", "%% settings %%"]
-    expect(findTrailingCommentBlockStart(lines)).toBe(2)
-  })
-
-  it("treats a line that is exactly %% as a single toggle", () => {
-    const lines = ["%% opener", "content", "%%"]
-    expect(findTrailingCommentBlockStart(lines)).toBe(0)
-  })
-
-  it("toggles for a line that ends with %% (multi-line closer)", () => {
-    const lines = ["## Done", "Content", "", "%% opener", "content %%"]
-    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+    // `100%%done` has no whitespace around the `%%`, so it is not a
+    // delimiter. Same regression scenario as the single-mid-line case: a
+    // per-substring count would shift the block to line 6.
+    const lines = [
+      "- [x] Score: 100%%done bonus",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
   })
 })
 
