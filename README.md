@@ -104,18 +104,19 @@ Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required for local use.
+All settings are environment variables with sensible defaults.
 
-| Variable                 | Default                              | Description                                                |
-| ------------------------ | ------------------------------------ | ---------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`         | —                                    | Bearer token for authentication (also the JWT signing key) |
-| `VAULT_PATH`             | —                                    | Path to the vault inside the container                     |
-| `PUBLIC_URL`             | —                                    | Public URL for OAuth discovery (required for remote)       |
-| `MEMORY_DIR`             | `About Me`                           | Vault folder for structured memory files                   |
-| `PROTECTED_PATHS`        | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch          |
-| `ORPHAN_EXCLUDE_FOLDERS` | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                     |
-| `TZ`                     | `UTC`                                | IANA timezone for timestamps and daily note resolution     |
-| `LOG_LEVEL`              | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`        |
+| Variable                    | Required?   | Default                              | Description                                                             |
+| --------------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)              |
+| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume) |
+| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                 |
+| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                |
+| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                       |
+| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                  |
+| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                  |
+| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                |
+| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                     |
 
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list.
 

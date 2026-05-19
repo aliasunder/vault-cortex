@@ -17,22 +17,25 @@ About Me/ memory layer — enough to make any MCP client personalized.
 vault. The file watcher gains a second hook for LightRAG ingestion,
 and a new `vault_query_kb` tool is added. Additive — not a rewrite.
 
-This repo will be made **public**. All solutions must be portable — they
-can't rely on one-off manual fixes, hardcoded paths, or user-specific
-configuration. If it works only on the author's machine, it's not done.
+All solutions must be portable — they can't rely on one-off manual fixes,
+hardcoded paths, or user-specific configuration. If it works only on
+the author's machine, it's not done.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-```
+```text
 sst.config.ts                          # SST v4 IaC (fully implemented)
 package.json                           # single package, all deps
 tsconfig.json                          # single config
+server.json                            # MCP server registry manifest
 Dockerfile                             # vault-mcp Docker image
 docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
 docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env
+templates/                             # Bootstrap templates for new vaults
+  memory/                              #   About Me/ memory file templates
 deploy/                                # End-user quickstart (no clone needed)
   local/                               #   vault-mcp + bind-mounted vault
     README.md                          #     quickstart walkthrough
@@ -68,16 +71,6 @@ src/
       consent-page.ts                  # HTML consent page for OAuth authorization
 ```
 
-## Tooling
-
-When working on this repo in Claude Code, the deployed `vault-cortex` MCP
-connector is typically loaded as deferred tools (names like
-`mcp__*__vault_*`). Before claiming inability to read or write the vault,
-check the deferred-tools list and load schemas via `ToolSearch`. The
-connector exposes `vault_read_note`, `vault_search`, `vault_get_memory`,
-`vault_write_note`, `vault_patch_note`, `vault_replace_in_note`, and the
-rest of the API (22 tools) in `src/vault-mcp/tool-definitions.ts`.
-
 ## Logging
 
 Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
@@ -107,7 +100,7 @@ Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
 
 **Logger chain — context flows via `.child()`:**
 
-```
+```text
 root logger (src/logger.ts)
   → session logger: logger.child({ sessionId, clientIp })
     → request logger: sessionLogger.child({ requestId, tool })

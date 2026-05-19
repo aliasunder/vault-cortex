@@ -29,12 +29,12 @@ if os.path.exists(changelog_path):
             text, count=1, flags=re.DOTALL
         )
     else:
-        # Insert after header paragraph
+        # Insert before the first version entry (## [x.y.z])
         lines = text.split('\n')
         insert_at = next(
-            (i for i in range(1, len(lines)) if lines[i].strip() == ''),
-            1
-        ) + 1
+            (i for i in range(len(lines)) if lines[i].startswith('## [')),
+            len(lines)
+        )
         lines.insert(insert_at, f"\n{entry}\n")
         text = '\n'.join(lines)
 else:

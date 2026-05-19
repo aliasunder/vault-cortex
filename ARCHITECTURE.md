@@ -156,7 +156,7 @@ graph LR
     B --> C["vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
-    C -.->|index + OAuth| E[("/data<br/>search.db + oauth.db")]
+    C -.->|index + OAuth| E[("/data<br/>index.db + oauth.db")]
     A -.->|fixes perms| F[("config volume<br/>/home/obsidian/.config")]
     B -.->|sync state| F
 ```
