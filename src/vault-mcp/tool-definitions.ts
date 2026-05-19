@@ -184,7 +184,7 @@ Returns: Confirmation message.`,
           .string()
           .describe("Markdown body content (no frontmatter fences)"),
         properties: z
-          .record(z.string(), z.unknown())
+          .record(z.string().min(1), z.unknown())
           .optional()
           .describe(
             "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
@@ -475,7 +475,7 @@ Returns: Confirmation message.`,
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note"),
         properties: z
-          .record(z.string(), z.unknown())
+          .record(z.string().min(1), z.unknown())
           .describe(
             "Properties to merge. New keys are added; existing keys are overwritten; unmentioned keys are preserved.",
           ),
