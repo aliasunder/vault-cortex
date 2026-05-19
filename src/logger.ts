@@ -65,8 +65,8 @@ export const pruneOldLogFiles = (
   const cutoffDate = DateTime.now().minus({ days: retentionDays }).toISODate()
 
   for (const filename of readdirSync(logDir)) {
-    const match = LOG_FILE_PATTERN.exec(filename)
-    const [, fileDate] = match ?? []
+    const logFileMatch = LOG_FILE_PATTERN.exec(filename)
+    const [, fileDate] = logFileMatch ?? []
     if (fileDate && fileDate < cutoffDate) {
       unlinkSync(join(logDir, filename))
     }
@@ -93,10 +93,12 @@ export const createFileSinkExtension = (
 
 // ── Logger ──────────────────────────────────────────────────
 
-const parseRetentionDays = (raw: string | undefined): number | undefined => {
-  if (!raw) return undefined
-  const parsed = parseInt(raw, 10)
-  return Number.isNaN(parsed) ? undefined : parsed
+const parseRetentionDays = (
+  envValue: string | undefined,
+): number | undefined => {
+  if (!envValue) return undefined
+  const retentionDays = parseInt(envValue, 10)
+  return Number.isNaN(retentionDays) ? undefined : retentionDays
 }
 
 const fileSinkExtension: LogExtension | undefined = env.LOG_DIR
@@ -151,8 +153,8 @@ const createLogger = (
     if (level === "error") process.stderr.write(line)
     else process.stdout.write(line)
 
-    for (const ext of extensions) {
-      ext(entry, line)
+    for (const extension of extensions) {
+      extension(entry, line)
     }
   }
 
