@@ -38,7 +38,7 @@ const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   }
 }
 
-/** Combines body + properties into a gray-matter serialized string. Merges properties if file already exists. */
+/** Combines body + properties into a gray-matter serialized string. Merges with existing frontmatter if file already exists. */
 const serializeNote = (
   existing: string | null,
   body: string,
@@ -55,7 +55,7 @@ const serializeNote = (
 
 // ── Exported functions ──────────────────────────────────────────
 
-/** Reads a .md note by relative path. Returns raw content including properties. */
+/** Reads a .md note by relative path. Returns raw content including frontmatter. */
 const readNote = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
@@ -69,7 +69,7 @@ const readNote = async (
   return content
 }
 
-/** Reads just the YAML frontmatter properties of a note, parsed as an object. */
+/** Parses a note's YAML frontmatter and returns the properties as an object. */
 const readNoteProperties = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
@@ -83,7 +83,7 @@ const readNoteProperties = async (
   return matter(content).data
 }
 
-/** Creates or updates a note. Merges properties losslessly if the file exists. */
+/** Creates or updates a note. Merges frontmatter losslessly if the file exists. */
 const writeNote = async (
   params: {
     vaultPath: string
@@ -102,7 +102,7 @@ const writeNote = async (
   logger.info("wrote note", { path: params.path })
 }
 
-/** Merges properties into an existing note's frontmatter without touching the body. */
+/** Merges properties into an existing note's YAML frontmatter without touching the body. */
 const updateProperties = async (
   params: {
     vaultPath: string
