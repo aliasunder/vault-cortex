@@ -1,6 +1,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex)](https://github.com/aliasunder/vault-cortex/releases)
-[![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex?v=1)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP Server](https://badge.mcpx.dev?type=server&features=tools)](https://modelcontextprotocol.io)
