@@ -172,7 +172,7 @@ jobs:
           IP: ${{ steps.ssh.outputs.host }}
         run: |
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
-            'cd /opt/vault-cortex && docker compose pull && docker compose up -d --wait --wait-timeout 180'
+            'cd /opt/vault-cortex && docker compose pull && docker compose up -d --wait --wait-timeout 180 && docker image prune -f'
 
       - name: Healthcheck
         env:

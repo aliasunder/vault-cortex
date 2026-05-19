@@ -70,6 +70,8 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /data/logs
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-}
       TZ: ${TZ:-UTC}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       PROTECTED_PATHS: ${PROTECTED_PATHS:-}
