@@ -2,6 +2,17 @@
 
 
 
+
+## [0.15.0] — 2026-05-19
+
+### Features
+
+- Add vault_update_properties + properties_only on read (#48)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.14.0
+
 ## [0.14.0] — 2026-05-19
 
 ### Refactoring
