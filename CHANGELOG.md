@@ -1,6 +1,29 @@
 # Changelog
 
 
+
+## [0.14.0] — 2026-05-19
+
+### Refactoring
+
+- Readability pass — naming, comments, simplicity (#45)
+
+### Documentation
+
+- Fix stale references, release automation, and pre-public language (#47)
+- Add ORIGIN_URL healthcheck to verify section
+- Reorder verify steps, note port 8000 may be closed
+- Add Auth Keys (Write) scope to Tailscale OAuth instructions
+- Update CHANGELOG.md for v0.13.0
+
+### Maintenance
+
+- Remove dead code, unused exports, etc (#44)
+
+### Other Changes
+
+- Add verifyAccessToken coverage for three-tier auth (#46)
+
 ## [0.13.0] — 2026-05-18
 
 ### Features
