@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import matter from "gray-matter"
 import { vaultFs } from "../vault-filesystem.js"
 import { logger } from "../../../logger.js"
 
@@ -325,9 +326,10 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toContain("Body content")
-    expect(content).toContain("status: active")
-    expect(content).toContain("title: Original")
+    const parsed = matter(content)
+    expect(parsed.content.trim()).toBe("Body content")
+    expect(parsed.data.status).toBe("active")
+    expect(parsed.data.title).toBe("Original")
   })
 
   it("overwrites existing key values", async () => {
@@ -352,7 +354,7 @@ describe("updateProperties", () => {
   it("preserves unmentioned keys", async () => {
     await writeFile(
       join(vault, "test.md"),
-      "---\ntitle: Keep\ntags: [a]\n---\nbody\n",
+      "---\ntitle: Keep\ntags: [a, b]\n---\nbody\n",
       "utf8",
     )
     await updateProperties(
@@ -364,8 +366,10 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toContain("title: Keep")
-    expect(content).toContain("status: active")
+    const parsed = matter(content)
+    expect(parsed.data.title).toBe("Keep")
+    expect(parsed.data.tags).toEqual(["a", "b"])
+    expect(parsed.data.status).toBe("active")
   })
 
   it("throws on non-existent file", async () => {
