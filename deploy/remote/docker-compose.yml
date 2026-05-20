@@ -16,6 +16,7 @@ services:
   # root. Docker named volumes inherit this root ownership, so the obsidian
   # user (UID 1000) can't write sync state. This init container chowns the
   # volume before obsidian-sync starts.
+  # Remove when upstream fixes: github.com/Belphemur/obsidian-headless-sync-docker
   init-config-perms:
     image: alpine:latest
     command: sh -c "chown -R ${PUID:-1000}:${PGID:-1000} /config"
