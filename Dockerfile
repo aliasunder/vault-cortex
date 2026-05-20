@@ -27,7 +27,7 @@ WORKDIR /app
 # node:24-alpine ships a `node` user at UID 1000 — matches obsidian-sync's
 # PUID so both containers can read/write the shared /vault volume.
 RUN apk add --no-cache tini libstdc++
-ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
+ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault
 # OCI ownership marker for the MCP Registry — must match `name` in
 # server.json. mcp-publisher reads this label off the image manifest.
 LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex"

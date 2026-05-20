@@ -35,10 +35,10 @@
           "type": "named",
           "name": "-v",
           "description": "Bind-mount your Obsidian vault into the container at /vault.",
-          "value": "{HOST_VAULT_PATH}:/vault",
+          "value": "{VAULT_PATH}:/vault",
           "isRequired": true,
           "variables": {
-            "HOST_VAULT_PATH": {
+            "VAULT_PATH": {
               "description": "Absolute path to your Obsidian vault on the host machine.",
               "isRequired": true,
               "format": "filepath"
@@ -72,12 +72,6 @@
           "description": "Bearer token for MCP client authentication. Must match the Authorization header sent by clients. Generate with: openssl rand -hex 32",
           "isRequired": true,
           "isSecret": true
-        },
-        {
-          "name": "VAULT_PATH",
-          "description": "Container path to the mounted vault. The host path is bind-mounted here via the -v runtime argument.",
-          "default": "/vault",
-          "format": "filepath"
         },
         {
           "name": "PUBLIC_URL",
