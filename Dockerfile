@@ -28,6 +28,9 @@ WORKDIR /app
 # PUID so both containers can read/write the shared /vault volume.
 RUN apk add --no-cache tini libstdc++
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
+# OCI ownership marker for the MCP Registry — must match `name` in
+# server.json. mcp-publisher reads this label off the image manifest.
+LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex"
 COPY --from=deps  /app/node_modules ./node_modules
 COPY --from=build /app/dist/src ./dist/src
 COPY package.json ./
