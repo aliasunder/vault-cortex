@@ -112,12 +112,6 @@
           "format": "number"
         },
         {
-          "name": "INDEX_DB_PATH",
-          "description": "SQLite FTS5 index DB path inside the container. Its parent directory also holds the OAuth token DB.",
-          "default": "/data/index.db",
-          "format": "filepath"
-        },
-        {
           "name": "PROTECTED_PATHS",
           "description": "Comma-separated vault folder names blocked from vault_delete_note. Default: MEMORY_DIR and \"Daily Notes\"."
         },
