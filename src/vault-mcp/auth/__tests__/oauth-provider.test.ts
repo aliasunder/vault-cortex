@@ -276,6 +276,14 @@ describe("verifyAccessToken", () => {
     expect(result.token).toBe(AUTH_TOKEN)
   })
 
+  it("gives the static token a future expiresAt so requireBearerAuth accepts it", async () => {
+    const result = await oauth.provider.verifyAccessToken!(AUTH_TOKEN)
+    // requireBearerAuth rejects any AuthInfo where expiresAt is not a number,
+    // or is in the past. The static token must carry a future numeric expiry.
+    expect(typeof result.expiresAt).toBe("number")
+    expect(result.expiresAt!).toBeGreaterThan(DateTime.now().toUnixInteger())
+  })
+
   it("returns correct auth info for a valid JWT", async () => {
     const token = signJwt(
       {

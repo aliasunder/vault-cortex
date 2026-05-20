@@ -291,7 +291,16 @@ export const createOAuthProvider = ({
     /** Three-tier verification: static token (fast path for CLI) → revocation check → JWT. */
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
-        return { token, clientId: "static", scopes: ["vault"] }
+        // The static token never expires, but the SDK's requireBearerAuth
+        // rejects any AuthInfo without a numeric expiresAt ("Token has no
+        // expiration time"). Hand it a far-future timestamp so the static
+        // token is accepted while remaining effectively perpetual.
+        return {
+          token,
+          clientId: "static",
+          scopes: ["vault"],
+          expiresAt: DateTime.now().plus({ years: 10 }).toUnixInteger(),
+        }
       }
 
       if (isRevoked(token)) {
