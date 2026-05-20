@@ -35,7 +35,7 @@
           "type": "named",
           "name": "-v",
           "description": "Bind-mount your Obsidian vault into the container at /vault.",
-          "value": "{VAULT_PATH}:/vault",
+          "value": "{VAULT_PATH}:/vault:rw",
           "isRequired": true,
           "variables": {
             "VAULT_PATH": {
@@ -44,6 +44,12 @@
               "format": "filepath"
             }
           }
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "description": "Named volume for persistent state under /data — search index, OAuth token DB, and any log files. Keeps OAuth sessions alive across container restarts.",
+          "value": "vault-cortex-data:/data"
         }
       ],
       "transport": {
@@ -96,8 +102,7 @@
         },
         {
           "name": "LOG_DIR",
-          "description": "Directory for persistent log files. vault-mcp writes date-stamped .log files here in addition to stdout. Set to an empty string to disable file logging.",
-          "default": "/data/logs",
+          "description": "Directory for persistent log files. Unset by default — logs go to stdout only. Set to /data/logs to also write date-stamped .log files to the persistent volume.",
           "format": "filepath"
         },
         {
