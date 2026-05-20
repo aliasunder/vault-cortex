@@ -74,6 +74,11 @@ services:
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
+      # Left empty = the server applies smart defaults
+      # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
+      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes"
+      #   ORPHAN_EXCLUDE_FOLDERS    default: "Daily Notes, Templates, <MEMORY_DIR>"
+      #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
       PROTECTED_PATHS: ${PROTECTED_PATHS:-}
       ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
       SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
