@@ -21,15 +21,7 @@
           "type": "named",
           "name": "-p",
           "description": "Publish the container's port 8000 on the host.",
-          "value": "{PORT}:8000",
-          "isRequired": true,
-          "variables": {
-            "PORT": {
-              "description": "Host port to expose vault-mcp on.",
-              "default": "8000",
-              "format": "number"
-            }
-          }
+          "value": "8000:8000"
         },
         {
           "type": "named",
@@ -54,7 +46,7 @@
       ],
       "transport": {
         "type": "streamable-http",
-        "url": "http://localhost:{PORT}/mcp",
+        "url": "http://localhost:8000/mcp",
         "headers": [
           {
             "name": "Authorization",
