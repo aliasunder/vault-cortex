@@ -6,6 +6,17 @@
 
 
 
+
+## [0.15.4] — 2026-05-20
+
+### Bug Fixes
+
+- Server.json audit corrections + OCI ownership label (#56)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.3
+
 ## [0.15.3] — 2026-05-19
 
 ### Documentation
