@@ -7,6 +7,20 @@
 
 
 
+
+## [0.15.5] — 2026-05-20
+
+### Bug Fixes
+
+- Static token rejected by requireBearerAuth (missing expiresAt) (#60)
+- OCI package version belongs in identifier tag, not version field (#59)
+- Hardcode transport.url port for MCP Registry validation (#58)
+
+### Documentation
+
+- Add Glama listing badge to README (#57)
+- Update CHANGELOG.md for v0.15.4
+
 ## [0.15.4] — 2026-05-20
 
 ### Bug Fixes
