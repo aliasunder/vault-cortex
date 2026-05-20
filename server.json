@@ -13,8 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-mcp",
-      "version": "0.15.4",
+      "identifier": "ghcr.io/aliasunder/vault-mcp:0.15.4",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
