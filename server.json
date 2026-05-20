@@ -79,17 +79,6 @@
           "default": "http://localhost:8000"
         },
         {
-          "name": "PORT",
-          "description": "Port the server listens on inside the container.",
-          "default": "8000",
-          "format": "number"
-        },
-        {
-          "name": "HOST",
-          "description": "Interface the server binds to inside the container.",
-          "default": "0.0.0.0"
-        },
-        {
           "name": "MEMORY_DIR",
           "description": "Vault folder for structured memory files (About Me-style notes).",
           "default": "About Me"
