@@ -107,7 +107,8 @@
         },
         {
           "name": "LOG_DIR",
-          "description": "Directory for persistent log files. When set, vault-mcp writes date-stamped .log files here in addition to stdout.",
+          "description": "Directory for persistent log files. vault-mcp writes date-stamped .log files here in addition to stdout. Set to an empty string to disable file logging.",
+          "default": "/data/logs",
           "format": "filepath"
         },
         {
@@ -118,7 +119,8 @@
         },
         {
           "name": "INDEX_DB_PATH",
-          "description": "SQLite FTS5 index DB path. Defaults to /data/index.db inside the container.",
+          "description": "SQLite FTS5 index DB path inside the container. Its parent directory also holds the OAuth token DB.",
+          "default": "/data/index.db",
           "format": "filepath"
         },
         {
