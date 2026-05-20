@@ -28,7 +28,11 @@ services:
       LOG_DIR: /data/logs
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
-      # Uncomment to override smart defaults (see Configuration in the main README):
+      # Optional overrides. When unset, the server applies smart defaults
+      # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
+      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes" (blocked from vault_delete_note)
+      #   ORPHAN_EXCLUDE_FOLDERS    default: "Daily Notes, Templates, <MEMORY_DIR>" (excluded from vault_find_orphans)
+      #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
       # PROTECTED_PATHS: ${PROTECTED_PATHS:-}
       # ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
       # SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
