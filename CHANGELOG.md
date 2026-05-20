@@ -8,6 +8,17 @@
 
 
 
+
+## [0.15.6] — 2026-05-20
+
+### Bug Fixes
+
+- Grant auto_release.yml the permissions deploy.yml requires (#61)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.5
+
 ## [0.15.5] — 2026-05-20
 
 ### Bug Fixes
