@@ -9,6 +9,19 @@
 
 
 
+
+## [0.15.7] — 2026-05-26
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.6
+
+### Maintenance
+
+- **deps:** Bump qs from 6.15.1 to 6.15.2 (#64)
+- **deps:** Bump sst from 4.14.1 to 4.14.3 in the production group (#62)
+- **deps-dev:** Bump the development group with 5 updates (#63)
+
 ## [0.15.6] — 2026-05-20
 
 ### Bug Fixes
