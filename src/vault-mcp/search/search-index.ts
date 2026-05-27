@@ -634,6 +634,7 @@ export const createSearchIndex = (dbPath: string) => {
       SELECT path, title, tags, related, folder, type, created, mtime, properties
       FROM notes
       WHERE ${condition}
+      ORDER BY mtime DESC
       LIMIT ?
     `
 
