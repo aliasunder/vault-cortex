@@ -104,6 +104,12 @@ describe("registerTools", () => {
     }
   })
 
+  it("every tool description includes a returns section", () => {
+    for (const call of calls) {
+      expect(call[1].description).toContain("Returns:")
+    }
+  })
+
   it.each(WRITE_TOOLS)(
     "%s description includes Obsidian syntax guidance",
     (name) => {
