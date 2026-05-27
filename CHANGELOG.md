@@ -10,6 +10,24 @@
 
 
 
+
+## [0.15.8] — 2026-05-27
+
+### Bug Fixes
+
+- Sort vault_search_by_folder results by most recently modified
+
+### Documentation
+
+- Scope delete_note recoverability claim and add Errors sections
+- Enrich low-scoring tool descriptions for Glama TDQS
+- Cache-bust Glama score badge and simplify alt text (#65)
+- Update CHANGELOG.md for v0.15.7
+
+### Other Changes
+
+- Assert every tool description includes a Returns section
+
 ## [0.15.7] — 2026-05-26
 
 ### Documentation
