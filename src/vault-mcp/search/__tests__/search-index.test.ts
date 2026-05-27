@@ -446,6 +446,14 @@ describe("searchByFolder", () => {
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })
+
+  it("sorts results by most recently modified", () => {
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
+  })
 })
 
 describe("listAllTags", () => {

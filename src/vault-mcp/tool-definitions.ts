@@ -415,12 +415,17 @@ Returns: JSON array of vault-relative paths.`,
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note. Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental deletion of memory or daily notes.
+      description: `Permanently delete a markdown note. The note is removed from disk directly (not moved to a trash folder), and this server has no undo — recovery depends on your own backups or sync history. After deletion it no longer appears in search results or backlinks, and links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental loss of memory or daily notes.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 
 When to use: Removing a note you no longer need.
 Prefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.
+
+Errors:
+- "cannot delete protected path …" — the path sits under a protected folder; use vault_delete_memory for memory entries
+- "path traversal blocked" — path escapes the vault root; use a vault-relative path
+- note does not exist — verify the path with vault_list_notes before deleting
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -690,12 +695,20 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
-      description: `Browse notes in a folder with full metadata (tags, type, related, created, modified). Unlike vault_list_notes which returns paths only, this returns rich metadata for each note.
+      description: `Browse notes in a folder with full metadata (tags, type, related, created, modified) — unlike vault_list_notes, which returns paths only.
 
 Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "${config.memoryDir}", recursive: false })
 
-When to use: Exploring a folder's contents with full context — tags, type, relationships. Useful for vault orientation and understanding folder structure.
+When to use: Exploring a folder's contents with full context for vault orientation.
 Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
+
+Parameters:
+- folder is matched as a path prefix; pass it without a trailing slash ("Projects").
+- recursive (default true) includes all nested subfolders; set false to list only the folder's top level.
+- limit (default 20) caps results.
+
+Errors:
+- An empty or nonexistent folder returns an empty array, not an error.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {
@@ -783,15 +796,20 @@ Returns: Raw markdown text.`,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server auto-prefixes today's date (format: "- **YYYY-MM-DD**: entry text"). Call vault_list_memory_files first to discover valid file and section names.
+      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically (format: "- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Pass raw entry text without a date prefix.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
-When to use: Recording a new preference, principle, opinion, or fact about the user. Pass raw entry text without date prefix. Always call vault_list_memory_files first to discover existing files and sections, and use matching names to keep entries organized alongside existing content.
-Auto-creates: If the file or section does not exist, it is created automatically. If the section name does not already include "(newest first)", the server appends it (e.g. "Design preferences" becomes "Design preferences (newest first)"). Use the full heading name in subsequent vault_get_memory calls, or call vault_list_memory_files to discover the actual heading names. Use existing file and section names from vault_list_memory_files when available.
-Prefer vault_write_note for creating entirely new notes (not memory entries).
+When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
+Prefer vault_write_note for creating non-memory notes.
 
-Obsidian syntax: Entry text is rendered inline as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
+Behavior: Additive — existing entries are never overwritten, and repeat calls add duplicate entries. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it ("Design preferences" becomes "Design preferences (newest first)") — use that full name in later calls.
+
+Parameters:
+- options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
+- options.position — "top" (default, newest-first) inserts above existing entries; "bottom" appends below them.
+
+Obsidian syntax: Entry text renders as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -1107,17 +1125,20 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes that link to a given note (incoming wikilinks and markdown links). Shows which notes reference the target — useful for understanding a note's context and importance in the vault's knowledge graph.
+      description: `Find all notes that link to a given note via incoming [[wikilinks]] or [markdown](links). Reveals what references the target — its context and importance in the knowledge graph, invisible without a graph query. Both link styles are captured; links inside code blocks are ignored, and a note that links to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 
-When to use: When you need to understand what references a note, find related context, or assess a note's connectivity. Core Obsidian concept — backlinks are invisible without a database query.
-For outgoing links (what a note links TO), use vault_get_outgoing_links. For orphan detection, use vault_find_orphans.
+When to use: Understanding what references a note or assessing its connectivity.
+For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
+
+Parameters:
+- path must be the exact vault-relative path — case-sensitive, including the .md extension.
 
 Errors:
-- No error if the note has zero backlinks — returns an empty array.
+- A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
 
-Returns: JSON with path (the queried note), backlinks (array of { path, title }), and count.`,
+Returns: JSON with path (the queried note), backlinks (array of { path, title }, sorted by title), and count.`,
       inputSchema: {
         path: z
           .string()
@@ -1152,17 +1173,20 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title })
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes that a given note links to (outgoing wikilinks and markdown links). Each link includes an exists flag — false means the target note doesn't exist (broken link).
+      description: `Find all notes a given note links to via outgoing [[wikilinks]] or [markdown](links). Each entry has an exists flag — false marks a broken link (target not in the vault). Both link styles are captured; links inside code blocks are ignored, and a note that links to itself appears in its own outgoing links.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 
-When to use: When you need to see what a note references, navigate the knowledge graph forward, or detect broken links in a specific note.
+When to use: Seeing what a note references, navigating the graph forward, or finding broken links in one note.
 For incoming links (what links TO a note), use vault_get_backlinks.
 
-Errors:
-- No error if the note has zero outgoing links — returns an empty array.
+Parameters:
+- path must be the exact vault-relative path — case-sensitive, including the .md extension.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }), and count.`,
+Errors:
+- A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
+
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }, sorted by target path), and count.`,
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note"),
       },
@@ -1196,12 +1220,19 @@ Returns: JSON with path (the queried note), outgoing_links (array of { path, tit
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
-      description: `Find notes with no incoming links from other notes. Orphan notes are disconnected from the vault's knowledge graph — they may be forgotten or need linking from relevant notes.
+      description: `Find notes with no incoming links from other notes — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).
 
-Example: vault_find_orphans() or vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
+Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance and organization. Helps identify notes that might be forgotten or need integration into the knowledge graph. ${config.orphanExcludeFolders.join(", ")} folders are excluded by default since those are standalone by design.
-To add links to an orphan, use vault_patch_note to mention it from a relevant note.
+When to use: Vault maintenance — surfacing notes to integrate into the graph. Link an orphan by mentioning it from a relevant note with vault_patch_note.
+Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
+
+Parameters:
+- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders ("Projects" also excludes "Projects/Archive").
+- limit (default 50) caps results after sorting by most-recently-modified.
+
+Errors:
+- An empty array means no orphans were found (after exclusions), not an error.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {
@@ -1209,7 +1240,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .array(z.string())
           .optional()
           .describe(
-            `Folders to exclude (default: ${JSON.stringify(config.orphanExcludeFolders)})`,
+            `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
           ),
         limit: z.number().optional().describe("Max results (default 50)"),
       },
