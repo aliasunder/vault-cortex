@@ -415,7 +415,7 @@ Returns: JSON array of vault-relative paths.`,
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note. Deletion is irreversible — the note is removed, not moved to a trash folder, and cannot be recovered through this server. After deletion it no longer appears in search results or backlinks, and links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental loss of memory or daily notes.
+      description: `Permanently delete a markdown note. The note is removed from disk directly (not moved to a trash folder), and this server has no undo — recovery depends on your own backups or sync history. After deletion it no longer appears in search results or backlinks, and links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental loss of memory or daily notes.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 
@@ -695,7 +695,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
-      description: `Browse notes in a folder with full metadata (tags, type, related, created, modified) — unlike vault_list_notes, which returns paths only. An empty or nonexistent folder returns an empty array, not an error.
+      description: `Browse notes in a folder with full metadata (tags, type, related, created, modified) — unlike vault_list_notes, which returns paths only.
 
 Example: vault_search_by_folder({ folder: "Projects" }) or vault_search_by_folder({ folder: "${config.memoryDir}", recursive: false })
 
@@ -706,6 +706,9 @@ Parameters:
 - folder is matched as a path prefix; pass it without a trailing slash ("Projects").
 - recursive (default true) includes all nested subfolders; set false to list only the folder's top level.
 - limit (default 20) caps results.
+
+Errors:
+- An empty or nonexistent folder returns an empty array, not an error.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {
@@ -1130,7 +1133,10 @@ When to use: Understanding what references a note or assessing its connectivity.
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
 
 Parameters:
-- path must be the exact vault-relative path — case-sensitive, including the .md extension. A path matching no indexed note returns an empty array (count 0), not an error, so this is not a reliable existence check.
+- path must be the exact vault-relative path — case-sensitive, including the .md extension.
+
+Errors:
+- A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
 
 Returns: JSON with path (the queried note), backlinks (array of { path, title }, sorted by title), and count.`,
       inputSchema: {
@@ -1175,7 +1181,10 @@ When to use: Seeing what a note references, navigating the graph forward, or fin
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path must be the exact vault-relative path — case-sensitive, including the .md extension. A path matching no indexed note returns an empty array (count 0), not an error.
+- path must be the exact vault-relative path — case-sensitive, including the .md extension.
+
+Errors:
+- A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
 Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }, sorted by target path), and count.`,
       inputSchema: {
@@ -1221,6 +1230,9 @@ Prefer vault_get_backlinks to check the connectivity of one specific note rather
 Parameters:
 - exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders ("Projects" also excludes "Projects/Archive").
 - limit (default 50) caps results after sorting by most-recently-modified.
+
+Errors:
+- An empty array means no orphans were found (after exclusions), not an error.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
       inputSchema: {

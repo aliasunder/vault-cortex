@@ -175,9 +175,12 @@ search.fullTextSearch({ query, filters }, reqLogger)
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload.
-- MCP tool descriptions include `Example:`, `When to use:`,
-  `Errors:` (with remediation guidance), `Obsidian syntax:`
-  (on write tools), and `Returns:` sections.
+- MCP tool descriptions include `Example:`, `When to use:`, and
+  `Returns:` sections. Include `Errors:` whenever the tool has
+  failure modes (with remediation guidance) or a no-match /
+  empty-result contract worth clarifying (e.g. "returns an empty
+  array, not an error"); omit it only for tools that cannot
+  meaningfully fail. Include `Obsidian syntax:` on write tools.
 
 ### MCP naming conventions
 
