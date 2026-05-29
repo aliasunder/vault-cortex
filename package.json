@@ -60,7 +60,7 @@
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "picomatch": "4.0.4",
-    "sst": "4.14.3",
+    "sst": "4.15.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
