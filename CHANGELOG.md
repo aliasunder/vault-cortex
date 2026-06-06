@@ -11,6 +11,19 @@
 
 
 
+
+## [0.15.9] — 2026-06-06
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.8
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 5 updates (#69)
+- **deps-dev:** Bump typescript-eslint in the development group (#68)
+- **deps:** Bump sst from 4.14.3 to 4.15.2 in the production group (#67)
+
 ## [0.15.8] — 2026-05-27
 
 ### Bug Fixes
