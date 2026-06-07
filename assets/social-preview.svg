@@ -13,24 +13,26 @@
 
   <rect width="1280" height="640" fill="url(#bg)"/>
 
-  <!-- Faint background constellation for texture (kept low-contrast) -->
-  <g filter="url(#glow)" opacity="0.16" stroke-linecap="round">
-    <line x1="980" y1="90"  x2="1090" y2="150" stroke="#00e5ff" stroke-width="2"/>
-    <line x1="1090" y1="150" x2="1040" y2="250" stroke="#7c3aed" stroke-width="2"/>
-    <line x1="980" y1="90"  x2="1180" y2="120" stroke="#00e5ff" stroke-width="2"/>
-    <circle cx="980" cy="90" r="6" fill="#00e5ff"/>
-    <circle cx="1090" cy="150" r="5" fill="#00e5ff"/>
-    <circle cx="1040" cy="250" r="6" fill="#7c3aed"/>
-    <circle cx="1180" cy="120" r="4" fill="#7c3aed"/>
-    <circle cx="150" cy="540" r="5" fill="#00e5ff"/>
-    <line x1="150" y1="540" x2="260" y2="500" stroke="#00e5ff" stroke-width="2"/>
+  <!-- Constellation cluster, upper-right — a visible element balancing the icon -->
+  <g filter="url(#glow)" stroke-linecap="round">
+    <!-- connecting lines -->
+    <line x1="980"  y1="120" x2="1090" y2="80"  stroke="#00e5ff" stroke-width="3.5" opacity="0.55"/>
+    <line x1="1090" y1="80"  x2="1180" y2="160" stroke="#00e5ff" stroke-width="3.5" opacity="0.55"/>
+    <line x1="980"  y1="120" x2="1050" y2="210" stroke="#7c3aed" stroke-width="3.5" opacity="0.5"/>
+    <line x1="1050" y1="210" x2="1180" y2="160" stroke="#7c3aed" stroke-width="3.5" opacity="0.5"/>
+    <line x1="1090" y1="80"  x2="1050" y2="210" stroke="#00e5ff" stroke-width="3"   opacity="0.4"/>
+    <!-- nodes -->
+    <circle cx="980"  cy="120" r="11" fill="#00e5ff" opacity="0.95"/>
+    <circle cx="1090" cy="80"  r="13" fill="#00e5ff" opacity="0.95"/>
+    <circle cx="1180" cy="160" r="9"  fill="#00e5ff" opacity="0.9"/>
+    <circle cx="1050" cy="210" r="12" fill="#7c3aed" opacity="0.95"/>
   </g>
 
   <!-- The icon -->
   <image x="96" y="130" width="380" height="380" xlink:href="icon-400.png"/>
 
   <!-- Wordmark + tagline -->
-  <text x="540" y="300" font-family="DejaVu Sans Mono" font-size="82" font-weight="bold"
+  <text x="540" y="300" font-family="JetBrains Mono" font-size="78" font-weight="800"
         fill="#f0f6fc" letter-spacing="-2">vault-cortex</text>
   <text x="544" y="348" font-family="DejaVu Sans" font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
 
