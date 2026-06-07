@@ -19,6 +19,8 @@
 
   <!-- Self-contained dark strip (works in both light and dark mode) -->
   <rect x="0" y="0" width="720" height="184" rx="28" fill="url(#bgGrad)"/>
+  <!-- Faint cyan border so the strip stays defined on dark-mode README backgrounds -->
+  <rect x="1.5" y="1.5" width="717" height="181" rx="26.5" fill="none" stroke="#00e5ff" stroke-width="2" opacity="0.4"/>
 
   <!-- Icon (same mark as assets/icon-400.svg), drawn as vector, scaled into the left -->
   <g transform="translate(24,24) scale(0.34)">
