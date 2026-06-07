@@ -14,6 +14,19 @@
 
 
 
+
+## [0.15.12] — 2026-06-07
+
+### Documentation
+
+- Lead README with banner, center badges; add banner border (#74)
+- Update CHANGELOG.md for v0.15.11
+
+### Other Changes
+
+- Bump wordmark to SemiBold (600) on banner + social card (#73)
+- Brand icon + social preview card + consistent dark-mode banner (#72)
+
 ## [0.15.11] — 2026-06-07
 
 ### Documentation
