@@ -45,6 +45,12 @@ jobs:
       version: ${{ needs.validate.outputs.version }}
     secrets: inherit
 
+  publish-registry:
+    needs: [validate, deploy]
+    uses: ./.github/workflows/publish-registry.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
   release:
     needs: [validate, deploy]
     runs-on: ubuntu-latest
