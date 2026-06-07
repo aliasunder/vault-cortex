@@ -13,8 +13,9 @@ permissions:
   contents: read
 
 env:
-  # Pinned deliberately (see https://github.com/modelcontextprotocol/registry/releases). Bump intentionally.
-  MCP_PUBLISHER_VERSION: "1.2.3"
+  # Pinned deliberately (latest release; see https://github.com/modelcontextprotocol/registry/releases).
+  # Must be recent enough to accept server.json's $schema (2025-12-11); older builds reject it. Bump intentionally.
+  MCP_PUBLISHER_VERSION: "1.7.0"
 
 jobs:
   publish:
@@ -22,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false # publish reads server.json only; don't persist the token to .git/config
           # The bumped commit is tagged before this job runs in both release
           # paths (auto_release is triggered by the tag; manual_release pushes
           # the tag in bump-and-tag, which deploy + this job depend on), so the
@@ -37,12 +39,14 @@ jobs:
 
       - name: Install mcp-publisher (pinned)
         run: |
+          # Asset name carries no version segment (changed at v1.3.0); runner is ubuntu-latest (linux/amd64).
           curl -sSL \
-            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_${MCP_PUBLISHER_VERSION}_linux_amd64.tar.gz" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
             | tar xz mcp-publisher
 
       - name: Authenticate via GitHub OIDC
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to MCP Registry
+        timeout-minutes: 5
         run: ./mcp-publisher publish
