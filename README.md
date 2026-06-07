@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="./assets/banner.svg" width="720" alt="vault-cortex">
+</p>
+
+<div align="center">
+
 [![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
 [![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex)](https://github.com/aliasunder/vault-cortex/releases)
@@ -7,9 +13,7 @@
 [![MCP Server](https://badge.mcpx.dev?type=server&features=tools)](https://modelcontextprotocol.io)
 [![vault-cortex](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg?v=2)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
-<p align="center">
-  <img src="./assets/banner.svg" width="720" alt="vault-cortex">
-</p>
+</div>
 
 <!-- TODO: Uncomment when demo GIF is recorded (see ^demo-gif task)
 <p align="center">
