@@ -13,19 +13,18 @@
 
   <rect width="1280" height="640" fill="url(#bg)"/>
 
-  <!-- Constellation cluster, upper-right — a visible element balancing the icon -->
+  <!-- Constellation, upper-right — reproduces banner.svg's constellation (same geometry, scaled ~3.2x) -->
   <g filter="url(#glow)" stroke-linecap="round">
-    <!-- connecting lines -->
-    <line x1="980"  y1="120" x2="1090" y2="80"  stroke="#00e5ff" stroke-width="3.5" opacity="0.55"/>
-    <line x1="1090" y1="80"  x2="1180" y2="160" stroke="#00e5ff" stroke-width="3.5" opacity="0.55"/>
-    <line x1="980"  y1="120" x2="1050" y2="210" stroke="#7c3aed" stroke-width="3.5" opacity="0.5"/>
-    <line x1="1050" y1="210" x2="1180" y2="160" stroke="#7c3aed" stroke-width="3.5" opacity="0.5"/>
-    <line x1="1090" y1="80"  x2="1050" y2="210" stroke="#00e5ff" stroke-width="3"   opacity="0.4"/>
-    <!-- nodes -->
-    <circle cx="980"  cy="120" r="11" fill="#00e5ff" opacity="0.95"/>
-    <circle cx="1090" cy="80"  r="13" fill="#00e5ff" opacity="0.95"/>
-    <circle cx="1180" cy="160" r="9"  fill="#00e5ff" opacity="0.9"/>
-    <circle cx="1050" cy="210" r="12" fill="#7c3aed" opacity="0.95"/>
+    <line x1="950"  y1="80"  x2="1078" y2="150" stroke="#00e5ff" stroke-width="2.6" opacity="0.3"/>
+    <line x1="1078" y1="150" x2="998"  y2="208" stroke="#7c3aed" stroke-width="2.6" opacity="0.3"/>
+    <line x1="950"  y1="80"  x2="1174" y2="102" stroke="#00e5ff" stroke-width="2.6" opacity="0.4"/>
+    <line x1="1174" y1="102" x2="1238" y2="182" stroke="#7c3aed" stroke-width="2.6" opacity="0.3"/>
+    <line x1="998"  y1="208" x2="1238" y2="182" stroke="#00e5ff" stroke-width="1.9" opacity="0.2"/>
+    <circle cx="950"  cy="80"  r="9.6" fill="#00e5ff" opacity="0.7"/>
+    <circle cx="1078" cy="150" r="6.4" fill="#00e5ff" opacity="0.5"/>
+    <circle cx="998"  cy="208" r="8"   fill="#7c3aed" opacity="0.6"/>
+    <circle cx="1174" cy="102" r="4.8" fill="#7c3aed" opacity="0.4"/>
+    <circle cx="1238" cy="182" r="6.4" fill="#00e5ff" opacity="0.5"/>
   </g>
 
   <!-- The icon -->
