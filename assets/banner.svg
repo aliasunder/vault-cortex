@@ -42,7 +42,7 @@
 
   <!-- Wordmark (light fill so it reads on both light and dark backgrounds) -->
   <text x="190" y="92" font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', 'Courier New', monospace"
-        font-size="52" font-weight="500" fill="#f0f6fc" letter-spacing="-1">vault-cortex</text>
+        font-size="52" font-weight="600" fill="#f0f6fc" letter-spacing="-1">vault-cortex</text>
 
   <!-- Tagline -->
   <text x="192" y="124" font-family="'Inter', -apple-system, sans-serif" font-size="18" font-weight="400" fill="#8b949e">MCP server for Obsidian vaults</text>
