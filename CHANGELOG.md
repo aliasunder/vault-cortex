@@ -13,6 +13,17 @@
 
 
 
+
+## [0.15.11] — 2026-06-07
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.10
+
+### CI / Infrastructure
+
+- Bump mcp-publisher to v1.7.9 to fix OIDC audience 401 (#71)
+
 ## [0.15.10] — 2026-06-07
 
 ### Documentation
