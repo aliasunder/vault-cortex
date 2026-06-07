@@ -12,6 +12,17 @@
 
 
 
+
+## [0.15.10] — 2026-06-07
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.9
+
+### CI / Infrastructure
+
+- Auto-publish to MCP Registry on release via GitHub OIDC (#70)
+
 ## [0.15.9] — 2026-06-06
 
 ### Documentation
