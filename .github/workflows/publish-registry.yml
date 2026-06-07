@@ -1,0 +1,52 @@
+name: Publish to MCP Registry
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version to publish (must match server.json)
+        required: true
+        type: string
+
+permissions:
+  id-token: write # GitHub OIDC token for mcp-publisher
+  contents: read
+
+env:
+  # Pinned deliberately (latest release; see https://github.com/modelcontextprotocol/registry/releases).
+  # Must be recent enough to accept server.json's $schema (2025-12-11); older builds reject it. Bump intentionally.
+  MCP_PUBLISHER_VERSION: "1.7.0"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false # publish reads server.json only; don't persist the token to .git/config
+          # The bumped commit is tagged before this job runs in both release
+          # paths (auto_release is triggered by the tag; manual_release pushes
+          # the tag in bump-and-tag, which deploy + this job depend on), so the
+          # tag always resolves to the version-bumped server.json.
+          ref: v${{ inputs.version }}
+
+      - name: Verify server.json version matches release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          jq -e --arg v "$VERSION" '.version == $v' server.json > /dev/null \
+            || { echo "::error::server.json version ($(jq -r '.version' server.json)) does not match release ($VERSION)"; exit 1; }
+
+      - name: Install mcp-publisher (pinned)
+        run: |
+          # Asset name carries no version segment (changed at v1.3.0); runner is ubuntu-latest (linux/amd64).
+          curl -sSL \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Authenticate via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        timeout-minutes: 5
+        run: ./mcp-publisher publish

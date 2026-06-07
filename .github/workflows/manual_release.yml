@@ -92,6 +92,12 @@ jobs:
       version: ${{ needs.bump-and-tag.outputs.version }}
     secrets: inherit
 
+  publish-registry:
+    needs: [bump-and-tag, deploy]
+    uses: ./.github/workflows/publish-registry.yml
+    with:
+      version: ${{ needs.bump-and-tag.outputs.version }}
+
   release:
     needs: [bump-and-tag, deploy]
     runs-on: ubuntu-latest
