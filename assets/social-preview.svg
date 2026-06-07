@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1280" height="640" viewBox="0 0 1280 640" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#10151d"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Faint background constellation for texture (kept low-contrast) -->
+  <g filter="url(#glow)" opacity="0.16" stroke-linecap="round">
+    <line x1="980" y1="90"  x2="1090" y2="150" stroke="#00e5ff" stroke-width="2"/>
+    <line x1="1090" y1="150" x2="1040" y2="250" stroke="#7c3aed" stroke-width="2"/>
+    <line x1="980" y1="90"  x2="1180" y2="120" stroke="#00e5ff" stroke-width="2"/>
+    <circle cx="980" cy="90" r="6" fill="#00e5ff"/>
+    <circle cx="1090" cy="150" r="5" fill="#00e5ff"/>
+    <circle cx="1040" cy="250" r="6" fill="#7c3aed"/>
+    <circle cx="1180" cy="120" r="4" fill="#7c3aed"/>
+    <circle cx="150" cy="540" r="5" fill="#00e5ff"/>
+    <line x1="150" y1="540" x2="260" y2="500" stroke="#00e5ff" stroke-width="2"/>
+  </g>
+
+  <!-- The icon -->
+  <image x="96" y="130" width="380" height="380" xlink:href="icon-400.png"/>
+
+  <!-- Wordmark + tagline -->
+  <text x="540" y="300" font-family="DejaVu Sans Mono" font-size="82" font-weight="bold"
+        fill="#f0f6fc" letter-spacing="-2">vault-cortex</text>
+  <text x="544" y="348" font-family="DejaVu Sans" font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
+
+  <!-- Cyan pulse accent (echoes the banner) -->
+  <rect x="544" y="372" width="180" height="4" rx="2" fill="#00e5ff" filter="url(#glow)" opacity="0.9"/>
+
+  <!-- Feature line -->
+  <text x="544" y="430" font-family="DejaVu Sans" font-size="24" fill="#58a6ff">search · memory · link graph · 23 tools · OAuth</text>
+</svg>
