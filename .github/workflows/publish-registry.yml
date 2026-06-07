@@ -14,8 +14,13 @@ permissions:
 
 env:
   # Pinned deliberately (latest release; see https://github.com/modelcontextprotocol/registry/releases).
-  # Must be recent enough to accept server.json's $schema (2025-12-11); older builds reject it. Bump intentionally.
-  MCP_PUBLISHER_VERSION: "1.7.0"
+  # Floor is v1.7.6: that release binds the GitHub OIDC token exchange to a
+  # per-deployment audience (CVE-2026-44428). The hosted registry now rejects
+  # the old shared "mcp-registry" audience with a 401, so older publishers fail
+  # at `login github-oidc` ("invalid audience: expected
+  # https://registry.modelcontextprotocol.io"). Must also be recent enough to
+  # accept server.json's $schema (2025-12-11); older builds reject it. Bump intentionally.
+  MCP_PUBLISHER_VERSION: "1.7.9"
 
 jobs:
   publish:
