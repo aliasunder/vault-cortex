@@ -13,26 +13,12 @@
 
   <rect width="1280" height="640" fill="url(#bg)"/>
 
-  <!-- Constellation, upper-right — reproduces banner.svg's constellation (same geometry, scaled ~3.2x) -->
-  <g filter="url(#glow)" stroke-linecap="round">
-    <line x1="950"  y1="80"  x2="1078" y2="150" stroke="#00e5ff" stroke-width="2.6" opacity="0.3"/>
-    <line x1="1078" y1="150" x2="998"  y2="208" stroke="#7c3aed" stroke-width="2.6" opacity="0.3"/>
-    <line x1="950"  y1="80"  x2="1174" y2="102" stroke="#00e5ff" stroke-width="2.6" opacity="0.4"/>
-    <line x1="1174" y1="102" x2="1238" y2="182" stroke="#7c3aed" stroke-width="2.6" opacity="0.3"/>
-    <line x1="998"  y1="208" x2="1238" y2="182" stroke="#00e5ff" stroke-width="1.9" opacity="0.2"/>
-    <circle cx="950"  cy="80"  r="9.6" fill="#00e5ff" opacity="0.7"/>
-    <circle cx="1078" cy="150" r="6.4" fill="#00e5ff" opacity="0.5"/>
-    <circle cx="998"  cy="208" r="8"   fill="#7c3aed" opacity="0.6"/>
-    <circle cx="1174" cy="102" r="4.8" fill="#7c3aed" opacity="0.4"/>
-    <circle cx="1238" cy="182" r="6.4" fill="#00e5ff" opacity="0.5"/>
-  </g>
-
   <!-- The icon -->
   <image x="96" y="130" width="380" height="380" xlink:href="icon-400.png"/>
 
   <!-- Wordmark + tagline -->
-  <text x="540" y="300" font-family="JetBrains Mono" font-size="78" font-weight="800"
-        fill="#f0f6fc" letter-spacing="-2">vault-cortex</text>
+  <text x="540" y="300" font-family="JetBrains Mono" font-size="80" font-weight="500"
+        fill="#f0f6fc" letter-spacing="-1">vault-cortex</text>
   <text x="544" y="348" font-family="DejaVu Sans" font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
 
   <!-- Cyan pulse accent (echoes the banner) -->
