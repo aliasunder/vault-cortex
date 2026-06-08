@@ -17,6 +17,13 @@
 
 
 
+
+## [0.15.16] — 2026-06-08
+
+### Other Changes
+
+- Add OCI image metadata so the GHCR package shows a description (#80)
+
 ## [0.15.14] — 2026-06-08
 
 ### Bug Fixes
