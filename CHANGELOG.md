@@ -15,6 +15,19 @@
 
 
 
+
+## [0.15.13] — 2026-06-08
+
+### Bug Fixes
+
+- Publish multi-arch (amd64 + arm64) Docker image (#76)
+
+### Documentation
+
+- Harden llms-install.md against real Cline setup failures (#77)
+- Add llms-install.md for Cline Marketplace setup (#75)
+- Update CHANGELOG.md for v0.15.12
+
 ## [0.15.12] — 2026-06-07
 
 ### Documentation
