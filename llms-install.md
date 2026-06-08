@@ -2,7 +2,7 @@
 
 Step-by-step instructions for an AI assistant (e.g. Cline) to install and
 configure **vault-cortex**. It is a **Docker** container reached over **HTTP** —
-*not* an `npx`/`uvx` stdio server — so "installing" means: start the container,
+_not_ an `npx`/`uvx` stdio server — so "installing" means: start the container,
 then register its URL + a bearer token with the MCP client.
 
 This covers the **local** setup (one container, your vault bind-mounted). For
@@ -31,7 +31,7 @@ remote/VPS access (Obsidian Sync + OAuth 2.1), see [`deploy/remote/`](./deploy/r
    openssl rand -hex 32
    ```
 
-   Keep this exact string — the **same** value goes in `.env` (Step 2) *and* in the client config (Step 4). It's a secret; don't echo it into shared logs.
+   Keep this exact string — the **same** value goes in `.env` (Step 2) _and_ in the client config (Step 4). It's a secret; don't echo it into shared logs.
 
 ## Step 2 — Start the container
 
@@ -65,6 +65,7 @@ The image `ghcr.io/aliasunder/vault-mcp:latest` is public (no login needed) and 
 > [!NOTE]
 > If you change `MCP_AUTH_TOKEN` (or any `.env` value) **after** the container is
 > already running, a plain restart keeps the old value — you must recreate it:
+>
 > ```bash
 > docker compose up -d --force-recreate
 > ```
