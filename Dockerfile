@@ -28,9 +28,16 @@ WORKDIR /app
 # PUID so both containers can read/write the shared /vault volume.
 RUN apk add --no-cache tini libstdc++
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/data/index.db
-# OCI ownership marker for the MCP Registry — must match `name` in
-# server.json. mcp-publisher reads this label off the image manifest.
-LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex"
+# OCI image metadata. The ownership marker must match `name` in server.json
+# (mcp-publisher reads it off the manifest). title/description/source/licenses
+# show via `docker inspect` and on the GHCR package page; for the multi-arch
+# manifest list GHCR takes the displayed description from the *index* annotation
+# set in deploy.yml — keep that description and the one here in sync.
+LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex" \
+      org.opencontainers.image.title="vault-cortex" \
+      org.opencontainers.image.description="MCP server for Obsidian vaults — search, memory, link graph, 23 tools, OAuth-protected." \
+      org.opencontainers.image.source="https://github.com/aliasunder/vault-cortex" \
+      org.opencontainers.image.licenses="MIT"
 COPY --from=deps  /app/node_modules ./node_modules
 COPY --from=build /app/dist/src ./dist/src
 COPY package.json ./

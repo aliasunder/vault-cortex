@@ -103,6 +103,14 @@ jobs:
             ${{ env.IMAGE }}:v${{ inputs.version }}
             ${{ env.IMAGE }}:${{ inputs.version }}
             ${{ env.IMAGE }}:latest
+          # GHCR shows a multi-arch package's description from the image *index*
+          # annotation (a Dockerfile LABEL alone doesn't surface on the package
+          # page). Mirror the server.json / Dockerfile description here.
+          annotations: |
+            index:org.opencontainers.image.title=vault-cortex
+            index:org.opencontainers.image.description=MCP server for Obsidian vaults — search, memory, link graph, 23 tools, OAuth-protected.
+            index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
+            index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
