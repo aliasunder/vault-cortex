@@ -21,7 +21,13 @@ jobs:
       SST_STAGE: ${{ secrets.SST_STAGE }}
       IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
     steps:
+      # Build from the release tag, not the default checkout SHA. On a manual
+      # release the tag (created by bump-and-tag) points at the version-bump
+      # commit, while github.sha is the pre-bump dispatch commit — checking out
+      # the latter stamps the image one version behind the release it ships as.
       - uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.version }}
 
       - uses: actions/setup-node@v6
         with:
