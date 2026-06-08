@@ -1,87 +1,89 @@
 # Installing vault-cortex (for AI assistants)
 
-These are step-by-step instructions for an AI assistant (e.g. Cline) to install
-and configure **vault-cortex** for the user. vault-cortex is a remote MCP server
-that runs in **Docker** and is reached over **HTTP** — it is not an `npx`/`uvx`
-stdio command server, so "installing" it means starting the container and
-registering its URL (plus a bearer token) with the MCP client.
+Step-by-step instructions for an AI assistant (e.g. Cline) to install and
+configure **vault-cortex**. It is a **Docker** container reached over **HTTP** —
+_not_ an `npx`/`uvx` stdio server — so "installing" means: start the container,
+then register its URL + a bearer token with the MCP client.
 
-This file covers the **local** setup (one Docker container, your vault folder
-bind-mounted). For remote/VPS access with Obsidian Sync and OAuth, point the
-user at [`deploy/remote/`](./deploy/remote/) instead.
+This covers the **local** setup (one container, your vault bind-mounted). For
+remote/VPS access (Obsidian Sync + OAuth 2.1), see [`deploy/remote/`](./deploy/remote/).
+
+> [!IMPORTANT]
+> **Read this before you debug authentication.** The token is a **raw secret
+> string, not a JWT.** Authenticate by sending `Authorization: Bearer <MCP_AUTH_TOKEN>`
+> using the exact value from `.env`. A `401` does **not** mean you need to build a
+> JWT or start an OAuth flow — it means the token you sent doesn't match the
+> container's `MCP_AUTH_TOKEN`, or the running image is stale. The server also
+> exposes OAuth discovery endpoints; **ignore them for this local setup** and use
+> the static bearer header. See [Troubleshooting](#troubleshooting).
 
 ## Prerequisites
 
-- **Docker** with Compose v2 (`docker compose`, v20.10+). If `docker` is not
-  installed, stop and ask the user to install Docker Desktop / Docker Engine.
-- An **Obsidian vault** — any folder of `.md` files works. You need its
-  **absolute path** on this machine.
+- **Docker** with Compose v2 (`docker compose`, v20.10+). If `docker` isn't installed, stop and ask the user to install Docker Desktop / Docker Engine.
+- An **Obsidian vault** — any folder of `.md` files. You need its **absolute path** on this machine.
 
 ## Step 1 — Collect the two required values
 
-Ask the user for, or determine:
-
-1. **`VAULT_PATH`** — the absolute path to their Obsidian vault folder
-   (e.g. `/Users/alex/Documents/MyVault`). Do not guess; confirm it exists.
-2. **`MCP_AUTH_TOKEN`** — a bearer token. Generate one:
+1. **`VAULT_PATH`** — the absolute path to the vault (e.g. `/Users/alex/Documents/MyVault`). Confirm it exists; don't guess.
+2. **`MCP_AUTH_TOKEN`** — generate **one** token and reuse it everywhere:
 
    ```bash
    openssl rand -hex 32
    ```
 
-   Save the output — the user needs it again in Step 4. Treat it as a secret;
-   do not echo it into shared logs.
+   Keep this exact string — the **same** value goes in `.env` (Step 2) _and_ in the client config (Step 4). It's a secret; don't echo it into shared logs.
 
-## Step 2 — Fetch the quickstart files and start the container
+## Step 2 — Start the container
 
-Run these in an empty working directory the user is comfortable with:
+Work in a dedicated directory so the stack is easy to find and manage later (all the commands below must run from the same directory):
 
 ```bash
-# 1. Get the local quickstart compose file + env template
+mkdir -p vault-cortex-mcp && cd vault-cortex-mcp
+
+# Quickstart compose file + env template
 curl -O https://raw.githubusercontent.com/aliasunder/vault-cortex/main/deploy/local/docker-compose.yml
 curl -O https://raw.githubusercontent.com/aliasunder/vault-cortex/main/deploy/local/.env.example
-
-# 2. Create the .env file
 cp .env.example .env
 ```
 
-Now edit `.env` and set the two required values from Step 1:
+Edit `.env` and set both required values **before** starting — the container reads `.env` only at boot:
 
 ```dotenv
-MCP_AUTH_TOKEN=<the token you generated>
-VAULT_PATH=<absolute path to the user's vault>
+MCP_AUTH_TOKEN=<paste the exact token from Step 1 — no quotes, no surrounding spaces>
+VAULT_PATH=<absolute path to the vault>
 ```
 
-Then start the server:
+Pull the current image, then start:
 
 ```bash
-# -d runs it in the background; first start pulls the image (~150MB)
-# and builds the search index (a few seconds, depending on vault size)
+docker compose pull        # always pull — a stale cached :latest silently runs old code
 docker compose up -d
 ```
 
-The image is `ghcr.io/aliasunder/vault-mcp:latest` and is public — no registry
-login is needed.
+The image `ghcr.io/aliasunder/vault-mcp:latest` is public (no login needed) and multi-arch (amd64 + arm64), so it runs natively on Apple Silicon.
+
+> [!NOTE]
+> If you change `MCP_AUTH_TOKEN` (or any `.env` value) **after** the container is
+> already running, a plain restart keeps the old value — you must recreate it:
+>
+> ```bash
+> docker compose up -d --force-recreate
+> ```
 
 ## Step 3 — Verify it's running
 
 ```bash
-# Health check (no auth required) — expect {"ok":true}
-curl http://localhost:8000/healthz
+curl http://localhost:8000/healthz                                     # expect {"ok":true}
+docker exec vault-mcp node -p "require('/app/package.json').version"   # note the running version
 ```
 
-If this does not return `{"ok":true}`, check `docker compose logs vault-mcp`.
-Common causes: `VAULT_PATH` doesn't exist or isn't absolute; `MCP_AUTH_TOKEN`
-is empty in `.env`; port `8000` is already in use (set `PORT` in `.env` to
-change the host port).
+If healthz doesn't return `{"ok":true}`, run `docker compose logs vault-mcp`. Common causes: `VAULT_PATH` missing or not absolute; `MCP_AUTH_TOKEN` empty in `.env`; port `8000` already in use (set `PORT` in `.env`).
 
-## Step 4 — Register the server with the MCP client
+## Step 4 — Register the server with the client
 
-The server listens at `http://localhost:8000/mcp` and authenticates with the
-`MCP_AUTH_TOKEN` as a bearer token.
+The server is at `http://localhost:8000/mcp`, authenticated by the **raw** `MCP_AUTH_TOKEN` as a bearer token.
 
-**For Cline** — add this to the `mcpServers` object in
-`cline_mcp_settings.json` (replace `<the token>` with the value from Step 1):
+**For Cline** — add this to the `mcpServers` object in `cline_mcp_settings.json`. Use the **exact same token string that's in your `.env`** (the value generated in Step 1 — not a placeholder, not a freshly generated one):
 
 ```json
 {
@@ -90,7 +92,7 @@ The server listens at `http://localhost:8000/mcp` and authenticates with the
       "type": "streamableHttp",
       "url": "http://localhost:8000/mcp",
       "headers": {
-        "Authorization": "Bearer <the token>"
+        "Authorization": "Bearer PASTE_THE_SAME_TOKEN_THAT_IS_IN_ENV"
       },
       "disabled": false
     }
@@ -98,9 +100,9 @@ The server listens at `http://localhost:8000/mcp` and authenticates with the
 }
 ```
 
-After saving, Cline should connect and discover **23 tools** (vault read/write,
-search, memory, link graph, daily notes). If the client only supports stdio MCP
-servers, bridge with `mcp-remote`:
+Save, then confirm the connection by calling a read-only tool such as `vault_list_memory_files`. A healthy install discovers **23 tools** (vault CRUD, search, memory, link graph, daily notes).
+
+If the client only speaks stdio, bridge with `mcp-remote` (same token):
 
 ```json
 {
@@ -112,32 +114,44 @@ servers, bridge with `mcp-remote`:
         "mcp-remote",
         "http://localhost:8000/mcp",
         "--header",
-        "Authorization: Bearer <the token>"
+        "Authorization: Bearer PASTE_THE_SAME_TOKEN_THAT_IS_IN_ENV"
       ]
     }
   }
 }
 ```
 
-## What you get
+## Troubleshooting
 
-23 tools across vault CRUD, full-text search (SQLite FTS5), structured memory
-(`About Me/` files), link graph (backlinks / outgoing links / orphans), and
-daily-note resolution. On first start, if the vault has no memory folder, the
-server seeds one (`About Me/`) with template files.
+- **`401`, or the client reports the token "has no expiration time" / "needs a JWT."**
+  Do **not** build a JWT or switch to OAuth — the raw token is the correct format. The cause is one of:
+  1. **Token mismatch** — the token in the client config isn't byte-for-byte equal to the one the container booted with. Compare them literally (watch for quotes/trailing whitespace in `.env`). Check what the container actually has:
+     ```bash
+     docker exec vault-mcp printenv MCP_AUTH_TOKEN
+     ```
+     If it differs from `.env`, you edited `.env` after starting — recreate: `docker compose up -d --force-recreate`.
+  2. **Stale image** — you're running a build from before the static-token fix (v0.15.5). Refresh and recreate, then confirm the version:
+     ```bash
+     docker compose pull && docker compose up -d --force-recreate
+     docker exec vault-mcp node -p "require('/app/package.json').version"   # must be >= 0.15.5
+     ```
+- **`no matching manifest for linux/arm64/v8` (Apple Silicon).** You have an old single-arch image cached locally. Pull the current multi-arch `:latest`:
+  ```bash
+  docker compose pull && docker compose up -d --force-recreate
+  ```
+  If it persists, remove the stale image first: `docker rmi ghcr.io/aliasunder/vault-mcp:latest`, then pull again.
+- **healthz fails.** See the causes listed in Step 3.
 
 ## Managing the server
 
 ```bash
-docker compose down      # stop (search index preserved in a Docker volume)
-docker compose down -v   # stop and delete the index (rebuilds on next start)
-docker compose pull && docker compose up -d   # update to the latest image
+docker compose down            # stop (search index preserved in a Docker volume)
+docker compose down -v         # stop and delete the index (rebuilds on next start)
+docker compose pull && docker compose up -d --force-recreate   # update to the latest image
 ```
 
 ## More
 
-- Full configuration (memory folder, protected paths, timezone, logging):
-  [README → Configuration](./README.md#configuration)
-- Remote / multi-device setup (Obsidian Sync + OAuth 2.1):
-  [`deploy/remote/`](./deploy/remote/)
+- Full configuration (memory folder, protected paths, timezone, logging): [README → Configuration](./README.md#configuration)
+- Remote / multi-device setup (Obsidian Sync + OAuth 2.1): [`deploy/remote/`](./deploy/remote/)
 - Architecture and auth flow: [ARCHITECTURE.md](./ARCHITECTURE.md)
