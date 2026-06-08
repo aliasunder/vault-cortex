@@ -76,6 +76,8 @@ jobs:
             echo "host=$PUBLIC_IP" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR (build push)
@@ -89,7 +91,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE }}:v${{ inputs.version }}
