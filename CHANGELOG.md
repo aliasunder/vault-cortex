@@ -16,6 +16,17 @@
 
 
 
+
+## [0.15.14] — 2026-06-08
+
+### Bug Fixes
+
+- Build release image from the version tag so its stamp matches (#78)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.13
+
 ## [0.15.13] — 2026-06-08
 
 ### Bug Fixes
