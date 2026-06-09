@@ -588,7 +588,14 @@ Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged projec
 When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Parameters:
+- tag is the bare tag name without a leading "#" ("project", not "#project").
+- exact (default false) does hierarchical prefix matching — the tag and all its children. Set true to match the exact tag only, excluding children.
+
+Errors:
+- An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
+
+Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -1010,7 +1017,10 @@ Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_v
 When to use: Discovering what properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.
 Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
 
-Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values for quick orientation.`,
+Parameters:
+- folder is matched as a path prefix and recurses into subfolders ("Projects" also covers "Projects/Archive"); omit it to scan the entire vault.
+
+Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values per key for quick orientation.`,
       inputSchema: {
         folder: z
           .string()
