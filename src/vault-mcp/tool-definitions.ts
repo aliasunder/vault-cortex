@@ -838,7 +838,10 @@ Returns: Confirmation message.`,
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: true,
+        // Append-only: entries are inserted, never overwritten or deleted
+        // (see memoryStore.updateMemory) — additive, not destructive.
+        destructiveHint: false,
+        // Repeat calls add a duplicate dated entry, so not idempotent.
         idempotentHint: false,
         openWorldHint: false,
       },
