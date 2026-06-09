@@ -63,6 +63,7 @@ export const createMcpRouter = ({
         const server = new McpServer(
           {
             name: "vault-cortex",
+            title: "Vault Cortex",
             version: "1.0.0",
             description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`,
           },

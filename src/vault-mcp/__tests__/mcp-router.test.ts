@@ -55,6 +55,7 @@ const DEFAULT_CONFIG = loadConfig({})
 
 const SERVER_INFO = {
   name: "vault-cortex",
+  title: "Vault Cortex",
   version: "1.0.0",
   description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
 }
