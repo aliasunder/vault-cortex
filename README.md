@@ -189,11 +189,15 @@ npx @modelcontextprotocol/inspector
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup.
 
-## Tips
+## Companion: obsidian-vault skill
 
-### For Claude users
+The MCP server works on its own with any client. For agents that support [skills](https://github.com/vercel-labs/skills) (Claude Code, Cursor, Windsurf, Cline, and [70+ others](https://github.com/vercel-labs/skills#supported-agents)), the **obsidian-vault** skill adds deeper knowledge of Obsidian-flavored markdown — frontmatter conventions, callout syntax, and plugin-specific formats like Dataview, Tasks, and Kanban.
 
-The [obsidian-vault](https://github.com/aliasunder/cowork-plugins) skill teaches Claude how to write Obsidian-compatible content — frontmatter, wikilinks, tags, callouts, and plugin-specific syntax. Vault Cortex delivers the content; obsidian-vault ensures it renders correctly in Obsidian. Available for Claude Code and Claude Desktop.
+```bash
+npx skills add aliasunder/agent-skills --skill obsidian-vault
+```
+
+[Skill source →](https://github.com/aliasunder/agent-skills/tree/main/skills/obsidian-vault)
 
 ## Acknowledgments
 
