@@ -1,6 +1,6 @@
 # Local Quickstart
 
-Run vault-cortex on your machine against a local Obsidian vault. No cloud, no
+Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
 ## Prerequisites

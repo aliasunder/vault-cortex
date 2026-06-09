@@ -1,6 +1,6 @@
 # Memory Templates
 
-These example files show the expected structure for vault-cortex's memory system.
+These example files show the expected structure for Vault Cortex's memory system.
 On first startup, the server creates these files automatically if your vault
 doesn't already have a memory folder — no manual setup needed.
 
@@ -28,7 +28,7 @@ Then copy into that folder instead.
 
 ## Structure
 
-Memory files use a specific format that vault-cortex tools understand:
+Memory files use a specific format that Vault Cortex tools understand:
 
 - **H1 heading**: file title (one per file)
 - **H2 headings**: sections (topics, categories)

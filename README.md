@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/banner.svg" width="720" alt="vault-cortex">
+  <img src="./assets/banner.svg" width="720" alt="Vault Cortex">
 </p>
 
 <div align="center">
@@ -17,15 +17,15 @@
 
 <!-- TODO: Uncomment when demo GIF is recorded (see ^demo-gif task)
 <p align="center">
-  <img src="./assets/demo.gif" width="600" alt="vault-cortex demo — vault_get_memory and vault_update_memory round-trip">
+  <img src="./assets/demo.gif" width="600" alt="Vault Cortex demo — vault_get_memory and vault_update_memory round-trip">
 </p>
 -->
 
 ## What is this?
 
-**vault-cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools over a single Docker container.
+**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools over a single Docker container.
 
-The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **vault-cortex** replaces all of that with Docker and your vault folder.
+The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
 
 - **Plugin-free** — Obsidian doesn't need to be running; headless sync keeps the vault current, and the server works directly with `.md` files on disk
 - **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1
@@ -65,7 +65,7 @@ Connect Claude Desktop or Claude Code — add a remote MCP server with URL `http
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
-Run vault-cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
+Run Vault Cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
 
 ```bash
 # On your VPS:
@@ -193,11 +193,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup.
 
 ### For Claude users
 
-The [obsidian-vault](https://github.com/aliasunder/cowork-plugins) skill teaches Claude how to write Obsidian-compatible content — frontmatter, wikilinks, tags, callouts, and plugin-specific syntax. vault-cortex delivers the content; obsidian-vault ensures it renders correctly in Obsidian. Available for Claude Code and Claude Desktop.
+The [obsidian-vault](https://github.com/aliasunder/cowork-plugins) skill teaches Claude how to write Obsidian-compatible content — frontmatter, wikilinks, tags, callouts, and plugin-specific syntax. Vault Cortex delivers the content; obsidian-vault ensures it renders correctly in Obsidian. Available for Claude Code and Claude Desktop.
 
 ## Acknowledgments
 
-vault-cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible.
+Vault Cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible.
 
 ## Contributing
 

@@ -1,6 +1,6 @@
 # Remote Quickstart (Obsidian Sync)
 
-Run vault-cortex on a VPS with Obsidian Sync for remote access from any device.
+Run Vault Cortex on a VPS with Obsidian Sync for remote access from any device.
 Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client — anywhere.
 
@@ -66,7 +66,7 @@ MCP clients need to reach your server over the network. Four options:
 
 ### API Gateway (AWS — no domain needed)
 
-This is the approach vault-cortex's own production deployment uses. AWS API
+This is the approach Vault Cortex's own production deployment uses. AWS API
 Gateway acts as a TLS-terminating reverse proxy in front of your server — no
 domain, no certificate management. You get an HTTPS URL immediately:
 
@@ -83,9 +83,9 @@ URL. See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
 approach, which adds a Lambda authorizer for an extra auth layer.
 
 > **Need a VPS?** [AWS Lightsail](https://aws.amazon.com/lightsail/) runs
-> vault-cortex on a 2 GB RAM / 60 GB SSD instance for ~$12/mo. Paired with API
+> Vault Cortex on a 2 GB RAM / 60 GB SSD instance for ~$12/mo. Paired with API
 > Gateway (~$0) and this compose file, the total cost is ~$12/mo. For a fully
-> automated setup, vault-cortex also includes an
+> automated setup, Vault Cortex also includes an
 > [SST IaC deployment](../../DEPLOY.md) that provisions Lightsail, API Gateway,
 > and a Lambda authorizer in one command.
 

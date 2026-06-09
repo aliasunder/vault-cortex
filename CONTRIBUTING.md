@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in vault-cortex! This guide covers everything you need
+Thanks for your interest in Vault Cortex! This guide covers everything you need
 to get started.
 
 ## Quick Start
@@ -25,7 +25,7 @@ to get started.
 
 ## Development Modes
 
-vault-cortex can run in three modes during development:
+Vault Cortex can run in three modes during development:
 
 ### MCP server (no Docker)
 
