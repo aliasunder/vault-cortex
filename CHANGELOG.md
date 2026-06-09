@@ -18,6 +18,17 @@
 
 
 
+
+## [0.15.17] — 2026-06-09
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.16
+
+### Other Changes
+
+- Lift Glama TDQS on the three lowest-scoring tools (#81)
+
 ## [0.15.16] — 2026-06-08
 
 ### Other Changes
