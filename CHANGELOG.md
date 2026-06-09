@@ -19,6 +19,17 @@
 
 
 
+
+## [0.15.18] — 2026-06-09
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.17
+
+### CI / Infrastructure
+
+- Migrate release workflows to app client-id (#82)
+
 ## [0.15.17] — 2026-06-09
 
 ### Documentation
