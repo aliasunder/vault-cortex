@@ -29,8 +29,14 @@ const READ_ONLY_TOOLS = [
 const DESTRUCTIVE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
   TOOL_NAMES.VAULT_DELETE_NOTE,
-  TOOL_NAMES.VAULT_UPDATE_MEMORY,
   TOOL_NAMES.VAULT_DELETE_MEMORY,
+] as const
+
+// Writers that only add to the vault — never overwrite or delete existing
+// content — so destructiveHint must be false even though readOnlyHint is too.
+const ADDITIVE_WRITE_TOOLS = [
+  TOOL_NAMES.VAULT_UPDATE_MEMORY,
+  TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
 ] as const
 
 const WRITE_TOOLS = [
@@ -151,6 +157,12 @@ describe("annotations", () => {
     const call = findCall(name)!
     expect(call[1].annotations?.destructiveHint).toBe(true)
     expect(call[1].annotations?.readOnlyHint).toBe(false)
+  })
+
+  it.each(ADDITIVE_WRITE_TOOLS)("%s is a non-destructive write", (name) => {
+    const call = findCall(name)!
+    expect(call[1].annotations?.readOnlyHint).toBe(false)
+    expect(call[1].annotations?.destructiveHint).toBe(false)
   })
 
   it("all tools have openWorldHint: false", () => {
