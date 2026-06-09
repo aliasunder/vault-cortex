@@ -1,7 +1,7 @@
-# Installing vault-cortex (for AI assistants)
+# Installing Vault Cortex (for AI assistants)
 
 Step-by-step instructions for an AI assistant (e.g. Cline) to install and
-configure **vault-cortex**. It is a **Docker** container reached over **HTTP** —
+configure **Vault Cortex**. It is a **Docker** container reached over **HTTP** —
 _not_ an `npx`/`uvx` stdio server — so "installing" means: start the container,
 then register its URL + a bearer token with the MCP client.
 

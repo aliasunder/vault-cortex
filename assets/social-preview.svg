@@ -18,7 +18,7 @@
 
   <!-- Wordmark + tagline -->
   <text x="540" y="300" font-family="JetBrains Mono" font-size="80" font-weight="600"
-        fill="#f0f6fc" letter-spacing="-1">vault-cortex</text>
+        fill="#f0f6fc" letter-spacing="-1">Vault Cortex</text>
   <text x="544" y="348" font-family="DejaVu Sans" font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
 
   <!-- Cyan pulse accent (echoes the banner) -->

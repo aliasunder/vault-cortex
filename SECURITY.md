@@ -2,7 +2,7 @@
 
 ## Scope
 
-vault-cortex is a remote MCP server that exposes an Obsidian vault over HTTPS.
+Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS.
 The attack surface includes:
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),

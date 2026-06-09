@@ -1,6 +1,6 @@
 # Architecture
 
-vault-cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
+Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
@@ -10,7 +10,7 @@ The typical Obsidian + MCP setup requires three moving parts running
 simultaneously: Obsidian open → Local REST API plugin installed → a separate
 MCP server wrapping the REST API. That chain is local-only.
 
-vault-cortex replaces it:
+Vault Cortex replaces it:
 
 - **Docker-based** — no Obsidian desktop required to be running, no plugins, works with `.md` files on disk
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
@@ -19,7 +19,7 @@ vault-cortex replaces it:
 See the [README](./README.md#what-is-this) for the full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
-API Gateway, SST — but vault-cortex runs anywhere Docker does.
+API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 
 ## Phasing
 
