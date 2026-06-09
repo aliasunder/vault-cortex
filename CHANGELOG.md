@@ -21,6 +21,14 @@
 
 
 
+
+## [0.15.20] — 2026-06-09
+
+### Documentation
+
+- Promote obsidian-vault skill to dedicated README section (#84)
+- Update CHANGELOG.md for v0.15.19
+
 ## [0.15.19] — 2026-06-09
 
 ### Documentation
