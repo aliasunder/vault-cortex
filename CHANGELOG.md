@@ -20,6 +20,17 @@
 
 
 
+
+## [0.15.19] — 2026-06-09
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.18
+
+### Other Changes
+
+- Standardize human-readable display name to "Vault Cortex" (#83)
+
 ## [0.15.18] — 2026-06-09
 
 ### Documentation
