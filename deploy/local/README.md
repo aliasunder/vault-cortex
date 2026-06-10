@@ -3,6 +3,10 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
+> **Fastest path:** `npx vault-cortex@latest init` does all of the below
+> interactively — generates the token and config files, starts the server, and
+> prints the connection details. The steps below are the manual equivalent.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)

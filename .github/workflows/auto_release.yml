@@ -51,6 +51,15 @@ jobs:
     with:
       version: ${{ needs.validate.outputs.version }}
 
+  # Deliberately not gated on deploy: the CLI scaffolds against the :latest
+  # GHCR image and shouldn't be blocked by a server-deploy hiccup.
+  publish-npm:
+    needs: validate
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      ref: ${{ github.ref_name }}
+    secrets: inherit
+
   release:
     needs: [validate, deploy]
     runs-on: ubuntu-latest

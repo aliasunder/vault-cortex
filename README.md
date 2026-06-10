@@ -42,9 +42,20 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 
 ## Quick Start
 
-### Local (5 minutes — Docker + your vault folder)
+### Local (2 minutes — Docker + your vault folder)
 
 **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and an Obsidian vault (or any folder of `.md` files).
+
+```bash
+npx vault-cortex@latest init
+```
+
+That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client.
+
+Connect Claude Desktop or Claude Code — add a remote MCP server with URL `http://localhost:8000/mcp` and your token as the bearer token.
+
+<details>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
 ```bash
 # 1. Get the quickstart files
@@ -59,7 +70,7 @@ cp .env.example .env
 docker compose up
 ```
 
-Connect Claude Desktop or Claude Code — add a remote MCP server with URL `http://localhost:8000/mcp` and your token as the bearer token.
+</details>
 
 **[Full local guide →](./deploy/local/)**
 
@@ -78,6 +89,8 @@ docker compose up -d
 ```
 
 Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. JWT access tokens refresh automatically.
+
+If your VPS has Node.js >= 20.12, `npx vault-cortex@latest init --mode remote` walks through the same setup interactively (including the Obsidian Sync token step).
 
 **[Full remote guide →](./deploy/remote/)**
 

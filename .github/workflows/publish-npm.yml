@@ -1,0 +1,51 @@
+name: Publish CLI to npm
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to publish the cli/ package from (release tag)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # npm provenance attestation
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false # publish only needs the worktree; don't persist the token to .git/config
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npx tsc -p cli/tsconfig.json
+
+      # The CLI versions independently of the server: most releases ship a
+      # cli version that's already on npm, so publishing is a no-op. The
+      # exact-version check (not `latest`) handles first-publish 404s and
+      # re-runs correctly.
+      - name: Publish if cli version is unpublished
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN not configured; skipping npm publish"
+            exit 0
+          fi
+          CLI_VERSION=$(jq -r '.version' cli/package.json)
+          if npm view "vault-cortex@$CLI_VERSION" version > /dev/null 2>&1; then
+            echo "vault-cortex@$CLI_VERSION already on npm; skipping"
+            exit 0
+          fi
+          npm publish ./cli --provenance --access public

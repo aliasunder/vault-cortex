@@ -22,6 +22,6 @@ export default defineConfig(
     },
   },
   {
-    ignores: ["dist/", ".sst/", "sst-env.d.ts"],
+    ignores: ["dist/", "cli/dist/", ".sst/", "sst-env.d.ts"],
   },
 )

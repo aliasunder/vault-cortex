@@ -1,0 +1,53 @@
+export const buildLocalPayoff = (params: {
+  targetDir: string
+  token: string
+  started: boolean
+}): string => {
+  const startLine = params.started
+    ? "The server is running."
+    : `Start the server:\n  cd ${params.targetDir} && docker compose up -d`
+
+  return `${startLine}
+
+Connect your MCP client:
+  URL:          http://localhost:8000/mcp
+  Bearer token: ${params.token}
+
+Claude Desktop / Claude Code: add a remote MCP server with that URL,
+and use the bearer token when prompted for authentication.
+
+Note: claude.ai (web) cannot reach localhost — use Claude Desktop or
+Claude Code for a local server.
+
+Smoke test:
+  curl http://localhost:8000/healthz
+
+Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`
+}
+
+export const buildRemotePayoff = (params: {
+  targetDir: string
+  token: string
+  publicUrl: string
+  started: boolean
+  obsidianTokenMissing: boolean
+}): string => {
+  const startLine = params.started
+    ? "The server is running."
+    : params.obsidianTokenMissing
+      ? `Fill in OBSIDIAN_AUTH_TOKEN in ${params.targetDir}/.env, then start the server:\n  cd ${params.targetDir} && docker compose up -d`
+      : `Start the server:\n  cd ${params.targetDir} && docker compose up -d`
+
+  return `${startLine}
+
+Connect your MCP client:
+  URL: ${params.publicUrl}/mcp
+
+OAuth clients (Claude Desktop, Claude Code, claude.ai): add a remote MCP
+server with that URL and leave Client ID/Secret empty — a consent page
+opens; approve with your MCP_AUTH_TOKEN:
+  ${params.token}
+
+For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
+https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
+}

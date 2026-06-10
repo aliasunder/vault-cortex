@@ -1,0 +1,39 @@
+{
+  "name": "vault-cortex",
+  "version": "0.1.0",
+  "description": "Set up a Vault Cortex MCP server for your Obsidian vault in one command: npx vault-cortex init",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "vault-cortex": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aliasunder/vault-cortex.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/aliasunder/vault-cortex",
+  "bugs": {
+    "url": "https://github.com/aliasunder/vault-cortex/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "obsidian",
+    "vault",
+    "scaffold",
+    "cli"
+  ],
+  "dependencies": {
+    "@clack/prompts": "1.5.1",
+    "commander": "14.0.3"
+  }
+}

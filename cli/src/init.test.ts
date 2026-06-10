@@ -1,0 +1,329 @@
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it } from "vitest"
+
+import { runInit } from "./init.js"
+import { readComposeTemplate } from "./scaffold.js"
+import type { DockerRunner } from "./docker.js"
+import type { Prompts } from "./prompts.js"
+
+type ScriptedAnswer = string | boolean
+
+type SelectCall = { message: string; initialValue: string }
+
+/**
+ * A Prompts stub that replays canned answers in order and records what was
+ * asked — lets the tests assert the exact prompt sequence per flow.
+ */
+const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
+  const remaining = [...answers]
+  const asked: string[] = []
+  const errors: string[] = []
+  const warnings: string[] = []
+  const selectCalls: SelectCall[] = []
+
+  const nextAnswer = (message: string): ScriptedAnswer => {
+    asked.push(message)
+    const answer = remaining.shift()
+    if (answer === undefined)
+      throw new Error(`No scripted answer for prompt: ${message}`)
+    return answer
+  }
+
+  const prompts: Prompts = {
+    intro: () => {},
+    outro: () => {},
+    note: () => {},
+    log: () => {},
+    warn: (message) => {
+      warnings.push(message)
+    },
+    error: (message) => {
+      errors.push(message)
+    },
+    select: async (message, _options, initialValue) => {
+      selectCalls.push({ message, initialValue })
+      return nextAnswer(message) as string
+    },
+    text: async (message, options) => {
+      const answer = nextAnswer(message) as string
+      // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
+      if (answer === "" && options?.defaultValue !== undefined)
+        return options.defaultValue
+      return answer
+    },
+    confirm: async (message, _initialValue) => nextAnswer(message) as boolean,
+    spinner: () => ({ start: () => {}, stop: () => {} }),
+  }
+
+  return { prompts, asked, errors, warnings, selectCalls, remaining }
+}
+
+const dockerUnavailable: DockerRunner = {
+  isComposeAvailable: () => false,
+  composeUp: () => false,
+  runGetToken: () => false,
+}
+
+const fetchNever: typeof fetch = async () => {
+  throw new Error("fetch must not be called in these tests")
+}
+
+const makeVault = (): string => {
+  const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"))
+  mkdirSync(join(vaultDir, ".obsidian"))
+  return vaultDir
+}
+
+const makeTargetDir = (): string =>
+  join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out")
+
+describe("runInit flag validation", () => {
+  const invalidFlagScenarios = [
+    {
+      name: "--yes without --vault-path exits 1",
+      flags: { yes: true },
+      expectedError: "--yes requires --vault-path.",
+    },
+    {
+      name: "--yes with --mode remote exits 1 (remote needs interactive prompts)",
+      flags: { yes: true, mode: "remote", vaultPath: "/tmp" },
+      expectedError:
+        "--yes only supports local mode — remote setup needs interactive token prompts.",
+    },
+    {
+      name: "an unknown --mode exits 1",
+      flags: { mode: "cloud" },
+      expectedError: 'Unknown mode "cloud" — expected "local" or "remote".',
+    },
+  ]
+
+  it.each(invalidFlagScenarios)("$name", async ({ flags, expectedError }) => {
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(flags, {
+      prompts: scripted.prompts,
+      docker: dockerUnavailable,
+      fetchFn: fetchNever,
+    })
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([expectedError])
+  })
+})
+
+describe("runInit --yes (non-interactive local)", () => {
+  it("scaffolds docker-compose.yml and .env without any prompts", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([])
+    expect(readFileSync(join(targetDir, "docker-compose.yml"), "utf8")).toBe(
+      readComposeTemplate("local"),
+    )
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
+    expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
+  })
+
+  it("exits 1 when --vault-path does not exist", async () => {
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      {
+        yes: true,
+        vaultPath: join(tmpdir(), "vault-cli-no-such-vault"),
+        dir: makeTargetDir(),
+      },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toHaveLength(1)
+    expect(scripted.errors[0]).toContain("does not exist")
+  })
+
+  it("exits 1 on a differing existing .env and leaves it untouched", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
+    expect(scripted.errors).toEqual([
+      "Existing files differ (.env) — refusing to overwrite in --yes mode.",
+    ])
+  })
+})
+
+describe("runInit interactive local flow", () => {
+  it("defaults the mode select to local", async () => {
+    const vaultDir = makeVault()
+    const scripted = createScriptedPrompts(["local", vaultDir, makeTargetDir()])
+
+    await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(scripted.selectCalls).toEqual([
+      {
+        message: "How do you want to run Vault Cortex?",
+        initialValue: "local",
+      },
+    ])
+  })
+
+  it("re-prompts when the vault path does not exist, then succeeds", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const missingPath = join(tmpdir(), "vault-cli-no-such-vault")
+    const scripted = createScriptedPrompts([
+      "local",
+      missingPath,
+      vaultDir,
+      targetDir,
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toHaveLength(1)
+    expect(scripted.errors[0]).toContain("does not exist")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      `VAULT_PATH=${vaultDir}\n`,
+    )
+  })
+
+  it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
+    const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["local", plainDir, true, targetDir])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[2]).toContain("Use it anyway?")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      `VAULT_PATH=${plainDir}\n`,
+    )
+  })
+})
+
+describe("runInit remote flow", () => {
+  it("asks the remote sequence and writes the three-service compose plus .env", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com/", // public URL (trailing slash trimmed)
+      "MyVault", // vault name
+      false, // don't run get-token now (offered because compose is available)
+      "sync-token-xyz", // obsidian sync token
+      false, // no end-to-end encryption
+      false, // don't start the server
+    ])
+    const dockerComposeOnly: DockerRunner = {
+      ...dockerUnavailable,
+      isComposeAvailable: () => true,
+    }
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerComposeOnly,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      "Public URL clients will use to reach this server:",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Run the get-token command now?",
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Does your vault use end-to-end encryption?",
+      "Start the server now? (docker compose up -d)",
+    ])
+    expect(readFileSync(join(targetDir, "docker-compose.yml"), "utf8")).toBe(
+      readComposeTemplate("remote"),
+    )
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
+    expect(envContent).toContain("VAULT_NAME=MyVault\n")
+    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
+  })
+
+  it("skips the compose-up offer when the sync token was left blank", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "http://203.0.113.10:8000",
+      "MyVault",
+      "", // blank token — fill in later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain(
+      "Start the server now? (docker compose up -d)",
+    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
+      /^OBSIDIAN_AUTH_TOKEN=$/m,
+    )
+  })
+})

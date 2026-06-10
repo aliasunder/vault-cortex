@@ -98,6 +98,15 @@ jobs:
     with:
       version: ${{ needs.bump-and-tag.outputs.version }}
 
+  # Deliberately not gated on deploy: the CLI scaffolds against the :latest
+  # GHCR image and shouldn't be blocked by a server-deploy hiccup.
+  publish-npm:
+    needs: bump-and-tag
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      ref: ${{ needs.bump-and-tag.outputs.tag }}
+    secrets: inherit
+
   release:
     needs: [bump-and-tag, deploy]
     runs-on: ubuntu-latest

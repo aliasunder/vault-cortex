@@ -4,6 +4,10 @@ Run Vault Cortex on a VPS with Obsidian Sync for remote access from any device.
 Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client — anywhere.
 
+> **Tip:** if your server has Node.js >= 20.12 installed,
+> `npx vault-cortex@latest init --mode remote` walks through steps 3–6
+> interactively. The manual steps below work on any box with Docker.
+
 ## Prerequisites
 
 - A VPS or cloud server with [Docker](https://docs.docker.com/engine/install/)

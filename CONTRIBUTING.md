@@ -58,6 +58,32 @@ npx @modelcontextprotocol/inspector
 
 See the [README](./README.md#development) for full details on each mode.
 
+## The `cli/` Package
+
+`cli/` is a separate npm package (`npx vault-cortex init`) that scaffolds the
+[deploy quickstarts](./deploy/). It is **not** an npm workspace — its two
+runtime dependencies (`commander`, `@clack/prompts`) are also pinned in the
+root `devDependencies` at identical versions, so the root `npm ci` covers
+development. A test fails if the versions drift.
+
+- Build: `npm run build` compiles both the server and `cli/` (or
+  `npx tsc -p cli/tsconfig.json` alone)
+- Test: `npm test` includes `cli/src/**/*.test.ts`
+- Try it: `node cli/dist/bin.js init --help`
+
+**Template sync rule:** `cli/templates/` holds verbatim copies of
+`deploy/local/docker-compose.yml` and `deploy/remote/docker-compose.yml` so the
+npm tarball can ship them. If you change either deploy compose file, run
+`npm run sync:cli-templates` in the same PR — a byte-equality test fails CI
+otherwise.
+
+**Publishing:** the release workflows publish `cli/` to npm when its version
+isn't on the registry yet (requires the `NPM_TOKEN` repo secret — a granular
+automation token scoped to the `vault-cortex` package). The CLI versions
+independently of the server: bump `cli/package.json` in the PR that changes the
+CLI. The npm package is deliberately absent from `server.json` — it's a
+scaffolder, not a way to run the server.
+
 ## Code Conventions
 
 All code conventions — style, naming, logging, test patterns, MCP tool naming —
