@@ -23,6 +23,17 @@
 
 
 
+
+## [0.15.22] — 2026-06-10
+
+### Bug Fixes
+
+- Prevent FTS5 syntax errors on punctuated vault_search terms (#86)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.21
+
 ## [0.15.21] — 2026-06-10
 
 ### Bug Fixes
