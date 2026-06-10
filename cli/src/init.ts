@@ -32,7 +32,13 @@ const HEALTH_URL = "http://127.0.0.1:8000/healthz"
 const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
   ${OBSIDIAN_SYNC_IMAGE}`
 
-/** Re-prompts until the answer resolves to an existing directory. */
+/**
+ * Asks for the vault path, recursing to re-prompt until it gets a usable
+ * answer. A path that doesn't exist is a hard error (likely a typo); a
+ * directory without .obsidian/ is only a soft warning, because vault-cortex
+ * works on any folder of Markdown files — the confirm (defaulting to yes)
+ * exists to catch mistyped paths, not to block non-Obsidian folders.
+ */
 const askVaultPath = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text("Path to your Obsidian vault:", {
     placeholder: "/Users/you/Documents/MyVault",
@@ -43,6 +49,8 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
     return askVaultPath(prompts)
   }
   if (validation.kind === "warn") {
+    // Renders as: "<path> doesn't look like an Obsidian vault (no .obsidian
+    // folder). Use it anyway? (Y/n)"
     const useAnyway = await prompts.confirm(
       `${validation.message} Use it anyway?`,
       true,
@@ -98,6 +106,13 @@ const reportWrites = (
   }
 }
 
+/**
+ * Offers to start the scaffolded stack, walking a gate ladder where each
+ * failed gate degrades to instructions instead of an error: compose
+ * installed → daemon running → user consents → compose up succeeds →
+ * health check passes. Returns true only when the server is confirmed up;
+ * the caller uses that to pick the right payoff message.
+ */
 const offerComposeUp = async (
   prompts: Prompts,
   docker: DockerRunner,
@@ -143,18 +158,23 @@ const offerComposeUp = async (
   return true
 }
 
+// Local flow: resolve vault path → resolve target dir → generate token →
+// write docker-compose.yml + .env → optionally start the stack → print
+// connect instructions. Returns a process exit code.
 const runLocalInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
   const { prompts, docker, fetchFn } = deps
 
+  // Vault path comes from --vault-path when given and valid; interactive
+  // runs fall back to prompting on a bad flag, while --yes must fail hard
+  // because there is no prompt to fall back to.
   const vaultPathResult =
     flags.vaultPath === undefined
       ? undefined
       : validateVaultPath(flags.vaultPath)
   if (flags.yes) {
-    // Non-interactive: a hard validation failure can't fall back to a prompt.
     if (vaultPathResult === undefined || vaultPathResult.kind === "error") {
       prompts.error(vaultPathResult?.message ?? "--yes requires --vault-path.")
       return 1
@@ -179,6 +199,9 @@ const runLocalInit = async (
   const token = generateToken()
   prompts.log("Generated MCP auth token (saved to .env).")
 
+  // Conflict policy: identical existing files are skipped silently;
+  // differing ones prompt per file (default keep). --yes never overwrites —
+  // any differing file becomes an exit-1 below, leaving it untouched.
   const files = planFiles(
     "local",
     buildLocalEnv({ mcpAuthToken: token, vaultPath }),
@@ -201,6 +224,7 @@ const runLocalInit = async (
     return 1
   }
 
+  // --yes is for scripts/CI, so it never starts Docker.
   const started = flags.yes
     ? false
     : await offerComposeUp(prompts, docker, fetchFn, targetDir)
@@ -208,6 +232,11 @@ const runLocalInit = async (
   return 0
 }
 
+// Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
+// VAULT_NAME → Obsidian Sync token (optionally running get-token via
+// Docker) → optional E2E vault password → generate token → write the
+// three-service compose + .env → optionally start → print connect
+// instructions. Always interactive — the sync-token step can't be defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
@@ -225,6 +254,12 @@ const runRemoteInit = async (
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
+  // The Obsidian Sync token comes from an interactive docker run (the
+  // get-token entrypoint logs into Obsidian). We print the command, offer to
+  // run it when Docker is usable, then ask the user to paste the result —
+  // get-token writes to the terminal, so it can't be captured automatically.
+  // A blank answer is allowed: the .env is written with an empty
+  // OBSIDIAN_AUTH_TOKEN and a fill-this-in comment.
   prompts.note(GET_TOKEN_COMMAND, "Obsidian Sync token — generate once with")
   if (docker.isComposeAvailable() && docker.isDaemonRunning()) {
     const runNow = await prompts.confirm("Run the get-token command now?", true)
@@ -315,6 +350,8 @@ export const runInit = async (
 
   prompts.intro("vault-cortex init")
 
+  // Mode resolution: explicit --mode wins; --yes implies local (validated
+  // above); otherwise ask, defaulting to local — it's the activation path.
   const mode: Mode =
     (flags.mode as Mode | undefined) ??
     (flags.yes
