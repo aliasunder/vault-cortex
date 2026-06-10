@@ -45,6 +45,14 @@ const exitOnCancel = <T>(value: T | symbol): T => {
   return value as T
 }
 
+/**
+ * The production Prompts implementation: a thin pass-through to
+ * @clack/prompts, plus two behaviors the Prompts type promises its callers —
+ * every interactive prompt exits the process on ctrl-C (via exitOnCancel),
+ * so flow code never sees a cancel symbol and answers are always plain
+ * values; and select/text/confirm adapt clack's options-object signatures to
+ * the flatter Prompts signatures that init.ts and the test stub share.
+ */
 export const createPrompts = (): Prompts => ({
   intro: (message) => clack.intro(message),
   outro: (message) => clack.outro(message),
