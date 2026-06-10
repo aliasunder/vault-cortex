@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -8,6 +14,8 @@ export type PlannedFile = {
   /** Filename inside the target directory (e.g. "docker-compose.yml"). */
   name: string
   content: string
+  /** Unix permission bits for files holding secrets (e.g. 0o600 for .env). */
+  mode?: number
 }
 
 export type FileWriteResult = {
@@ -15,10 +23,16 @@ export type FileWriteResult = {
   status: "created" | "unchanged" | "overwritten" | "kept"
 }
 
+/** Default host port — matches the compose templates' `${PORT:-8000}`. */
+export const DEFAULT_PORT = 8000
+
+/** Matches an active (uncommented) PORT line in a .env file. */
+const ENV_PORT_LINE = /^PORT=(\d+)\s*$/m
+
 /**
  * Reads the bundled docker-compose template for a mode. The templates are
  * verbatim copies of deploy/<mode>/docker-compose.yml, shipped inside the
- * npm package (kept in sync by cli/src/templates.test.ts).
+ * npm package (kept in sync by cli/src/__tests__/templates.test.ts).
  */
 export const readComposeTemplate = (mode: Mode): string =>
   readFileSync(
@@ -30,8 +44,21 @@ export const readComposeTemplate = (mode: Mode): string =>
 
 export const planFiles = (mode: Mode, envContent: string): PlannedFile[] => [
   { name: "docker-compose.yml", content: readComposeTemplate(mode) },
-  { name: ".env", content: envContent },
+  // .env holds the bearer token (and possibly a vault password) — owner-only.
+  { name: ".env", content: envContent, mode: 0o600 },
 ]
+
+/**
+ * Reads the host port from the .env that is actually on disk — which may be
+ * a pre-existing file this run chose to keep, with a PORT override the
+ * generated default doesn't have. Falls back to DEFAULT_PORT when the file
+ * or an uncommented PORT line is absent.
+ */
+export const readEnvPort = (envFilePath: string): number => {
+  if (!existsSync(envFilePath)) return DEFAULT_PORT
+  const match = ENV_PORT_LINE.exec(readFileSync(envFilePath, "utf8"))
+  return match === null ? DEFAULT_PORT : Number(match[1])
+}
 
 /**
  * Writes planned files into targetDir (created if missing). Existing files
@@ -50,7 +77,7 @@ export const writeFiles = async (
   for (const file of files) {
     const filePath = join(targetDir, file.name)
     if (!existsSync(filePath)) {
-      writeFileSync(filePath, file.content)
+      writeFileSync(filePath, file.content, { mode: file.mode })
       results.push({ name: file.name, status: "created" })
       continue
     }
@@ -63,7 +90,10 @@ export const writeFiles = async (
       results.push({ name: file.name, status: "kept" })
       continue
     }
+    // writeFileSync's mode only applies on creation — tighten explicitly
+    // when replacing an existing file.
     writeFileSync(filePath, file.content)
+    if (file.mode !== undefined) chmodSync(filePath, file.mode)
     results.push({ name: file.name, status: "overwritten" })
   }
   return results

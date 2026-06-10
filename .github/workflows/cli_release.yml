@@ -4,6 +4,10 @@ name: Release CLI
 # independent of server releases — run this workflow when a merged cli/
 # change should ship. "none" publishes the current cli/package.json
 # version without bumping (used for the first publish).
+#
+# Re-run after a failed publish with bump "none": the version-bump commit
+# and cli-v* tag have already landed by that point, so bumping again would
+# skip a version.
 
 on:
   workflow_dispatch:

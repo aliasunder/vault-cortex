@@ -1,10 +1,11 @@
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
 import { buildLocalPayoff, buildRemotePayoff } from "./messages.js"
 import { OBSIDIAN_SYNC_IMAGE, pollHealth, type DockerRunner } from "./docker.js"
 import {
   planFiles,
+  readEnvPort,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -27,7 +28,6 @@ export type InitDeps = {
 }
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
-const HEALTH_URL = "http://127.0.0.1:8000/healthz"
 
 const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
   ${OBSIDIAN_SYNC_IMAGE}`
@@ -118,6 +118,7 @@ const offerComposeUp = async (
   docker: DockerRunner,
   fetchFn: typeof fetch,
   targetDir: string,
+  port: number,
 ): Promise<boolean> => {
   if (!docker.isComposeAvailable()) {
     prompts.warn(
@@ -147,7 +148,7 @@ const offerComposeUp = async (
   spinner.start(
     "Waiting for the server to come up (first run pulls a ~150MB image)",
   )
-  const healthy = await pollHealth(fetchFn, HEALTH_URL)
+  const healthy = await pollHealth(fetchFn, `http://127.0.0.1:${port}/healthz`)
   if (!healthy) {
     spinner.stop(
       "Server did not respond within 2 minutes — check: docker compose logs",
@@ -180,7 +181,14 @@ const runLocalInit = async (
       return 1
     }
   }
+  // Interactive: surface a bad flag before falling back to the prompt —
+  // otherwise the flag appears silently ignored.
+  if (!flags.yes && vaultPathResult?.kind === "error") {
+    prompts.error(`--vault-path: ${vaultPathResult.message}`)
+  }
 
+  // A warn-level flag path (no .obsidian/) is accepted without the confirm a
+  // prompted path gets — passing the flag is already an explicit choice.
   const vaultPath =
     vaultPathResult !== undefined && vaultPathResult.kind !== "error"
       ? vaultPathResult.path
@@ -197,7 +205,6 @@ const runLocalInit = async (
   )
 
   const token = generateToken()
-  prompts.log("Generated MCP auth token (saved to .env).")
 
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
@@ -224,11 +231,23 @@ const runLocalInit = async (
     return 1
   }
 
+  // When an existing .env was kept, this run's generated token was never
+  // saved — the payoff must point at the token (and PORT) actually on disk,
+  // or a pasted token fails auth with no hint why.
+  const envResult = results.find((result) => result.name === ".env")
+  const tokenWritten =
+    envResult?.status === "created" || envResult?.status === "overwritten"
+  if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
+  const port = readEnvPort(join(targetDir, ".env"))
+
   // --yes is for scripts/CI, so it never starts Docker.
   const started = flags.yes
     ? false
-    : await offerComposeUp(prompts, docker, fetchFn, targetDir)
-  prompts.note(buildLocalPayoff({ targetDir, token, started }), "Connect")
+    : await offerComposeUp(prompts, docker, fetchFn, targetDir, port)
+  prompts.note(
+    buildLocalPayoff({ targetDir, token, started, port, tokenWritten }),
+    "Connect",
+  )
   return 0
 }
 
@@ -283,11 +302,10 @@ const runRemoteInit = async (
     false,
   )
   const vaultPassword = usesEncryption
-    ? await prompts.text("Vault encryption password:")
+    ? await prompts.password("Vault encryption password:")
     : undefined
 
   const token = generateToken()
-  prompts.log("Generated MCP auth token (saved to .env).")
 
   const envContent = buildRemoteEnv({
     mcpAuthToken: token,
@@ -302,12 +320,20 @@ const runRemoteInit = async (
   )
   reportWrites(prompts, targetDir, results)
 
+  // Same kept-.env handling as the local flow: only a written .env carries
+  // this run's token, and PORT must come from the file on disk.
+  const envResult = results.find((result) => result.name === ".env")
+  const tokenWritten =
+    envResult?.status === "created" || envResult?.status === "overwritten"
+  if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
+  const port = readEnvPort(join(targetDir, ".env"))
+
   // Without the sync token the stack can't start (obsidian-sync exits), so
   // only offer compose up when it was provided.
   const started =
     obsidianAuthToken === ""
       ? false
-      : await offerComposeUp(prompts, docker, fetchFn, targetDir)
+      : await offerComposeUp(prompts, docker, fetchFn, targetDir, port)
   prompts.note(
     buildRemotePayoff({
       targetDir,
@@ -315,6 +341,7 @@ const runRemoteInit = async (
       publicUrl,
       started,
       obsidianTokenMissing: obsidianAuthToken === "",
+      tokenWritten,
     }),
     "Connect",
   )

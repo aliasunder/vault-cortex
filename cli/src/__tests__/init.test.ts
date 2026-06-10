@@ -21,6 +21,8 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
   const asked: string[] = []
   const errors: string[] = []
   const warnings: string[] = []
+  const logs: string[] = []
+  const notes: string[] = []
   const selectCalls: SelectCall[] = []
 
   const nextAnswer = (message: string): ScriptedAnswer => {
@@ -34,8 +36,12 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
   const prompts: Prompts = {
     intro: () => {},
     outro: () => {},
-    note: () => {},
-    log: () => {},
+    note: (message) => {
+      notes.push(message)
+    },
+    log: (message) => {
+      logs.push(message)
+    },
     warn: (message) => {
       warnings.push(message)
     },
@@ -53,11 +59,21 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
         return options.defaultValue
       return answer
     },
+    password: async (message) => nextAnswer(message) as string,
     confirm: async (message, _initialValue) => nextAnswer(message) as boolean,
     spinner: () => ({ start: () => {}, stop: () => {} }),
   }
 
-  return { prompts, asked, errors, warnings, selectCalls, remaining }
+  return {
+    prompts,
+    asked,
+    errors,
+    warnings,
+    logs,
+    notes,
+    selectCalls,
+    remaining,
+  }
 }
 
 const dockerUnavailable: DockerRunner = {
@@ -353,6 +369,142 @@ describe("runInit remote flow", () => {
     )
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
       /^OBSIDIAN_AUTH_TOKEN=$/m,
+    )
+  })
+})
+
+describe("runInit with a kept existing .env", () => {
+  const keepEnvAnswers = (vaultDir: string, targetDir: string) => [
+    "local",
+    vaultDir,
+    targetDir,
+    false, // .env differs — keep the existing file
+  ]
+
+  it("points the payoff at the existing token instead of the unwritten one", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.notes).toHaveLength(1)
+    expect(scripted.notes[0]).toContain(
+      `use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`,
+    )
+    // The freshly generated (never saved) token must not appear anywhere.
+    expect(scripted.notes[0]).not.toMatch(/[0-9a-f]{64}/)
+    expect(scripted.logs).not.toContain(
+      "Generated MCP auth token (saved to .env).",
+    )
+  })
+
+  it("polls health and prints URLs on the PORT from the .env on disk", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\nPORT=9000\n",
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const dockerReady: DockerRunner = {
+      isComposeAvailable: () => true,
+      isDaemonRunning: () => true,
+      composeUp: () => true,
+      runGetToken: () => false,
+    }
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return { ok: true } as Response
+    }
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
+    expect(scripted.notes[0]).toContain("http://localhost:9000/mcp")
+  })
+})
+
+describe("runInit --vault-path flag in interactive mode", () => {
+  it("surfaces an invalid flag path before falling back to the prompt", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const missingPath = join(tmpdir(), "vault-cli-no-such-vault")
+    const scripted = createScriptedPrompts(["local", vaultDir, targetDir])
+
+    const exitCode = await runInit(
+      { vaultPath: missingPath },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toHaveLength(1)
+    expect(scripted.errors[0]).toContain("--vault-path:")
+    expect(scripted.errors[0]).toContain("does not exist")
+    expect(scripted.asked).toContain("Path to your Obsidian vault:")
+  })
+})
+
+describe("runInit remote encryption password", () => {
+  it("collects the vault password via the masked password prompt", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      "sync-token-xyz",
+      true, // vault uses end-to-end encryption
+      "hunter2", // password (masked prompt)
+      false, // don't start the server
+    ])
+    const dockerComposeReady: DockerRunner = {
+      isComposeAvailable: () => true,
+      isDaemonRunning: () => true,
+      composeUp: () => false,
+      runGetToken: () => false,
+    }
+    // get-token confirm slots in after VAULT_NAME when Docker is usable.
+    scripted.remaining.splice(2, 0, false)
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerComposeReady,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toContain("Vault encryption password:")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "VAULT_PASSWORD=hunter2\n",
     )
   })
 })

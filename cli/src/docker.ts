@@ -36,6 +36,10 @@ export const createDockerRunner = (): DockerRunner => ({
  * Polls the health endpoint until it responds OK or the timeout elapses.
  * The first `docker compose up` pulls a ~150MB image, so the default window
  * is generous.
+ *
+ * Native Date.now() rather than the server's Luxon convention: the published
+ * CLI deliberately keeps its dependency set to two packages, and this is an
+ * elapsed-time deadline, not date manipulation.
  */
 export const pollHealth = async (
   fetchFn: typeof fetch,

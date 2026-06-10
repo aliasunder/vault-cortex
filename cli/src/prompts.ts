@@ -32,6 +32,8 @@ export type Prompts = {
     message: string,
     options?: { placeholder?: string; defaultValue?: string },
   ) => Promise<string>
+  /** Like text, but input is masked — the value never echoes to the terminal or scrollback. */
+  password: (message: string) => Promise<string>
   confirm: (message: string, initialValue: boolean) => Promise<boolean>
   spinner: () => Spinner
 }
@@ -70,6 +72,7 @@ export const createPrompts = (): Prompts => ({
         defaultValue: options.defaultValue,
       }),
     ),
+  password: async (message) => exitOnCancel(await clack.password({ message })),
   confirm: async (message, initialValue) =>
     exitOnCancel(await clack.confirm({ message, initialValue })),
   spinner: () => {

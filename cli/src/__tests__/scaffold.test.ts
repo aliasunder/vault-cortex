@@ -1,9 +1,15 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { planFiles, writeFiles } from "../scaffold.js"
+import { planFiles, readEnvPort, writeFiles } from "../scaffold.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
@@ -123,5 +129,59 @@ describe("writeFiles", () => {
       { name: ".env", status: "kept" },
     ])
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(true)
+  })
+})
+
+describe("readEnvPort", () => {
+  it("returns the default 8000 when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvPort(missingPath)).toBe(8000)
+  })
+
+  it("returns the default 8000 when PORT is only present as a comment", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PORT=9000\n")
+
+    expect(readEnvPort(envPath)).toBe(8000)
+  })
+
+  it("returns an uncommented PORT override", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n")
+
+    expect(readEnvPort(envPath)).toBe(9000)
+  })
+})
+
+describe("writeFiles permissions", () => {
+  it("creates .env owner-only (0600) via the planned mode", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+
+    await writeFiles(
+      targetDir,
+      [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }],
+      neverOverwrite,
+    )
+
+    const fileMode = statSync(join(targetDir, ".env")).mode & 0o777
+    expect(fileMode).toBe(0o600)
+  })
+
+  it("tightens permissions when overwriting an existing wider-mode file", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+
+    await writeFiles(
+      targetDir,
+      [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n", mode: 0o600 }],
+      alwaysOverwrite,
+    )
+
+    const fileMode = statSync(envPath).mode & 0o777
+    expect(fileMode).toBe(0o600)
   })
 })
