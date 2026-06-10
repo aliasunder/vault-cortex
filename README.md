@@ -52,7 +52,7 @@ npx vault-cortex@latest init
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client.
 
-Connect Claude Desktop or Claude Code — add `http://localhost:8000/mcp` as a remote MCP server ("remote" is just Claude's label for HTTP connectors; this one runs on your machine). The OAuth consent page opens in your browser; approve with your token and the client handles the rest.
+Connect your MCP client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other — by adding `http://localhost:8000/mcp` as a remote/HTTP MCP server (the server itself runs on your machine). OAuth-capable clients open a consent page in your browser — approve with your token and the client handles the rest. Clients without OAuth can send the token directly as an `Authorization: Bearer` header.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
