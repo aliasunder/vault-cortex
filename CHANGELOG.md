@@ -24,6 +24,21 @@
 
 
 
+
+## [0.15.23] — 2026-06-10
+
+### Features
+
+- Surface server icon and website URL in MCP serverInfo (SEP-973) (#87)
+
+### Bug Fixes
+
+- Vault_update_properties treats null as property deletion (#88)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.22
+
 ## [0.15.22] — 2026-06-10
 
 ### Bug Fixes
