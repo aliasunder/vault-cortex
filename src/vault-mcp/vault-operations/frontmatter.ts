@@ -4,10 +4,10 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
 /**
  * gray-matter engine override: js-yaml's default YAML 1.1 schema parses
  * timestamp-shaped scalars into JS Dates, which stringify back as UTC-Z
- * and destroy the vault's local-offset ISO 8601 convention. The `yaml`
- * package (YAML 1.2 core schema) has no timestamp type, so datetimes
- * parse as plain strings and dump back unquoted — frontmatter values
- * round-trip verbatim.
+ * — silently rewriting datetime properties like `created` to a different
+ * representation of the same instant. The `yaml` package (YAML 1.2 core
+ * schema) has no timestamp type, so datetimes parse as plain strings and
+ * dump back unquoted — frontmatter values round-trip verbatim.
  *
  * `lineWidth: 0` disables the dumper's 80-column folding of long values.
  */

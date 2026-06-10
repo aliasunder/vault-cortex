@@ -386,8 +386,9 @@ describe("updateMemory auto-creation", () => {
     expect(parsed.data.type).toBe("profile")
     expect(parsed.data.tags).toEqual(["memory", "working-preferences"])
     expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
-    // The stamp must be written unquoted with a local UTC offset
-    // (never Z-suffixed), matching the vault's ISO 8601 convention
+    // DateTime.now().toISO() stamps an offset-form ISO 8601 string; the
+    // serializer must write it unquoted and verbatim — never re-encoded
+    // to a Z-suffixed UTC form
     expect(raw).toMatch(
       /^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m,
     )
