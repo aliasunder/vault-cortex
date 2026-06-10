@@ -13,10 +13,12 @@ Connect your MCP client:
   URL:        http://localhost:8000/mcp
   Auth token: ${params.token}
 
-Claude Desktop / Claude Code: add a remote MCP server with that URL and
-leave Client ID/Secret empty — the OAuth consent page opens in your
-browser; approve with the token above. The client then holds
-auto-refreshing access tokens, so the token never sits in client config.
+Claude Desktop / Claude Code: add that URL as a "remote MCP server" —
+that's Claude's label for any HTTP connector; this one still runs
+entirely on your machine. Leave Client ID/Secret empty — the OAuth
+consent page opens in your browser; approve with the token above. The
+client then holds auto-refreshing access tokens, so the token never
+sits in client config.
 
 Scripts and curl can send the token directly:
   curl -H "Authorization: Bearer <token>" http://localhost:8000/mcp
