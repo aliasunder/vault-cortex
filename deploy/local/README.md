@@ -42,9 +42,12 @@ builds the search index — this takes a few seconds depending on vault size.
 
 The server listens at `http://localhost:8000/mcp`.
 
-**Claude Desktop / Claude Code / Claude Mobile:** Add a remote MCP server with
-URL `http://localhost:8000/mcp`. When prompted for authentication, use your
-`MCP_AUTH_TOKEN` as the bearer token.
+**Claude Desktop / Claude Code (OAuth):** Add a remote MCP server with URL
+`http://localhost:8000/mcp` and leave OAuth Client ID and Secret empty — a
+consent page opens in your browser; approve with your `MCP_AUTH_TOKEN`. The
+client receives auto-refreshing access tokens, so the token itself never sits
+in client config. (Claude Mobile and claude.ai web can't reach localhost — use
+the [remote quickstart](../remote/) for access from other devices.)
 
 **MCP Inspector:** Enter `http://localhost:8000/mcp` as the server URL and your
 token as the Bearer token.
