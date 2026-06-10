@@ -43,11 +43,13 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
+      # No registry-url / auth token: publishing uses npm Trusted Publishing
+      # (OIDC) — the trusted publisher is configured on npmjs.com for this
+      # repo + workflow file, and needs npm >= 11.5.1 (bundled with Node 24).
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
-          registry-url: https://registry.npmjs.org
 
       - name: Calculate cli version
         id: next
@@ -110,7 +112,5 @@ jobs:
           fi
           git push origin HEAD --tags
 
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (Trusted Publishing / OIDC)
         run: npm publish ./cli --provenance --access public

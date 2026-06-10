@@ -81,11 +81,13 @@ otherwise.
 nothing publishes to npm as a side effect of a server release. The maintainer
 runs the **"Release CLI"** workflow (Actions tab), choosing a
 `patch`/`minor`/`major` bump (or `none` to publish the current version); it
-bumps `cli/package.json` on `main`, tags `cli-v<version>`, and publishes to npm
-(requires the `NPM_TOKEN` repo secret — a granular automation token scoped to
-the `vault-cortex` package). PRs that change `cli/` should **not** bump the
-version — the release workflow owns it. The npm package is deliberately absent
-from `server.json` — it's a scaffolder, not a way to run the server.
+bumps `cli/package.json` on `main`, tags `cli-v<version>`, and publishes to
+npm via [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC)
+— no npm token secret is stored in the repo. The trusted publisher is
+configured in the npm package settings for this repo + `cli_release.yml`. PRs
+that change `cli/` should **not** bump the version — the release workflow owns
+it. The npm package is deliberately absent from `server.json` — it's a
+scaffolder, not a way to run the server.
 
 ## Code Conventions
 
