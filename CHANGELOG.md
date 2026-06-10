@@ -22,6 +22,17 @@
 
 
 
+
+## [0.15.21] — 2026-06-10
+
+### Bug Fixes
+
+- Preserve frontmatter datetimes verbatim via string-preserving YAML engine (#85)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.20
+
 ## [0.15.20] — 2026-06-09
 
 ### Documentation
