@@ -14,15 +14,19 @@ export const minimumNodeVersion = (enginesRange: string): string => {
   return `${major}.${minor}.${patch ?? "0"}`
 }
 
-/** Numeric major.minor.patch comparison: is current >= minimum? */
+/**
+ * Numeric major.minor.patch comparison: is current >= minimum?
+ * The most significant differing segment decides; equal versions satisfy.
+ */
 export const satisfiesMinimum = (current: string, minimum: string): boolean => {
-  const currentParts = current.split(".").map(Number)
-  const minimumParts = minimum.split(".").map(Number)
-  for (const index of [0, 1, 2]) {
-    const currentPart = currentParts[index] ?? 0
-    const minimumPart = minimumParts[index] ?? 0
-    if (currentPart > minimumPart) return true
-    if (currentPart < minimumPart) return false
-  }
-  return true
+  const [currentMajor = 0, currentMinor = 0, currentPatch = 0] = current
+    .split(".")
+    .map(Number)
+  const [minimumMajor = 0, minimumMinor = 0, minimumPatch = 0] = minimum
+    .split(".")
+    .map(Number)
+
+  if (currentMajor !== minimumMajor) return currentMajor > minimumMajor
+  if (currentMinor !== minimumMinor) return currentMinor > minimumMinor
+  return currentPatch >= minimumPatch
 }
