@@ -10,6 +10,8 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
  * dump back unquoted — frontmatter values round-trip verbatim.
  *
  * `lineWidth: 0` disables the dumper's 80-column folding of long values.
+ * `nullStr: ""` dumps null values as empty properties (`due:`), matching
+ * how Obsidian writes them, instead of a literal `due: null`.
  */
 const MATTER_OPTIONS = {
   engines: {
@@ -21,7 +23,7 @@ const MATTER_OPTIONS = {
         return (parsed ?? {}) as Record<string, unknown>
       },
       stringify: (data: object): string =>
-        stringifyYaml(data, { lineWidth: 0 }),
+        stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
     },
   },
 }
@@ -47,3 +49,26 @@ export const parseNote = (content: string): matter.GrayMatterFile<string> =>
  */
 export const stringifyNote = (body: string, data: object): string =>
   matter.stringify(body, data, MATTER_OPTIONS)
+
+/**
+ * Merges `updates` into `existing` frontmatter. A key explicitly set to
+ * null in `updates` is removed. Nulls already present in `existing`
+ * (e.g. Obsidian empty properties like `due:`) are preserved — only the
+ * caller's nulls are deletions.
+ */
+export const mergeFrontmatter = (
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+): Record<string, unknown> => {
+  // Keys the caller explicitly nulled are deletions, not values
+  const deletedKeys = new Set(
+    Object.entries(updates)
+      .filter(([, updateValue]) => updateValue === null)
+      .map(([updateKey]) => updateKey),
+  )
+  return Object.fromEntries(
+    Object.entries({ ...existing, ...updates }).filter(
+      ([mergedKey]) => !deletedKeys.has(mergedKey),
+    ),
+  )
+}

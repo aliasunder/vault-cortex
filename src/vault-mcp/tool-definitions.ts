@@ -161,7 +161,7 @@ Returns: Raw markdown string (default), or JSON object of properties (when prope
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Properties are passed separately and merged with any existing properties (new keys added, matching keys overwritten, unmentioned keys preserved).
+      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Properties are passed separately and merged with any existing properties (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved).
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 
@@ -187,7 +187,7 @@ Returns: Confirmation message.`,
           .record(z.string().min(1), z.unknown())
           .optional()
           .describe(
-            "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; unmentioned keys are preserved from the existing file.",
+            "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; a null value deletes that key; unmentioned keys are preserved from the existing file.",
           ),
       },
       annotations: {
@@ -463,11 +463,11 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Body content is never modified.
+      description: `Update properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Pass null as a value to delete that key. Body content is never modified.
 
-Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", priority: 1 } })
+Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } }) — sets status and deletes the draft key.
 
-Read current properties first with vault_read_note({ properties_only: true }) — merge overwrites each key entirely (arrays are replaced, not appended to).
+Read current properties first with vault_read_note({ properties_only: true }) — merge overwrites each key entirely (arrays are replaced, not appended to). Deleting the last remaining property removes the frontmatter block entirely.
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body. Saves tokens on large notes.
 Prefer vault_write_note when creating a new note or replacing the body.
@@ -484,12 +484,12 @@ Returns: Confirmation message.`,
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(
-            "Properties to merge. New keys are added; existing keys are overwritten; unmentioned keys are preserved.",
+            "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved.",
           ),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
