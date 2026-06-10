@@ -62,6 +62,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
 
 const dockerUnavailable: DockerRunner = {
   isComposeAvailable: () => false,
+  isDaemonRunning: () => false,
   composeUp: () => false,
   runGetToken: () => false,
 }
@@ -235,6 +236,33 @@ describe("runInit interactive local flow", () => {
     )
   })
 
+  it("warns and skips the start offer when Docker is installed but the daemon is down", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["local", vaultDir, targetDir])
+    const dockerDaemonDown: DockerRunner = {
+      ...dockerUnavailable,
+      isComposeAvailable: () => true,
+      isDaemonRunning: () => false,
+    }
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerDaemonDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain(
+      "Start the server now? (docker compose up -d)",
+    )
+    expect(scripted.warnings).toHaveLength(1)
+    expect(scripted.warnings[0]).toContain("installed but not running")
+  })
+
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
     const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
     const targetDir = makeTargetDir()
@@ -271,6 +299,7 @@ describe("runInit remote flow", () => {
     const dockerComposeOnly: DockerRunner = {
       ...dockerUnavailable,
       isComposeAvailable: () => true,
+      isDaemonRunning: () => true,
     }
 
     const exitCode = await runInit(

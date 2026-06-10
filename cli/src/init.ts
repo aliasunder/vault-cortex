@@ -111,6 +111,13 @@ const offerComposeUp = async (
     )
     return false
   }
+  if (!docker.isDaemonRunning()) {
+    prompts.warn(
+      "Docker is installed but not running — start Docker Desktop (or the\n" +
+        "docker service on Linux), then run: docker compose up -d",
+    )
+    return false
+  }
   const startNow = await prompts.confirm(
     "Start the server now? (docker compose up -d)",
     true,
@@ -219,7 +226,7 @@ const runRemoteInit = async (
   const vaultName = await askVaultName(prompts)
 
   prompts.note(GET_TOKEN_COMMAND, "Obsidian Sync token — generate once with")
-  if (docker.isComposeAvailable()) {
+  if (docker.isComposeAvailable() && docker.isDaemonRunning()) {
     const runNow = await prompts.confirm("Run the get-token command now?", true)
     if (runNow && !docker.runGetToken()) {
       prompts.warn(

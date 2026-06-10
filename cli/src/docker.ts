@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process"
 
 export type DockerRunner = {
   isComposeAvailable: () => boolean
+  /** True when the Docker daemon is reachable — compose can be installed while Docker Desktop is closed. */
+  isDaemonRunning: () => boolean
   /** Runs `docker compose up -d` in cwd with inherited stdio. */
   composeUp: (cwd: string) => boolean
   /** Runs the obsidian-headless-sync get-token flow with inherited stdio. */
@@ -15,6 +17,8 @@ export const OBSIDIAN_SYNC_IMAGE =
 export const createDockerRunner = (): DockerRunner => ({
   isComposeAvailable: () =>
     spawnSync("docker", ["compose", "version"]).status === 0,
+  isDaemonRunning: () =>
+    spawnSync("docker", ["info"], { timeout: 5_000 }).status === 0,
   composeUp: (cwd) =>
     spawnSync("docker", ["compose", "up", "-d"], { cwd, stdio: "inherit" })
       .status === 0,
