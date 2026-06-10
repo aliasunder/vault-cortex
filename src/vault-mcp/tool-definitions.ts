@@ -515,7 +515,7 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
-      description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming.
+      description: `Full-text search across all vault notes, ranked by relevance. Supports filtering by folder, tags, type, and properties. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'); unquoted terms use implicit AND with porter stemming. Punctuated terms (vault-cortex, mcpservers.org, deploy/local) are matched as exact adjacent-word phrases automatically — no quoting needed.
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 
