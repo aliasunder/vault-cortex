@@ -20,8 +20,8 @@ the config so you don't have to.
 2. Generates a `docker-compose.yml` and `.env`, including a securely generated
    `MCP_AUTH_TOKEN`
 3. Optionally runs `docker compose up -d` and waits for the health check
-4. Prints your connection details — add the URL to your MCP client, approve
-   the consent page once with your token, and you're talking to your vault
+4. Prints your connection details — the MCP URL, your auth token, and how to
+   connect your client
 
 Existing files are never overwritten without asking.
 
