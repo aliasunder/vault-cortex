@@ -5,7 +5,7 @@ Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client — anywhere.
 
 > **Tip:** if your server has Node.js >= 20.12 installed,
-> `npx vault-cortex@latest init --mode remote` walks through steps 3–6
+> `npx vault-cortex@latest init --mode remote` walks through steps 2–6
 > interactively. The manual steps below work on any box with Docker.
 
 ## Prerequisites
