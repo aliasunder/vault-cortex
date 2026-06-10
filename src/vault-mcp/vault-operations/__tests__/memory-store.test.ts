@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import matter from "gray-matter"
-import { MATTER_OPTIONS } from "../matter-options.js"
+import { parseNote } from "../frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
@@ -381,14 +381,16 @@ describe("updateMemory auto-creation", () => {
       join(emptyVault, "About Me/Working Preferences.md"),
       "utf8",
     )
-    const parsed = matter(raw, MATTER_OPTIONS)
+    const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Working Preferences")
     expect(parsed.data.type).toBe("profile")
     expect(parsed.data.tags).toEqual(["memory", "working-preferences"])
     expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
-    // The stamp must be written unquoted, matching the vault's
-    // local-offset ISO 8601 convention
-    expect(raw).toMatch(/^created: \d{4}-\d{2}-\d{2}T[^'"\n]+$/m)
+    // The stamp must be written unquoted with a local UTC offset
+    // (never Z-suffixed), matching the vault's ISO 8601 convention
+    expect(raw).toMatch(
+      /^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m,
+    )
     await rm(emptyVault, { recursive: true })
   })
 
