@@ -288,6 +288,31 @@ describe("fullTextSearch", () => {
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("project.md")
   })
+
+  it("dotted query matches content containing the dotted term", () => {
+    index.upsertNote(
+      "directories.md",
+      "Submitted the listing to mcpservers.org yesterday\n",
+      6001,
+    )
+    index.upsertNote(
+      "unrelated.md",
+      "The mcpservers registry has no org field\n",
+      6002,
+    )
+    const results = index.fullTextSearch({ query: "mcpservers.org" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("directories.md")
+  })
+
+  it("query with stray punctuation does not throw", () => {
+    expect(() =>
+      index.fullTextSearch(
+        { query: "what's new in deploy/local, server.json & .env?" },
+        logger,
+      ),
+    ).not.toThrow()
+  })
 })
 
 describe("sanitizeFtsQuery", () => {
@@ -371,6 +396,76 @@ describe("sanitizeFtsQuery", () => {
       name: "mixed: quoted phrase + hyphenated + bare",
       input: 'search "exact-match" vault-cortex',
       expected: '"exact-match" "vault cortex" search',
+    },
+    {
+      name: "dotted domain → quoted phrase",
+      input: "mcpservers.org",
+      expected: '"mcpservers org"',
+    },
+    {
+      name: "dotted domain + bare terms (live failure 2026-06-09)",
+      input: "mcpservers.org submission email",
+      expected: '"mcpservers org" submission email',
+    },
+    {
+      name: "dotted filename → quoted phrase",
+      input: "server.json",
+      expected: '"server json"',
+    },
+    {
+      name: "slash path → quoted phrase",
+      input: "deploy/local",
+      expected: '"deploy local"',
+    },
+    {
+      name: "email address → quoted phrase",
+      input: "user@example.com",
+      expected: '"user example com"',
+    },
+    {
+      name: "comma-joined terms → quoted phrase",
+      input: "foo,bar",
+      expected: '"foo bar"',
+    },
+    {
+      name: "apostrophe contraction → quoted phrase",
+      input: "don't",
+      expected: '"don t"',
+    },
+    {
+      name: "mixed dot + hyphen compound → quoted phrase",
+      input: "vault-cortex.test",
+      expected: '"vault cortex test"',
+    },
+    {
+      name: "word-edge punctuation stripped, term left bare",
+      input: "email. really?!",
+      expected: "email really",
+    },
+    {
+      name: "punctuation-only input: empty result",
+      input: "?!.,",
+      expected: '""',
+    },
+    {
+      name: "metachar adjoining compound: not a joiner",
+      input: "vault-cortex: search",
+      expected: '"vault cortex" search',
+    },
+    {
+      name: "underscore is a bareword character, term left bare",
+      input: "snake_case_name",
+      expected: "snake_case_name",
+    },
+    {
+      name: "non-ASCII term left bare",
+      input: "café",
+      expected: "café",
+    },
+    {
+      name: "dot inside quoted phrase preserved",
+      input: '"mcpservers.org"',
+      expected: '"mcpservers.org"',
     },
   ]
 
