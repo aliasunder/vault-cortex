@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-import { minimumNodeVersion, satisfiesMinimum } from "./node-version.js"
+import { minimumNodeVersion, satisfiesMinimum } from "../node-version.js"
 
 describe("minimumNodeVersion", () => {
   it("extracts the floor from a >= range", () => {
@@ -20,7 +20,7 @@ describe("minimumNodeVersion", () => {
   it("parses the actual engines range in cli/package.json", () => {
     const manifest = JSON.parse(
       readFileSync(
-        fileURLToPath(new URL("../package.json", import.meta.url)),
+        fileURLToPath(new URL("../../package.json", import.meta.url)),
         "utf8",
       ),
     ) as { engines: { node: string } }

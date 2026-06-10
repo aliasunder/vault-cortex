@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { pollHealth } from "./docker.js"
+import { pollHealth } from "../docker.js"
 
 const okResponse = { ok: true } as Response
 const failResponse = { ok: false } as Response

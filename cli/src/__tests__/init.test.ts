@@ -3,10 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { runInit } from "./init.js"
-import { readComposeTemplate } from "./scaffold.js"
-import type { DockerRunner } from "./docker.js"
-import type { Prompts } from "./prompts.js"
+import { runInit } from "../init.js"
+import { readComposeTemplate } from "../scaffold.js"
+import type { DockerRunner } from "../docker.js"
+import type { Prompts } from "../prompts.js"
 
 type ScriptedAnswer = string | boolean
 

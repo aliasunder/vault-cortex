@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { buildProgram } from "./program.js"
-import type { InitFlags } from "./init.js"
+import { buildProgram } from "../program.js"
+import type { InitFlags } from "../init.js"
 
 const buildCapturingProgram = () => {
   const calls: InitFlags[] = []

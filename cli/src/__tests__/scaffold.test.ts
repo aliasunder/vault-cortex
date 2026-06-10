@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { planFiles, writeFiles } from "./scaffold.js"
+import { planFiles, writeFiles } from "../scaffold.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true

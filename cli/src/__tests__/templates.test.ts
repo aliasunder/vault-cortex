@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { readComposeTemplate } from "./scaffold.js"
+import { buildLocalEnv, buildRemoteEnv } from "../env.js"
+import { readComposeTemplate } from "../scaffold.js"
 
 const readRepoFile = (repoRelativePath: string): string =>
   readFileSync(
-    fileURLToPath(new URL(`../../${repoRelativePath}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../${repoRelativePath}`, import.meta.url)),
     "utf8",
   )
 

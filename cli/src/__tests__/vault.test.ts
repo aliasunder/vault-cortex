@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { expandTilde, validateVaultPath } from "./vault.js"
+import { expandTilde, validateVaultPath } from "../vault.js"
 
 describe("expandTilde", () => {
   it("expands a leading ~/ to the home directory", () => {

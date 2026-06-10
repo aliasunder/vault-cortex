@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildLocalEnv, buildRemoteEnv } from "./env.js"
+import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
 describe("buildLocalEnv", () => {
   it("fills in the token and vault path as uncommented required lines", () => {

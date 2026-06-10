@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { generateToken } from "./token.js"
+import { generateToken } from "../token.js"
 
 describe("generateToken", () => {
   it("returns 64 lowercase hex characters (same shape as openssl rand -hex 32)", () => {
