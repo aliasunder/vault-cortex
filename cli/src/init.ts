@@ -106,7 +106,8 @@ const offerComposeUp = async (
 ): Promise<boolean> => {
   if (!docker.isComposeAvailable()) {
     prompts.warn(
-      "Docker Compose not found — install Docker to start the server.",
+      "Docker Compose not found — install Docker to start the server:\n" +
+        "https://docs.docker.com/get-docker/",
     )
     return false
   }

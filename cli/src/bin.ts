@@ -2,26 +2,28 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { createDockerRunner } from "./docker.js"
-import { runInit } from "./init.js"
-import { buildProgram } from "./program.js"
-import { createPrompts } from "./prompts.js"
+import { minimumNodeVersion, satisfiesMinimum } from "./node-version.js"
 
-const { version } = JSON.parse(
+const { version, engines } = JSON.parse(
   readFileSync(
     fileURLToPath(new URL("../package.json", import.meta.url)),
     "utf8",
   ),
-) as { version: string }
+) as { version: string; engines: { node: string } }
 
-const program = buildProgram({
-  version,
-  runInit: (flags) =>
-    runInit(flags, {
-      prompts: createPrompts(),
-      docker: createDockerRunner(),
-      fetchFn: fetch,
-    }),
-})
+// npm only warns (EBADENGINE) on an engines mismatch but runs the CLI anyway,
+// which would surface as a cryptic crash inside a dependency. Fail with a
+// clear message instead — and only import dependency-laden code after the
+// check passes.
+const requiredNodeVersion = minimumNodeVersion(engines.node)
+if (!satisfiesMinimum(process.versions.node, requiredNodeVersion)) {
+  console.error(
+    `vault-cortex requires Node.js >= ${requiredNodeVersion} (you have ${process.versions.node}).\n` +
+      `Upgrade at https://nodejs.org — or use the no-Node manual setup:\n` +
+      `https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`,
+  )
+  process.exit(1)
+}
 
-await program.parseAsync()
+const { run } = await import("./main.js")
+await run(version)
