@@ -109,7 +109,7 @@ describe("writeNote", () => {
   it("preserves existing frontmatter when updating body only", async () => {
     await writeFile(
       join(vault, "existing.md"),
-      "---\ntitle: Original\ncreated: 2025-01-01\n---\nold body\n",
+      "---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nold body\n",
       "utf8",
     )
     await writeNote(
@@ -117,10 +117,9 @@ describe("writeNote", () => {
       logger,
     )
     const content = await readFile(join(vault, "existing.md"), "utf8")
-    expect(content).toContain("title: Original")
-    expect(content).toContain("created: 2025-01-01")
-    expect(content).toContain("new body")
-    expect(content).not.toContain("old body")
+    expect(content).toBe(
+      "---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nnew body\n",
+    )
   })
 
   it("merges new frontmatter keys without destroying existing", async () => {
@@ -295,6 +294,20 @@ describe("readNoteProperties", () => {
     expect(properties).toEqual({})
   })
 
+  it("returns datetime properties as their original strings, not Dates", async () => {
+    await writeFile(
+      join(vault, "stamped.md"),
+      "---\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\nbody\n",
+      "utf8",
+    )
+    const properties = await readNoteProperties(
+      { vaultPath: vault, path: "stamped.md" },
+      logger,
+    )
+    expect(properties.created).toBe("2026-05-13T20:00:00-04:00")
+    expect(properties.date).toBe("2026-05-13")
+  })
+
   it("parses YAML arrays and nested values", async () => {
     await writeFile(
       join(vault, "nested.md"),
@@ -370,6 +383,26 @@ describe("updateProperties", () => {
     expect(parsed.data.title).toBe("Keep")
     expect(parsed.data.tags).toEqual(["a", "b"])
     expect(parsed.data.status).toBe("active")
+  })
+
+  it("keeps an untouched local-offset created datetime byte-identical", async () => {
+    await writeFile(
+      join(vault, "stamped.md"),
+      "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "stamped.md",
+        properties: { status: "active" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "stamped.md"), "utf8")
+    expect(content).toBe(
+      "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n",
+    )
   })
 
   it("throws on non-existent file", async () => {

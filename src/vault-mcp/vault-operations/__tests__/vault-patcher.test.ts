@@ -1460,6 +1460,61 @@ describe("frontmatter preservation", () => {
     expect(updated).toContain("Content two.")
   })
 
+  it("keeps a local-offset created datetime byte-identical through patchNote", async () => {
+    const stamped = `---
+title: Stamped
+date: 2026-05-13
+created: 2026-05-13T20:00:00-04:00
+---
+
+## Section
+Body text.
+`
+    await writeTestNote("stamped.md", stamped)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "stamped.md",
+        operation: "append",
+        content: "Appended.",
+        heading: "Section",
+      },
+      logger,
+    )
+    const updated = await readTestNote("stamped.md")
+    expect(
+      updated.startsWith(
+        "---\ntitle: Stamped\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\n",
+      ),
+    ).toBe(true)
+    expect(updated).toContain("Appended.")
+  })
+
+  it("keeps a local-offset created datetime byte-identical through replaceInNote", async () => {
+    await writeTestNote(
+      "stamped-replace.md",
+      `---
+created: 2026-05-13T20:00:00-04:00
+---
+
+old text
+`,
+    )
+    await replaceInNote(
+      {
+        vaultPath: vault,
+        path: "stamped-replace.md",
+        oldText: "old text",
+        newText: "new text",
+      },
+      logger,
+    )
+    const updated = await readTestNote("stamped-replace.md")
+    expect(updated).toBe(
+      "---\ncreated: 2026-05-13T20:00:00-04:00\n---\n\nnew text\n",
+    )
+  })
+
   it("preserves complex frontmatter (nested objects, arrays)", async () => {
     const content = `---
 title: Complex

@@ -3,6 +3,7 @@ import { join, dirname, relative, resolve } from "node:path"
 import type { Dirent } from "node:fs"
 import matter from "gray-matter"
 import picomatch from "picomatch"
+import { MATTER_OPTIONS } from "./matter-options.js"
 import type { Logger } from "../../logger.js"
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
@@ -44,13 +45,14 @@ const serializeNote = (
   body: string,
   frontmatter?: Record<string, unknown>,
 ): string => {
-  if (!existing) return matter.stringify(body, frontmatter ?? {})
+  if (!existing)
+    return matter.stringify(body, frontmatter ?? {}, MATTER_OPTIONS)
 
-  const parsed = matter(existing)
+  const parsed = matter(existing, MATTER_OPTIONS)
   const mergedData = frontmatter
     ? { ...parsed.data, ...frontmatter }
     : parsed.data
-  return matter.stringify(body, mergedData)
+  return matter.stringify(body, mergedData, MATTER_OPTIONS)
 }
 
 // ── Exported functions ──────────────────────────────────────────
@@ -80,7 +82,7 @@ const readNoteProperties = async (
     throw new Error(`note not found: "${params.path}"`)
   }
   logger.info("read note properties", { path: params.path })
-  return matter(content).data
+  return matter(content, MATTER_OPTIONS).data
 }
 
 /** Creates or updates a note. Merges frontmatter losslessly if the file exists. */
@@ -116,11 +118,11 @@ const updateProperties = async (
   if (existing === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const parsed = matter(existing)
+  const parsed = matter(existing, MATTER_OPTIONS)
   const mergedProperties = { ...parsed.data, ...params.properties }
   await writeFile(
     fullPath,
-    matter.stringify(parsed.content, mergedProperties),
+    matter.stringify(parsed.content, mergedProperties, MATTER_OPTIONS),
     "utf8",
   )
   logger.info("updated properties", { path: params.path })
