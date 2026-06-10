@@ -58,6 +58,14 @@ const SERVER_INFO = {
   title: "Vault Cortex",
   version: "1.0.0",
   description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+  icons: [
+    {
+      src: "https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/icon-400.png",
+      mimeType: "image/png",
+      sizes: ["400x400"],
+    },
+  ],
+  websiteUrl: "https://github.com/aliasunder/vault-cortex",
 }
 
 const SERVER_OPTIONS = {

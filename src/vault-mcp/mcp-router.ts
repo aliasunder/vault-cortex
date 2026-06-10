@@ -20,6 +20,22 @@ export type McpRouterOptions = {
   config: VaultConfig
 }
 
+/**
+ * Server icon for MCP clients (spec 2025-11-25, SEP-973). Clients that
+ * support serverInfo.icons render this beside the connection instead of a
+ * generic or domain-derived icon. Served from the repo so it stays valid
+ * regardless of the deployment domain.
+ */
+const SERVER_ICONS = [
+  {
+    src: "https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/icon-400.png",
+    mimeType: "image/png",
+    sizes: ["400x400"],
+  },
+]
+
+const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
+
 export const createMcpRouter = ({
   vaultPath,
   search,
@@ -66,6 +82,8 @@ export const createMcpRouter = ({
             title: "Vault Cortex",
             version: "1.0.0",
             description: `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`,
+            icons: SERVER_ICONS,
+            websiteUrl: SERVER_WEBSITE_URL,
           },
           {
             instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
