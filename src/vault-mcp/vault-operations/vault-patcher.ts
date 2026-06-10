@@ -1,7 +1,7 @@
 /** Surgical note editing — heading-targeted patches and find-and-replace. */
 
 import { readFile, writeFile } from "node:fs/promises"
-import matter from "gray-matter"
+import { parseNote, stringifyNote } from "./frontmatter.js"
 import { resolveSafePath } from "./vault-filesystem.js"
 import type { Logger } from "../../logger.js"
 
@@ -303,7 +303,7 @@ const readNoteForPatch = async (
   const fullPath = resolveSafePath(vaultPath, path)
   try {
     const fileContent = await readFile(fullPath, "utf8")
-    const parsed = matter(fileContent)
+    const parsed = parseNote(fileContent)
     return {
       fullPath,
       data: parsed.data as Record<string, unknown>,
@@ -323,7 +323,7 @@ const writePatchedNote = async (
   data: Record<string, unknown>,
   lines: readonly string[],
 ): Promise<void> => {
-  const serialized = matter.stringify(lines.join("\n"), data)
+  const serialized = stringifyNote(lines.join("\n"), data)
   await writeFile(fullPath, serialized, "utf8")
 }
 

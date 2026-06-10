@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import matter from "gray-matter"
+import { parseNote } from "../frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
@@ -240,6 +241,9 @@ describe("updateMemory", () => {
     expect(raw).toContain("type: profile")
     expect(raw).toContain("- about-me")
     expect(raw).toContain("- principles")
+    // Local-offset created stamp survives byte-identically — never
+    // re-serialized to UTC-Z
+    expect(raw).toContain("created: 2026-04-22T20:51:21-04:00")
   })
 
   it("uses today's date when no date option provided", async () => {
@@ -377,11 +381,17 @@ describe("updateMemory auto-creation", () => {
       join(emptyVault, "About Me/Working Preferences.md"),
       "utf8",
     )
-    const parsed = matter(raw)
+    const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Working Preferences")
     expect(parsed.data.type).toBe("profile")
     expect(parsed.data.tags).toEqual(["memory", "working-preferences"])
     expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+    // DateTime.now().toISO() stamps an offset-form ISO 8601 string; the
+    // serializer must write it unquoted and verbatim — never re-encoded
+    // to a Z-suffixed UTC form
+    expect(raw).toMatch(
+      /^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m,
+    )
     await rm(emptyVault, { recursive: true })
   })
 
@@ -547,6 +557,9 @@ title: Dupe
     const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(raw).toContain("title: Principles — About Me")
     expect(raw).toContain("type: profile")
+    // Local-offset created stamp survives byte-identically — never
+    // re-serialized to UTC-Z
+    expect(raw).toContain("created: 2026-04-22T20:51:21-04:00")
   })
 
   it("case-insensitive section matching", async () => {

@@ -3,7 +3,7 @@
 import { readFile, writeFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
-import matter from "gray-matter"
+import { parseNote, stringifyNote } from "./frontmatter.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -248,7 +248,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       params.bullet,
       "",
     ].join("\n")
-    return matter.stringify(body, frontmatter)
+    return stringifyNote(body, frontmatter)
   }
 
   // ── Exported functions ──────────────────────────────────────────
@@ -275,7 +275,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readFile(join(dir, filename), "utf8")
-          return matter(raw).content.trim()
+          return parseNote(raw).content.trim()
         }),
       )
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
@@ -283,7 +283,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile(params.vaultPath, params.file)
-    const parsed = matter(raw)
+    const parsed = parseNote(raw)
 
     if (!params.section) {
       logger.info("get memory", { mode: "file", file: params.file })
@@ -351,7 +351,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return
     }
 
-    const parsed = matter(existingContent)
+    const parsed = parseNote(existingContent)
     const contentLines = parsed.content.split("\n")
     const sections = parseSections(contentLines)
     const match = findSection(sections, params.section, 2)
@@ -361,7 +361,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const newSection = ensureNewestFirstSuffix(params.section)
       const appendedLines = [...contentLines, `## ${newSection}`, bullet]
       const newContent = appendedLines.join("\n")
-      const serialized = matter.stringify(newContent, parsed.data)
+      const serialized = stringifyNote(newContent, parsed.data)
       await writeFile(
         memoryFilePath(params.vaultPath, params.file),
         serialized,
@@ -408,7 +408,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     ]
 
     const newContent = updatedLines.join("\n")
-    const serialized = matter.stringify(newContent, parsed.data)
+    const serialized = stringifyNote(newContent, parsed.data)
     await writeFile(
       memoryFilePath(params.vaultPath, params.file),
       serialized,
@@ -441,7 +441,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
         const raw = await readFile(join(dir, filename), "utf8")
-        const parsed = matter(raw)
+        const parsed = parseNote(raw)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = parsed.content.split("\n")
@@ -476,7 +476,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<void> => {
     const raw = await readMemoryFile(params.vaultPath, params.file)
-    const parsed = matter(raw)
+    const parsed = parseNote(raw)
     const lines = parsed.content.split("\n")
     const sections = parseSections(lines)
     const match = findSection(sections, params.section, 2)
@@ -517,7 +517,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     ]
 
     const newContent = updatedLines.join("\n")
-    const serialized = matter.stringify(newContent, parsed.data)
+    const serialized = stringifyNote(newContent, parsed.data)
     await writeFile(
       memoryFilePath(params.vaultPath, params.file),
       serialized,
