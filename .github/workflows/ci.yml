@@ -43,6 +43,8 @@ jobs:
         node-version: [20, 22, 24]
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false # job only builds and runs the CLI; no git pushes
 
       - uses: actions/setup-node@v6
         with:
