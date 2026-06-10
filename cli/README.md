@@ -17,13 +17,12 @@ the config so you don't have to.
 1. Asks how you want to run it:
    - **Local** — Docker on this machine, your vault folder bind-mounted
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync), reachable from any device
-2. Generates a `docker-compose.yml` and `.env` (with a fresh `MCP_AUTH_TOKEN` —
-   no `openssl` incantations needed)
+2. Generates a `docker-compose.yml` and `.env`, including a securely generated
+   `MCP_AUTH_TOKEN`
 3. Optionally runs `docker compose up -d` and waits for the health check
-4. Prints the MCP URL and your auth token — Claude Desktop / Claude Code
-   connect via OAuth (approve the consent page with the token once, then the
-   client auto-refreshes its own tokens); scripts and curl can use it as a
-   bearer token directly
+4. Prints the MCP URL and your auth token — OAuth-capable MCP clients approve
+   the consent page with the token once, then auto-refresh their own tokens;
+   scripts and curl can use it as a bearer token directly
 
 Existing files are never overwritten without asking.
 
