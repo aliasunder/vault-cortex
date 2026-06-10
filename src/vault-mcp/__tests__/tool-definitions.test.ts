@@ -30,14 +30,12 @@ const DESTRUCTIVE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
   TOOL_NAMES.VAULT_DELETE_NOTE,
   TOOL_NAMES.VAULT_DELETE_MEMORY,
+  TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
 ] as const
 
 // Writers that only add to the vault — never overwrite or delete existing
 // content — so destructiveHint must be false even though readOnlyHint is too.
-const ADDITIVE_WRITE_TOOLS = [
-  TOOL_NAMES.VAULT_UPDATE_MEMORY,
-  TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
-] as const
+const ADDITIVE_WRITE_TOOLS = [TOOL_NAMES.VAULT_UPDATE_MEMORY] as const
 
 const WRITE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
@@ -133,6 +131,16 @@ describe("registerTools", () => {
   it("vault_patch_note description includes cross-section move guidance", () => {
     const call = findCall(TOOL_NAMES.VAULT_PATCH_NOTE)!
     expect(call[1].description).toContain("Cross-section move")
+  })
+
+  it("vault_update_properties description documents null-deletes-key contract", () => {
+    const call = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
+    expect(call[1].description).toContain("null as a value to delete")
+  })
+
+  it("vault_write_note description documents null-deletes-key contract", () => {
+    const call = findCall(TOOL_NAMES.VAULT_WRITE_NOTE)!
+    expect(call[1].description).toContain("keys set to null removed")
   })
 
   it("every tool has all 4 annotation hints", () => {

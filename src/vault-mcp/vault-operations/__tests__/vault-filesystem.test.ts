@@ -141,6 +141,39 @@ describe("writeNote", () => {
     expect(content).toContain("title: Keep")
     expect(content).toContain("status: active")
   })
+
+  it("removes keys set to null when merging into an existing note", async () => {
+    await writeFile(
+      join(vault, "merge.md"),
+      "---\ntitle: Keep\ndraft: true\n---\nold body\n",
+      "utf8",
+    )
+    await writeNote(
+      {
+        vaultPath: vault,
+        path: "merge.md",
+        body: "new body\n",
+        properties: { draft: null },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "merge.md"), "utf8")
+    expect(content).toBe("---\ntitle: Keep\n---\nnew body\n")
+  })
+
+  it("does not serialize null properties when creating a new file", async () => {
+    await writeNote(
+      {
+        vaultPath: vault,
+        path: "fresh.md",
+        body: "body\n",
+        properties: { title: "Fresh", draft: null },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "fresh.md"), "utf8")
+    expect(content).toBe("---\ntitle: Fresh\n---\nbody\n")
+  })
 })
 
 const DEFAULT_PROTECTED = ["About Me", "Daily Notes"]
@@ -403,6 +436,93 @@ describe("updateProperties", () => {
     expect(content).toBe(
       "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n",
     )
+  })
+
+  it("deletes a key set to null", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ntitle: Keep\nstatus: draft\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: null },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toBe("---\ntitle: Keep\n---\nbody\n")
+  })
+
+  it("treats null for a non-existent key as a no-op", async () => {
+    const original = "---\ntitle: Keep\n---\nbody\n"
+    await writeFile(join(vault, "test.md"), original, "utf8")
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { ghost: null },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toBe(original)
+  })
+
+  it("deletes and sets keys in the same call", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\nstatus: draft\ntitle: Keep\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: null, priority: 1 },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toBe("---\ntitle: Keep\npriority: 1\n---\nbody\n")
+  })
+
+  it("removes the frontmatter block entirely when the last key is deleted", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\nstatus: draft\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: null },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toBe("body\n")
+  })
+
+  it("preserves an unmentioned pre-existing empty property", async () => {
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ndue:\ntitle: Keep\n---\nbody\n",
+      "utf8",
+    )
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "test.md",
+        properties: { status: "active" },
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "test.md"), "utf8")
+    expect(content).toBe("---\ndue:\ntitle: Keep\nstatus: active\n---\nbody\n")
   })
 
   it("throws on non-existent file", async () => {

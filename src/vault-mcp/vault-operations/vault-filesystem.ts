@@ -2,7 +2,7 @@ import { readFile, writeFile, readdir, mkdir, unlink } from "node:fs/promises"
 import { join, dirname, relative, resolve } from "node:path"
 import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
-import { parseNote, stringifyNote } from "./frontmatter.js"
+import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
 import type { Logger } from "../../logger.js"
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
@@ -38,17 +38,18 @@ const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   }
 }
 
-/** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists. */
+/** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
 const serializeNote = (
   existing: string | null,
   body: string,
   frontmatter?: Record<string, unknown>,
 ): string => {
-  if (!existing) return stringifyNote(body, frontmatter ?? {})
+  if (!existing)
+    return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
   const parsed = parseNote(existing)
   const mergedData = frontmatter
-    ? { ...parsed.data, ...frontmatter }
+    ? mergeFrontmatter(parsed.data, frontmatter)
     : parsed.data
   return stringifyNote(body, mergedData)
 }
@@ -102,7 +103,7 @@ const writeNote = async (
   logger.info("wrote note", { path: params.path })
 }
 
-/** Merges properties into an existing note's YAML frontmatter without touching the body. */
+/** Merges properties into an existing note's YAML frontmatter without touching the body. Keys set to null are removed. */
 const updateProperties = async (
   params: {
     vaultPath: string
@@ -117,7 +118,7 @@ const updateProperties = async (
     throw new Error(`note not found: "${params.path}"`)
   }
   const parsed = parseNote(existing)
-  const mergedProperties = { ...parsed.data, ...params.properties }
+  const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
   await writeFile(
     fullPath,
     stringifyNote(parsed.content, mergedProperties),
