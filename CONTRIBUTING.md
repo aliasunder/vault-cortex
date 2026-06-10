@@ -77,12 +77,15 @@ npm tarball can ship them. If you change either deploy compose file, run
 `npm run sync:cli-templates` in the same PR — a byte-equality test fails CI
 otherwise.
 
-**Publishing:** the release workflows publish `cli/` to npm when its version
-isn't on the registry yet (requires the `NPM_TOKEN` repo secret — a granular
-automation token scoped to the `vault-cortex` package). The CLI versions
-independently of the server: bump `cli/package.json` in the PR that changes the
-CLI. The npm package is deliberately absent from `server.json` — it's a
-scaffolder, not a way to run the server.
+**Publishing:** CLI releases are explicit and independent of server releases —
+nothing publishes to npm as a side effect of a server release. The maintainer
+runs the **"Release CLI"** workflow (Actions tab), choosing a
+`patch`/`minor`/`major` bump (or `none` to publish the current version); it
+bumps `cli/package.json` on `main`, tags `cli-v<version>`, and publishes to npm
+(requires the `NPM_TOKEN` repo secret — a granular automation token scoped to
+the `vault-cortex` package). PRs that change `cli/` should **not** bump the
+version — the release workflow owns it. The npm package is deliberately absent
+from `server.json` — it's a scaffolder, not a way to run the server.
 
 ## Code Conventions
 
@@ -125,6 +128,9 @@ Releases are cut by the maintainer. Two paths:
   `patch`/`minor`/`major`. Bumps version, deploys, creates GitHub Release.
 - **Tag push:** bump `package.json`, commit on `main`, then
   `git tag v<version> && git push --tags`
+
+The CLI releases separately: Actions tab → "Release CLI" (see
+[The `cli/` Package](#the-cli-package)).
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 

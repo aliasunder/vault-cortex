@@ -1,0 +1,116 @@
+name: Release CLI
+
+# Publishes the cli/ package to npm. CLI releases are explicit and
+# independent of server releases — run this workflow when a merged cli/
+# change should ship. "none" publishes the current cli/package.json
+# version without bumping (used for the first publish).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type ("none" publishes the current cli/package.json version)
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+          - none
+
+concurrency:
+  group: cli-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Calculate cli version
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          CURRENT=$(jq -r '.version' cli/package.json)
+          if [ "$CURRENT" = "null" ] || [ -z "$CURRENT" ]; then
+            echo "::error::cli/package.json has no version field"
+            exit 1
+          fi
+          if [ "$BUMP" = "none" ]; then
+            NEXT="$CURRENT"
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Releasing cli $CURRENT -> $NEXT ($BUMP)"
+
+      - name: Refuse to republish an existing version
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          if npm view "vault-cortex@$NEXT" version > /dev/null 2>&1; then
+            echo "::error::vault-cortex@$NEXT is already published to npm"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - run: npx tsc -p cli/tsconfig.json
+
+      - name: Bump cli/package.json
+        if: inputs.bump != 'none'
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          jq --arg v "$NEXT" '.version = $v' cli/package.json > cli/package.json.tmp && mv cli/package.json.tmp cli/package.json
+          npx prettier --write cli/package.json
+
+      - name: Commit, tag, and push
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet cli/package.json; then
+            git add cli/package.json
+            git commit -m "release(cli): v$NEXT"
+          fi
+          # Tag may already exist when re-running after a failed publish.
+          if ! git rev-parse -q --verify "refs/tags/cli-v$NEXT" > /dev/null; then
+            git tag "cli-v$NEXT"
+          fi
+          git push origin HEAD --tags
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./cli --provenance --access public
