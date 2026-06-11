@@ -26,6 +26,25 @@
 
 
 
+
+## [0.16.1] — 2026-06-11
+
+### Documentation
+
+- **readme:** Swap Glama score badge for card badge + 12h shields cache (#92)
+- Update CHANGELOG.md for v0.16.0
+
+### CI / Infrastructure
+
+- Run Trivy published-image scan on pushes to main (#97)
+- Add OpenSSF Scorecard analysis workflow (#96)
+- Add Trivy image scanning + README badge (#95)
+- Pin all GitHub Actions to commit SHAs (#94)
+
+### Maintenance
+
+- **cli:** Expand npm keywords for discoverability (#93)
+
 ## [0.16.0] — 2026-06-11
 
 ### Features
