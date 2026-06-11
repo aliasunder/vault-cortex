@@ -5,13 +5,13 @@
 # GOTCHA: build deps (python3/make/g++) are needed as fallback if
 # prebuilds don't exist for your arch. They stay in the build stage.
 
-FROM node:24-alpine AS deps
+FROM node:24-alpine@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3
 
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS build
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
@@ -21,7 +21,7 @@ COPY src/ ./src/
 # Server compile only — cli/ is npm-distributed and never copied into the image.
 RUN npm run build:server
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:fb71d01345f11b708a3553c66e7c74074f2d506400ea81973343d915cb64eef0 AS runtime
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly.
 # libstdc++: required by better-sqlite3.node native addon on Alpine.
