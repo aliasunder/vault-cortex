@@ -18,7 +18,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
-RUN npm run build
+# Server compile only — cli/ is npm-distributed and never copied into the image.
+RUN npm run build:server
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
