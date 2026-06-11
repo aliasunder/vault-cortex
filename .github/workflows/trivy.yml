@@ -5,17 +5,19 @@ name: Trivy
 # post-release CVE drift live only in the published image.
 #
 # Two targets:
-#   - scan-published (cron + merges to main + dispatch): the GHCR :latest
+#   - trivy-published (cron + merges to main + dispatch): the GHCR :latest
 #     image users pull today, so a CVE disclosed after a release still
 #     surfaces — merges also keep the README status badge current.
-#   - scan-pr (pull_request): an image built from the branch, so a CVE
+#   - trivy-pr (pull_request): an image built from the branch, so a CVE
 #     entering via Dockerfile/base-image changes surfaces before merge.
+#     Its job ID is the required-status-check context in the branch
+#     ruleset — tool-prefixed so it's unambiguous in that flat namespace.
 #
 # Scope is vulnerability scanning only — secrets are gitleaks' job, and
 # the IaC here is Pulumi TypeScript, which Trivy doesn't parse.
 #
 # Both jobs are report-only (exit-code: 0) while gauging noise; flip the
-# scan-pr exit-code to "1" to gate merges on CRITICAL/HIGH findings.
+# trivy-pr exit-code to "1" to gate merges on CRITICAL/HIGH findings.
 
 on:
   schedule:
@@ -30,7 +32,7 @@ permissions:
   security-events: write # SARIF upload to the Security tab
 
 jobs:
-  scan-published:
+  trivy-published:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +60,7 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
 
-  scan-pr:
+  trivy-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
