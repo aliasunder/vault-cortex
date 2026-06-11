@@ -353,8 +353,11 @@ const runRemoteInit = async (
   )
   reportWrites({ targetDir, results }, prompts)
 
-  // Same kept-.env handling as the local flow: only a written .env carries
-  // this run's token, and PORT must come from the file on disk.
+  // Same kept-.env handling as the local flow: the server only reads config
+  // from the .env on disk, so when an existing file was kept, this run's
+  // generated token was never saved (printing it would fail auth) and PORT
+  // may differ from the default — describe the server that will actually
+  // run, not the one this run intended to configure.
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
     envResult?.status === "created" || envResult?.status === "overwritten"
