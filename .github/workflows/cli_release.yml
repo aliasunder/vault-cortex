@@ -5,9 +5,10 @@ name: Release CLI
 # change should ship. "none" publishes the current cli/package.json
 # version without bumping (used for the first publish).
 #
-# Safe to re-run after a failed publish with any bump value: a version
-# that is tagged but absent from npm is detected as a failed earlier
-# release and published as-is instead of being bumped past.
+# Safe to re-run after a failed publish: a version that is tagged but
+# absent from npm is detected as a failed earlier release. Bump "none"
+# publishes it as-is; any other bump fails with instructions instead of
+# silently skipping the stranded version or overriding the request.
 
 on:
   workflow_dispatch:
@@ -70,14 +71,15 @@ jobs:
           fi
           if [ "$BUMP" = "none" ]; then
             NEXT="$CURRENT"
-          # Retry safety: a prior run may have bumped, committed, and tagged
-          # but failed at npm publish. The checked-out version being tagged
-          # yet absent from npm is that failure's signature — publish it
-          # as-is rather than bumping past it and skipping a version.
+          # The checked-out version being tagged yet absent from npm is the
+          # signature of a release that failed at npm publish. Don't bump
+          # past it (silently skips a version) and don't ignore the
+          # requested bump (silently overrides intent) — stop and make the
+          # operator choose.
           elif git rev-parse -q --verify "refs/tags/cli-v$CURRENT" > /dev/null \
             && ! npm view "vault-cortex@$CURRENT" version > /dev/null 2>&1; then
-            echo "::notice::cli-v$CURRENT is tagged but unpublished (failed earlier release) — publishing it instead of bumping"
-            NEXT="$CURRENT"
+            echo "::error::cli-v$CURRENT is tagged but not on npm — a previous release failed at publish. Re-run with bump \"none\" to publish $CURRENT as-is, or abandon it (delete the cli-v$CURRENT tag and revert the bump commit) and re-run with your intended bump."
+            exit 1
           else
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
             case "$BUMP" in
