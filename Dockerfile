@@ -27,7 +27,15 @@ WORKDIR /app
 # libstdc++: required by better-sqlite3.node native addon on Alpine.
 # node:24-alpine ships a `node` user at UID 1000 — matches obsidian-sync's
 # PUID so both containers can read/write the shared /vault volume.
-RUN apk add --no-cache tini libstdc++
+# apk upgrade: applies Alpine security fixes (openssl et al.) at build
+# time, covering the window between an Alpine security release and the
+# next upstream node:24-alpine rebuild + digest-pin refresh.
+RUN apk upgrade --no-cache && apk add --no-cache tini libstdc++
+# The runtime is `node dist/...` only — npm, npx, corepack, and yarn are
+# never invoked in this image. Removing them drops their bundled
+# dependencies' CVE surface and shrinks the attack surface.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+    /usr/local/bin/corepack /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/data/index.db
 # OCI image metadata. The ownership marker must match `name` in server.json
 # (mcp-publisher reads it off the manifest). title/description/source/licenses
