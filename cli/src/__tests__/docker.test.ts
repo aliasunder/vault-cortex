@@ -10,12 +10,8 @@ describe("pollHealth", () => {
     const fetchStub = async (): Promise<Response> => okResponse
 
     const healthy = await pollHealth(
+      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 100, intervalMs: 1 },
       fetchStub,
-      "http://127.0.0.1:8000/healthz",
-      {
-        timeoutMs: 100,
-        intervalMs: 1,
-      },
     )
 
     expect(healthy).toBe(true)
@@ -35,12 +31,8 @@ describe("pollHealth", () => {
     }
 
     const healthy = await pollHealth(
+      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 1_000, intervalMs: 1 },
       fetchStub as typeof fetch,
-      "http://127.0.0.1:8000/healthz",
-      {
-        timeoutMs: 1_000,
-        intervalMs: 1,
-      },
     )
 
     expect(healthy).toBe(true)
@@ -53,12 +45,8 @@ describe("pollHealth", () => {
     }
 
     const healthy = await pollHealth(
+      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 20, intervalMs: 1 },
       fetchStub,
-      "http://127.0.0.1:8000/healthz",
-      {
-        timeoutMs: 20,
-        intervalMs: 1,
-      },
     )
 
     expect(healthy).toBe(false)

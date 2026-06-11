@@ -43,11 +43,13 @@ describe("writeFiles", () => {
     )
 
     const results = await writeFiles(
-      targetDir,
-      [
-        { name: "docker-compose.yml", content: "services: {}\n" },
-        { name: ".env", content: "MCP_AUTH_TOKEN=abc\n" },
-      ],
+      {
+        targetDir: targetDir,
+        files: [
+          { name: "docker-compose.yml", content: "services: {}\n" },
+          { name: ".env", content: "MCP_AUTH_TOKEN=abc\n" },
+        ],
+      },
       neverOverwrite,
     )
 
@@ -71,8 +73,10 @@ describe("writeFiles", () => {
     }
 
     const results = await writeFiles(
-      targetDir,
-      [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
+      {
+        targetDir: targetDir,
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
+      },
       failingResolver,
     )
 
@@ -84,8 +88,10 @@ describe("writeFiles", () => {
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
     const results = await writeFiles(
-      targetDir,
-      [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
+      {
+        targetDir: targetDir,
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
+      },
       neverOverwrite,
     )
 
@@ -100,8 +106,10 @@ describe("writeFiles", () => {
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
     const results = await writeFiles(
-      targetDir,
-      [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
+      {
+        targetDir: targetDir,
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
+      },
       alwaysOverwrite,
     )
 
@@ -116,11 +124,13 @@ describe("writeFiles", () => {
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
     const results = await writeFiles(
-      targetDir,
-      [
-        { name: "docker-compose.yml", content: "services: {}\n" },
-        { name: ".env", content: "MCP_AUTH_TOKEN=new\n" },
-      ],
+      {
+        targetDir: targetDir,
+        files: [
+          { name: "docker-compose.yml", content: "services: {}\n" },
+          { name: ".env", content: "MCP_AUTH_TOKEN=new\n" },
+        ],
+      },
       neverOverwrite,
     )
 
@@ -161,8 +171,10 @@ describe("writeFiles permissions", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
 
     await writeFiles(
-      targetDir,
-      [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }],
+      {
+        targetDir: targetDir,
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }],
+      },
       neverOverwrite,
     )
 
@@ -176,8 +188,10 @@ describe("writeFiles permissions", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
 
     await writeFiles(
-      targetDir,
-      [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n", mode: 0o600 }],
+      {
+        targetDir: targetDir,
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n", mode: 0o600 }],
+      },
       alwaysOverwrite,
     )
 

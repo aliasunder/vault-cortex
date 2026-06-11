@@ -29,6 +29,30 @@ export type InitDeps = {
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
 
+const isMode = (value: string): value is Mode =>
+  value === "local" || value === "remote"
+
+const askMode = async (prompts: Prompts): Promise<Mode> => {
+  const selected = await prompts.select(
+    "How do you want to run Vault Cortex?",
+    [
+      {
+        value: "local",
+        label: "Local",
+        hint: "Docker on this machine, bind-mounted vault",
+      },
+      {
+        value: "remote",
+        label: "Remote",
+        hint: "VPS + Obsidian Sync, access from anywhere",
+      },
+    ],
+    "local",
+  )
+  // The select only offers mode values; the guard narrows without a cast.
+  return isMode(selected) ? selected : "local"
+}
+
 const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
   ${OBSIDIAN_SYNC_IMAGE}`
 
@@ -91,10 +115,10 @@ const askVaultName = async (prompts: Prompts): Promise<string> => {
 }
 
 const reportWrites = (
+  params: { targetDir: string; results: FileWriteResult[] },
   prompts: Prompts,
-  targetDir: string,
-  results: FileWriteResult[],
 ): void => {
+  const { targetDir, results } = params
   for (const result of results) {
     const verb = {
       created: "created",
@@ -114,12 +138,11 @@ const reportWrites = (
  * the caller uses that to pick the right payoff message.
  */
 const offerComposeUp = async (
-  prompts: Prompts,
-  docker: DockerRunner,
-  fetchFn: typeof fetch,
-  targetDir: string,
-  port: number,
+  params: { targetDir: string; port: number },
+  deps: InitDeps,
 ): Promise<boolean> => {
+  const { targetDir, port } = params
+  const { prompts, docker, fetchFn } = deps
   if (!docker.isComposeAvailable()) {
     prompts.warn(
       "Docker Compose not found — install Docker to start the server:\n" +
@@ -148,7 +171,10 @@ const offerComposeUp = async (
   spinner.start(
     "Waiting for the server to come up (first run pulls a ~150MB image)",
   )
-  const healthy = await pollHealth(fetchFn, `http://127.0.0.1:${port}/healthz`)
+  const healthy = await pollHealth(
+    { url: `http://127.0.0.1:${port}/healthz` },
+    fetchFn,
+  )
   if (!healthy) {
     spinner.stop(
       "Server did not respond within 2 minutes — check: docker compose logs",
@@ -166,7 +192,7 @@ const runLocalInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
-  const { prompts, docker, fetchFn } = deps
+  const { prompts } = deps
 
   // Vault path comes from --vault-path when given and valid; interactive
   // runs fall back to prompting on a bad flag, while --yes must fail hard
@@ -220,8 +246,8 @@ const runLocalInit = async (
           `${name} already exists and differs — overwrite?`,
           false,
         )
-  const results = await writeFiles(targetDir, files, resolveConflict)
-  reportWrites(prompts, targetDir, results)
+  const results = await writeFiles({ targetDir, files }, resolveConflict)
+  reportWrites({ targetDir, results }, prompts)
 
   const keptConflicts = results.filter((result) => result.status === "kept")
   if (flags.yes && keptConflicts.length > 0) {
@@ -243,7 +269,7 @@ const runLocalInit = async (
   // --yes is for scripts/CI, so it never starts Docker.
   const started = flags.yes
     ? false
-    : await offerComposeUp(prompts, docker, fetchFn, targetDir, port)
+    : await offerComposeUp({ targetDir, port }, deps)
   prompts.note(
     buildLocalPayoff({ targetDir, token, started, port, tokenWritten }),
     "Connect",
@@ -260,7 +286,7 @@ const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
-  const { prompts, docker, fetchFn } = deps
+  const { prompts, docker } = deps
 
   const targetDir = resolve(
     flags.dir ??
@@ -315,10 +341,10 @@ const runRemoteInit = async (
     vaultPassword,
   })
   const files = planFiles("remote", envContent)
-  const results = await writeFiles(targetDir, files, (name) =>
+  const results = await writeFiles({ targetDir, files }, (name) =>
     prompts.confirm(`${name} already exists and differs — overwrite?`, false),
   )
-  reportWrites(prompts, targetDir, results)
+  reportWrites({ targetDir, results }, prompts)
 
   // Same kept-.env handling as the local flow: only a written .env carries
   // this run's token, and PORT must come from the file on disk.
@@ -333,7 +359,7 @@ const runRemoteInit = async (
   const started =
     obsidianAuthToken === ""
       ? false
-      : await offerComposeUp(prompts, docker, fetchFn, targetDir, port)
+      : await offerComposeUp({ targetDir, port }, deps)
   prompts.note(
     buildRemotePayoff({
       targetDir,
@@ -354,11 +380,7 @@ export const runInit = async (
 ): Promise<number> => {
   const { prompts } = deps
 
-  if (
-    flags.mode !== undefined &&
-    flags.mode !== "local" &&
-    flags.mode !== "remote"
-  ) {
+  if (flags.mode !== undefined && !isMode(flags.mode)) {
     prompts.error(
       `Unknown mode "${flags.mode}" — expected "local" or "remote".`,
     )
@@ -377,28 +399,15 @@ export const runInit = async (
 
   prompts.intro("vault-cortex init")
 
-  // Mode resolution: explicit --mode wins; --yes implies local (validated
-  // above); otherwise ask, defaulting to local — it's the activation path.
+  // Mode resolution: explicit --mode wins (validated above, so the guard
+  // narrows it); --yes implies local; otherwise ask, defaulting to local —
+  // it's the activation path.
   const mode: Mode =
-    (flags.mode as Mode | undefined) ??
-    (flags.yes
-      ? "local"
-      : ((await prompts.select(
-          "How do you want to run Vault Cortex?",
-          [
-            {
-              value: "local",
-              label: "Local",
-              hint: "Docker on this machine, bind-mounted vault",
-            },
-            {
-              value: "remote",
-              label: "Remote",
-              hint: "VPS + Obsidian Sync, access from anywhere",
-            },
-          ],
-          "local",
-        )) as Mode))
+    flags.mode !== undefined && isMode(flags.mode)
+      ? flags.mode
+      : flags.yes
+        ? "local"
+        : await askMode(prompts)
 
   const exitCode =
     mode === "local"

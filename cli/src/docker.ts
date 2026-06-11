@@ -42,11 +42,10 @@ export const createDockerRunner = (): DockerRunner => ({
  * elapsed-time deadline, not date manipulation.
  */
 export const pollHealth = async (
+  params: { url: string; timeoutMs?: number; intervalMs?: number },
   fetchFn: typeof fetch,
-  url: string,
-  options: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<boolean> => {
-  const { timeoutMs = 120_000, intervalMs = 2_000 } = options
+  const { url, timeoutMs = 120_000, intervalMs = 2_000 } = params
   const deadline = Date.now() + timeoutMs
 
   const isHealthy = async (): Promise<boolean> => {

@@ -67,10 +67,10 @@ export const readEnvPort = (envFilePath: string): number => {
  * constant `false` in non-interactive mode).
  */
 export const writeFiles = async (
-  targetDir: string,
-  files: PlannedFile[],
+  params: { targetDir: string; files: PlannedFile[] },
   resolveConflict: (name: string) => Promise<boolean>,
 ): Promise<FileWriteResult[]> => {
+  const { targetDir, files } = params
   mkdirSync(targetDir, { recursive: true })
 
   const results: FileWriteResult[] = []

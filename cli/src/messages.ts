@@ -1,3 +1,23 @@
+const composeUpCommand = (targetDir: string): string =>
+  `cd ${targetDir} && docker compose up -d`
+
+const startServerLine = (targetDir: string): string =>
+  `Start the server:\n  ${composeUpCommand(targetDir)}`
+
+/** Remote start line: running, blocked on the missing sync token, or ready to start. */
+const remoteStartLine = (params: {
+  targetDir: string
+  started: boolean
+  obsidianTokenMissing: boolean
+}): string => {
+  const { targetDir, started, obsidianTokenMissing } = params
+  if (started) return "The server is running."
+  if (obsidianTokenMissing) {
+    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${composeUpCommand(targetDir)}`
+  }
+  return startServerLine(targetDir)
+}
+
 /**
  * Local-mode "Connect" payoff. tokenWritten distinguishes whether this run's
  * generated token actually landed in .env — when an existing .env was kept,
@@ -16,7 +36,7 @@ export const buildLocalPayoff = (params: {
 
   const startLine = started
     ? "The server is running."
-    : `Start the server:\n  cd ${targetDir} && docker compose up -d`
+    : startServerLine(targetDir)
 
   const tokenLine = tokenWritten
     ? `Auth token: ${token}`
@@ -73,11 +93,11 @@ export const buildRemotePayoff = (params: {
     tokenWritten,
   } = params
 
-  const startLine = started
-    ? "The server is running."
-    : obsidianTokenMissing
-      ? `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  cd ${targetDir} && docker compose up -d`
-      : `Start the server:\n  cd ${targetDir} && docker compose up -d`
+  const startLine = remoteStartLine({
+    targetDir,
+    started,
+    obsidianTokenMissing,
+  })
 
   const approveLine = tokenWritten
     ? `approve with your MCP_AUTH_TOKEN:\n  ${token}`
