@@ -5,8 +5,9 @@ name: Trivy
 # post-release CVE drift live only in the published image.
 #
 # Two targets:
-#   - scan-published (cron + dispatch): the GHCR :latest image users pull
-#     today, so a CVE disclosed after a release still surfaces.
+#   - scan-published (cron + merges to main + dispatch): the GHCR :latest
+#     image users pull today, so a CVE disclosed after a release still
+#     surfaces — merges also keep the README status badge current.
 #   - scan-pr (pull_request): an image built from the branch, so a CVE
 #     entering via Dockerfile/base-image changes surfaces before merge.
 #
@@ -19,6 +20,8 @@ name: Trivy
 on:
   schedule:
     - cron: "23 9 * * 1" # weekly, Monday 09:23 UTC
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
