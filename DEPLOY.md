@@ -232,9 +232,11 @@ Both halves come from the dedicated deploy keypair set up in [Prerequisites](#pr
 
 ### Cutting a release
 
-**Manual** — Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps `package.json`, commits, tags, and pushes. The tag push triggers `auto_release.yml` which deploys and creates the release.
+**Manual** — Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps `package.json`, commits, tags, deploys, and creates the GitHub Release — all inline (a workflow-pushed tag can't trigger `auto_release.yml`; see [Workflows](#workflows)).
 
-**Tag push** — Bump `package.json` locally, commit on `main`, then `git tag v<version> && git push --tags`. Same auto-release flow runs.
+**Tag push** — merge a version-bump PR into `main`, then tag the merge commit: `git tag v<version> && git push --tags`. The tag push triggers `auto_release.yml`, which deploys and creates the release.
+
+Direct commits to `main` are blocked by a branch ruleset — every change, version bumps included, lands via PR. Release automation is the only actor that pushes to `main` directly (the changelog and version-bump commits in the workflows above).
 
 ### Rotating SSH keys
 

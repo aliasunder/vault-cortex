@@ -132,8 +132,11 @@ Releases are cut by the maintainer. Two paths:
 
 - **Manual Release:** Actions tab → "Manual Release" → choose
   `patch`/`minor`/`major`. Bumps version, deploys, creates GitHub Release.
-- **Tag push:** bump `package.json`, commit on `main`, then
+- **Tag push:** merge a version-bump PR into `main`, then
   `git tag v<version> && git push --tags`
+
+Direct commits to `main` are blocked by a branch ruleset — all changes,
+version bumps included, land via PR.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
