@@ -25,6 +25,25 @@
 
 
 
+
+## [0.16.0] — 2026-06-11
+
+### Features
+
+- Add `npx vault-cortex init` CLI scaffolding tool (#89)
+
+### Bug Fixes
+
+- Server image build broken by cli build coupling + release-notes tag filter (#91)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.15.23
+
+### CI / Infrastructure
+
+- Create GitHub releases for CLI versions (#90)
+
 ## [0.15.23] — 2026-06-10
 
 ### Features
