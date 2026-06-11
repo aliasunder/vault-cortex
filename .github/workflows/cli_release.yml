@@ -5,9 +5,9 @@ name: Release CLI
 # change should ship. "none" publishes the current cli/package.json
 # version without bumping (used for the first publish).
 #
-# Re-run after a failed publish with bump "none": the version-bump commit
-# and cli-v* tag have already landed by that point, so bumping again would
-# skip a version.
+# Safe to re-run after a failed publish with any bump value: a version
+# that is tagged but absent from npm is detected as a failed earlier
+# release and published as-is instead of being bumped past.
 
 on:
   workflow_dispatch:
@@ -42,10 +42,13 @@ jobs:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
+      # No App token here: npm ci below runs dependency lifecycle scripts,
+      # which must not find a repo-write credential in .git/config. The App
+      # token is supplied only to the push step.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       # No registry-url / auth token: publishing uses npm Trusted Publishing
       # (OIDC) — the trusted publisher is configured on npmjs.com for this
@@ -66,6 +69,14 @@ jobs:
             exit 1
           fi
           if [ "$BUMP" = "none" ]; then
+            NEXT="$CURRENT"
+          # Retry safety: a prior run may have bumped, committed, and tagged
+          # but failed at npm publish. The checked-out version being tagged
+          # yet absent from npm is that failure's signature — publish it
+          # as-is rather than bumping past it and skipping a version.
+          elif git rev-parse -q --verify "refs/tags/cli-v$CURRENT" > /dev/null \
+            && ! npm view "vault-cortex@$CURRENT" version > /dev/null 2>&1; then
+            echo "::notice::cli-v$CURRENT is tagged but unpublished (failed earlier release) — publishing it instead of bumping"
             NEXT="$CURRENT"
           else
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -103,6 +114,8 @@ jobs:
       - name: Commit, tag, and push
         env:
           NEXT: ${{ steps.next.outputs.version }}
+          # The App token enters git only here, after npm ci has run.
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -114,7 +127,7 @@ jobs:
           if ! git rev-parse -q --verify "refs/tags/cli-v$NEXT" > /dev/null; then
             git tag "cli-v$NEXT"
           fi
-          git push origin HEAD --tags
+          git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD --tags
 
       - name: Publish to npm (Trusted Publishing / OIDC)
         run: npm publish ./cli --provenance --access public
