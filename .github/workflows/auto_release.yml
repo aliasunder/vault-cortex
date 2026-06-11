@@ -9,10 +9,11 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+# Top-level token is read-only; each job declares the writes it needs.
+# A job-level permissions block replaces the whole set — every block
+# must re-state contents: read for checkout.
 permissions:
-  contents: write
-  id-token: write
-  packages: write
+  contents: read
 
 jobs:
   validate:
@@ -40,6 +41,11 @@ jobs:
 
   deploy:
     needs: validate
+    # Ceiling for the reusable workflow: AWS OIDC + GHCR push.
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
     uses: ./.github/workflows/deploy.yml
     with:
       version: ${{ needs.validate.outputs.version }}
@@ -47,6 +53,10 @@ jobs:
 
   publish-registry:
     needs: [validate, deploy]
+    # Ceiling for the reusable workflow: MCP Registry OIDC.
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/publish-registry.yml
     with:
       version: ${{ needs.validate.outputs.version }}
@@ -54,6 +64,10 @@ jobs:
   release:
     needs: [validate, deploy]
     runs-on: ubuntu-latest
+    # gh release create uses GITHUB_TOKEN; the CHANGELOG push to main
+    # authenticates as the release App, not this token.
+    permissions:
+      contents: write
     steps:
       - name: Generate App token
         id: app-token
