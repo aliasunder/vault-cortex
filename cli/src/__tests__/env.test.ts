@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest"
+
+import { buildLocalEnv, buildRemoteEnv } from "../env.js"
+
+describe("buildLocalEnv", () => {
+  it("fills in the token and vault path as uncommented required lines", () => {
+    const env = buildLocalEnv({
+      mcpAuthToken: "abc123",
+      vaultPath: "/Users/you/My Vault",
+    })
+
+    expect(env).toContain("MCP_AUTH_TOKEN=abc123\n")
+    expect(env).toContain("VAULT_PATH=/Users/you/My Vault\n")
+  })
+
+  it("links to the canonical .env.example and keeps optional settings commented out", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+
+    expect(env).toContain("deploy/local/.env.example")
+    expect(env).toContain("# TZ=America/New_York")
+    expect(env).toContain("# MEMORY_DIR=About Me")
+    expect(env).toContain("# PORT=8000")
+    expect(env).toContain("# LOG_LEVEL=info")
+    expect(env).not.toMatch(/^TZ=/m)
+    expect(env).not.toMatch(/^MEMORY_DIR=/m)
+  })
+
+  it("tells the user how to override an optional and apply the change", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+
+    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain(
+      '"docker compose up -d" (restart alone does not re-read this file)',
+    )
+  })
+})
+
+describe("buildRemoteEnv", () => {
+  const baseAnswers = {
+    mcpAuthToken: "abc123",
+    publicUrl: "https://vault.example.com",
+    obsidianAuthToken: "sync-token-xyz",
+    vaultName: "MyVault",
+  }
+
+  it("fills in all four required values as uncommented lines", () => {
+    const env = buildRemoteEnv(baseAnswers)
+
+    expect(env).toContain("MCP_AUTH_TOKEN=abc123\n")
+    expect(env).toContain("PUBLIC_URL=https://vault.example.com\n")
+    expect(env).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
+    expect(env).toContain("VAULT_NAME=MyVault\n")
+  })
+
+  it("keeps VAULT_PASSWORD commented out when the vault has no encryption", () => {
+    const env = buildRemoteEnv(baseAnswers)
+
+    expect(env).toContain("# VAULT_PASSWORD=")
+    expect(env).not.toMatch(/^VAULT_PASSWORD=/m)
+  })
+
+  it("writes VAULT_PASSWORD as a real line when provided", () => {
+    const env = buildRemoteEnv({ ...baseAnswers, vaultPassword: "hunter2" })
+
+    expect(env).toContain("VAULT_PASSWORD=hunter2\n")
+  })
+
+  it("writes an empty OBSIDIAN_AUTH_TOKEN line with a fill-this-in warning when the token was skipped", () => {
+    const env = buildRemoteEnv({ ...baseAnswers, obsidianAuthToken: "" })
+
+    expect(env).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
+    expect(env).toContain("FILL THIS IN")
+    expect(env).toContain("get-token")
+  })
+
+  it("links to the canonical .env.example and keeps optional sync settings commented out", () => {
+    const env = buildRemoteEnv(baseAnswers)
+
+    expect(env).toContain("deploy/remote/.env.example")
+    expect(env).toContain("# DEVICE_NAME=vault-cortex")
+    expect(env).toContain("# CONFLICT_STRATEGY=merge")
+    expect(env).toContain("# SYNC_MODE=bidirectional")
+    expect(env).toContain("# PUID=1000")
+  })
+
+  it("tells the user how to override an optional and apply the change", () => {
+    const env = buildRemoteEnv(baseAnswers)
+
+    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain(
+      '"docker compose up -d" (restart alone does not re-read this file)',
+    )
+  })
+})

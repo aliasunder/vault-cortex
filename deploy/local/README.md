@@ -3,6 +3,10 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
+> **Fastest path:** `npx vault-cortex@latest init` does all of the below
+> interactively — generates the token and config files, starts the server, and
+> prints the connection details. The steps below are the manual equivalent.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)
@@ -38,12 +42,23 @@ builds the search index — this takes a few seconds depending on vault size.
 
 The server listens at `http://localhost:8000/mcp`.
 
-**Claude Desktop / Claude Code / Claude Mobile:** Add a remote MCP server with
-URL `http://localhost:8000/mcp`. When prompted for authentication, use your
-`MCP_AUTH_TOKEN` as the bearer token.
+**OAuth clients (Claude Desktop, Claude Code, and most MCP clients):**
 
-**MCP Inspector:** Enter `http://localhost:8000/mcp` as the server URL and your
-token as the Bearer token.
+1. Add `http://localhost:8000/mcp` as a remote MCP server, leaving OAuth
+   Client ID and Secret empty.
+2. A consent page opens in your browser — approve with your `MCP_AUTH_TOKEN`.
+3. Done. The client receives auto-refreshing access tokens, so the token
+   itself never sits in client config.
+
+- "Remote" refers to the connection type (HTTP, as opposed to a stdio process
+  the client launches itself) — this server still runs entirely on your
+  machine.
+- Claude Mobile and claude.ai web can't reach localhost — use the
+  [remote quickstart](../remote/) for access from other devices.
+
+**Bearer token (MCP Inspector, scripts, clients without OAuth):** Enter
+`http://localhost:8000/mcp` as the server URL and your token as the Bearer
+token.
 
 **curl:**
 

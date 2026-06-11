@@ -4,6 +4,10 @@ Run Vault Cortex on a VPS with Obsidian Sync for remote access from any device.
 Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client — anywhere.
 
+> **Tip:** if your server has Node.js >= 20.12 installed,
+> `npx vault-cortex@latest init --mode remote` walks through steps 2–6
+> interactively. The manual steps below work on any box with Docker.
+
 ## Prerequisites
 
 - A VPS or cloud server with [Docker](https://docs.docker.com/engine/install/)
@@ -164,8 +168,7 @@ docker compose ps
 
 The server runs startup tasks on every boot: rebuilds the search index, creates
 memory template files if the memory folder doesn't exist, and starts the file
-watcher. To re-run the startup flow (e.g., after changing config or to test
-bootstrap behavior):
+watcher. To re-run the startup flow (e.g., to test bootstrap behavior):
 
 ```bash
 # Restart just vault-mcp (obsidian-sync keeps running):
@@ -174,6 +177,10 @@ docker compose restart vault-mcp
 # Restart all services:
 docker compose restart
 ```
+
+> **Changed `.env`?** Use `docker compose up -d` instead — `restart` reuses
+> the existing container config and does **not** re-read `.env`; `up -d`
+> recreates the services whose configuration changed.
 
 The container also restarts automatically on crash (`restart: unless-stopped`
 policy), Docker daemon restart, or system reboot.

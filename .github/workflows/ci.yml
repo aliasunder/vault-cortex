@@ -32,3 +32,36 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+  # The cli package targets older runtimes than the server (engines >=20.12),
+  # but the repo's @types/node tracks the server's Node version — so only a
+  # runtime smoke test catches accidental use of too-new APIs in the CLI.
+  cli-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false # job only builds and runs the CLI; no git pushes
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx tsc -p cli/tsconfig.json
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run the built CLI on Node ${{ matrix.node-version }}
+        run: |
+          node cli/dist/bin.js --help
+          mkdir -p /tmp/smoke-vault/.obsidian
+          node cli/dist/bin.js init --yes --vault-path /tmp/smoke-vault --dir /tmp/smoke-out
+          grep -q "VAULT_PATH=/tmp/smoke-vault" /tmp/smoke-out/.env
