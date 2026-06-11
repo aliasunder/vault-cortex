@@ -1,0 +1,87 @@
+name: Trivy
+
+# Scans the Docker image for OS-layer and dependency CVEs — the one gap
+# gitleaks/CodeQL/Dependabot leave open: alpine base-image packages and
+# post-release CVE drift live only in the published image.
+#
+# Two targets:
+#   - scan-published (cron + dispatch): the GHCR :latest image users pull
+#     today, so a CVE disclosed after a release still surfaces.
+#   - scan-pr (pull_request): an image built from the branch, so a CVE
+#     entering via Dockerfile/base-image changes surfaces before merge.
+#
+# Scope is vulnerability scanning only — secrets are gitleaks' job, and
+# the IaC here is Pulumi TypeScript, which Trivy doesn't parse.
+#
+# Both jobs are report-only (exit-code: 0) while gauging noise; flip the
+# scan-pr exit-code to "1" to gate merges on CRITICAL/HIGH findings.
+
+on:
+  schedule:
+    - cron: "23 9 * * 1" # weekly, Monday 09:23 UTC
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write # SARIF upload to the Security tab
+
+jobs:
+  scan-published:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Scan published image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          # Manifest list resolves per-runner (amd64 here); the alpine OS
+          # package set is identical across arches, so amd64-only is fine.
+          image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp:latest
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0"
+
+      - name: Upload SARIF to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-published-image
+
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Build image from branch
+        run: docker build -t vault-mcp:pr-scan .
+
+      - name: Scan branch image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: vault-mcp:pr-scan
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0" # report-only phase; set to "1" to gate on findings
+
+      # Fork PRs don't get security-events write access, so the upload
+      # would 403 — scan results still show in the job log for forks.
+      - name: Upload SARIF to the Security tab
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-pr-image
