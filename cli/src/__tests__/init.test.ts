@@ -512,3 +512,67 @@ describe("runInit remote encryption password", () => {
     )
   })
 })
+
+describe("runInit get-token paste prompt wording", () => {
+  it('says "printed above" only when get-token ran to completion', async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      true, // run get-token now
+      "sync-token-xyz",
+      false, // no encryption
+      false, // don't start the server
+    ])
+    const dockerWithWorkingGetToken: DockerRunner = {
+      isComposeAvailable: () => true,
+      isDaemonRunning: () => true,
+      composeUp: () => false,
+      runGetToken: () => true,
+    }
+
+    await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithWorkingGetToken,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(scripted.asked).toContain(
+      "Paste the Obsidian Sync token printed above (leave blank to fill in .env later):",
+    )
+  })
+
+  it('omits "printed above" when get-token failed', async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      true, // try to run get-token
+      "", // blank token — fill in later
+      false, // no encryption
+    ])
+    const dockerWithFailingGetToken: DockerRunner = {
+      isComposeAvailable: () => true,
+      isDaemonRunning: () => true,
+      composeUp: () => false,
+      runGetToken: () => false,
+    }
+
+    await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithFailingGetToken,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(scripted.asked).toContain(
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+    )
+    expect(scripted.warnings[0]).toContain("get-token did not complete")
+  })
+})

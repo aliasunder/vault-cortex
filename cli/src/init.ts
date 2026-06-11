@@ -60,6 +60,31 @@ const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
   ${OBSIDIAN_SYNC_IMAGE}`
 
 /**
+ * Offers to run the obsidian-headless-sync get-token flow in this terminal.
+ * Returns true only when it ran to completion (and so printed a token the
+ * user can scroll up to). The handoff log exists because the clack UI gives
+ * way to raw docker output — image pull, then the tool's own login prompts.
+ */
+const offerGetTokenRun = async (
+  prompts: Prompts,
+  docker: DockerRunner,
+): Promise<boolean> => {
+  const runNow = await prompts.confirm("Run the get-token command now?", true)
+  if (!runNow) return false
+  prompts.log(
+    "Handing the terminal to get-token — it will ask for your Obsidian " +
+      "account login and print a token at the end.",
+  )
+  if (!docker.runGetToken()) {
+    prompts.warn(
+      "get-token did not complete — you can run it later and edit .env.",
+    )
+    return false
+  }
+  return true
+}
+
+/**
  * Asks for the vault path, recursing to re-prompt until it gets a usable
  * answer. A path that doesn't exist is a hard error (likely a typo); a
  * directory without .obsidian/ is only a soft warning, because vault-cortex
@@ -312,21 +337,16 @@ const runRemoteInit = async (
   // A blank answer is allowed: the .env is written with an empty
   // OBSIDIAN_AUTH_TOKEN and a fill-this-in comment.
   prompts.note(GET_TOKEN_COMMAND, "Obsidian Sync token — generate once with")
-  if (docker.isComposeAvailable() && docker.isDaemonRunning()) {
-    const runNow = await prompts.confirm("Run the get-token command now?", true)
-    if (runNow && !docker.runGetToken()) {
-      prompts.warn(
-        "get-token did not complete — you can run it later and edit .env.",
-      )
-    }
-  }
+  const getTokenRan =
+    docker.isComposeAvailable() && docker.isDaemonRunning()
+      ? await offerGetTokenRun(prompts, docker)
+      : false
+  // "printed above" is only true when get-token actually ran to completion.
+  const pastePrompt = getTokenRan
+    ? "Paste the Obsidian Sync token printed above (leave blank to fill in .env later):"
+    : "Paste the Obsidian Sync token (leave blank to fill in .env later):"
   const obsidianAuthToken = (
-    await prompts.text(
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
-      {
-        defaultValue: "",
-      },
-    )
+    await prompts.text(pastePrompt, { defaultValue: "" })
   ).trim()
 
   const usesEncryption = await prompts.confirm(
