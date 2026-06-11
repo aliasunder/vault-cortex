@@ -153,6 +153,9 @@ describe("runInit --yes (non-interactive local)", () => {
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
+    expect(scripted.notes[0]).toContain(
+      "Optional settings (timezone, memory folder, port, logging) are commented",
+    )
   })
 
   it("exits 1 when --vault-path does not exist", async () => {
@@ -343,6 +346,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
+    expect(scripted.notes[1]).toContain("Optional settings (timezone, memory")
   })
 
   it("skips the compose-up offer when the sync token was left blank", async () => {

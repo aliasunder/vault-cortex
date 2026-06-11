@@ -67,6 +67,10 @@ Claude Code for a local server.
 Smoke test:
   curl http://localhost:${port}/healthz
 
+Optional settings (timezone, memory folder, port, logging) are commented
+out in ${targetDir}/.env — uncomment, set a value, then apply with
+"docker compose up -d" (restart alone does not re-read .env).
+
 Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`
 
   return connectMessage
@@ -113,6 +117,11 @@ Connect your MCP client:
 OAuth clients (Claude Desktop, Claude Code, claude.ai): add a remote MCP
 server with that URL and leave Client ID/Secret empty — a consent page
 opens; ${approveLine}
+
+Optional settings (timezone, memory folder, port, logging, sync
+behavior) are commented out in ${targetDir}/.env — uncomment, set a
+value, then apply with "docker compose up -d" (restart alone does not
+re-read .env).
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
