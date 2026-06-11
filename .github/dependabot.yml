@@ -9,6 +9,12 @@ updates:
         dependency-type: production
       development:
         dependency-type: development
+    ignore:
+      # commander is version-synced with cli/package.json (a test enforces
+      # it), and the cli supports Node >=20.12 while commander 15 requires
+      # Node >=22.12. Major bumps are a deliberate cli decision.
+      - dependency-name: commander
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -21,3 +27,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # A base-image major is a Node.js major — the server pins
+      # engines >=24 <25 (.nvmrc, Lambda runtime nodejs24.x). Node
+      # version upgrades are deliberate, not dependency churn.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
