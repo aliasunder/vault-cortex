@@ -6,7 +6,9 @@
 set -euo pipefail
 
 NEW_TAG="${1:?Usage: generate-notes.sh <new-tag> [previous-tag]}"
-PREV_TAG="${2:-$(git describe --tags --abbrev=0 "$NEW_TAG"^ 2>/dev/null || echo "")}"
+# --match restricts to server tags (v0.16.0) — without it, git describe
+# would pick up cli-v* tags from CLI releases and truncate the range.
+PREV_TAG="${2:-$(git describe --tags --abbrev=0 --match "v[0-9]*" "$NEW_TAG"^ 2>/dev/null || echo "")}"
 
 if [ -n "$PREV_TAG" ]; then
   RANGE="${PREV_TAG}..${NEW_TAG}"
@@ -14,8 +16,9 @@ else
   RANGE="$NEW_TAG"
 fi
 
-# Collect commits (skip release commits and merge commits)
-COMMITS=$(git log --oneline --no-merges "$RANGE" | grep -v '^[a-f0-9]* release:' || true)
+# Collect commits (skip release commits — server "release:" and CLI
+# "release(cli):" bumps — and merge commits)
+COMMITS=$(git log --oneline --no-merges "$RANGE" | grep -vE '^[a-f0-9]+ release(\(cli\))?:' || true)
 
 if [ -z "$COMMITS" ]; then
   echo "No notable changes."
