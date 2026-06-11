@@ -26,10 +26,17 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "obsidian",
-    "vault",
-    "scaffold",
+    "obsidian-mcp",
+    "obsidian-vault",
+    "ai-memory",
+    "memory",
+    "knowledge-base",
+    "note-taking",
+    "second-brain",
+    "full-text-search",
     "cli"
   ],
   "dependencies": {
