@@ -13,7 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  # Job ID doubles as the required-status-check context in the branch
+  # ruleset — tool-prefixed so it's unambiguous in that flat namespace.
+  gitleaks:
     runs-on: ubuntu-latest
     env:
       GITLEAKS_VERSION: 8.21.2
