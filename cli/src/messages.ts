@@ -19,13 +19,13 @@ const remoteStartLine = (params: {
 }
 
 /**
- * Local-mode "Connect" payoff. tokenWritten distinguishes whether this run's
+ * Local-mode "Connect" message. tokenWritten distinguishes whether this run's
  * generated token actually landed in .env — when an existing .env was kept,
- * the payoff must point at the token on disk instead of one that was never
+ * the connect message must point at the token on disk instead of one that was never
  * saved (pasting it would fail auth with no hint why). port comes from the
  * .env on disk for the same reason: a kept file may override the default.
  */
-export const buildLocalPayoff = (params: {
+export const buildLocalConnectMessage = (params: {
   targetDir: string
   token: string
   started: boolean
@@ -44,7 +44,7 @@ export const buildLocalPayoff = (params: {
 
   // Flush-left on purpose: template literals keep leading whitespace, so
   // indenting these lines would indent the rendered output.
-  const payoff = `${startLine}
+  const connectMessage = `${startLine}
 
 Connect your MCP client:
   URL:        http://localhost:${port}/mcp
@@ -69,14 +69,14 @@ Smoke test:
 
 Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`
 
-  return payoff
+  return connectMessage
 }
 
 /**
- * Remote-mode "Connect" payoff. See buildLocalPayoff for the tokenWritten
+ * Remote-mode "Connect" message. See buildLocalConnectMessage for the tokenWritten
  * rationale; remote URLs come from PUBLIC_URL, so no port handling here.
  */
-export const buildRemotePayoff = (params: {
+export const buildRemoteConnectMessage = (params: {
   targetDir: string
   token: string
   publicUrl: string
@@ -105,7 +105,7 @@ export const buildRemotePayoff = (params: {
 
   // Flush-left on purpose: template literals keep leading whitespace, so
   // indenting these lines would indent the rendered output.
-  const payoff = `${startLine}
+  const connectMessage = `${startLine}
 
 Connect your MCP client:
   URL: ${publicUrl}/mcp
@@ -117,5 +117,5 @@ opens; ${approveLine}
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
 
-  return payoff
+  return connectMessage
 }

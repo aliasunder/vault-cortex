@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 
 export type Mode = "local" | "remote"
 
-export type PlannedFile = {
+export type FileToWrite = {
   /** Filename inside the target directory (e.g. "docker-compose.yml"). */
   name: string
   content: string
@@ -42,7 +42,10 @@ export const readComposeTemplate = (mode: Mode): string =>
     "utf8",
   )
 
-export const planFiles = (mode: Mode, envContent: string): PlannedFile[] => [
+export const buildFilesToWrite = (
+  mode: Mode,
+  envContent: string,
+): FileToWrite[] => [
   { name: "docker-compose.yml", content: readComposeTemplate(mode) },
   // .env holds the bearer token (and possibly a vault password) — owner-only.
   { name: ".env", content: envContent, mode: 0o600 },
@@ -61,13 +64,13 @@ export const readEnvPort = (envFilePath: string): number => {
 }
 
 /**
- * Writes planned files into targetDir (created if missing). Existing files
+ * Writes the files into targetDir (created if missing). Existing files
  * are never overwritten silently: identical content is skipped, and differing
  * content defers to the resolveConflict callback (interactive prompt, or a
  * constant `false` in non-interactive mode).
  */
 export const writeFiles = async (
-  params: { targetDir: string; files: PlannedFile[] },
+  params: { targetDir: string; files: FileToWrite[] },
   resolveConflict: (name: string) => Promise<boolean>,
 ): Promise<FileWriteResult[]> => {
   const { targetDir, files } = params

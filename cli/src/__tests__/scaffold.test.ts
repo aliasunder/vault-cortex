@@ -9,14 +9,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { planFiles, readEnvPort, writeFiles } from "../scaffold.js"
+import { buildFilesToWrite, readEnvPort, writeFiles } from "../scaffold.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
 
-describe("planFiles", () => {
+describe("buildFilesToWrite", () => {
   it("plans a docker-compose.yml from the mode's template plus the generated .env", () => {
-    const files = planFiles("local", "MCP_AUTH_TOKEN=abc\n")
+    const files = buildFilesToWrite("local", "MCP_AUTH_TOKEN=abc\n")
 
     expect(files.map((file) => file.name)).toEqual([
       "docker-compose.yml",
@@ -27,7 +27,7 @@ describe("planFiles", () => {
   })
 
   it("plans the three-service compose file for remote mode", () => {
-    const files = planFiles("remote", "MCP_AUTH_TOKEN=abc\n")
+    const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
 
     expect(files[0].content).toContain("obsidian-sync")
     expect(files[0].content).toContain("init-config-perms")
@@ -35,7 +35,7 @@ describe("planFiles", () => {
 })
 
 describe("writeFiles", () => {
-  it("creates the target directory and writes all planned files", async () => {
+  it("creates the target directory and writes all files", async () => {
     const targetDir = join(
       mkdtempSync(join(tmpdir(), "vault-cli-")),
       "nested",
@@ -167,7 +167,7 @@ describe("readEnvPort", () => {
 })
 
 describe("writeFiles permissions", () => {
-  it("creates .env owner-only (0600) via the planned mode", async () => {
+  it("creates .env owner-only (0600) via the file mode", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
 
     await writeFiles(

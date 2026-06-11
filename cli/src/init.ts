@@ -1,10 +1,13 @@
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { buildLocalPayoff, buildRemotePayoff } from "./messages.js"
+import {
+  buildLocalConnectMessage,
+  buildRemoteConnectMessage,
+} from "./messages.js"
 import { OBSIDIAN_SYNC_IMAGE, pollHealth, type DockerRunner } from "./docker.js"
 import {
-  planFiles,
+  buildFilesToWrite,
   readEnvPort,
   writeFiles,
   type FileWriteResult,
@@ -144,7 +147,7 @@ const reportWrites = (
  * failed gate degrades to instructions instead of an error: compose
  * installed → daemon running → user consents → compose up succeeds →
  * health check passes. Returns true only when the server is confirmed up;
- * the caller uses that to pick the right payoff message.
+ * the caller uses that to pick the right connect message.
  */
 const offerComposeUp = async (
   params: { targetDir: string; port: number },
@@ -244,7 +247,7 @@ const runLocalInit = async (
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
   // any differing file becomes an exit-1 below, leaving it untouched.
-  const files = planFiles(
+  const files = buildFilesToWrite(
     "local",
     buildLocalEnv({ mcpAuthToken: token, vaultPath }),
   )
@@ -261,7 +264,7 @@ const runLocalInit = async (
   }
 
   // When an existing .env was kept, this run's generated token was never
-  // saved — the payoff must point at the token (and PORT) actually on disk,
+  // saved — the connect message must point at the token (and PORT) actually on disk,
   // or a pasted token fails auth with no hint why.
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
@@ -274,7 +277,7 @@ const runLocalInit = async (
     ? false
     : await offerComposeUp({ targetDir, port }, deps)
   prompts.note(
-    buildLocalPayoff({ targetDir, token, started, port, tokenWritten }),
+    buildLocalConnectMessage({ targetDir, token, started, port, tokenWritten }),
     "Connect",
   )
   return 0
@@ -343,7 +346,7 @@ const runRemoteInit = async (
     vaultName,
     vaultPassword,
   })
-  const files = planFiles("remote", envContent)
+  const files = buildFilesToWrite("remote", envContent)
   const results = await writeFiles(
     { targetDir, files },
     confirmOverwrite(prompts),
@@ -365,7 +368,7 @@ const runRemoteInit = async (
       ? false
       : await offerComposeUp({ targetDir, port }, deps)
   prompts.note(
-    buildRemotePayoff({
+    buildRemoteConnectMessage({
       targetDir,
       token,
       publicUrl,

@@ -381,7 +381,7 @@ describe("runInit with a kept existing .env", () => {
     false, // .env differs — keep the existing file
   ]
 
-  it("points the payoff at the existing token instead of the unwritten one", async () => {
+  it("points the connect message at the existing token instead of the unwritten one", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
