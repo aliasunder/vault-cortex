@@ -27,6 +27,32 @@
 
 
 
+
+## [0.16.2] — 2026-06-11
+
+### Bug Fixes
+
+- **deps:** Move sst to devDependencies (#100)
+
+### Documentation
+
+- Release flows reflect PR-only main (branch ruleset) (#108)
+- Document security scanning workflows across contributor docs (#98)
+- Remove mcpx feature badge from README hero (#99)
+- Update CHANGELOG.md for v0.16.1
+
+### Maintenance
+
+- **deps:** Ignore major bumps for commander and the node base image (#109)
+- **deps:** Bump yaml from 2.8.4 to 2.9.0 in the production group (#105)
+- **deps:** Bump docker/setup-qemu-action from 3.7.0 to 4.1.0 (#104)
+- **deps:** Bump aquasecurity/trivy-action from 0.35.0 to 0.36.0 (#103)
+
+### Other Changes
+
+- **docker:** Harden runtime image — apk security upgrades, drop npm (#107)
+- **docker:** Pin base images by digest, add Dependabot docker updates (#101)
+
 ## [0.16.1] — 2026-06-11
 
 ### Documentation
