@@ -113,7 +113,9 @@ truth. Key points:
    ```
 4. **Fill out the PR template** — the checklist mirrors CI
 5. **CI must pass** — the `CI` workflow runs prettier, lint, test, and build on
-   every PR
+   every PR. Two security scans also run on PRs: **Gitleaks** (secret
+   detection) and **Trivy** (vulnerability scan of the Docker image built from
+   your branch — findings appear in the PR's Checks tab)
 
 ## Issues
 
