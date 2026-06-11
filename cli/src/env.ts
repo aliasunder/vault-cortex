@@ -19,6 +19,8 @@ export type RemoteEnvAnswers = {
 // these builders learn it.
 
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
+# To override a setting: uncomment it, set a value, then apply with
+# "docker compose up -d" (restart alone does not re-read this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
@@ -42,6 +44,8 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 `
 
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
+# To override a setting: uncomment it, set a value, then apply with
+# "docker compose up -d" (restart alone does not re-read this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York

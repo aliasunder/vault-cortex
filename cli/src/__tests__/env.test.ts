@@ -24,6 +24,15 @@ describe("buildLocalEnv", () => {
     expect(env).not.toMatch(/^TZ=/m)
     expect(env).not.toMatch(/^MEMORY_DIR=/m)
   })
+
+  it("tells the user how to override an optional and apply the change", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+
+    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain(
+      '"docker compose up -d" (restart alone does not re-read this file)',
+    )
+  })
 })
 
 describe("buildRemoteEnv", () => {
@@ -72,5 +81,14 @@ describe("buildRemoteEnv", () => {
     expect(env).toContain("# CONFLICT_STRATEGY=merge")
     expect(env).toContain("# SYNC_MODE=bidirectional")
     expect(env).toContain("# PUID=1000")
+  })
+
+  it("tells the user how to override an optional and apply the change", () => {
+    const env = buildRemoteEnv(baseAnswers)
+
+    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain(
+      '"docker compose up -d" (restart alone does not re-read this file)',
+    )
   })
 })
