@@ -28,6 +28,25 @@
 
 
 
+
+## [0.16.3] — 2026-06-11
+
+### Documentation
+
+- Reflect Trivy PR gating and Scorecard publishing (#115)
+- Update CHANGELOG.md for v0.16.2
+
+### CI / Infrastructure
+
+- Publish Scorecard results to the OpenSSF API (#114)
+- Flip trivy-pr scan from report-only to gating (#113)
+- Move workflow token writes from top level to job level (#112)
+- Tool-prefixed job IDs for scan jobs (gitleaks, trivy-pr, trivy-published) (#111)
+
+### Maintenance
+
+- **deps-dev:** Bump the development group across 1 directory with 4 updates (#110)
+
 ## [0.16.2] — 2026-06-11
 
 ### Bug Fixes
