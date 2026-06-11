@@ -22,7 +22,9 @@ export const buildLocalPayoff = (params: {
     ? `Auth token: ${token}`
     : `Auth token: use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
 
-  return `${startLine}
+  // Flush-left on purpose: template literals keep leading whitespace, so
+  // indenting these lines would indent the rendered output.
+  const payoff = `${startLine}
 
 Connect your MCP client:
   URL:        http://localhost:${port}/mcp
@@ -46,6 +48,8 @@ Smoke test:
   curl http://localhost:${port}/healthz
 
 Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`
+
+  return payoff
 }
 
 /**
@@ -79,7 +83,9 @@ export const buildRemotePayoff = (params: {
     ? `approve with your MCP_AUTH_TOKEN:\n  ${token}`
     : `approve with the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
 
-  return `${startLine}
+  // Flush-left on purpose: template literals keep leading whitespace, so
+  // indenting these lines would indent the rendered output.
+  const payoff = `${startLine}
 
 Connect your MCP client:
   URL: ${publicUrl}/mcp
@@ -90,4 +96,6 @@ opens; ${approveLine}
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
+
+  return payoff
 }
