@@ -1,0 +1,50 @@
+name: Scorecard
+
+# OpenSSF Scorecard — grades the repo's security practices (dependency
+# pinning, branch protection, SAST, token permissions, …) and uploads
+# the results to the Security tab as SARIF.
+#
+# publish_results is off while the initial score is reviewed privately.
+# To publish (enables the REST API + the score badge for the README):
+# flip publish_results to "true" and add `id-token: write` to the job
+# permissions (the publish step authenticates via OIDC).
+#
+# Known partial result: the Branch-Protection check can't fully
+# evaluate with the default workflow token (needs admin scope); it
+# scores from what's publicly visible.
+
+on:
+  # Re-evaluate when branch protection settings change.
+  branch_protection_rule:
+  schedule:
+    - cron: "17 10 * * 2" # weekly, Tuesday 10:17 UTC
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # SARIF upload to the Security tab
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false
+
+      - name: Upload SARIF to the Security tab
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: results.sarif
