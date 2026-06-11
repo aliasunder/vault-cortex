@@ -63,7 +63,6 @@
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "picomatch": "4.0.4",
-    "sst": "4.15.2",
     "yaml": "2.8.4",
     "zod": "4.4.3"
   },
@@ -83,6 +82,7 @@
     "jiti": "2.7.0",
     "lint-staged": "17.0.7",
     "prettier": "3.8.3",
+    "sst": "4.15.2",
     "tsx": "4.22.4",
     "typescript": "6.0.3",
     "typescript-eslint": "8.60.1",
