@@ -22,6 +22,24 @@ The attack surface includes:
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
+## Automated Scanning
+
+Several scanners already run against this repository:
+
+- **CodeQL** — static analysis on every PR and push (GitHub default setup)
+- **Gitleaks** — secret detection on every PR and push to main
+- **Trivy** — vulnerability scan of the Docker image: PR-built images on every
+  PR, the published GHCR image on pushes to main and a weekly schedule.
+  Findings report to the repository's
+  [Security tab](https://github.com/aliasunder/vault-cortex/security)
+- **OpenSSF Scorecard** — supply-chain posture analysis, weekly and on pushes
+  to main
+- **Dependabot** — weekly dependency update PRs for npm and GitHub Actions
+
+Base-image CVEs surfaced by Trivy are typically already tracked in the
+Security tab and handled through image updates. A report is still welcome if
+you've found a Vault Cortex–specific exploit path for one.
+
 ## Reporting a Vulnerability
 
 If you discover a security issue, please report it through

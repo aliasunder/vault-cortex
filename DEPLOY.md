@@ -133,17 +133,21 @@ npx sst remove   # removes Lightsail, API Gateway, Lambda
 
 ## CI/CD
 
-GitHub Actions runs lint/test/build on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
+GitHub Actions runs lint/test/build plus security scans (secret detection, image vulnerabilities) on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
 
 ### Workflows
 
 | Workflow               | Trigger                          | What it does                                                                                                                                                                                                                                |
 | ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci.yml`               | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                                                                                                                   |
+| `gitleaks.yml`         | PR + push to main                | Secret detection across the repo and its git history                                                                                                                                                                                        |
+| `trivy.yml`            | PR + push to main + weekly cron  | Vulnerability scan of the Docker image — PRs scan an image built from the branch; pushes and the cron scan the published GHCR `:latest`. Findings upload as SARIF to the Security tab.                                                      |
+| `scorecard.yml`        | Push to main + weekly cron       | [OpenSSF Scorecard](https://github.com/ossf/scorecard) supply-chain posture analysis; results upload to the Security tab. Also re-runs when branch protection settings change.                                                              |
 | `auto_release.yml`     | `v*` tag push (from your laptop) | Validates `package.json` version matches the tag → calls `deploy.yml` + `publish-registry.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md`                                                              |
 | `manual_release.yml`   | Actions UI (`workflow_dispatch`) | Bumps version, commits, tags, pushes, calls `deploy.yml` + `publish-registry.yml`, creates the GitHub Release — all inline. Does NOT chain through `auto_release.yml` (a workflow-pushed tag can't trigger another workflow).               |
 | `deploy.yml`           | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate                                                                                                              |
 | `publish-registry.yml` | Reusable (`workflow_call`)       | Publishes `server.json` to the [official MCP Registry](https://registry.modelcontextprotocol.io/) via `mcp-publisher`, authenticating with GitHub OIDC. Runs after `deploy` (so the GHCR image referenced in `server.json` already exists). |
+| `cli_release.yml`      | Actions UI (`workflow_dispatch`) | Publishes the `cli/` package to npm via Trusted Publishing — independent of server releases. See [CONTRIBUTING.md](./CONTRIBUTING.md#the-cli-package).                                                                                      |
 
 > **Why two release paths?** Tag pushes done by `GITHUB_TOKEN` from inside a workflow can't trigger other workflows (GitHub's anti-loop guard). So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
 
