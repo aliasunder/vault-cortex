@@ -112,10 +112,12 @@ truth. Key points:
    npm run prettier:check && npm run lint && npm test && npm run build
    ```
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **CI must pass** — the `CI` workflow runs prettier, lint, test, and build on
-   every PR. Two security scans also run on PRs: **Gitleaks** (secret
-   detection) and **Trivy** (vulnerability scan of the Docker image built from
-   your branch — findings appear in the PR's Checks tab)
+5. **Required checks must pass** — the `CI` workflow runs prettier, lint,
+   test, and build on every PR. Two security scans also gate merges:
+   **Gitleaks** (secret detection) and **Trivy** (vulnerability scan of the
+   Docker image built from your branch — a fixable CRITICAL/HIGH CVE fails
+   the `trivy-pr` check and blocks the merge; the finding details are in the
+   job log)
 
 ## Issues
 
