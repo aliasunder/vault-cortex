@@ -17,10 +17,12 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+# Top-level token is read-only; each job declares the writes it needs.
+# A job-level permissions block replaces the whole set — every block
+# must re-state contents: read for checkout. bump-and-tag needs no
+# block: its commit/tag/push authenticates as the release App.
 permissions:
-  id-token: write
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   bump-and-tag:
@@ -87,6 +89,11 @@ jobs:
 
   deploy:
     needs: bump-and-tag
+    # Ceiling for the reusable workflow: AWS OIDC + GHCR push.
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
     uses: ./.github/workflows/deploy.yml
     with:
       version: ${{ needs.bump-and-tag.outputs.version }}
@@ -94,6 +101,10 @@ jobs:
 
   publish-registry:
     needs: [bump-and-tag, deploy]
+    # Ceiling for the reusable workflow: MCP Registry OIDC.
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/publish-registry.yml
     with:
       version: ${{ needs.bump-and-tag.outputs.version }}
@@ -101,6 +112,10 @@ jobs:
   release:
     needs: [bump-and-tag, deploy]
     runs-on: ubuntu-latest
+    # gh release create uses GITHUB_TOKEN; the CHANGELOG push to main
+    # authenticates as the release App, not this token.
+    permissions:
+      contents: write
     steps:
       - name: Generate App token
         id: app-token
