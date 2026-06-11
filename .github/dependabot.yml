@@ -14,3 +14,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Keeps the digest-pinned FROM lines in the Dockerfile current when
+  # upstream node:24-alpine rebuilds (e.g. Alpine security releases).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
