@@ -114,6 +114,15 @@ const askVaultName = async (prompts: Prompts): Promise<string> => {
   return answer.trim()
 }
 
+/** Non-interactive conflict policy: always keep the existing file. */
+const keepExisting = async (): Promise<boolean> => false
+
+/** Interactive conflict policy: ask per differing file, defaulting to keep. */
+const confirmOverwrite =
+  (prompts: Prompts) =>
+  (name: string): Promise<boolean> =>
+    prompts.confirm(`${name} already exists and differs — overwrite?`, false)
+
 const reportWrites = (
   params: { targetDir: string; results: FileWriteResult[] },
   prompts: Prompts,
@@ -239,13 +248,7 @@ const runLocalInit = async (
     "local",
     buildLocalEnv({ mcpAuthToken: token, vaultPath }),
   )
-  const resolveConflict = flags.yes
-    ? async () => false
-    : (name: string) =>
-        prompts.confirm(
-          `${name} already exists and differs — overwrite?`,
-          false,
-        )
+  const resolveConflict = flags.yes ? keepExisting : confirmOverwrite(prompts)
   const results = await writeFiles({ targetDir, files }, resolveConflict)
   reportWrites({ targetDir, results }, prompts)
 
@@ -341,8 +344,9 @@ const runRemoteInit = async (
     vaultPassword,
   })
   const files = planFiles("remote", envContent)
-  const results = await writeFiles({ targetDir, files }, (name) =>
-    prompts.confirm(`${name} already exists and differs — overwrite?`, false),
+  const results = await writeFiles(
+    { targetDir, files },
+    confirmOverwrite(prompts),
   )
   reportWrites({ targetDir, results }, prompts)
 
