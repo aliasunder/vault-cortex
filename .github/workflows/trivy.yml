@@ -16,8 +16,10 @@ name: Trivy
 # Scope is vulnerability scanning only — secrets are gitleaks' job, and
 # the IaC here is Pulumi TypeScript, which Trivy doesn't parse.
 #
-# Both jobs are report-only (exit-code: 0) while gauging noise; flip the
-# trivy-pr exit-code to "1" to gate merges on CRITICAL/HIGH findings.
+# trivy-pr gates merges: it exits non-zero on CRITICAL/HIGH findings,
+# and is a required status check in the branch ruleset. trivy-published
+# stays report-only — its findings land in the Security tab; there is
+# no merge to block.
 
 on:
   schedule:
@@ -97,7 +99,7 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
-          exit-code: "0" # report-only phase; set to "1" to gate on findings
+          exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
       # Fork PRs don't get security-events write access, so the upload
       # would 403 — scan results still show in the job log for forks.
