@@ -4,10 +4,11 @@ name: Scorecard
 # pinning, branch protection, SAST, token permissions, …) and uploads
 # the results to the Security tab as SARIF.
 #
-# publish_results is off while the initial score is reviewed privately.
-# To publish (enables the REST API + the score badge for the README):
-# flip publish_results to "true" and add `id-token: write` to the job
-# permissions (the publish step authenticates via OIDC).
+# publish_results pushes the score to the OpenSSF REST API
+# (https://api.securityscorecards.dev/projects/github.com/aliasunder/vault-cortex),
+# which also enables the README score badge. The badge is held back
+# until the Maintained check matures (repos under 90 days old score 0
+# on it) — ~August 2026.
 #
 # Known partial result: the Branch-Protection check can't fully
 # evaluate with the default workflow token (needs admin scope); it
@@ -31,6 +32,7 @@ jobs:
     permissions:
       contents: read
       security-events: write # SARIF upload to the Security tab
+      id-token: write # OIDC auth for publishing results to the OpenSSF API
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -42,7 +44,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: false
+          publish_results: true
 
       - name: Upload SARIF to the Security tab
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
