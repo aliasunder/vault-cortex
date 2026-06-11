@@ -4,14 +4,19 @@
 
 <div align="center">
 
-[![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
-[![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex)](https://github.com/aliasunder/vault-cortex/releases)
-[![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex?v=1)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
+[![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex?cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/releases)
+[![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex?v=1&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP Server](https://badge.mcpx.dev?type=server&features=tools)](https://modelcontextprotocol.io)
-[![vault-cortex](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg?v=2)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
+
+</div>
+
+<div align="center">
+
+[![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/card.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
 </div>
 
