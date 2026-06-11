@@ -133,3 +133,33 @@ jobs:
 
       - name: Publish to npm (Trusted Publishing / OIDC)
         run: npm publish ./cli --provenance --access public
+
+      # --latest=false keeps the "Latest" badge on server releases. Notes
+      # list only cli/ commits — server commits interleave on main, so
+      # range-wide auto-notes would include unrelated work. If this step
+      # fails after a successful publish, create the release manually
+      # (re-running the workflow would refuse to republish the version).
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.next.outputs.version }}
+        run: |
+          if gh release view "cli-v$NEXT" > /dev/null 2>&1; then
+            echo "Release cli-v$NEXT already exists; skipping"
+            exit 0
+          fi
+          PREV=$(git describe --tags --match "cli-v*" --abbrev=0 "cli-v$NEXT"^ 2> /dev/null || true)
+          if [ -n "$PREV" ]; then
+            RANGE="$PREV..cli-v$NEXT"
+          else
+            RANGE="cli-v$NEXT"
+          fi
+          {
+            git log "$RANGE" --pretty="- %s" -- cli/
+            echo ""
+            echo "Published to npm: https://www.npmjs.com/package/vault-cortex/v/$NEXT"
+          } > /tmp/release-notes.md
+          gh release create "cli-v$NEXT" \
+            --title "cli-v$NEXT" \
+            --notes-file /tmp/release-notes.md \
+            --latest=false
