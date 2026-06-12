@@ -319,6 +319,12 @@ a tunnel or reverse proxy (e.g., Cloudflare Tunnel), then set
 tokens never travel in plaintext on any network segment — all traffic is
 HTTPS end-to-end. See [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
+**Optional: custom domain.** Set `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`
+to serve the API Gateway on your own hostname instead of the auto-generated
+execute-api URL (which stays active alongside it). The ACM cert and DNS
+records are managed outside SST — any DNS provider works. See
+[`DEPLOY.md`](./DEPLOY.md#custom-domain-optional).
+
 **Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
 both. Existing JWTs signed with the old key become invalid immediately.
 Refresh tokens in SQLite are unaffected — clients silently get new JWTs
