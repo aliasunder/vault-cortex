@@ -49,7 +49,7 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
