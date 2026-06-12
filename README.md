@@ -49,15 +49,13 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
 ```
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client.
-
-Connect your MCP client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other — by adding `http://localhost:8000/mcp` as a remote/HTTP MCP server (the server itself runs on your machine). OAuth-capable clients open a consent page in your browser — approve with your token and the client handles the rest. Clients without OAuth can send the token directly as an `Authorization: Bearer` header.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -81,7 +79,17 @@ docker compose up
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
-Run Vault Cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
+**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
+
+```bash
+# On your VPS:
+npx vault-cortex@latest init --mode remote
+```
+
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run the token generator for you), and auth config, then starts the server.
+
+<details>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
 ```bash
 # On your VPS:
@@ -93,11 +101,24 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. JWT access tokens refresh automatically.
-
-If your VPS has Node.js >= 20.12, `npx vault-cortex@latest init --mode remote` walks through the same setup interactively (including the Obsidian Sync token step).
+</details>
 
 **[Full remote guide →](./deploy/remote/)**
+
+### Connect your MCP client
+
+Add the server URL as a remote/HTTP MCP server in any client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other:
+
+| Setup      | Server URL                  |
+| ---------- | --------------------------- |
+| **Local**  | `http://localhost:8000/mcp` |
+| **Remote** | `<PUBLIC_URL>/mcp`          |
+
+OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
+
+> "Remote MCP server" refers to the connection type (HTTP) — in the local setup the server still runs entirely on your machine.
+
+See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Tools (23)
 
