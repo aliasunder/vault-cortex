@@ -57,8 +57,6 @@ npx vault-cortex@latest init
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client.
 
-Connect your MCP client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other — by adding `http://localhost:8000/mcp` as a remote/HTTP MCP server (the server itself runs on your machine). OAuth-capable clients open a consent page in your browser — approve with your token and the client handles the rest. Clients without OAuth can send the token directly as an `Authorization: Bearer` header.
-
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
@@ -88,9 +86,7 @@ docker compose up
 npx vault-cortex@latest init --mode remote
 ```
 
-The CLI walks through the full setup interactively — public URL, Obsidian Sync token (it can run the token generator for you), auth token, and config files — then starts the server.
-
-Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. Your client renews expiring access tokens automatically via its refresh token (60-day sliding expiry).
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run the token generator for you), and auth config, then starts the server.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -108,6 +104,21 @@ docker compose up -d
 </details>
 
 **[Full remote guide →](./deploy/remote/)**
+
+### Connect your MCP client
+
+Add the server URL as a remote/HTTP MCP server in any client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other:
+
+| Setup      | Server URL                  |
+| ---------- | --------------------------- |
+| **Local**  | `http://localhost:8000/mcp` |
+| **Remote** | `<PUBLIC_URL>/mcp`          |
+
+OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
+
+> "Remote MCP server" refers to the connection type (HTTP) — in the local setup the server still runs entirely on your machine.
+
+See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Tools (23)
 
