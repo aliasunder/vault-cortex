@@ -247,13 +247,14 @@ export default $config({
       // dns: false — SST skips DNS record creation (records live with the
       // external DNS provider) and requires the pre-issued cert instead of
       // provisioning one. The default execute-api endpoint stays active.
-      ...(customDomain && {
-        domain: {
-          name: customDomain,
-          dns: false,
-          cert: customDomainCertArn as string,
-        },
-      }),
+      ...(customDomain &&
+        customDomainCertArn && {
+          domain: {
+            name: customDomain,
+            dns: false,
+            cert: customDomainCertArn,
+          },
+        }),
       transform: {
         stage: {
           defaultRouteSettings: {
@@ -307,6 +308,10 @@ export default $config({
       lightsailIp: staticIp.ipAddress,
       // CNAME target for the custom domain: point CUSTOM_DOMAIN at this
       // hostname with your DNS provider. Only present when configured.
+      // nodes.domainName is the component's documented accessor for the
+      // underlying aws.apigatewayv2.DomainName resource, and targetDomainName
+      // is the same output SST feeds its own DNS alias records from — verify
+      // both still hold when upgrading SST.
       ...(customDomain && {
         customDomainTarget:
           api.nodes.domainName.domainNameConfiguration.targetDomainName,
