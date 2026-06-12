@@ -36,8 +36,11 @@ jobs:
 
   deploy:
     needs: resolve-version
-    # Ceiling for the reusable workflow: AWS OIDC. packages:write is part
-    # of deploy.yml's declared set even though skip_build pushes nothing.
+    # GitHub caps a reusable workflow's token at what the calling job grants,
+    # and the call fails unless that covers everything the called job
+    # declares. deploy.yml declares exactly this set: id-token (AWS OIDC
+    # role assumption), contents, and packages — required here even though
+    # skip_build never pushes to GHCR.
     permissions:
       id-token: write
       contents: read
