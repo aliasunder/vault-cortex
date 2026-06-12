@@ -1,19 +1,13 @@
 name: Force Deploy
 
-# Redeploys an existing release without cutting a new one — rebuilds the
-# image at the release tag, re-runs SST (incremental no-op when infra is
-# unchanged), rewrites the instance .env from current secrets/vars, and
-# restarts the compose stack. Use after rotating a secret (e.g. PUBLIC_URL)
-# or to recover from a failed deploy. Re-running an old release run also
-# picks up fresh secrets, but executes the workflow as of that run's
-# commit — this dispatch always uses the current workflow from main.
+# Redeploys the current release with fresh configuration — no new release,
+# no image rebuild. Use after rotating a secret or repo variable (e.g.
+# PUBLIC_URL): re-runs SST (incremental no-op when infra is unchanged),
+# rewrites the instance .env from current secrets/vars, and restarts the
+# compose stack, which pulls the already-published image. The release
+# artifact is never rebuilt or overwritten.
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: Release version to deploy (e.g. 0.17.0). Blank = latest release.
-        required: false
-        type: string
 
 # Top-level token is read-only; jobs declare their writes.
 permissions:
@@ -32,28 +26,18 @@ jobs:
           # Only local git reads happen here — don't leave the token behind.
           persist-credentials: false
 
-      - name: Resolve version
+      - name: Resolve current release version
         id: version
-        env:
-          REQUESTED: ${{ inputs.version }}
         run: |
-          if [ -n "$REQUESTED" ]; then
-            version="${REQUESTED#v}"
-          else
-            # Latest server release tag. --match "v[0-9]*" keeps cli-v* tags
-            # out of the candidate set (same filter as generate-notes.sh).
-            version=$(git describe --tags --abbrev=0 --match "v[0-9]*")
-            version="${version#v}"
-          fi
-          if ! git rev-parse --verify --quiet "refs/tags/v$version" > /dev/null; then
-            echo "::error::tag v$version not found — pass an existing release version"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Latest server release tag. --match "v[0-9]*" keeps cli-v* tags
+          # out of the candidate set (same filter as generate-notes.sh).
+          version=$(git describe --tags --abbrev=0 --match "v[0-9]*")
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: resolve-version
-    # Ceiling for the reusable workflow: AWS OIDC + GHCR push.
+    # Ceiling for the reusable workflow: AWS OIDC. packages:write is part
+    # of deploy.yml's declared set even though skip_build pushes nothing.
     permissions:
       id-token: write
       contents: read
@@ -61,4 +45,5 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       version: ${{ needs.resolve-version.outputs.version }}
+      skip_build: true
     secrets: inherit
