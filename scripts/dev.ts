@@ -10,16 +10,15 @@
  *                   to the VM, then `docker compose pull && up -d` over SSH
  *
  * The image is always `ghcr.io/${GHCR_USER}/vault-mcp:latest`. The
- * Lightsail IP is read from `.sst/outputs.json`, which SST writes
- * after a successful `sst deploy` (or `sst dev`).
+ * Lightsail IP is fetched from AWS (`aws lightsail get-static-ip`)
+ * using the stage in `.sst/stage` — it's deliberately not an SST
+ * output, so deploys never print it (CI logs are public).
  */
 
 import { execSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-
-type SstOutputs = { lightsailIp?: string; apiUrl?: string }
 
 const ENV_PATH = join(homedir(), ".config", "vault-cortex", ".env")
 
@@ -79,18 +78,28 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
 const sshHost = (): string => {
   if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
 
-  if (!existsSync(".sst/outputs.json")) {
-    console.error("✕  .sst/outputs.json not found. Run `npx sst deploy` first.")
+  if (!existsSync(".sst/stage")) {
+    console.error("✕  .sst/stage not found. Run `npx sst deploy` first.")
     process.exit(1)
   }
-  const outs = JSON.parse(
-    readFileSync(".sst/outputs.json", "utf8"),
-  ) as SstOutputs
-  if (!outs.lightsailIp) {
-    console.error("✕  lightsailIp missing from SST outputs.")
+  const stage = readFileSync(".sst/stage", "utf8").trim()
+  // Fetched from AWS rather than read from SST outputs — the IP is
+  // deliberately not an output, so deploys never print it (CI logs are
+  // public). The static-ip name matches sst.config.ts
+  // (`vault-cortex-ip-${stage}`).
+  const staticIpName = `vault-cortex-ip-${stage}`
+  const ip = execSync(
+    `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` +
+      `--query staticIp.ipAddress --output text`,
+    { env },
+  )
+    .toString()
+    .trim()
+  if (!ip || ip === "None") {
+    console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
   }
-  return outs.lightsailIp
+  return ip
 }
 
 // Returns `-i <path>` for the SSH identity to use.

@@ -66,14 +66,23 @@ jobs:
           oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
-      - name: Read Lightsail IP from SST outputs
+      # The IP is fetched from AWS rather than exposed as an SST output —
+      # SST prints outputs at the end of every deploy, which on a public
+      # repo means public Actions logs. The static-ip name matches
+      # sst.config.ts (`vault-cortex-ip-${stage}`).
+      - name: Fetch Lightsail IP from AWS
         id: sst
         run: |
-          if [ ! -f .sst/outputs.json ]; then
-            echo "::error::.sst/outputs.json missing after sst deploy"
+          ip=$(aws lightsail get-static-ip \
+            --static-ip-name "vault-cortex-ip-${SST_STAGE}" \
+            --query staticIp.ipAddress --output text)
+          if [ -z "$ip" ] || [ "$ip" = "None" ]; then
+            echo "::error::could not resolve the Lightsail static IP from AWS"
             exit 1
           fi
-          ip=$(jq -er '.lightsailIp' .sst/outputs.json)
+          # Forward-only mask: keeps the IP out of later steps' env headers
+          # and echoes in the public job log.
+          echo "::add-mask::$ip"
           echo "ip=$ip" >> "$GITHUB_OUTPUT"
 
       - name: Resolve SSH target
