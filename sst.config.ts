@@ -42,6 +42,21 @@ export default $config({
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
 
+    // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
+    // the auto-generated execute-api URL. DNS stays external (any provider):
+    // SST only creates the API Gateway domain + mapping from an existing
+    // ACM cert — after deploy, point a CNAME from the domain to the
+    // `customDomainTarget` output. CUSTOM_DOMAIN_CERT_ARN must be an ISSUED
+    // certificate in the API's region covering the name (wildcard or exact).
+    const customDomain = env("CUSTOM_DOMAIN").asString()
+    const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
+    if (customDomain && !customDomainCertArn) {
+      throw new Error(
+        "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
+          "ISSUED ACM certificate (in this API's region) covering that domain.",
+      )
+    }
+
     const expandHome = (p: string): string =>
       p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
 
@@ -229,6 +244,17 @@ export default $config({
     // and throttlingBurstLimit must BOTH be set — partial config is
     // interpreted as 0 and rejects all traffic (pulumi/pulumi-aws#2363).
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
+      // dns: false — SST skips DNS record creation (records live with the
+      // external DNS provider) and requires the pre-issued cert instead of
+      // provisioning one. The default execute-api endpoint stays active.
+      ...(customDomain &&
+        customDomainCertArn && {
+          domain: {
+            name: customDomain,
+            dns: false,
+            cert: customDomainCertArn,
+          },
+        }),
       transform: {
         stage: {
           defaultRouteSettings: {
@@ -280,6 +306,16 @@ export default $config({
     return {
       apiUrl: api.url,
       lightsailIp: staticIp.ipAddress,
+      // CNAME target for the custom domain: point CUSTOM_DOMAIN at this
+      // hostname with your DNS provider. Only present when configured.
+      // nodes.domainName is the component's documented accessor for the
+      // underlying aws.apigatewayv2.DomainName resource, and targetDomainName
+      // is the same output SST feeds its own DNS alias records from — verify
+      // both still hold when upgrading SST.
+      ...(customDomain && {
+        customDomainTarget:
+          api.nodes.domainName.domainNameConfiguration.targetDomainName,
+      }),
     }
   },
 })
