@@ -29,6 +29,8 @@ jobs:
         with:
           # git describe needs the tag history.
           fetch-depth: 0
+          # Only local git reads happen here — don't leave the token behind.
+          persist-credentials: false
 
       - name: Resolve version
         id: version
