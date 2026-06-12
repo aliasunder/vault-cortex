@@ -52,6 +52,8 @@ jobs:
           SSH_CIDRS: ${{ secrets.SSH_CIDRS }}
           ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
           MCP_PORT_CIDRS: ${{ secrets.MCP_PORT_CIDRS }}
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
+          CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
         run: npx sst deploy --stage "$SST_STAGE"
 
       - name: Connect to Tailscale
