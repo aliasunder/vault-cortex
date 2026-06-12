@@ -55,6 +55,32 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Best-effort masking BEFORE SST runs: the checked-out release tag's
+      # sst.config.ts may predate the removal of identifier outputs
+      # (v0.17.0 and earlier), in which case `sst deploy` prints the
+      # Lightsail IP and custom-domain target. Both lookups tolerate
+      # absence — on a first-ever deploy the resources don't exist yet,
+      # and the post-deploy fetch below is the authoritative one.
+      - name: Pre-mask instance identifiers
+        env:
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
+        run: |
+          ip=$(aws lightsail get-static-ip \
+            --static-ip-name "vault-cortex-ip-${SST_STAGE}" \
+            --query staticIp.ipAddress --output text 2>/dev/null || true)
+          if [ -n "$ip" ] && [ "$ip" != "None" ]; then
+            echo "::add-mask::$ip"
+          fi
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            target=$(aws apigatewayv2 get-domain-name \
+              --domain-name "$CUSTOM_DOMAIN" \
+              --query 'DomainNameConfigurations[0].ApiGatewayDomainName' \
+              --output text 2>/dev/null || true)
+            if [ -n "$target" ] && [ "$target" != "None" ]; then
+              echo "::add-mask::$target"
+            fi
+          fi
+
       - name: SST deploy
         env:
           SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
