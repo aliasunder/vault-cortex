@@ -81,8 +81,6 @@ docker compose up
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
-Run Vault Cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
-
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
 ```bash
