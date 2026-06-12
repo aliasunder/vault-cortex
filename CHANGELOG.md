@@ -29,6 +29,18 @@
 
 
 
+
+## [0.17.0] — 2026-06-12
+
+### Features
+
+- **deploy:** Optional custom domain for API Gateway (#117)
+
+### Documentation
+
+- **readme:** Restructure quick start — CLI-first remote, shared connect section (#116)
+- Update CHANGELOG.md for v0.16.3
+
 ## [0.16.3] — 2026-06-11
 
 ### Documentation
