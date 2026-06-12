@@ -92,7 +92,7 @@ npx vault-cortex@latest init --mode remote
 
 The CLI walks through the full setup interactively — public URL, Obsidian Sync token (it can run the token generator for you), auth token, and config files — then starts the server.
 
-Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. JWT access tokens refresh automatically.
+Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. Your client renews expiring access tokens automatically via its refresh token (60-day sliding expiry).
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
