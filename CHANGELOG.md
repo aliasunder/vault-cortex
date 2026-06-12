@@ -30,6 +30,18 @@
 
 
 
+
+## [0.17.1] — 2026-06-12
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.0
+
+### CI / Infrastructure
+
+- Add Force Deploy dispatch workflow (redeploy current release) (#119)
+- **deploy:** Stop emitting instance identifiers as SST outputs (#118)
+
 ## [0.17.0] — 2026-06-12
 
 ### Features
