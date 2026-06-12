@@ -83,6 +83,20 @@ docker compose up
 
 Run Vault Cortex on a VPS with [Obsidian Sync](https://obsidian.md/sync) for remote access from any device.
 
+**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
+
+```bash
+# On your VPS:
+npx vault-cortex@latest init --mode remote
+```
+
+The CLI walks through the full setup interactively — public URL, Obsidian Sync token (it can run the token generator for you), auth token, and config files — then starts the server.
+
+Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. JWT access tokens refresh automatically.
+
+<details>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
+
 ```bash
 # On your VPS:
 mkdir -p /opt/vault-cortex && cd /opt/vault-cortex
@@ -93,9 +107,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Connect via OAuth — add a remote MCP server with `<PUBLIC_URL>/mcp`. A consent page opens; enter your token to approve. JWT access tokens refresh automatically.
-
-If your VPS has Node.js >= 20.12, `npx vault-cortex@latest init --mode remote` walks through the same setup interactively (including the Obsidian Sync token step).
+</details>
 
 **[Full remote guide →](./deploy/remote/)**
 
