@@ -99,7 +99,12 @@ curl http://<lightsailIp>:8000/healthz
 curl <ORIGIN_URL>/healthz
 ```
 
-`<lightsailIp>` and `<apiUrl>` come from the `sst deploy` output (also in `.sst/outputs.json`).
+`<apiUrl>` comes from the `sst deploy` output (also in `.sst/outputs.json`). The Lightsail IP is deliberately **not** an SST output — outputs print on every deploy, and on a public repo that means public Actions logs. Fetch it from AWS instead:
+
+```bash
+aws lightsail get-static-ip --static-ip-name vault-cortex-ip-<stage> \
+  --query staticIp.ipAddress --output text
+```
 
 ## Command reference
 
@@ -288,7 +293,7 @@ Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is sc
 ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 ```
 
-`<lightsailIp>` comes from `sst deploy` output (also in `.sst/outputs.json`). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
+`<lightsailIp>` comes from `aws lightsail get-static-ip` (see [Verify](#verify) — it is deliberately not an SST output). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 
 ### Tailing logs
 
@@ -601,7 +606,14 @@ npx sst deploy
 
 For CI deploys, set both as repo secrets — `deploy.yml` passes them through. Both must be set together; `CUSTOM_DOMAIN` without the cert ARN fails fast with an error.
 
-**3. Point DNS at the gateway** — the deploy prints a `customDomainTarget` output (a `d-xxxx.execute-api.<region>.amazonaws.com` hostname). Create a CNAME from your domain to that target at your DNS provider. Verify:
+**3. Point DNS at the gateway** — fetch the gateway's target hostname (a `d-xxxx.execute-api.<region>.amazonaws.com` name; deliberately not a deploy output, so it stays out of public CI logs):
+
+```bash
+aws apigatewayv2 get-domain-name --domain-name mcp.example.com \
+  --query 'DomainNameConfigurations[0].ApiGatewayDomainName' --output text
+```
+
+Create a CNAME from your domain to that target at your DNS provider. Verify:
 
 ```bash
 curl https://mcp.example.com/healthz

@@ -46,7 +46,8 @@ export default $config({
     // the auto-generated execute-api URL. DNS stays external (any provider):
     // SST only creates the API Gateway domain + mapping from an existing
     // ACM cert — after deploy, point a CNAME from the domain to the
-    // `customDomainTarget` output. CUSTOM_DOMAIN_CERT_ARN must be an ISSUED
+    // gateway's target hostname (see DEPLOY.md § Custom Domain for the
+    // aws CLI command). CUSTOM_DOMAIN_CERT_ARN must be an ISSUED
     // certificate in the API's region covering the name (wildcard or exact).
     const customDomain = env("CUSTOM_DOMAIN").asString()
     const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
@@ -303,19 +304,15 @@ export default $config({
       auth: { lambda: authorizer.id },
     })
 
+    // Deliberately NOT outputs: the Lightsail IP and the custom domain's
+    // CNAME target. SST prints outputs at the end of every deploy — in CI
+    // that means public Actions logs. Fetch them from AWS instead:
+    //   aws lightsail get-static-ip --static-ip-name vault-cortex-ip-<stage> \
+    //     --query staticIp.ipAddress --output text
+    //   aws apigatewayv2 get-domain-name --domain-name <CUSTOM_DOMAIN> \
+    //     --query 'DomainNameConfigurations[0].ApiGatewayDomainName' --output text
     return {
       apiUrl: api.url,
-      lightsailIp: staticIp.ipAddress,
-      // CNAME target for the custom domain: point CUSTOM_DOMAIN at this
-      // hostname with your DNS provider. Only present when configured.
-      // nodes.domainName is the component's documented accessor for the
-      // underlying aws.apigatewayv2.DomainName resource, and targetDomainName
-      // is the same output SST feeds its own DNS alias records from — verify
-      // both still hold when upgrading SST.
-      ...(customDomain && {
-        customDomainTarget:
-          api.nodes.domainName.domainNameConfiguration.targetDomainName,
-      }),
     }
   },
 })
