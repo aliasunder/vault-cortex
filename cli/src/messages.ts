@@ -59,6 +59,35 @@ const tokenBlock = (params: {
     : `${paint("dim", "Auth token:")} use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
 }
 
+// ── Shared connect-message blocks ───────────────────────────────────────────
+// Both modes print the same skeleton; only the URL and the bits the topology
+// forces apart (start line, the Claude-apps caveat, optional-settings list,
+// docs link) differ. Sharing these blocks keeps the two messages in lockstep.
+// `mcpUrl` is the full endpoint (`<base>/mcp`); `healthUrl` is `<base>/healthz`.
+
+const connectUrlBlock = (mcpUrl: string, tokenLine: string): string =>
+  `Connect your MCP client:
+  ${paint("dim", "URL:")}        ${paint("cyan", mcpUrl)}
+  ${tokenLine}`
+
+// OAuth connect line + the http client example. The claude.ai/Claude Desktop
+// connector dialog rejects http URLs; clients you point at a plain URL (Claude
+// Code, opencode, …) are fine, with Claude Code as the concrete example. Used
+// for every http case — local (always localhost http) and remote over http.
+const httpConnectGuidance = (mcpUrl: string): string =>
+  `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
+then approve the consent page with the token. Clients you point at a plain
+URL (Claude Code, opencode, …) work over http — for example, Claude Code:
+  claude mcp add --scope user --transport http vault-cortex ${mcpUrl}`
+
+const curlGuidance = (mcpUrl: string): string =>
+  `Clients without OAuth, scripts, and curl send the token directly:
+  curl -H "Authorization: Bearer <token>" ${mcpUrl}`
+
+const smokeTest = (healthUrl: string): string =>
+  `Smoke test:
+  curl ${healthUrl}`
+
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
  * may override the default, so the message must describe the server that will
@@ -73,6 +102,8 @@ export const buildLocalConnectMessage = (params: {
 }): string => {
   const { targetDir, token, started, port, tokenWritten } = params
 
+  const baseUrl = `http://localhost:${port}`
+
   const startLine = started
     ? "The server is running."
     : startServerLine(targetDir)
@@ -80,44 +111,31 @@ export const buildLocalConnectMessage = (params: {
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
-  // leading whitespace would render as literal indentation.
+  // leading whitespace would render as literal indentation. Local is always
+  // localhost http, so it shares the http guidance; its only divergences are
+  // that claude.ai can't reach localhost at all and Claude Desktop needs the
+  // mcp-remote bridge (the dialog rejects http, but mcp-remote exempts
+  // localhost, so no --allow-http).
   const connectMessage = `${connectHeader()}
 
 ${startLine}
 
-Connect your MCP client:
-  ${paint("dim", "URL:")}        ${paint("cyan", `http://localhost:${port}/mcp`)}
-  ${tokenLine}
+${connectUrlBlock(`${baseUrl}/mcp`, tokenLine)}
 
-Claude Code:
-  1. claude mcp add --scope user --transport http vault-cortex http://localhost:${port}/mcp
-     (--scope user registers it for every project; drop it to scope
-     the server to the current directory only)
-  2. Approve the browser consent page with the token above
-  3. Done. The client holds auto-refreshing access tokens; the
-     token never sits in client config
+${httpConnectGuidance(`${baseUrl}/mcp`)}
 
-Claude Desktop only accepts https URLs in its connector dialog, so
-register the server in claude_desktop_config.json via the mcp-remote
-bridge instead:
+Note: claude.ai (web) can't reach localhost — connect from a client on
+this machine. Claude Desktop only accepts https URLs in its connector
+dialog, so bridge it with mcp-remote:
   "vault-cortex": {
     "command": "npx",
-    "args": ["-y", "mcp-remote", "http://localhost:${port}/mcp",
+    "args": ["-y", "mcp-remote", "${baseUrl}/mcp",
       "--header", "Authorization: Bearer <token above>"]
   }
 
-Other OAuth clients (Cursor, most MCP clients) add the URL above as a
-remote MCP server, leaving Client ID/Secret empty ("remote" = HTTP —
-the server still runs on your machine), then approve the consent page.
+${curlGuidance(`${baseUrl}/mcp`)}
 
-Clients without OAuth, scripts, and curl send the token directly:
-  curl -H "Authorization: Bearer <token>" http://localhost:${port}/mcp
-
-Note: claude.ai (web) cannot reach localhost — use Claude Code for local
-access, or Claude Desktop with the mcp-remote bridge.
-
-Smoke test:
-  curl http://localhost:${port}/healthz
+${smokeTest(`${baseUrl}/healthz`)}
 
 Optional settings (timezone, memory folder, port, logging) are commented
 out in ${targetDir}/.env — uncomment, set a value, then apply with
@@ -158,17 +176,21 @@ export const buildRemoteConnectMessage = (params: {
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 
-  // Only Claude Code accepts an http URL in its connector flow; claude.ai and
-  // Claude Desktop require https. The warning rides under the OAuth section so
-  // it caveats the client list right where it's read.
-  const httpUrlWarning = publicUrl.startsWith("https://")
-    ? ""
-    : `
+  // Over https every client converges on the same flow, so one line covers
+  // them all and there's nothing to set up. Over http it's the same guidance
+  // as local, plus a note that the Claude apps need TLS (the localhost-only
+  // divergences don't apply here). We already know which case it is, so the
+  // http branch states it rather than asking.
+  const clientGuidance = publicUrl.startsWith("https://")
+    ? `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
+then approve the consent page with the token. Any MCP client can reach it
+over https — Claude Code, Claude Desktop, claude.ai (web and mobile),
+opencode, Cursor — from any device.`
+    : `${httpConnectGuidance(`${publicUrl}/mcp`)}
 
-Using an http URL? claude.ai and Claude Desktop only accept https URLs —
-set up HTTPS for those (see "For HTTPS options" below). Claude Code works
-with http:
-  claude mcp add --scope user --transport http vault-cortex ${publicUrl}/mcp`
+Note: claude.ai and Claude Desktop only accept https URLs — set up HTTPS
+when you're ready for those clients (see the HTTPS section in the remote
+guide).`
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation.
@@ -176,29 +198,20 @@ with http:
 
 ${startLine}
 
-Connect your MCP client:
-  ${paint("dim", "URL:")}        ${paint("cyan", `${publicUrl}/mcp`)}
-  ${tokenLine}
+${connectUrlBlock(`${publicUrl}/mcp`, tokenLine)}
 
-OAuth clients (Claude Code, Claude Desktop, claude.ai, Cursor):
-  Add the URL above as a remote MCP server, leaving Client ID/Secret
-  empty, then approve the consent page with the auth token above. The
-  client holds auto-refreshing access tokens; the token never sits in
-  client config.${httpUrlWarning}
+${clientGuidance}
 
-Clients without OAuth, scripts, and curl send the token directly:
-  curl -H "Authorization: Bearer <token>" ${publicUrl}/mcp
+${curlGuidance(`${publicUrl}/mcp`)}
 
-Smoke test:
-  curl ${publicUrl}/healthz
+${smokeTest(`${publicUrl}/healthz`)}
 
 Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
 value, then apply with "docker compose up -d" (restart alone does not
 re-read .env).
 
-For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
-https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
+Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md`
 
   return connectMessage
 }
