@@ -273,7 +273,7 @@ describe("remote connect message https routing", () => {
   it("omits the http warning when PUBLIC_URL is https", async () => {
     const connectMessage = await runRemoteInit("https://vault.example.com")
 
-    expect(connectMessage).not.toContain("only\naccepts https URLs")
+    expect(connectMessage).not.toContain("only accept https URLs")
     expect(connectMessage).not.toContain("claude mcp add")
   })
 })

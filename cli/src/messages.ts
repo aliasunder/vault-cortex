@@ -51,10 +51,10 @@ Connect your MCP client:
   ${tokenLine}
 
 Claude Code:
-  claude mcp add --transport http vault-cortex http://localhost:${port}/mcp
-  Approve the browser consent page with the token above — the client
-  then holds auto-refreshing access tokens; the token never sits in
-  client config
+  1. claude mcp add --transport http vault-cortex http://localhost:${port}/mcp
+  2. Approve the browser consent page with the token above
+  3. Done. The client holds auto-refreshing access tokens; the
+     token never sits in client config
 
 Claude Desktop only accepts https URLs in its connector dialog, so
 register the server in claude_desktop_config.json via the mcp-remote

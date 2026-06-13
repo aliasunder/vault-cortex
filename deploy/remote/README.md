@@ -137,9 +137,7 @@ Secret empty — dynamic registration handles it. A consent page opens in your
 browser; enter your `MCP_AUTH_TOKEN` to approve. The client receives a JWT
 access token (24h) with automatic refresh (60-day sliding window).
 
-Claude's "Add custom connector" dialog (claude.ai and Claude Desktop) only
-accepts `https` URLs — every [HTTPS access](#https-access) option above
-provides one. Claude Code accepts `http` URLs too:
+Claude Code also accepts `http` URLs directly:
 
 ```bash
 claude mcp add --transport http vault-cortex <PUBLIC_URL>/mcp

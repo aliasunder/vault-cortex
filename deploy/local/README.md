@@ -44,13 +44,10 @@ The server listens at `http://localhost:8000/mcp`.
 
 **Claude Code:**
 
-```bash
-claude mcp add --transport http vault-cortex http://localhost:8000/mcp
-```
-
-First use opens a consent page in your browser — approve with your
-`MCP_AUTH_TOKEN`. The client receives auto-refreshing access tokens, so the
-token itself never sits in client config.
+1. Run `claude mcp add --transport http vault-cortex http://localhost:8000/mcp`
+2. Approve the consent page in your browser with your `MCP_AUTH_TOKEN`.
+3. Done. The client receives auto-refreshing access tokens, so the token
+   itself never sits in client config.
 
 **Claude Desktop:** the "Add custom connector" dialog only accepts `https`
 URLs, so a localhost server can't be added there. Register it in
@@ -83,6 +80,8 @@ an env var instead: `"--header", "Authorization:${AUTH_HEADER}"` with
 1. Add `http://localhost:8000/mcp` as a remote MCP server, leaving OAuth
    Client ID and Secret empty.
 2. A consent page opens in your browser — approve with your `MCP_AUTH_TOKEN`.
+3. Done. The client receives auto-refreshing access tokens, so the token
+   itself never sits in client config.
 
 - "Remote" refers to the connection type (HTTP, as opposed to a stdio process
   the client launches itself) — this server still runs entirely on your

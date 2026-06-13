@@ -112,7 +112,7 @@ docker compose up -d
 | **Local**  | `http://localhost:8000/mcp` |
 | **Remote** | `<PUBLIC_URL>/mcp`          |
 
-Most clients — Claude Code, Cursor, OpenCode, MCP Inspector — accept either URL directly as a remote/HTTP MCP server. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
+Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, OpenCode, or any other. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
 
 **Claude Code:**
 
@@ -120,7 +120,7 @@ Most clients — Claude Code, Cursor, OpenCode, MCP Inspector — accept either 
 claude mcp add --transport http vault-cortex http://localhost:8000/mcp   # local (or <PUBLIC_URL>/mcp)
 ```
 
-**Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. Remote setups (`https` `PUBLIC_URL`) connect there directly; for the local setup, register the server in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+**Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
 
 ```json
 {
