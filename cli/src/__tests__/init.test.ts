@@ -337,8 +337,12 @@ describe("remote connect message https routing", () => {
   it("omits the http warning when PUBLIC_URL is https", async () => {
     const connectMessage = await runRemoteInit("https://vault.example.com")
 
+    // The Claude Code walkthrough is shared by every variant, so the command
+    // is present; what https omits is the http-only "set up HTTPS" caveat.
+    expect(connectMessage).toContain("claude mcp add")
     expect(connectMessage).not.toContain("only accept https URLs")
-    expect(connectMessage).not.toContain("claude mcp add")
+    expect(connectMessage).not.toContain("set up HTTPS")
+    expect(connectMessage).toContain("Reachable over https")
   })
 
   it("rejects a trailing /mcp on PUBLIC_URL and re-prompts for the base origin", async () => {

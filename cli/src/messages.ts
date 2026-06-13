@@ -70,14 +70,15 @@ const connectUrlBlock = (mcpUrl: string, tokenLine: string): string =>
   ${paint("dim", "URL:")}        ${paint("cyan", mcpUrl)}
   ${tokenLine}`
 
-// OAuth connect line + the http client example. The claude.ai/Claude Desktop
-// connector dialog rejects http URLs; clients you point at a plain URL (Claude
-// Code, opencode, …) are fine, with Claude Code as the concrete example. Used
-// for every http case — local (always localhost http) and remote over http.
-const httpConnectGuidance = (mcpUrl: string): string =>
+// OAuth connect instruction + the Claude Code walkthrough — shared by every
+// variant. You register the server by its URL however your MCP client allows:
+// a CLI (`claude mcp add`, `opencode mcp add`), a connector dialog, or a
+// config file — then approve the consent page. Claude Code is the worked
+// example. The per-mode caveats (which clients need https, the localhost
+// bridge) are appended by the builders.
+const connectGuidance = (mcpUrl: string): string =>
   `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
-then approve the consent page with the token. Clients you point at a plain
-URL (Claude Code, opencode, …) work over http — for example, Claude Code:
+then approve the consent page with the token. For example, Claude Code:
   1. claude mcp add --scope user --transport http vault-cortex ${mcpUrl}
   2. approve the browser consent page with the token above
   3. done — the client holds auto-refreshing access tokens; the token
@@ -125,11 +126,12 @@ ${startLine}
 
 ${connectUrlBlock(`${baseUrl}/mcp`, tokenLine)}
 
-${httpConnectGuidance(`${baseUrl}/mcp`)}
+${connectGuidance(`${baseUrl}/mcp`)}
 
-Note: claude.ai (web) can't reach localhost — connect from a client on
-this machine. Claude Desktop only accepts https URLs in its connector
-dialog, so bridge it with mcp-remote:
+Other clients (opencode, Cursor, …) take the URL above too. claude.ai
+(web) can't reach localhost — connect from a client on this machine.
+Claude Desktop only accepts https URLs in its connector dialog, so bridge
+it with mcp-remote:
   "vault-cortex": {
     "command": "npx",
     "args": ["-y", "mcp-remote", "${baseUrl}/mcp",
@@ -179,21 +181,20 @@ export const buildRemoteConnectMessage = (params: {
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 
-  // Over https every client converges on the same flow, so one line covers
-  // them all and there's nothing to set up. Over http it's the same guidance
-  // as local, plus a note that the Claude apps need TLS (the localhost-only
-  // divergences don't apply here). We already know which case it is, so the
-  // http branch states it rather than asking.
+  // Both branches share the connect walkthrough; only the caveat differs. Over
+  // https every client converges — nothing to set up. Over http the Claude
+  // apps' connector dialog needs TLS while other clients are fine. We already
+  // know which case it is, so the http branch states it rather than asking.
   const clientGuidance = publicUrl.startsWith("https://")
-    ? `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
-then approve the consent page with the token. Any MCP client can reach it
-over https — Claude Code, Claude Desktop, claude.ai (web and mobile),
-opencode, Cursor — from any device.`
-    : `${httpConnectGuidance(`${publicUrl}/mcp`)}
+    ? `${connectGuidance(`${publicUrl}/mcp`)}
 
-Note: claude.ai and Claude Desktop only accept https URLs — set up HTTPS
-when you're ready for those clients (see the HTTPS section in the remote
-guide).`
+Reachable over https from any MCP client — Claude Desktop, claude.ai (web
+and mobile), opencode, Cursor — from any device.`
+    : `${connectGuidance(`${publicUrl}/mcp`)}
+
+Other clients (opencode, Cursor, …) work over http too. claude.ai and
+Claude Desktop only accept https URLs — set up HTTPS for those clients
+(see the HTTPS section in the remote guide).`
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation.
