@@ -118,6 +118,17 @@ export const buildRemoteConnectMessage = (params: {
     ? `approve with your MCP_AUTH_TOKEN:\n  ${token}`
     : `approve with the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
 
+  // Claude's connector dialog (claude.ai, Claude Desktop) rejects http URLs,
+  // so an http PUBLIC_URL needs the Claude Code route or an HTTPS front.
+  const httpUrlWarning = publicUrl.startsWith("https://")
+    ? ""
+    : `
+
+Note: Claude's connector dialog (claude.ai, Claude Desktop) only
+accepts https URLs. With this http URL, connect via Claude Code:
+  claude mcp add --transport http vault-cortex ${publicUrl}/mcp
+or front the server with HTTPS (see the options link below).`
+
   // Flush-left on purpose: template literals keep leading whitespace, so
   // indenting these lines would indent the rendered output.
   const connectMessage = `${startLine}
@@ -127,7 +138,7 @@ Connect your MCP client:
 
 OAuth clients (Claude Desktop, Claude Code, claude.ai): add a remote MCP
 server with that URL and leave Client ID/Secret empty — a consent page
-opens; ${approveLine}
+opens; ${approveLine}${httpUrlWarning}
 
 Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
