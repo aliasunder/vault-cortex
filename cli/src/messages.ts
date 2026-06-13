@@ -72,8 +72,8 @@ the server still runs on your machine), then approve the consent page.
 Clients without OAuth, scripts, and curl send the token directly:
   curl -H "Authorization: Bearer <token>" http://localhost:${port}/mcp
 
-Note: claude.ai (web) cannot reach localhost — use Claude Code or the
-mcp-remote bridge for a local server.
+Note: claude.ai (web) cannot reach localhost — use Claude Code for local
+access, or Claude Desktop with the mcp-remote bridge.
 
 Smoke test:
   curl http://localhost:${port}/healthz
