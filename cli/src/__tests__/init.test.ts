@@ -264,7 +264,7 @@ describe("remote connect message https routing", () => {
   it("warns and offers claude mcp add when PUBLIC_URL is http", async () => {
     const connectMessage = await runRemoteInit("http://203.0.113.10:8000")
 
-    expect(connectMessage).toContain("only\naccepts https URLs")
+    expect(connectMessage).toContain("only accept https URLs")
     expect(connectMessage).toContain(
       "claude mcp add --transport http vault-cortex http://203.0.113.10:8000/mcp",
     )
