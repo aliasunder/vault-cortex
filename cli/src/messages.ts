@@ -78,7 +78,10 @@ const httpConnectGuidance = (mcpUrl: string): string =>
   `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
 then approve the consent page with the token. Clients you point at a plain
 URL (Claude Code, opencode, …) work over http — for example, Claude Code:
-  claude mcp add --scope user --transport http vault-cortex ${mcpUrl}`
+  1. claude mcp add --scope user --transport http vault-cortex ${mcpUrl}
+  2. approve the browser consent page with the token above
+  3. done — the client holds auto-refreshing access tokens; the token
+     never sits in client config`
 
 const curlGuidance = (mcpUrl: string): string =>
   `Clients without OAuth, scripts, and curl send the token directly:
