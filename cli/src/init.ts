@@ -113,30 +113,17 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
 }
 
 /**
- * Matches, at the END of the string, an optional `/mcp` segment followed by
- * any run of slashes:
- *   - `(\/mcp)?` — an optional literal `/mcp` (case-insensitive via the `i`
- *     flag, so `/MCP` matches too)
- *   - `\/*$`    — zero or more trailing slashes, anchored to the end
- *
- * Replacing the match with "" normalizes PUBLIC_URL to the bare origin:
- *   `https://x.com/`        → `https://x.com`
- *   `https://x.com/mcp`     → `https://x.com`
- *   `https://x.com/mcp/`    → `https://x.com`
- *   `https://x.com/mcphost` → `https://x.com/mcphost`  (only a whole final
- *                                                       `/mcp` segment, not a
- *                                                       prefix, is stripped)
- *
- * The server appends `/mcp` itself when building the connect URL, so a
- * PUBLIC_URL that already ends in `/mcp` would otherwise yield `/mcp/mcp`.
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end (`/MCP`, `/mcp/` match too via the `i` flag). PUBLIC_URL is the base
+ * origin — the server owns the `/mcp` endpoint and appends it when building the
+ * connect URL — so a re-included `/mcp` is rejected rather than silently
+ * rewritten: the stored value always stays exactly what the user typed.
  */
-const TRAILING_MCP_OR_SLASH = /(\/mcp)?\/*$/i
+const TRAILING_MCP = /\/mcp\/*$/i
 
-/** Re-prompts until the answer is a plausible http(s) URL. */
+/** Re-prompts until the answer is a plausible base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
-    // Base origin only — the server owns the /mcp path, so asking for it here
-    // (and normalizing it off below) avoids a re-entered /mcp/mcp.
     "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
     {
       placeholder: "https://vault.example.com or http://203.0.113.10:8000",
@@ -147,7 +134,16 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
     prompts.error("PUBLIC_URL must start with http:// or https://")
     return askPublicUrl(prompts)
   }
-  return trimmed.replace(TRAILING_MCP_OR_SLASH, "")
+  // Reject a re-included endpoint path instead of stripping it silently —
+  // PUBLIC_URL is the base origin and the server adds /mcp itself.
+  if (TRAILING_MCP.test(trimmed)) {
+    prompts.error(
+      "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    )
+    return askPublicUrl(prompts)
+  }
+  // Trim a trailing slash so the connect URL is `${base}/mcp`, never `${base}//mcp`.
+  return trimmed.replace(/\/+$/, "")
 }
 
 /** Re-prompts until non-empty. */

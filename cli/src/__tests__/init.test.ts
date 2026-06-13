@@ -341,10 +341,11 @@ describe("remote connect message https routing", () => {
     expect(connectMessage).not.toContain("claude mcp add")
   })
 
-  it("strips a trailing /mcp from PUBLIC_URL so the connect URL is not /mcp/mcp", async () => {
+  it("rejects a trailing /mcp on PUBLIC_URL and re-prompts for the base origin", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
-      "https://vault.example.com/mcp", // user re-included the /mcp path
+      "https://vault.example.com/mcp", // re-included the /mcp path — rejected
+      "https://vault.example.com", // base origin — accepted on re-prompt
       "MyVault",
       "", // blank sync token — fill in .env later
       false, // no encryption
@@ -360,15 +361,43 @@ describe("remote connect message https routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    // PUBLIC_URL is normalized to the bare origin; the server appends /mcp.
+    expect(scripted.errors).toHaveLength(1)
+    expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL")
+    // The accepted base origin is stored verbatim — not silently rewritten —
+    // and the connect URL appends /mcp exactly once.
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
       "PUBLIC_URL=https://vault.example.com\n",
     )
     const connectMessage = scripted.prints[0]
     expect(connectMessage).toContain("https://vault.example.com/mcp")
-    // The connect URL itself must not double the path (the explanatory note
-    // mentions the literal "/mcp/mcp", so assert against the doubled URL).
     expect(connectMessage).not.toContain("https://vault.example.com/mcp/mcp")
+  })
+
+  it("trims a trailing slash on PUBLIC_URL so the connect URL is not //mcp", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com/", // trailing slash — trimmed, not rejected
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toHaveLength(0)
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "PUBLIC_URL=https://vault.example.com\n",
+    )
+    expect(scripted.prints[0]).toContain("https://vault.example.com/mcp")
+    expect(scripted.prints[0]).not.toContain("https://vault.example.com//mcp")
   })
 
   it("prints the generated auth token alone on its own line for clean copying", async () => {

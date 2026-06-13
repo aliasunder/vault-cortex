@@ -20,14 +20,6 @@ const paint = (style: TextStyle, text: string): string =>
 const connectHeader = (): string =>
   `${paint("bold", "Connect")}\n${paint("dim", "─".repeat(56))}`
 
-// The displayed URL already includes the server's /mcp endpoint path. When
-// pasting it into a client's server-URL field, appending /mcp a second time
-// produces /mcp/mcp, which 404s. (init already strips a /mcp the user typed
-// into the PUBLIC_URL prompt; this note covers the later client-paste step the
-// CLI can't intercept.)
-const mcpPathNote =
-  "The URL above already includes the /mcp endpoint — paste it as-is.\nDon't add /mcp again in your client's server-URL field, or it requests\n/mcp/mcp and won't connect."
-
 const composeUpCommand = (targetDir: string): string =>
   `cd ${targetDir} && docker compose up -d`
 
@@ -96,8 +88,6 @@ ${startLine}
 Connect your MCP client:
   ${paint("dim", "URL:")}        ${paint("cyan", `http://localhost:${port}/mcp`)}
   ${tokenLine}
-
-${mcpPathNote}
 
 Claude Code:
   1. claude mcp add --scope user --transport http vault-cortex http://localhost:${port}/mcp
@@ -189,8 +179,6 @@ ${startLine}
 Connect your MCP client:
   ${paint("dim", "URL:")}        ${paint("cyan", `${publicUrl}/mcp`)}
   ${tokenLine}
-
-${mcpPathNote}
 
 OAuth clients (Claude Code, Claude Desktop, claude.ai, Cursor):
   Add the URL above as a remote MCP server, leaving Client ID/Secret
