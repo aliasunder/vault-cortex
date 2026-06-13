@@ -33,6 +33,17 @@
 
 
 
+
+## [0.17.4] — 2026-06-13
+
+### Bug Fixes
+
+- **auth:** Tolerate whitespace in consent-page token submission (#124)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.3
+
 ## [0.17.3] — 2026-06-13
 
 ### Documentation
