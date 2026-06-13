@@ -117,8 +117,10 @@ Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, Op
 **Claude Code:**
 
 ```bash
-claude mcp add --transport http vault-cortex http://localhost:8000/mcp   # local (or <PUBLIC_URL>/mcp)
+claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp   # local (or <PUBLIC_URL>/mcp)
 ```
+
+`--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
 **Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
 
