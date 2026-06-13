@@ -126,10 +126,11 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 
 > **Note:** `PUBLIC_URL` must match exactly how MCP clients reach the server.
 > OAuth discovery metadata uses this URL, so a mismatch causes authentication
-> failures. Set it to the **base origin only** — don't include the `/mcp`
-> path. The server serves the MCP endpoint at `/mcp`, which the URLs below
-> append for you; a `PUBLIC_URL` ending in `/mcp` produces `…/mcp/mcp` and
-> won't connect.
+> failures.
+>
+> Use the **base origin only**, without `/mcp` — the server serves the endpoint
+> at `/mcp` and the URLs below append it, so a `PUBLIC_URL` ending in `/mcp`
+> becomes `…/mcp/mcp` and won't connect.
 
 ## Connect your MCP client
 

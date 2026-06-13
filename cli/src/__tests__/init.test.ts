@@ -345,6 +345,16 @@ describe("remote connect message https routing", () => {
     expect(connectMessage).toContain("Reachable over https")
   })
 
+  it("routes an uppercase HTTPS:// scheme to the https guidance", async () => {
+    // PUBLIC_URL is stored as typed, so the https detection must be
+    // case-insensitive — HTTPS:// is valid and must not fall to http guidance.
+    const connectMessage = await runRemoteInit("HTTPS://vault.example.com")
+
+    expect(connectMessage).toContain("Reachable over https")
+    expect(connectMessage).not.toContain("only accept https URLs")
+    expect(connectMessage).not.toContain("set up HTTPS")
+  })
+
   it("rejects a trailing /mcp on PUBLIC_URL and re-prompts for the base origin", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
