@@ -14,7 +14,7 @@ import {
   type Mode,
 } from "./scaffold.js"
 import { generateToken } from "./token.js"
-import { validateVaultPath } from "./vault.js"
+import { expandTilde, validateVaultPath } from "./vault.js"
 import type { Prompts } from "./prompts.js"
 
 export type InitFlags = {
@@ -257,14 +257,18 @@ const runLocalInit = async (
       ? vaultPathResult.path
       : await askVaultPath(prompts)
 
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(
-    flags.dir ??
-      (flags.yes
-        ? DEFAULT_TARGET_DIR
-        : await prompts.text("Where should I put the config files?", {
-            defaultValue: DEFAULT_TARGET_DIR,
-            placeholder: DEFAULT_TARGET_DIR,
-          })),
+    expandTilde(
+      flags.dir ??
+        (flags.yes
+          ? DEFAULT_TARGET_DIR
+          : await prompts.text("Where should I put the config files?", {
+              defaultValue: DEFAULT_TARGET_DIR,
+              placeholder: DEFAULT_TARGET_DIR,
+            })),
+    ),
   )
 
   const token = generateToken()
@@ -319,12 +323,16 @@ const runRemoteInit = async (
 ): Promise<number> => {
   const { prompts, docker } = deps
 
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(
-    flags.dir ??
-      (await prompts.text("Where should I put the config files?", {
-        defaultValue: DEFAULT_TARGET_DIR,
-        placeholder: DEFAULT_TARGET_DIR,
-      })),
+    expandTilde(
+      flags.dir ??
+        (await prompts.text("Where should I put the config files?", {
+          defaultValue: DEFAULT_TARGET_DIR,
+          placeholder: DEFAULT_TARGET_DIR,
+        })),
+    ),
   )
 
   const publicUrl = await askPublicUrl(prompts)

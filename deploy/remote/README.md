@@ -140,8 +140,10 @@ access token (24h) with automatic refresh (60-day sliding window).
 Claude Code also accepts `http` URLs directly:
 
 ```bash
-claude mcp add --transport http vault-cortex <PUBLIC_URL>/mcp
+claude mcp add --scope user --transport http vault-cortex <PUBLIC_URL>/mcp
 ```
+
+`--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
 ### Static bearer token (CLI tools, curl)
 

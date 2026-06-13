@@ -1,7 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runInit } from "../init.js"
 import { readComposeTemplate } from "../scaffold.js"
@@ -223,7 +229,7 @@ describe("local connect message client routing", () => {
     expect(exitCode).toBe(0)
     const connectMessage = scripted.notes[0]
     expect(connectMessage).toContain(
-      "claude mcp add --transport http vault-cortex http://localhost:8000/mcp",
+      "claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp",
     )
     expect(connectMessage).toContain(
       '"mcp-remote", "http://localhost:8000/mcp"',
@@ -261,6 +267,33 @@ describe("local connect message client routing", () => {
   })
 })
 
+describe("target directory tilde expansion", () => {
+  it("expands a leading ~ in --dir to the home directory instead of a literal ~ folder", async () => {
+    const vaultDir = makeVault()
+    const fakeHome = mkdtempSync(join(tmpdir(), "vault-cli-home-"))
+    const originalHome = process.env.HOME
+    process.env.HOME = fakeHome
+    onTestFinished(() => {
+      process.env.HOME = originalHome
+    })
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: "~/vault-cortex" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Files land under the expanded home, not a literal "~" directory.
+    expect(existsSync(join(fakeHome, "vault-cortex", ".env"))).toBe(true)
+    expect(existsSync(join(process.cwd(), "~"))).toBe(false)
+  })
+})
+
 describe("remote connect message https routing", () => {
   const runRemoteInit = async (publicUrl: string) => {
     const scripted = createScriptedPrompts([
@@ -292,7 +325,7 @@ describe("remote connect message https routing", () => {
 
     expect(connectMessage).toContain("only accept https URLs")
     expect(connectMessage).toContain(
-      "claude mcp add --transport http vault-cortex http://203.0.113.10:8000/mcp",
+      "claude mcp add --scope user --transport http vault-cortex http://203.0.113.10:8000/mcp",
     )
   })
 

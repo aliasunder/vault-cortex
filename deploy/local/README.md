@@ -44,7 +44,9 @@ The server listens at `http://localhost:8000/mcp`.
 
 **Claude Code:**
 
-1. Run `claude mcp add --transport http vault-cortex http://localhost:8000/mcp`
+1. Run `claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp`
+   (`--scope user` registers it for every project; drop it to scope the server
+   to the current directory only)
 2. Approve the consent page in your browser with your `MCP_AUTH_TOKEN`.
 3. Done. The client receives auto-refreshing access tokens, so the token
    itself never sits in client config.
@@ -130,7 +132,7 @@ it. Clear the client's stored authorization for this server and reconnect so it
 registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
-  `claude mcp add --transport http <name> http://localhost:8000/mcp`.
+  `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
 - **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
 - **Other clients:** remove and re-add the server.
 

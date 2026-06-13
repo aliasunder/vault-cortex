@@ -54,7 +54,9 @@ Connect your MCP client:
   ${tokenLine}
 
 Claude Code:
-  1. claude mcp add --transport http vault-cortex http://localhost:${port}/mcp
+  1. claude mcp add --scope user --transport http vault-cortex http://localhost:${port}/mcp
+     (--scope user registers it for every project; drop it to scope
+     the server to the current directory only)
   2. Approve the browser consent page with the token above
   3. Done. The client holds auto-refreshing access tokens; the
      token never sits in client config
@@ -128,7 +130,7 @@ export const buildRemoteConnectMessage = (params: {
 Note: claude.ai and Claude Desktop only accept https URLs — set up
 HTTPS when you're ready for those clients (see the HTTPS section in
 the remote guide). Claude Code works with http:
-  claude mcp add --transport http vault-cortex ${publicUrl}/mcp`
+  claude mcp add --scope user --transport http vault-cortex ${publicUrl}/mcp`
 
   // Flush-left on purpose: template literals keep leading whitespace, so
   // indenting these lines would indent the rendered output.
