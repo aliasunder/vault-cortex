@@ -35,6 +35,17 @@
 
 
 
+
+## [0.17.6] — 2026-06-13
+
+### Bug Fixes
+
+- **cli:** Copyable, mode-consistent `init` connect output + PUBLIC_URL validation (#126)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.5
+
 ## [0.17.5] — 2026-06-13
 
 ### Bug Fixes
