@@ -34,6 +34,17 @@
 
 
 
+
+## [0.17.5] — 2026-06-13
+
+### Bug Fixes
+
+- **cli:** Expand ~ in config dir and suggest user-scoped mcp add (#125)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.4
+
 ## [0.17.4] — 2026-06-13
 
 ### Bug Fixes
