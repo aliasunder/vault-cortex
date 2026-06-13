@@ -266,10 +266,21 @@ export default $config({
       },
     })
 
-    // Smart Lambda authorizer — path-aware, defense in depth:
-    //   - OAuth paths (/.well-known/*, /authorize, /token, etc.) → pass through
-    //   - /mcp → validates Bearer token (static MCP_AUTH_TOKEN or JWT)
-    // Express also validates in-process via requireBearerAuth (second layer).
+    // Lambda authorizer — validates Bearer tokens (static MCP_AUTH_TOKEN
+    // or JWT) on protected routes only. OAuth discovery paths are wired as
+    // separate unauthenticated routes below, so the authorizer no longer
+    // needs to pass them through (it keeps the path check as defense in
+    // depth). Express also validates in-process via requireBearerAuth.
+    //
+    // identitySources is the load-bearing detail: with the Authorization
+    // header registered as the identity source, API Gateway answers
+    // tokenless requests with an automatic 401 Unauthorized — without
+    // invoking the Lambda. MCP clients (Claude, etc.) require a 401 on the
+    // initial unauthenticated probe to enter the OAuth connect flow; they
+    // fall back to /.well-known/oauth-protected-resource discovery when no
+    // WWW-Authenticate header is present (RFC 9728 default location).
+    // A Lambda-authorizer deny, by contrast, is a fixed 403 Forbidden that
+    // HTTP APIs cannot customize — clients treat it as a broken server.
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
@@ -280,27 +291,43 @@ export default $config({
           timeout: "5 seconds",
           memory: "128 MB",
         },
-        identitySources: [],
+        identitySources: ["$request.header.Authorization"],
       },
     })
 
-    // GOTCHA: {proxy+} matches one-or-more path segments but NOT
-    // the bare root "/". You need both routes.
-    //
     // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
     // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
     // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
-    const proxyTarget = originUrl
-      ? `${originUrl}/{proxy}`
-      : $interpolate`http://${staticIp.ipAddress}:8000/{proxy}`
-    const rootTarget = originUrl
-      ? originUrl
-      : $interpolate`http://${staticIp.ipAddress}:8000`
+    const target = (path: string) =>
+      originUrl
+        ? `${originUrl}${path}`
+        : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
-    api.routeUrl("ANY /{proxy+}", proxyTarget, {
+    // ── Open routes — no authorizer ──────────────────────────────
+    // OAuth discovery/flow endpoints must be reachable unauthenticated
+    // (MCP/OAuth spec). Express owns their logic — DCR, consent, token
+    // validation, and 5 req/min rate limiting. API Gateway always picks
+    // the most specific matching route, so these win over the protected
+    // catch-alls below regardless of declaration order.
+    for (const path of [
+      "/authorize",
+      "/token",
+      "/register",
+      "/revoke",
+      "/healthz",
+    ]) {
+      api.routeUrl(`ANY ${path}`, target(path))
+    }
+    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"))
+    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"))
+
+    // ── Protected routes — Lambda authorizer ─────────────────────
+    // GOTCHA: {proxy+} matches one-or-more path segments but NOT
+    // the bare root "/". You need both routes.
+    api.routeUrl("ANY /{proxy+}", target("/{proxy}"), {
       auth: { lambda: authorizer.id },
     })
-    api.routeUrl("ANY /", rootTarget, {
+    api.routeUrl("ANY /", target(""), {
       auth: { lambda: authorizer.id },
     })
 

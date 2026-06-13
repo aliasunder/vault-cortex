@@ -62,7 +62,7 @@ graph TB
 
     subgraph apigw_grp ["AWS — API Gateway"]
         APIGW["API Gateway HTTP API<br/>HTTPS + auto URL"]
-        AUTH_FN["Lambda Authorizer<br/>path-aware: OAuth pass-through,<br/>/mcp validates static + JWT"]
+        AUTH_FN["Lambda Authorizer<br/>protected routes only:<br/>validates static + JWT"]
         APIGW -->|validate| AUTH_FN
     end
 
@@ -113,9 +113,11 @@ sequenceDiagram
     participant DB as SQLite (oauth.db)
 
     Note over C,E: First-time OAuth Authorization
+    C->>AG: POST /mcp (no token — initial probe)
+    AG-->>C: 401 Unauthorized (identity source missing — Lambda not invoked)
+    Note over C: 401 → client enters OAuth flow,<br/>falls back to default discovery location
     C->>AG: GET /.well-known/oauth-protected-resource
-    AG->>L: Authorize request
-    L-->>AG: isAuthorized: true (open path)
+    Note over AG: Open route — no authorizer
     AG->>E: Forward
     E-->>C: {authorization_servers: [...]}
 
@@ -258,11 +260,19 @@ Two authentication methods, both validated at two layers:
 | Static bearer token                   | Claude Code, MCP Inspector, curl                             | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
-Path-aware. OAuth discovery paths (`/.well-known/*`, `/authorize`, `/token`,
-`/register`, `/oauth/decide`, `/healthz`) pass through unauthenticated
-(required by the OAuth/MCP spec). `/mcp` validates the bearer token —
-accepts both the static `MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access
-tokens signed with it (via `verifyJwt`).
+Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
+`/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
+separate unauthenticated routes in `sst.config.ts` (required by the
+OAuth/MCP spec) and never invoke the Lambda. On protected routes the
+authorizer validates the bearer token — accepts both the static
+`MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access tokens signed with it
+(via `verifyJwt`). The Authorization header is the route's identity
+source, so a tokenless request gets an automatic **401** from API Gateway
+without invoking the Lambda — this is what lets MCP clients (Claude
+Desktop/web, etc.) enter the OAuth connect flow on their first
+unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403**
+on HTTP APIs, which MCP clients treat as a broken server rather than a
+sign-in prompt.
 
 **Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth` in `server.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
