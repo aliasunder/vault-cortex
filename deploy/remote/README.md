@@ -47,12 +47,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                              |
-| --------------------- | ------------------------------------------------------------------ |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                               |
-| `PUBLIC_URL`          | Your server's public URL (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                 |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                    |
+| Variable              | Value                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                |
+| `PUBLIC_URL`          | Your server's public base URL — no `/mcp` (see [HTTPS access](#https-access) below) |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                  |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                     |
 
 **6. Start the server:**
 
@@ -87,9 +87,9 @@ URL. See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
 approach, which adds a Lambda authorizer for an extra auth layer.
 
 > **Need a VPS?** [AWS Lightsail](https://aws.amazon.com/lightsail/) runs
-> Vault Cortex on a 2 GB RAM / 60 GB SSD instance for ~$12/mo. Paired with API
-> Gateway (~$0) and this compose file, the total cost is ~$12/mo. For a fully
-> automated setup, Vault Cortex also includes an
+> Vault Cortex on a 2 GB RAM / 60 GB SSD instance for about $12/mo. Paired with
+> API Gateway (effectively $0) and this compose file, that's the whole bill. For
+> a fully automated setup, Vault Cortex also includes an
 > [SST IaC deployment](../../DEPLOY.md) that provisions Lightsail, API Gateway,
 > and a Lambda authorizer in one command.
 
@@ -127,6 +127,10 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 > **Note:** `PUBLIC_URL` must match exactly how MCP clients reach the server.
 > OAuth discovery metadata uses this URL, so a mismatch causes authentication
 > failures.
+>
+> Use the **base origin only**, without `/mcp` — the server serves the endpoint
+> at `/mcp` and the URLs below append it, so a `PUBLIC_URL` ending in `/mcp`
+> becomes `…/mcp/mcp` and won't connect.
 
 ## Connect your MCP client
 

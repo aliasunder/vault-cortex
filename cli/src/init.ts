@@ -112,19 +112,58 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
   return validation.path
 }
 
-/** Re-prompts until the answer is a plausible http(s) URL. */
+/**
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
+ * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
+ * appends it when building the connect URL, so PUBLIC_URL must be the base
+ * origin; a re-included `/mcp` is rejected, not silently rewritten.
+ */
+const TRAILING_MCP_PATH = /\/mcp\/*$/i
+
+/**
+ * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
+ * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
+ * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
+ * would pass malformed inputs like `https://` or `https://a b.com`.
+ */
+const parseHttpUrl = (value: string): URL | null => {
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+/** Re-prompts until the answer is a valid base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
-    "Public URL clients will use to reach this server:",
+    "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
     {
       placeholder: "https://vault.example.com or http://203.0.113.10:8000",
     },
   )
   const trimmed = answer.trim()
-  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-    prompts.error("PUBLIC_URL must start with http:// or https://")
+  const url = parseHttpUrl(trimmed)
+  if (url === null) {
+    prompts.error(
+      "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    )
     return askPublicUrl(prompts)
   }
+  // Reject a re-included endpoint path instead of stripping it silently —
+  // PUBLIC_URL is the base origin and the server adds /mcp itself.
+  if (TRAILING_MCP_PATH.test(url.pathname)) {
+    prompts.error(
+      "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    )
+    return askPublicUrl(prompts)
+  }
+  // Store the input as typed, trimming only a trailing slash so the connect
+  // URL is `${base}/mcp`, never `${base}//mcp`. URL's own normalization is
+  // unusable here: `.href` adds a trailing slash and `.origin` drops the path,
+  // so neither round-trips a reverse-proxy subpath like https://host/api.
   return trimmed.replace(/\/+$/, "")
 }
 
@@ -305,9 +344,8 @@ const runLocalInit = async (
   const started = flags.yes
     ? false
     : await offerComposeUp({ targetDir, port }, deps)
-  prompts.note(
+  prompts.print(
     buildLocalConnectMessage({ targetDir, token, started, port, tokenWritten }),
-    "Connect",
   )
   return 0
 }
@@ -398,7 +436,7 @@ const runRemoteInit = async (
     obsidianAuthToken === ""
       ? false
       : await offerComposeUp({ targetDir, port }, deps)
-  prompts.note(
+  prompts.print(
     buildRemoteConnectMessage({
       targetDir,
       token,
@@ -407,7 +445,6 @@ const runRemoteInit = async (
       obsidianTokenMissing: obsidianAuthToken === "",
       tokenWritten,
     }),
-    "Connect",
   )
   return 0
 }

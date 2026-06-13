@@ -29,6 +29,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
   const warnings: string[] = []
   const logs: string[] = []
   const notes: string[] = []
+  const prints: string[] = []
   const selectCalls: SelectCall[] = []
 
   const nextAnswer = (message: string): ScriptedAnswer => {
@@ -44,6 +45,9 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     outro: () => {},
     note: (message) => {
       notes.push(message)
+    },
+    print: (message) => {
+      prints.push(message)
     },
     log: (message) => {
       logs.push(message)
@@ -77,6 +81,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     warnings,
     logs,
     notes,
+    prints,
     selectCalls,
     remaining,
   }
@@ -159,7 +164,7 @@ describe("runInit --yes (non-interactive local)", () => {
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
-    expect(scripted.notes[0]).toContain(
+    expect(scripted.prints[0]).toContain(
       "Optional settings (timezone, memory folder, port, logging) are commented",
     )
   })
@@ -227,7 +232,7 @@ describe("local connect message client routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    const connectMessage = scripted.notes[0]
+    const connectMessage = scripted.prints[0]
     expect(connectMessage).toContain(
       "claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp",
     )
@@ -259,7 +264,7 @@ describe("local connect message client routing", () => {
       readFileSync(join(targetDir, ".env"), "utf8"),
     )?.[1]
     expect(token).toMatch(/^[0-9a-f]{64}$/)
-    const connectMessage = scripted.notes[0]
+    const connectMessage = scripted.prints[0]
     // The token must be on a line by itself (so a line-select grabs only it),
     // not inline after the "Auth token:" label.
     expect(connectMessage.split("\n")).toContain(`  ${token}`)
@@ -313,8 +318,8 @@ describe("remote connect message https routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    const connectMessage = scripted.notes.find((note) =>
-      note.includes("Connect your MCP client"),
+    const connectMessage = scripted.prints.find((message) =>
+      message.includes("Connect your MCP client"),
     )
     expect(connectMessage).toBeDefined()
     return connectMessage as string
@@ -332,8 +337,111 @@ describe("remote connect message https routing", () => {
   it("omits the http warning when PUBLIC_URL is https", async () => {
     const connectMessage = await runRemoteInit("https://vault.example.com")
 
+    // The Claude Code walkthrough is shared by every variant, so the command
+    // is present; what https omits is the http-only "set up HTTPS" caveat.
+    expect(connectMessage).toContain("claude mcp add")
     expect(connectMessage).not.toContain("only accept https URLs")
-    expect(connectMessage).not.toContain("claude mcp add")
+    expect(connectMessage).not.toContain("set up HTTPS")
+    expect(connectMessage).toContain("Reachable over https")
+  })
+
+  it("routes an uppercase HTTPS:// scheme to the https guidance", async () => {
+    // PUBLIC_URL is stored as typed, so the https detection must be
+    // case-insensitive — HTTPS:// is valid and must not fall to http guidance.
+    const connectMessage = await runRemoteInit("HTTPS://vault.example.com")
+
+    expect(connectMessage).toContain("Reachable over https")
+    expect(connectMessage).not.toContain("only accept https URLs")
+    expect(connectMessage).not.toContain("set up HTTPS")
+  })
+
+  it("rejects a trailing /mcp on PUBLIC_URL and re-prompts for the base origin", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com/mcp", // re-included the /mcp path — rejected
+      "https://vault.example.com", // base origin — accepted on re-prompt
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toHaveLength(1)
+    expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL")
+    // The accepted base origin is stored verbatim — not silently rewritten —
+    // and the connect URL appends /mcp exactly once.
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "PUBLIC_URL=https://vault.example.com\n",
+    )
+    const connectMessage = scripted.prints[0]
+    expect(connectMessage).toContain("https://vault.example.com/mcp")
+    expect(connectMessage).not.toContain("https://vault.example.com/mcp/mcp")
+  })
+
+  it("trims a trailing slash on PUBLIC_URL so the connect URL is not //mcp", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com/", // trailing slash — trimmed, not rejected
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toHaveLength(0)
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "PUBLIC_URL=https://vault.example.com\n",
+    )
+    expect(scripted.prints[0]).toContain("https://vault.example.com/mcp")
+    expect(scripted.prints[0]).not.toContain("https://vault.example.com//mcp")
+  })
+
+  it("prints the generated auth token alone on its own line for clean copying", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
+      readFileSync(join(targetDir, ".env"), "utf8"),
+    )?.[1]
+    expect(token).toMatch(/^[0-9a-f]{64}$/)
+    const connectMessage = scripted.prints[0]
+    // The token must be on a line by itself (so a line-select grabs only it),
+    // not trailing the "Auth token:" label or buried in the OAuth paragraph.
+    expect(connectMessage.split("\n")).toContain(`  ${token}`)
+    expect(connectMessage).not.toContain(`Auth token: ${token}`)
   })
 })
 
@@ -464,7 +572,7 @@ describe("runInit remote flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
-      "Public URL clients will use to reach this server:",
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
       "Run the get-token command now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
@@ -478,7 +586,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
-    expect(scripted.notes[1]).toContain("Optional settings (timezone, memory")
+    expect(scripted.prints[0]).toContain("Optional settings (timezone, memory")
   })
 
   it("skips the compose-up offer when the sync token was left blank", async () => {
@@ -534,12 +642,12 @@ describe("runInit with a kept existing .env", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.notes).toHaveLength(1)
-    expect(scripted.notes[0]).toContain(
+    expect(scripted.prints).toHaveLength(1)
+    expect(scripted.prints[0]).toContain(
       `use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`,
     )
     // The freshly generated (never saved) token must not appear anywhere.
-    expect(scripted.notes[0]).not.toMatch(/[0-9a-f]{64}/)
+    expect(scripted.prints[0]).not.toMatch(/[0-9a-f]{64}/)
     expect(scripted.logs).not.toContain(
       "Generated MCP auth token (saved to .env).",
     )
@@ -580,7 +688,7 @@ describe("runInit with a kept existing .env", () => {
 
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
-    expect(scripted.notes[0]).toContain("http://localhost:9000/mcp")
+    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
   })
 })
 
