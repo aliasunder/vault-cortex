@@ -32,6 +32,14 @@
 
 
 
+
+## [0.17.3] — 2026-06-13
+
+### Documentation
+
+- Reroute localhost connect instructions for Claude's https-only connector dialog (#123)
+- Update CHANGELOG.md for v0.17.2
+
 ## [0.17.2] — 2026-06-13
 
 ### Bug Fixes
