@@ -31,6 +31,21 @@
 
 
 
+
+## [0.17.2] — 2026-06-13
+
+### Bug Fixes
+
+- **deploy:** Return 401 for tokenless requests to enable MCP connect flow (#121)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.1
+
+### Maintenance
+
+- **deps:** Bump esbuild from 0.28.0 to 0.28.1 (#122)
+
 ## [0.17.1] — 2026-06-12
 
 ### Documentation
