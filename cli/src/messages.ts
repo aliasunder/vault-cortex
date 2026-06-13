@@ -38,8 +38,11 @@ export const buildLocalConnectMessage = (params: {
     ? "The server is running."
     : startServerLine(targetDir)
 
+  // When the token was written, put it alone on its own line so selecting
+  // that line copies just the token — no "Auth token: " prefix to trim and
+  // no chance of grabbing the surrounding label.
   const tokenLine = tokenWritten
-    ? `Auth token: ${token}`
+    ? `Auth token:\n  ${token}`
     : `Auth token: use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
 
   // Flush-left on purpose: template literals keep leading whitespace, so

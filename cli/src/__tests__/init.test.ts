@@ -233,6 +233,32 @@ describe("local connect message client routing", () => {
     // its connector dialog rejects http URLs.
     expect(connectMessage).not.toContain("OAuth clients (Claude Desktop")
   })
+
+  it("prints the generated auth token alone on its own line for clean copying", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
+      readFileSync(join(targetDir, ".env"), "utf8"),
+    )?.[1]
+    expect(token).toMatch(/^[0-9a-f]{64}$/)
+    const connectMessage = scripted.notes[0]
+    // The token must be on a line by itself (so a line-select grabs only it),
+    // not inline after the "Auth token:" label.
+    expect(connectMessage.split("\n")).toContain(`  ${token}`)
+    expect(connectMessage).not.toContain(`Auth token: ${token}`)
+  })
 })
 
 describe("remote connect message https routing", () => {

@@ -120,6 +120,27 @@ docker compose down
 docker compose down -v
 ```
 
+## Troubleshooting
+
+**`invalid_client` / "Invalid client_id" when connecting.** Your MCP client
+cached an OAuth registration from a previous server at this address. Recreating
+the server (`docker compose down -v`, or scaffolding a fresh instance) resets
+`oauth.db`, so the cached `client_id` no longer exists and `/authorize` rejects
+it. Clear the client's stored authorization for this server and reconnect so it
+registers fresh:
+
+- **Claude Code:** `claude mcp remove <name>`, then
+  `claude mcp add --transport http <name> http://localhost:8000/mcp`.
+- **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
+- **Other clients:** remove and re-add the server.
+
+**"Invalid token" on the consent page even with the correct token.** The
+consent form trims surrounding whitespace and line breaks from the token before
+checking it, so a value copied out of a terminal (where a long token can wrap
+across lines) still works. If you still see this error, double-check you copied
+the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
+usual cause.
+
 ## Memory
 
 On first startup, if your vault doesn't already have a memory folder (default:
