@@ -121,6 +121,11 @@ If the client only speaks stdio, bridge with `mcp-remote` (same token):
 }
 ```
 
+This same `mcp-remote` config is also the way to register a localhost server
+with **Claude Desktop** (`claude_desktop_config.json`) — its "Add custom
+connector" dialog only accepts `https` URLs, so the stdio bridge is required
+even though Claude Desktop speaks HTTP natively.
+
 ## Troubleshooting
 
 - **`401`, or the client reports the token "has no expiration time" / "needs a JWT."**

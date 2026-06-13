@@ -50,19 +50,30 @@ Connect your MCP client:
   URL:        http://localhost:${port}/mcp
   ${tokenLine}
 
-OAuth clients (Claude Desktop, Claude Code, most MCP clients):
-  1. Add the URL above as a remote MCP server, leaving Client
-     ID/Secret empty ("remote" = HTTP — the server still runs on
-     your machine)
-  2. Approve the browser consent page with the token above
-  3. Done — the client holds auto-refreshing access tokens; the
-     token never sits in client config
+Claude Code:
+  claude mcp add --transport http vault-cortex http://localhost:${port}/mcp
+  Approve the browser consent page with the token above — the client
+  then holds auto-refreshing access tokens; the token never sits in
+  client config
+
+Claude Desktop only accepts https URLs in its connector dialog, so
+register the server in claude_desktop_config.json via the mcp-remote
+bridge instead:
+  "vault-cortex": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "http://localhost:${port}/mcp",
+      "--header", "Authorization: Bearer <token above>"]
+  }
+
+Other OAuth clients (Cursor, most MCP clients) add the URL above as a
+remote MCP server, leaving Client ID/Secret empty ("remote" = HTTP —
+the server still runs on your machine), then approve the consent page.
 
 Clients without OAuth, scripts, and curl send the token directly:
   curl -H "Authorization: Bearer <token>" http://localhost:${port}/mcp
 
-Note: claude.ai (web) cannot reach localhost — use Claude Desktop or
-Claude Code for a local server.
+Note: claude.ai (web) cannot reach localhost — use Claude Code or the
+mcp-remote bridge for a local server.
 
 Smoke test:
   curl http://localhost:${port}/healthz

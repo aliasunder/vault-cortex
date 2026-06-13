@@ -107,14 +107,39 @@ docker compose up -d
 
 ### Connect your MCP client
 
-Add the server URL as a remote/HTTP MCP server in any client — Claude Desktop, Claude Code, Cursor, OpenCode, or any other:
-
 | Setup      | Server URL                  |
 | ---------- | --------------------------- |
 | **Local**  | `http://localhost:8000/mcp` |
 | **Remote** | `<PUBLIC_URL>/mcp`          |
 
-OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
+Most clients — Claude Code, Cursor, OpenCode, MCP Inspector — accept either URL directly as a remote/HTTP MCP server. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http vault-cortex http://localhost:8000/mcp   # local (or <PUBLIC_URL>/mcp)
+```
+
+**Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. Remote setups (`https` `PUBLIC_URL`) connect there directly; for the local setup, register the server in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+
+```json
+{
+  "mcpServers": {
+    "vault-cortex": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8000/mcp",
+        "--header",
+        "Authorization: Bearer <your MCP_AUTH_TOKEN>"
+      ]
+    }
+  }
+}
+```
+
+**claude.ai (web and mobile)** connects to the remote setup only — its connectors are fetched server-side and can never reach localhost.
 
 > "Remote MCP server" refers to the connection type (HTTP) — in the local setup the server still runs entirely on your machine.
 

@@ -42,13 +42,47 @@ builds the search index — this takes a few seconds depending on vault size.
 
 The server listens at `http://localhost:8000/mcp`.
 
-**OAuth clients (Claude Desktop, Claude Code, and most MCP clients):**
+**Claude Code:**
+
+```bash
+claude mcp add --transport http vault-cortex http://localhost:8000/mcp
+```
+
+First use opens a consent page in your browser — approve with your
+`MCP_AUTH_TOKEN`. The client receives auto-refreshing access tokens, so the
+token itself never sits in client config.
+
+**Claude Desktop:** the "Add custom connector" dialog only accepts `https`
+URLs, so a localhost server can't be added there. Register it in
+`claude_desktop_config.json` (Settings → Developer → Edit Config) through the
+[mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+
+```json
+{
+  "mcpServers": {
+    "vault-cortex": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8000/mcp",
+        "--header",
+        "Authorization: Bearer <your MCP_AUTH_TOKEN>"
+      ]
+    }
+  }
+}
+```
+
+On Windows, spaces inside `args` can be mangled — move the header value into
+an env var instead: `"--header", "Authorization:${AUTH_HEADER}"` with
+`"env": { "AUTH_HEADER": "Bearer <your MCP_AUTH_TOKEN>" }`.
+
+**Other OAuth clients (Cursor and most MCP clients):**
 
 1. Add `http://localhost:8000/mcp` as a remote MCP server, leaving OAuth
    Client ID and Secret empty.
 2. A consent page opens in your browser — approve with your `MCP_AUTH_TOKEN`.
-3. Done. The client receives auto-refreshing access tokens, so the token
-   itself never sits in client config.
 
 - "Remote" refers to the connection type (HTTP, as opposed to a stdio process
   the client launches itself) — this server still runs entirely on your

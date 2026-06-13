@@ -6,6 +6,8 @@
 # 1. cp .env.example .env   (then fill in MCP_AUTH_TOKEN and VAULT_PATH)
 # 2. docker compose up
 # 3. Connect your MCP client to http://localhost:8000/mcp
+#    (Claude Desktop's connector dialog requires https — register a
+#    localhost server via the mcp-remote bridge; see the local README)
 #
 # Full docs: https://github.com/aliasunder/vault-cortex
 
