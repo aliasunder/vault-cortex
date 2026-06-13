@@ -112,10 +112,17 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
   return validation.path
 }
 
+/** Trailing-slash run, optionally preceded by the server's own /mcp endpoint
+ *  path — stripped so PUBLIC_URL stays the bare origin (the server appends
+ *  /mcp itself; keeping it here would yield /mcp/mcp in the connect URL). */
+const TRAILING_MCP_OR_SLASH = /(\/mcp)?\/*$/i
+
 /** Re-prompts until the answer is a plausible http(s) URL. */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
-    "Public URL clients will use to reach this server:",
+    // Base origin only — the server owns the /mcp path, so asking for it here
+    // (and normalizing it off below) avoids a re-entered /mcp/mcp.
+    "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
     {
       placeholder: "https://vault.example.com or http://203.0.113.10:8000",
     },
@@ -125,7 +132,7 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
     prompts.error("PUBLIC_URL must start with http:// or https://")
     return askPublicUrl(prompts)
   }
-  return trimmed.replace(/\/+$/, "")
+  return trimmed.replace(TRAILING_MCP_OR_SLASH, "")
 }
 
 /** Re-prompts until non-empty. */
@@ -305,9 +312,8 @@ const runLocalInit = async (
   const started = flags.yes
     ? false
     : await offerComposeUp({ targetDir, port }, deps)
-  prompts.note(
+  prompts.print(
     buildLocalConnectMessage({ targetDir, token, started, port, tokenWritten }),
-    "Connect",
   )
   return 0
 }
@@ -398,7 +404,7 @@ const runRemoteInit = async (
     obsidianAuthToken === ""
       ? false
       : await offerComposeUp({ targetDir, port }, deps)
-  prompts.note(
+  prompts.print(
     buildRemoteConnectMessage({
       targetDir,
       token,
@@ -407,7 +413,6 @@ const runRemoteInit = async (
       obsidianTokenMissing: obsidianAuthToken === "",
       tokenWritten,
     }),
-    "Connect",
   )
   return 0
 }

@@ -47,12 +47,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                              |
-| --------------------- | ------------------------------------------------------------------ |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                               |
-| `PUBLIC_URL`          | Your server's public URL (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                 |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                    |
+| Variable              | Value                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                |
+| `PUBLIC_URL`          | Your server's public base URL — no `/mcp` (see [HTTPS access](#https-access) below) |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                  |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                     |
 
 **6. Start the server:**
 
@@ -126,7 +126,10 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 
 > **Note:** `PUBLIC_URL` must match exactly how MCP clients reach the server.
 > OAuth discovery metadata uses this URL, so a mismatch causes authentication
-> failures.
+> failures. Set it to the **base origin only** — don't include the `/mcp`
+> path. The server serves the MCP endpoint at `/mcp`, which the URLs below
+> append for you; a `PUBLIC_URL` ending in `/mcp` produces `…/mcp/mcp` and
+> won't connect.
 
 ## Connect your MCP client
 

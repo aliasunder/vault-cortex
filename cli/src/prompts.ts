@@ -20,6 +20,13 @@ export type Prompts = {
   intro: (message: string) => void
   outro: (message: string) => void
   note: (message: string, title?: string) => void
+  /**
+   * Print plain text with no clack framing. Used for the Connect
+   * instructions: a clack note box hard-wraps long lines behind a "│ "
+   * border, which corrupts a copied command — plain output lets the terminal
+   * soft-wrap instead, keeping commands and tokens copyable.
+   */
+  print: (message: string) => void
   log: (message: string) => void
   warn: (message: string) => void
   error: (message: string) => void
@@ -59,6 +66,9 @@ export const createPrompts = (): Prompts => ({
   intro: (message) => clack.intro(message),
   outro: (message) => clack.outro(message),
   note: (message, title) => clack.note(message, title),
+  // Leading + trailing newline sets the block off from the surrounding clack
+  // output without a box around it.
+  print: (message) => process.stdout.write(`\n${message}\n`),
   log: (message) => clack.log.info(message),
   warn: (message) => clack.log.warn(message),
   error: (message) => clack.log.error(message),
