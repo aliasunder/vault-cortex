@@ -118,6 +118,12 @@ Access the server directly at `http://<your-ip>:8000`. No TLS — suitable for
 testing on a private network, not for production. Set `PUBLIC_URL` to
 `http://<your-ip>:8000`.
 
+Claude's "Add custom connector" dialog (claude.ai and Claude Desktop) only
+accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
+(`claude mcp add --transport http` — see below) or the
+[mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge with its
+`--allow-http` flag.
+
 > **Note:** `PUBLIC_URL` must match exactly how MCP clients reach the server.
 > OAuth discovery metadata uses this URL, so a mismatch causes authentication
 > failures.
@@ -130,6 +136,12 @@ Add a remote MCP server with URL `<PUBLIC_URL>/mcp`. Leave OAuth Client ID and
 Secret empty — dynamic registration handles it. A consent page opens in your
 browser; enter your `MCP_AUTH_TOKEN` to approve. The client receives a JWT
 access token (24h) with automatic refresh (60-day sliding window).
+
+Claude Code also accepts `http` URLs directly:
+
+```bash
+claude mcp add --transport http vault-cortex <PUBLIC_URL>/mcp
+```
 
 ### Static bearer token (CLI tools, curl)
 

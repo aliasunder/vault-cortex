@@ -205,6 +205,79 @@ describe("runInit --yes (non-interactive local)", () => {
   })
 })
 
+describe("local connect message client routing", () => {
+  it("routes Claude Code to claude mcp add and Claude Desktop to the mcp-remote bridge", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const connectMessage = scripted.notes[0]
+    expect(connectMessage).toContain(
+      "claude mcp add --transport http vault-cortex http://localhost:8000/mcp",
+    )
+    expect(connectMessage).toContain(
+      '"mcp-remote", "http://localhost:8000/mcp"',
+    )
+    expect(connectMessage).toContain("only accepts https URLs")
+    // Claude Desktop must not be grouped with the add-as-remote-server flow —
+    // its connector dialog rejects http URLs.
+    expect(connectMessage).not.toContain("OAuth clients (Claude Desktop")
+  })
+})
+
+describe("remote connect message https routing", () => {
+  const runRemoteInit = async (publicUrl: string) => {
+    const scripted = createScriptedPrompts([
+      publicUrl,
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: makeTargetDir() },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const connectMessage = scripted.notes.find((note) =>
+      note.includes("Connect your MCP client"),
+    )
+    expect(connectMessage).toBeDefined()
+    return connectMessage as string
+  }
+
+  it("warns and offers claude mcp add when PUBLIC_URL is http", async () => {
+    const connectMessage = await runRemoteInit("http://203.0.113.10:8000")
+
+    expect(connectMessage).toContain("only accept https URLs")
+    expect(connectMessage).toContain(
+      "claude mcp add --transport http vault-cortex http://203.0.113.10:8000/mcp",
+    )
+  })
+
+  it("omits the http warning when PUBLIC_URL is https", async () => {
+    const connectMessage = await runRemoteInit("https://vault.example.com")
+
+    expect(connectMessage).not.toContain("only accept https URLs")
+    expect(connectMessage).not.toContain("claude mcp add")
+  })
+})
+
 describe("runInit interactive local flow", () => {
   it("defaults the mode select to local", async () => {
     const vaultDir = makeVault()
