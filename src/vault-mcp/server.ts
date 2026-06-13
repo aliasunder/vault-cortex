@@ -31,7 +31,10 @@ export const createErrorMiddleware =
 
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
-  const authToken = env.get("MCP_AUTH_TOKEN").required().asString()
+  // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
+  // can't silently break every auth attempt — a valid token has no
+  // surrounding whitespace.
+  const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
   const publicUrl = env.get("PUBLIC_URL").required().asString()
 

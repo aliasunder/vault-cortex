@@ -43,8 +43,11 @@ export const renderConsentPage = ({
   ul{list-style:none;padding:0}
   ul li{padding:.25rem 0;font-size:.9rem}
   ul li::before{content:"\\2022";color:#6366f1;margin-right:.5rem}
-  input[type=password]{width:100%;padding:.6rem .75rem;background:#0f1117;border:1px solid #2e2e38;border-radius:6px;color:#fafafa;font-size:.9rem;margin-top:.25rem}
-  input[type=password]:focus{outline:none;border-color:#6366f1}
+  .token-input{display:flex;gap:.5rem;margin-top:.25rem}
+  .token-input input{flex:1;min-width:0;padding:.6rem .75rem;background:#0f1117;border:1px solid #2e2e38;border-radius:6px;color:#fafafa;font-size:.9rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .token-input input:focus{outline:none;border-color:#6366f1}
+  .reveal{flex:0 0 auto;padding:0 .75rem;background:#27272a;border:1px solid #2e2e38;border-radius:6px;color:#a1a1aa;font-size:.8rem;cursor:pointer}
+  .reveal:hover{background:#2e2e38;color:#e4e4e7}
   .actions{display:flex;gap:.75rem;margin-top:1.5rem}
   button{flex:1;padding:.6rem 1rem;border:none;border-radius:6px;font-size:.9rem;cursor:pointer;font-weight:500}
   .approve{background:#6366f1;color:#fff}
@@ -74,7 +77,10 @@ export const renderConsentPage = ({
     <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
     <div class="field">
       <div class="label">Server token</div>
-      <input type="password" name="token" placeholder="Enter your MCP_AUTH_TOKEN" required autocomplete="off">
+      <div class="token-input">
+        <input type="password" id="token" name="token" placeholder="Enter your MCP_AUTH_TOKEN" required autocomplete="off">
+        <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
+      </div>
     </div>
     <div class="actions">
       <button type="submit" name="action" value="deny" class="deny">Deny</button>

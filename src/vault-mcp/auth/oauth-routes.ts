@@ -79,7 +79,15 @@ export const createOAuthRoutes = ({
         return
       }
 
-      if (!token || !safeEqual(token, authToken)) {
+      // Tolerate whitespace introduced when the token is copied from a
+      // terminal: a 64-character token wraps across lines in a narrow
+      // terminal, and selecting it captures the wrap as an embedded
+      // newline (plus possible leading/trailing spaces). A valid
+      // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
+      // and keeps the consent flow forgiving — mirroring the trim()
+      // already applied to bearer-header auth in parseBearer().
+      const submittedToken = token?.replace(/\s+/g, "") ?? ""
+      if (!submittedToken || !safeEqual(submittedToken, authToken)) {
         res.type("html").send(
           renderConsentPage({
             clientName: pending.client.client_name ?? pending.client.client_id,
