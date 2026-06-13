@@ -20,11 +20,13 @@ const paint = (style: TextStyle, text: string): string =>
 const connectHeader = (): string =>
   `${paint("bold", "Connect")}\n${paint("dim", "─".repeat(56))}`
 
-// The displayed URL already includes the server's /mcp endpoint path. A
-// client (or a user) that appends /mcp a second time produces /mcp/mcp, which
-// 404s — called out in both connect messages so the URL is pasted as-is.
+// The displayed URL already includes the server's /mcp endpoint path. When
+// pasting it into a client's server-URL field, appending /mcp a second time
+// produces /mcp/mcp, which 404s. (init already strips a /mcp the user typed
+// into the PUBLIC_URL prompt; this note covers the later client-paste step the
+// CLI can't intercept.)
 const mcpPathNote =
-  "The URL above already ends in /mcp — paste it exactly. Adding /mcp\nagain (yourself or in a client field) makes /mcp/mcp and won't connect."
+  "The URL above already includes the /mcp endpoint — paste it as-is.\nDon't add /mcp again in your client's server-URL field, or it requests\n/mcp/mcp and won't connect."
 
 const composeUpCommand = (targetDir: string): string =>
   `cd ${targetDir} && docker compose up -d`
