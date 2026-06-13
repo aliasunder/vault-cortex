@@ -112,9 +112,24 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
   return validation.path
 }
 
-/** Trailing-slash run, optionally preceded by the server's own /mcp endpoint
- *  path — stripped so PUBLIC_URL stays the bare origin (the server appends
- *  /mcp itself; keeping it here would yield /mcp/mcp in the connect URL). */
+/**
+ * Matches, at the END of the string, an optional `/mcp` segment followed by
+ * any run of slashes:
+ *   - `(\/mcp)?` — an optional literal `/mcp` (case-insensitive via the `i`
+ *     flag, so `/MCP` matches too)
+ *   - `\/*$`    — zero or more trailing slashes, anchored to the end
+ *
+ * Replacing the match with "" normalizes PUBLIC_URL to the bare origin:
+ *   `https://x.com/`        → `https://x.com`
+ *   `https://x.com/mcp`     → `https://x.com`
+ *   `https://x.com/mcp/`    → `https://x.com`
+ *   `https://x.com/mcphost` → `https://x.com/mcphost`  (only a whole final
+ *                                                       `/mcp` segment, not a
+ *                                                       prefix, is stripped)
+ *
+ * The server appends `/mcp` itself when building the connect URL, so a
+ * PUBLIC_URL that already ends in `/mcp` would otherwise yield `/mcp/mcp`.
+ */
 const TRAILING_MCP_OR_SLASH = /(\/mcp)?\/*$/i
 
 /** Re-prompts until the answer is a plausible http(s) URL. */
