@@ -1,10 +1,23 @@
 /**
- * Smart Lambda authorizer for API Gateway HTTP API (payload format 2.0).
+ * Lambda authorizer for API Gateway HTTP API (payload format 2.0).
  *
- * Path-aware: OAuth discovery endpoints pass through unauthenticated
- * (required by the MCP/OAuth spec). All other paths validate the
- * bearer token — accepts both the static McpAuthToken and JWT access
- * tokens signed with it (defense in depth with Express).
+ * Attached only to protected routes (see sst.config.ts) — the OAuth
+ * discovery endpoints are separate unauthenticated routes that never
+ * invoke this Lambda. Validates the bearer token: accepts both the
+ * static McpAuthToken and JWT access tokens signed with it (defense
+ * in depth with Express).
+ *
+ * The route config registers the Authorization header as the identity
+ * source, so API Gateway answers tokenless requests with an automatic
+ * 401 BEFORE invoking this Lambda — that 401 is what lets MCP clients
+ * enter the OAuth connect flow (a Lambda deny is a fixed 403 that HTTP
+ * APIs cannot customize, which clients treat as a broken server).
+ * The open-path branch below is therefore dead code in the current
+ * wiring (open routes never invoke this Lambda). The parse-failure
+ * branch stays reachable: the identity source only requires the header
+ * to be present, so a malformed Authorization header (e.g. "Basic …")
+ * still reaches parseBearer and is denied there. Both are kept as
+ * defense in depth in case the wiring ever changes.
  *
  * Key facts:
  *   - API Gateway HTTP API v2 LOWERCASES all header names.
