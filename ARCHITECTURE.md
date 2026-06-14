@@ -154,13 +154,11 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    A["init-config-perms<br/>(Alpine one-shot)<br/>chown config volume"] --> B["obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
-    B --> C["vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
+    B["obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"] --> C["vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
     C -.->|index + OAuth| E[("/data<br/>index.db + oauth.db")]
-    A -.->|fixes perms| F[("config volume<br/>/home/obsidian/.config")]
-    B -.->|sync state| F
+    B -.->|sync state| F[("config volume<br/>/home/obsidian/.config<br/>owned obsidian:obsidian at build time")]
 ```
 
 ## Data Flow
@@ -342,16 +340,15 @@ signed with the new key on their next token refresh.
 
 ### Docker Compose: startup sequence
 
-Three services run in order via `depends_on`:
+Two services run in order via `depends_on`:
 
-1. **`init-config-perms`** (Alpine, one-shot) — chowns the obsidian config
-   volume to `PUID:PGID`. Workaround for an upstream bug: the
-   obsidian-headless Dockerfile creates `/home/obsidian/.config` as root,
-   so Docker named volumes inherit root ownership.
-2. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
+1. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
    the config volume at `/home/obsidian/.config` (persists across restarts
-   for incremental sync — critical for Phase 2 LightRAG ingestion).
-3. **`vault-mcp`** — MCP server. Runs as the `node` user (UID 1000),
+   for incremental sync — critical for Phase 2 LightRAG ingestion). The
+   forked sync image owns `/home/obsidian/.config` as `obsidian:obsidian`
+   at build time, so named-volume mounts are writable by UID 1000 without a
+   separate init container.
+2. **`vault-mcp`** — MCP server. Runs as the `node` user (UID 1000),
    matching obsidian-sync's `PUID` so both containers can read/write the
    shared `/vault` volume. On startup: builds the FTS5 search index,
    bootstraps memory templates if the memory folder doesn't exist, then
