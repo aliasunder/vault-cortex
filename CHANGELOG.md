@@ -36,6 +36,17 @@
 
 
 
+
+## [0.17.7] — 2026-06-14
+
+### Features
+
+- Switch obsidian-sync to the forked image, drop init-config-perms (#127)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.6
+
 ## [0.17.6] — 2026-06-13
 
 ### Bug Fixes
