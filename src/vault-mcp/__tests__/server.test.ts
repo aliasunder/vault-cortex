@@ -1,6 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import type { Request, Response, NextFunction } from "express"
-import { createErrorMiddleware } from "../server.js"
+import { createErrorMiddleware, createShutdownHandler } from "../server.js"
 import { logger } from "../../logger.js"
 
 type MockRes = {
@@ -121,5 +129,47 @@ describe("createErrorMiddleware", () => {
     middleware(new Error("x"), req, res, next)
 
     expect(next).not.toHaveBeenCalled()
+  })
+})
+
+describe("createShutdownHandler", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(logger, "info").mockImplementation(() => {})
+    vi.spyOn(logger, "warn").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("closes the server and exits 0 once draining completes", () => {
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    // close() that immediately invokes its callback = drain completes at once.
+    const close = vi.fn((callback: () => void) => callback())
+
+    createShutdownHandler({ close })()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(exitSpy).toHaveBeenCalledWith(0)
+  })
+
+  it("forces exit 1 if the drain does not finish within the timeout", () => {
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    // close() that never invokes its callback = drain hangs.
+    const close = vi.fn()
+
+    createShutdownHandler({ close }, 10_000)()
+
+    expect(exitSpy).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(10_000)
+    expect(exitSpy).toHaveBeenCalledWith(1)
   })
 })

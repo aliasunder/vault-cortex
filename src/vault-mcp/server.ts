@@ -29,6 +29,29 @@ export const createErrorMiddleware =
     }
   }
 
+/**
+ * SIGTERM handler that drains in-flight requests before exiting, so a write
+ * can't be interrupted mid-flight. `close()` stops accepting new connections
+ * and waits for active requests to finish; the fallback forces exit if a
+ * connection hangs the drain longer than `forceExitMs`.
+ */
+export const createShutdownHandler =
+  (
+    httpServer: { close: (callback: () => void) => void },
+    forceExitMs = 10_000,
+  ): (() => void) =>
+  (): void => {
+    logger.info("SIGTERM received, draining")
+    httpServer.close(() => {
+      logger.info("drained, exiting")
+      process.exit(0)
+    })
+    setTimeout(() => {
+      logger.warn("drain timed out, forcing exit")
+      process.exit(1)
+    }, forceExitMs).unref()
+  }
+
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
@@ -89,14 +112,11 @@ const startServer = async (): Promise<void> => {
 
   app.use(createErrorMiddleware())
 
-  app.listen(port, host, () => {
+  const httpServer = app.listen(port, host, () => {
     logger.info("server started", { host, port })
   })
 
-  process.on("SIGTERM", () => {
-    logger.info("SIGTERM received, shutting down")
-    process.exit(0)
-  })
+  process.on("SIGTERM", createShutdownHandler(httpServer))
 }
 
 // Node ESM has no `require.main` — compare argv[1] to this module's path

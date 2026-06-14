@@ -818,6 +818,9 @@ Parameters:
 
 Obsidian syntax: Entry text renders as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
 
+Errors:
+- "refusing memory write: … would shrink content from N to M bytes" — a safety guard blocked a write that would remove more than half of the existing file. An append should never shrink a file, so this signals the on-disk copy has diverged from what you expect (e.g. a stale/truncated server copy). Re-read with vault_get_memory or vault_read_note to confirm the current content before retrying.
+
 Returns: Confirmation message.`,
       inputSchema: {
         file: z
@@ -921,6 +924,11 @@ Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (
 
 When to use: Removing an outdated or incorrect entry from a memory file. Call vault_get_memory(file, section) first to see exact entry text for matching.
 Prefer vault_delete_note for deleting entire non-protected notes.
+
+Errors:
+- "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
+- "ambiguous: N entries match …" — more than one bullet matched; the entry text is not unique within the section.
+- "refusing memory write: … would shrink content from N to M bytes" — a safety guard blocked a write that would remove more than half of the file. Removing a single entry should not halve a file with real content, so this signals the on-disk copy has diverged (e.g. a stale/truncated server copy). Re-read with vault_get_memory or vault_read_note to confirm current content before retrying.
 
 Returns: Confirmation message.`,
       inputSchema: {

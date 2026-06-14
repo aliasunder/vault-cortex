@@ -1,11 +1,36 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
-import { readFile, writeFile, readdir, mkdir, access } from "node:fs/promises"
+import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
+import { atomicWriteFile } from "./vault-filesystem.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
+
+// Refuse a memory write that would remove more than half of an existing file's
+// bytes — a catastrophic shrink almost always means the on-disk copy diverged
+// (e.g. a skeleton template clobbering real content, the June 13 data loss)
+// rather than a legitimate single-entry edit. The 200-byte floor sits just
+// above the largest empty memory template (Me 152 B, Principles 193 B,
+// Opinions 197 B — frontmatter + headings, no entries), so a file with no real
+// content is never guarded, while a file with even one dated entry (~240 B+) is.
+const SHRINK_FLOOR_BYTES = 200
+const SHRINK_RATIO = 0.5
+const guardAgainstShrink = (
+  beforeBytes: number,
+  afterBytes: number,
+  context: string,
+): void => {
+  if (
+    beforeBytes > SHRINK_FLOOR_BYTES &&
+    afterBytes < beforeBytes * SHRINK_RATIO
+  ) {
+    throw new Error(
+      `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction); re-read with vault_get_memory to confirm current content before retrying`,
+    )
+  }
+}
 
 // Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
 // The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
@@ -342,11 +367,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         section: newSection,
         bullet,
       })
-      await writeFile(filePath, content, "utf8")
+      await atomicWriteFile(filePath, content)
       logger.info("created memory file", {
         file: params.file,
         section: newSection,
         date,
+        beforeBytes: 0,
+        afterBytes: Buffer.byteLength(content, "utf8"),
       })
       return
     }
@@ -362,15 +389,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const appendedLines = [...contentLines, `## ${newSection}`, bullet]
       const newContent = appendedLines.join("\n")
       const serialized = stringifyNote(newContent, parsed.data)
-      await writeFile(
+      const beforeBytes = Buffer.byteLength(existingContent, "utf8")
+      const afterBytes = Buffer.byteLength(serialized, "utf8")
+      guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
+      await atomicWriteFile(
         memoryFilePath(params.vaultPath, params.file),
         serialized,
-        "utf8",
       )
       logger.info("created memory section", {
         file: params.file,
         section: newSection,
         date,
+        beforeBytes,
+        afterBytes,
       })
       return
     }
@@ -409,15 +440,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     const newContent = updatedLines.join("\n")
     const serialized = stringifyNote(newContent, parsed.data)
-    await writeFile(
+    const beforeBytes = Buffer.byteLength(existingContent, "utf8")
+    const afterBytes = Buffer.byteLength(serialized, "utf8")
+    guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
+    await atomicWriteFile(
       memoryFilePath(params.vaultPath, params.file),
       serialized,
-      "utf8",
     )
     logger.info("updated memory", {
       file: params.file,
       section: params.section,
       date,
+      beforeBytes,
+      afterBytes,
     })
   }
 
@@ -518,15 +553,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     const newContent = updatedLines.join("\n")
     const serialized = stringifyNote(newContent, parsed.data)
-    await writeFile(
+    const beforeBytes = Buffer.byteLength(raw, "utf8")
+    const afterBytes = Buffer.byteLength(serialized, "utf8")
+    guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
+    await atomicWriteFile(
       memoryFilePath(params.vaultPath, params.file),
       serialized,
-      "utf8",
     )
     logger.info("deleted memory entry", {
       file: params.file,
       section: params.section,
       date: params.date,
+      beforeBytes,
+      afterBytes,
     })
   }
 
@@ -545,10 +584,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     await mkdir(dirPath, { recursive: true })
     await Promise.all(
       MEMORY_TEMPLATES.map((template) =>
-        writeFile(
+        atomicWriteFile(
           join(dirPath, `${template.fileName}.md`),
           template.content,
-          "utf8",
         ),
       ),
     )
