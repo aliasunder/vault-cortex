@@ -39,7 +39,7 @@ export const createShutdownHandler =
   (
     httpServer: { close: (callback: () => void) => void },
     forceExitMs = 10_000,
-  ) =>
+  ): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
     httpServer.close(() => {

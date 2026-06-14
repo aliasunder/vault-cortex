@@ -43,8 +43,13 @@ export const atomicWriteFile = async (
     await writeFile(tmpPath, content, "utf8")
     await rename(tmpPath, filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file.
-    await rm(tmpPath, { force: true })
+    // Best-effort cleanup so a failed write never strands a temp file. Swallow
+    // any cleanup error so the original write/rename failure is still thrown.
+    try {
+      await rm(tmpPath, { force: true })
+    } catch {
+      // ignore — preserving the root-cause error below matters more
+    }
     throw err
   }
 }
