@@ -133,6 +133,15 @@ describe("registerTools", () => {
     expect(call[1].description).toContain("Cross-section move")
   })
 
+  it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
+    "%s description documents the shrink-guard error",
+    (name) => {
+      const call = findCall(name)!
+      expect(call[1].description).toContain("Errors:")
+      expect(call[1].description).toContain("refusing memory write")
+    },
+  )
+
   it("vault_update_properties description documents null-deletes-key contract", () => {
     const call = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
     expect(call[1].description).toContain("null as a value to delete")

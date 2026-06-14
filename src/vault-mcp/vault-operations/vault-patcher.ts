@@ -1,8 +1,8 @@
 /** Surgical note editing — heading-targeted patches and find-and-replace. */
 
-import { readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "./frontmatter.js"
-import { resolveSafePath } from "./vault-filesystem.js"
+import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -299,6 +299,8 @@ const readNoteForPatch = async (
   fullPath: string
   data: Record<string, unknown>
   lines: string[]
+  /** Raw on-disk file bytes — used for before/after size logging. */
+  beforeBytes: number
 }> => {
   const fullPath = resolveSafePath(vaultPath, path)
   try {
@@ -308,6 +310,7 @@ const readNoteForPatch = async (
       fullPath,
       data: parsed.data as Record<string, unknown>,
       lines: parsed.content.split("\n"),
+      beforeBytes: Buffer.byteLength(fileContent, "utf8"),
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -317,14 +320,16 @@ const readNoteForPatch = async (
   }
 }
 
-/** Writes modified content back with preserved frontmatter. */
+/** Writes modified content back with preserved frontmatter (atomically).
+ *  Returns the serialized byte length for size logging. */
 const writePatchedNote = async (
   fullPath: string,
   data: Record<string, unknown>,
   lines: readonly string[],
-): Promise<void> => {
+): Promise<number> => {
   const serialized = stringifyNote(lines.join("\n"), data)
-  await writeFile(fullPath, serialized, "utf8")
+  await atomicWriteFile(fullPath, serialized)
+  return Buffer.byteLength(serialized, "utf8")
 }
 
 // ── Exported functions ──────────────────────────────────────────
@@ -342,7 +347,7 @@ const patchNote = async (
   logger: Logger,
 ): Promise<string> => {
   const { path, operation, content, heading, headingLevel } = params
-  const { fullPath, data, lines } = await readNoteForPatch(
+  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
     params.vaultPath,
     path,
   )
@@ -357,11 +362,13 @@ const patchNote = async (
       operation === "append"
         ? [...lines, ...contentLines]
         : [...contentLines, ...lines]
-    await writePatchedNote(fullPath, data, updatedLines)
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
     logger.info("patched note", {
       path,
       operation,
       target: "file body",
+      beforeBytes,
+      afterBytes,
     })
     return `Applied ${operation} to ${path} → file body`
   }
@@ -377,8 +384,14 @@ const patchNote = async (
     operation,
   )
 
-  await writePatchedNote(fullPath, data, updatedLines)
-  logger.info("patched note", { path, operation, target: targetDesc })
+  const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+  logger.info("patched note", {
+    path,
+    operation,
+    target: targetDesc,
+    beforeBytes,
+    afterBytes,
+  })
   return `Applied ${operation} to ${path} → ${targetDesc}`
 }
 
@@ -399,7 +412,7 @@ const replaceInNote = async (
     throw new Error("old_text cannot be empty")
   }
 
-  const { fullPath, data, lines } = await readNoteForPatch(
+  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
     params.vaultPath,
     path,
   )
@@ -430,8 +443,8 @@ const replaceInNote = async (
     newText.length === 0 ? updatedBody.replace(/\n{3,}/g, "\n\n") : updatedBody
 
   const updatedLines = normalizedBody.split("\n")
-  await writePatchedNote(fullPath, data, updatedLines)
-  logger.info("replaced in note", { path, count })
+  const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+  logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
 }
 

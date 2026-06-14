@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -802,5 +810,147 @@ describe("bootstrapMemoryDir", () => {
     const parsed = matter(raw)
     expect(parsed.data.title).toBe("Principles — About Me")
     expect(raw).toContain("Secrets invisible at every layer")
+  })
+})
+
+describe("large-shrink guard", () => {
+  it("refuses a delete that would shrink the file by more than half", async () => {
+    // One dominant entry: deleting it drops the file from ~2 KB to ~90 bytes,
+    // a >50% shrink the guard must reject (the June 13 skeleton-clobber shape).
+    const dominantEntry = "x".repeat(2000)
+    const fileContent = `---
+title: Big
+---
+
+# Big
+
+## Notes (newest first)
+- **2026-06-14**: ${dominantEntry}
+- **2026-06-13**: small tail entry
+`
+    await writeFile(join(vault, "About Me/Big.md"), fileContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Big",
+          section: "Notes (newest first)",
+          date: "2026-06-14",
+          entry: dominantEntry,
+        },
+        logger,
+      ),
+    ).rejects.toThrow("refusing memory write")
+
+    // The guard fires before the write, so the file is left fully intact.
+    expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(
+      fileContent,
+    )
+  })
+
+  it("allows a normal single-entry delete on a real-sized file", async () => {
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        entry: "Least-privilege for AI agents",
+      },
+      logger,
+    )
+    const content = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(content).not.toContain("Least-privilege for AI agents")
+    expect(content).toContain("Secrets invisible at every layer")
+  })
+
+  it("skips the guard for files at or below the 200-byte floor", async () => {
+    const tiny = `---
+title: T
+---
+
+# T
+
+## S (newest first)
+- **2026-06-14**: hi
+`
+    // Sanity-check the fixture is genuinely under the guard's floor.
+    expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(200)
+    await writeFile(join(vault, "About Me/T.md"), tiny, "utf8")
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "T",
+        section: "S (newest first)",
+        date: "2026-06-14",
+        entry: "hi",
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "About Me/T.md"), "utf8")
+    expect(content).not.toContain("- **2026-06-14**: hi")
+  })
+})
+
+describe("memory write size logging", () => {
+  it("updateMemory logs before/after byte counts", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+        entry: "new entry",
+        date: "2026-06-14",
+      },
+      logger,
+    )
+    const written = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith("updated memory", {
+      file: "Principles",
+      section: "Working style (newest first)",
+      date: "2026-06-14",
+      beforeBytes: Buffer.byteLength(PRINCIPLES_MD, "utf8"),
+      afterBytes: Buffer.byteLength(written, "utf8"),
+    })
+  })
+
+  it("deleteMemory logs before/after byte counts", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        entry: "Least-privilege for AI agents",
+      },
+      logger,
+    )
+    const written = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith("deleted memory entry", {
+      file: "Principles",
+      section: "Decision heuristics (newest first)",
+      date: "2026-05-05",
+      beforeBytes: Buffer.byteLength(PRINCIPLES_MD, "utf8"),
+      afterBytes: Buffer.byteLength(written, "utf8"),
+    })
   })
 })

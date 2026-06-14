@@ -1,9 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import matter from "gray-matter"
-import { vaultFs } from "../vault-filesystem.js"
+import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -23,6 +38,31 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(vault, { recursive: true })
+})
+
+describe("atomicWriteFile", () => {
+  it("writes the exact content to the target path", async () => {
+    const target = join(vault, "atomic.md")
+    await atomicWriteFile(target, "exact content\n")
+    expect(await readFile(target, "utf8")).toBe("exact content\n")
+  })
+
+  it("leaves no .tmp staging file behind on success", async () => {
+    await atomicWriteFile(join(vault, "clean.md"), "body\n")
+    const entries = await readdir(vault)
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+
+  it("cleans up the staging file and rethrows when the rename fails", async () => {
+    // A directory sitting at the target path makes the final rename fail with
+    // EISDIR — after the temp file has already been staged — so this exercises
+    // the catch-and-cleanup branch, not the initial writeFile.
+    const target = join(vault, "occupied")
+    await mkdir(target)
+    await expect(atomicWriteFile(target, "body\n")).rejects.toThrow()
+    const entries = await readdir(vault)
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
 })
 
 describe("path traversal", () => {
@@ -564,5 +604,56 @@ describe("updateProperties", () => {
         logger,
       ),
     ).rejects.toThrow("path traversal blocked")
+  })
+})
+
+describe("write size logging", () => {
+  it("writeNote logs beforeBytes 0 and afterBytes for a new file", async () => {
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await writeNote({ vaultPath: vault, path: "n.md", body: "hello\n" }, logger)
+    const written = await readFile(join(vault, "n.md"), "utf8")
+
+    expect(infoSpy).toHaveBeenCalledWith("wrote note", {
+      path: "n.md",
+      beforeBytes: 0,
+      afterBytes: Buffer.byteLength(written, "utf8"),
+    })
+  })
+
+  it("writeNote logs the prior file size as beforeBytes when overwriting", async () => {
+    const original = "---\ntitle: T\n---\nold body\n"
+    await writeFile(join(vault, "e.md"), original, "utf8")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await writeNote({ vaultPath: vault, path: "e.md", body: "new\n" }, logger)
+    const written = await readFile(join(vault, "e.md"), "utf8")
+
+    expect(infoSpy).toHaveBeenCalledWith("wrote note", {
+      path: "e.md",
+      beforeBytes: Buffer.byteLength(original, "utf8"),
+      afterBytes: Buffer.byteLength(written, "utf8"),
+    })
+  })
+
+  it("updateProperties logs before/after byte counts", async () => {
+    const original = "---\ntitle: Original\n---\nBody content\n"
+    await writeFile(join(vault, "p.md"), original, "utf8")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await updateProperties(
+      { vaultPath: vault, path: "p.md", properties: { status: "active" } },
+      logger,
+    )
+    const written = await readFile(join(vault, "p.md"), "utf8")
+
+    expect(infoSpy).toHaveBeenCalledWith("updated properties", {
+      path: "p.md",
+      beforeBytes: Buffer.byteLength(original, "utf8"),
+      afterBytes: Buffer.byteLength(written, "utf8"),
+    })
   })
 })
