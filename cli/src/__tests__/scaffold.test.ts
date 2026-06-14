@@ -26,11 +26,14 @@ describe("buildFilesToWrite", () => {
     expect(files[1].content).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
-  it("plans the three-service compose file for remote mode", () => {
+  it("plans the two-service remote compose with the forked sync image and no init-config-perms", () => {
     const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
 
     expect(files[0].content).toContain("obsidian-sync")
-    expect(files[0].content).toContain("init-config-perms")
+    expect(files[0].content).toContain(
+      "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
+    )
+    expect(files[0].content).not.toContain("init-config-perms")
   })
 })
 
