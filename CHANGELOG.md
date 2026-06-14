@@ -37,6 +37,21 @@
 
 
 
+
+## [0.17.8] — 2026-06-14
+
+### Features
+
+- **memory:** Harden writes against partial-write and clobber data loss (#128)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.7
+
+### CI / Infrastructure
+
+- Verify gitleaks download checksum before extracting (#129)
+
 ## [0.17.7] — 2026-06-14
 
 ### Features
