@@ -73,8 +73,8 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # Device name shown in Obsidian Sync settings.
 # DEVICE_NAME=vault-cortex
 
-# Obsidian Sync conflict resolution: merge | ours | theirs (default: merge).
-# CONFLICT_STRATEGY=merge
+# Obsidian Sync conflict resolution: merge | conflict (default: conflict).
+# CONFLICT_STRATEGY=conflict
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 # SYNC_MODE=bidirectional
@@ -109,7 +109,7 @@ VAULT_PASSWORD=${answers.vaultPassword}`
       ? `# Obsidian Sync auth token — FILL THIS IN before docker compose up.
 # Generate once with:
 #   docker run --rm -it --entrypoint get-token \\
-#     ghcr.io/belphemur/obsidian-headless-sync-docker:latest`
+#     ghcr.io/aliasunder/obsidian-headless-sync-docker:latest`
       : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

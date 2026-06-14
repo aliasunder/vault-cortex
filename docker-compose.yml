@@ -12,25 +12,10 @@
 name: vault-cortex
 
 services:
-  # Workaround: the upstream Dockerfile creates /home/obsidian/.config as
-  # root (mkdir runs as root before chown). Docker named volumes inherit
-  # this root ownership, so the obsidian user (UID 1000) can't write sync
-  # state. This init container chowns the volume before obsidian-sync starts.
-  # Remove when upstream fixes: github.com/Belphemur/obsidian-headless-sync-docker
-  init-config-perms:
-    image: alpine:latest
-    command: sh -c "chown -R ${PUID:-1000}:${PGID:-1000} /config"
-    volumes:
-      - obsidian_config:/config
-    restart: "no"
-
   obsidian-sync:
-    image: ghcr.io/belphemur/obsidian-headless-sync-docker:latest
+    image: ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
     container_name: obsidian-sync
     restart: unless-stopped
-    depends_on:
-      init-config-perms:
-        condition: service_completed_successfully
     environment:
       OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}
       VAULT_NAME: ${VAULT_NAME}
@@ -38,7 +23,7 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
-      CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
+      CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-conflict}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
       TZ: ${TZ:-UTC}
     volumes:
