@@ -60,8 +60,9 @@ src/
     mcp-router.ts                      # /mcp session routes + transport lifecycle
     tool-definitions.ts                # MCP tool registrations + Zod schemas
     vault-operations/                  # Vault content read/write/patch
-      vault-filesystem.ts              # Read/write/list/delete .md files
+      vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
+      heading-parser.ts                # Shared H1–H6 section-span parser (read + patch)
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
     search/                            # SQLite FTS5 indexing + file watching

@@ -12,6 +12,7 @@ import { join, dirname, relative, resolve } from "node:path"
 import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
 import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
+import { parseHeadings, findHeading } from "./heading-parser.js"
 import type { Logger } from "../../logger.js"
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
@@ -104,6 +105,77 @@ const readNote = async (
   }
   logger.info("read note", { path: params.path })
   return content
+}
+
+/** One heading in a note's outline: its level, text, and the byte size of its
+ *  section (heading line through the next same-or-higher heading). */
+export type HeadingOutline = Readonly<{
+  level: number
+  text: string
+  bytes: number
+}>
+
+/**
+ * Returns a note's heading tree (no bodies) — H1–H6 with each section's byte
+ * size, so an agent can pick which section to read without pulling the whole
+ * file. Frontmatter is excluded (line ranges are body-relative, matching
+ * vault_patch_note). A note with no headings returns an empty array.
+ */
+const readNoteOutline = async (
+  params: { vaultPath: string; path: string },
+  logger: Logger,
+): Promise<HeadingOutline[]> => {
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const content = await readFileOrNull(fullPath)
+  if (content === null) {
+    throw new Error(`note not found: "${params.path}"`)
+  }
+  const lines = parseNote(content).content.split("\n")
+  const headings = parseHeadings(lines)
+  const outline = headings.map((heading) => ({
+    level: heading.level,
+    text: heading.text,
+    // Section span = heading line through bodyEndLine (the same span a section
+    // read returns), so the size hint matches what reading it would cost.
+    bytes: Buffer.byteLength(
+      lines.slice(heading.startLine, heading.bodyEndLine).join("\n"),
+      "utf8",
+    ),
+  }))
+  logger.info("read note outline", {
+    path: params.path,
+    headingCount: outline.length,
+  })
+  return outline
+}
+
+/**
+ * Returns a single section of a note: the heading line plus its body, through
+ * the next heading of the same-or-higher level (child headings included) —
+ * the exact span vault_patch_note targets. Frontmatter is excluded.
+ */
+const readNoteSection = async (
+  params: {
+    vaultPath: string
+    path: string
+    heading: string
+    headingLevel?: number
+  },
+  logger: Logger,
+): Promise<string> => {
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const content = await readFileOrNull(fullPath)
+  if (content === null) {
+    throw new Error(`note not found: "${params.path}"`)
+  }
+  const lines = parseNote(content).content.split("\n")
+  const headings = parseHeadings(lines)
+  const target = findHeading(headings, params.heading, params.headingLevel)
+  logger.info("read note section", {
+    path: params.path,
+    heading: target.text,
+  })
+  return lines.slice(target.startLine, target.bodyEndLine).join("\n")
 }
 
 /** Parses a note's YAML frontmatter and returns the properties as an object. */
@@ -222,6 +294,8 @@ const listNotes = async (
 
 export const vaultFs = {
   readNote,
+  readNoteOutline,
+  readNoteSection,
   readNoteProperties,
   writeNote,
   updateProperties,

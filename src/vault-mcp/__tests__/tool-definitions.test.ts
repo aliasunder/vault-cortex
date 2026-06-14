@@ -288,4 +288,20 @@ describe("error handling", () => {
     }
     expect(result.isError).toBe(true)
   })
+
+  it("vault_read_note rejects combining outline with heading", async () => {
+    const call = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const handler = call[2]
+    const result = (await handler(
+      { path: "note.md", outline: true, heading: "Active" },
+      mockExtra,
+    )) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      "outline, heading, and properties_only are mutually exclusive — set at most one",
+    )
+  })
 })
