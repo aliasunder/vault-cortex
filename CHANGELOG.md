@@ -38,6 +38,21 @@
 
 
 
+
+## [0.18.0] — 2026-06-15
+
+### Features
+
+- **vault_read_note:** Add outline and section-scoped reads (#130)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.17.8
+
+### Maintenance
+
+- **coderabbit:** Disable per-push incremental reviews (#131)
+
 ## [0.17.8] — 2026-06-14
 
 ### Features
