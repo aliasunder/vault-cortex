@@ -1057,20 +1057,24 @@ describe("concurrent memory writes", () => {
       },
       logger,
     )
-    // All five new entries plus the one original entry survive.
-    for (const entry of entries) {
-      expect(section).toContain(`- **2026-06-14**: ${entry}`)
-    }
-    expect(section).toContain("Single-purpose files")
-    const bulletCount = section
+    // All five new entries plus the original survive, newest-first in the order
+    // they serialized (each appends at the top), with no losses or duplicates.
+    const bulletLines = section
       .split("\n")
-      .filter((line) => line.startsWith("- **")).length
-    expect(bulletCount).toBe(entries.length + 1)
+      .filter((line) => line.startsWith("- **"))
+    expect(bulletLines).toEqual([
+      "- **2026-06-14**: echo",
+      "- **2026-06-14**: delta",
+      "- **2026-06-14**: charlie",
+      "- **2026-06-14**: bravo",
+      "- **2026-06-14**: alpha",
+      "- **2026-05-04**: Single-purpose files",
+    ])
   })
 
-  it("writes concurrent updates to different files in parallel", async () => {
-    // Different files key on different lock paths, so they must not serialize
-    // into each other or deadlock — both writes complete and persist.
+  it("persists concurrent updates to different files without interference", async () => {
+    // Different files key on different lock paths, so concurrent writes to each
+    // must both land intact and not corrupt one another (or deadlock).
     await Promise.all([
       updateMemory(
         {
@@ -1110,8 +1114,18 @@ describe("concurrent memory writes", () => {
       },
       logger,
     )
-    expect(principles).toContain("- **2026-06-14**: principles entry")
-    expect(opinions).toContain("- **2026-06-14**: opinions entry")
+    expect(
+      principles.split("\n").filter((line) => line.startsWith("- **")),
+    ).toEqual([
+      "- **2026-06-14**: principles entry",
+      "- **2026-05-04**: Single-purpose files",
+    ])
+    expect(
+      opinions.split("\n").filter((line) => line.startsWith("- **")),
+    ).toEqual([
+      "- **2026-06-14**: opinions entry",
+      "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
+    ])
   })
 
   it("leaves a consistent file when an update and delete race on one file", async () => {
@@ -1149,12 +1163,14 @@ describe("concurrent memory writes", () => {
       },
       logger,
     )
-    expect(section).toContain("- **2026-06-14**: freshly added")
-    expect(section).not.toContain("Least-privilege for AI agents")
-    expect(section).toContain("Secrets invisible at every layer")
-    const bulletCount = section
+    // The add applied then the delete: new entry on top, the targeted entry
+    // gone, the untouched entry intact — exactly two bullets, no torn lines.
+    const bulletLines = section
       .split("\n")
-      .filter((line) => line.startsWith("- **")).length
-    expect(bulletCount).toBe(2)
+      .filter((line) => line.startsWith("- **"))
+    expect(bulletLines).toEqual([
+      "- **2026-06-14**: freshly added",
+      "- **2026-05-06**: Secrets invisible at every layer",
+    ])
   })
 })
