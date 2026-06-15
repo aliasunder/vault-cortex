@@ -32,53 +32,27 @@ const guardAgainstShrink = (
   }
 }
 
-// Serializes async read-modify-write cycles per memory file. vault-mcp is a
-// single Node process handling concurrent MCP request handlers on one event
-// loop; without this, two updateMemory/deleteMemory calls can interleave
-// (read, read, write, write) and the second write clobbers the first's entry
-// (lost update). A per-path promise chain forces one-at-a-time execution.
-// Mutable Map because the chain tail is replaced in place as operations enqueue.
+// Serialize writes to each memory file. vault-mcp runs as a single Node process,
+// so two concurrent updateMemory/deleteMemory calls can otherwise interleave
+// their read-modify-write and silently drop an entry. We remember one promise
+// per file — that file's most recent write — so the next write can wait for it.
+// Writes to different files never block each other. There's at most one entry
+// per memory file (a small, fixed set), so this map stays tiny.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
-/**
- * Runs `fn` with mutual exclusion per `key`: calls sharing a key execute one
- * at a time in arrival order, while different keys never block each other.
- *
- * This is a mutex built from a promise chain rather than a held flag/boolean.
- * `fileWriteLocks` stores, per key, a promise standing for "the last operation
- * queued for this key" — the tail of that key's queue. Each call:
- *
- *   1. reads the current tail (or a resolved promise if the queue is empty);
- *   2. chains its own work after that tail and installs *itself* as the new
- *      tail — so the next caller will wait behind us;
- *   3. on completion, deletes the map entry, but only if no newer op has since
- *      become the tail (otherwise we'd drop someone else's place in line).
- *
- * Step 2 runs synchronously, before any `await`, so two calls racing within the
- * same tick still serialize: the second reads the first's promise as its tail.
- */
-const withFileLock = async <T>(
-  key: string,
-  fn: () => Promise<T>,
+// Run `operation` only after the previous write to the same file has finished,
+// keeping writes to one file strictly one-at-a-time. Passing `operation` as both
+// `.then` handlers runs it whether the previous write resolved or threw, so one
+// failed write can't make later ones skip their turn. The operation's own result
+// and errors still propagate to its caller.
+const withFileLock = <T>(
+  filePath: string,
+  operation: () => Promise<T>,
 ): Promise<T> => {
-  const previous = fileWriteLocks.get(key) ?? Promise.resolve()
-  // Start our op only after the previous one settles. `.then`'s two args are the
-  // fulfilled and rejected handlers; we pass the same fn to both so ours runs
-  // whether the previous op succeeded OR threw — a prior failure must not skip
-  // our turn or leave a rejected promise as the tail (which would poison every
-  // op queued behind it). Our own error still surfaces to our caller via `await`.
-  const run = previous.then(
-    () => fn(),
-    () => fn(),
-  )
-  fileWriteLocks.set(key, run)
-  try {
-    return await run
-  } finally {
-    // Drop the entry only if we're still the tail (no newer op chained on),
-    // so the map doesn't grow unbounded across many one-off keys.
-    if (fileWriteLocks.get(key) === run) fileWriteLocks.delete(key)
-  }
+  const previousWrite = fileWriteLocks.get(filePath) ?? Promise.resolve()
+  const thisWrite = previousWrite.then(operation, operation)
+  fileWriteLocks.set(filePath, thisWrite)
+  return thisWrite
 }
 
 // Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
