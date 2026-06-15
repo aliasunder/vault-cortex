@@ -36,8 +36,9 @@ const guardAgainstShrink = (
 // so two concurrent updateMemory/deleteMemory calls can otherwise interleave
 // their read-modify-write and silently drop an entry. We remember one promise
 // per file — that file's most recent write — so the next write can wait for it.
-// Writes to different files never block each other. There's at most one entry
-// per memory file (a small, fixed set), so this map stays tiny.
+// Writes to different files never block each other. Entries are removed once a
+// file's writes settle (see withFileLock), so the map only holds files that
+// currently have a write in flight.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
 // Run `operation` only after the previous write to the same file has finished,
@@ -52,6 +53,17 @@ const withFileLock = <T>(
   const previousWrite = fileWriteLocks.get(filePath) ?? Promise.resolve()
   const thisWrite = previousWrite.then(operation, operation)
   fileWriteLocks.set(filePath, thisWrite)
+
+  // Once this write settles, forget it — but only if no later write has queued
+  // behind it (i.e. we're still the tail), so we never evict an in-flight chain.
+  // This keeps the map from retaining a promise per file path indefinitely.
+  const forgetIfStillTail = (): void => {
+    if (fileWriteLocks.get(filePath) === thisWrite) {
+      fileWriteLocks.delete(filePath)
+    }
+  }
+  void thisWrite.then(forgetIfStillTail, forgetIfStillTail)
+
   return thisWrite
 }
 
