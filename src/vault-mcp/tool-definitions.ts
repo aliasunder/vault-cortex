@@ -191,13 +191,12 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
       // make the result ambiguous, so reject the combination up front. An empty
       // heading still counts as section mode (heading !== undefined) so it's
       // rejected here rather than silently falling through to a full read.
-      if (
-        [
-          properties_only === true,
-          outline === true,
-          heading !== undefined,
-        ].filter(Boolean).length > 1
-      ) {
+      const selectedModeCount = [
+        properties_only === true,
+        outline === true,
+        heading !== undefined,
+      ].filter(Boolean).length
+      if (selectedModeCount > 1) {
         return returnError(
           "outline, heading, and properties_only are mutually exclusive — set at most one",
         )
