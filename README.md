@@ -149,31 +149,31 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Tools (23)
 
-| Category        | Tool                         | Description                                              |
-| --------------- | ---------------------------- | -------------------------------------------------------- |
-| **Vault CRUD**  | `vault_read_note`            | Read a note by path                                      |
-|                 | `vault_write_note`           | Create or overwrite a note with frontmatter              |
-|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert) |
-|                 | `vault_replace_in_note`      | Find-and-replace text in a note                          |
-|                 | `vault_list_notes`           | List notes with optional glob/folder filter              |
-|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                 |
-| **Search**      | `vault_search`               | Full-text search with tag/folder/property filters        |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                |
-|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                   |
-|                 | `vault_recent_notes`         | Recently modified or created notes                       |
-|                 | `vault_list_tags`            | All tags with usage counts                               |
-| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)           |
-|                 | `vault_update_memory`        | Append a dated entry to a memory section                 |
-|                 | `vault_delete_memory`        | Remove a specific memory entry by date                   |
-|                 | `vault_list_memory_files`    | Discover memory files and their sections                 |
-| **Properties**  | `vault_list_property_keys`   | All frontmatter keys with sample values                  |
-|                 | `vault_list_property_values` | Distinct values for a property key                       |
-|                 | `vault_search_by_property`   | Find notes by frontmatter key-value                      |
-|                 | `vault_update_properties`    | Add or update properties without touching the body       |
-| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                            |
-|                 | `vault_get_outgoing_links`   | Links from a given note                                  |
-|                 | `vault_find_orphans`         | Notes with no incoming links                             |
-| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                       |
+| Category        | Tool                         | Description                                                |
+| --------------- | ---------------------------- | ---------------------------------------------------------- |
+| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section |
+|                 | `vault_write_note`           | Create or overwrite a note with frontmatter                |
+|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)   |
+|                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
+|                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
+|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                   |
+| **Search**      | `vault_search`               | Full-text search with tag/folder/property filters          |
+|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                  |
+|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                     |
+|                 | `vault_recent_notes`         | Recently modified or created notes                         |
+|                 | `vault_list_tags`            | All tags with usage counts                                 |
+| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)             |
+|                 | `vault_update_memory`        | Append a dated entry to a memory section                   |
+|                 | `vault_delete_memory`        | Remove a specific memory entry by date                     |
+|                 | `vault_list_memory_files`    | Discover memory files and their sections                   |
+| **Properties**  | `vault_list_property_keys`   | All frontmatter keys with sample values                    |
+|                 | `vault_list_property_values` | Distinct values for a property key                         |
+|                 | `vault_search_by_property`   | Find notes by frontmatter key-value                        |
+|                 | `vault_update_properties`    | Add or update properties without touching the body         |
+| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                              |
+|                 | `vault_get_outgoing_links`   | Links from a given note                                    |
+|                 | `vault_find_orphans`         | Notes with no incoming links                               |
+| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                         |
 
 ## Configuration
 
