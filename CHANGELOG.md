@@ -39,6 +39,23 @@
 
 
 
+
+## [0.18.1] — 2026-06-15
+
+### Bug Fixes
+
+- **memory:** Resolve section names with or without the "(newest first)" suffix (#132)
+
+### Documentation
+
+- **coderabbit:** Clarify the scope of auto_incremental_review (#135)
+- Document vault_read_note section-scoped read modes (#133)
+- Update CHANGELOG.md for v0.18.0
+
+### Other Changes
+
+- Serialize memory writes and gate vault-mcp on sync health (#134)
+
 ## [0.18.0] — 2026-06-15
 
 ### Features
