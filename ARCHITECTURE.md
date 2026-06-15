@@ -356,6 +356,16 @@ Two services run in order via `depends_on`:
    bootstraps memory templates if the memory folder doesn't exist, then
    starts the file watcher.
 
+`depends_on` uses `condition: service_healthy`, so vault-mcp waits for
+obsidian-sync's healthcheck to pass before starting — not merely for the
+container to be created. This matters on a fresh volume: it keeps the memory
+bootstrap from racing the first sync and writing skeleton templates over files
+that are about to arrive from the cloud. The healthcheck verifies the `ob sync`
+process is running and `/vault` exists (`pgrep -f 'ob sync'`), not that the
+initial sync has _completed_ — so the guarantee is "sync is up and has had its
+`start_period` to land files", not "sync is finished". Combined with the
+memory-write shrink guard, that's enough to prevent the fresh-volume clobber.
+
 ### Durability
 
 Four layers cover different failure classes:

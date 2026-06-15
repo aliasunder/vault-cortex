@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
     depends_on:
       obsidian-sync:
-        condition: service_started
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "8000"

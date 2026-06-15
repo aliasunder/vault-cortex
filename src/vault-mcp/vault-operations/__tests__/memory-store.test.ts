@@ -889,7 +889,7 @@ describe("bootstrapMemoryDir", () => {
 describe("large-shrink guard", () => {
   it("refuses a delete that would shrink the file by more than half", async () => {
     // One dominant entry: deleting it drops the file from ~2 KB to ~90 bytes,
-    // a >50% shrink the guard must reject (the June 13 skeleton-clobber shape).
+    // a >50% shrink the guard must reject (a skeleton template overwriting real content).
     const dominantEntry = "x".repeat(2000)
     const fileContent = `---
 title: Big
@@ -1025,5 +1025,152 @@ describe("memory write size logging", () => {
       beforeBytes: Buffer.byteLength(PRINCIPLES_MD, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
     })
+  })
+})
+
+describe("concurrent memory writes", () => {
+  it("does not lose entries when appending to the same section concurrently", async () => {
+    // Each updateMemory is a read-modify-write. Fired together they would
+    // interleave (all read the same base, last write wins) and silently drop
+    // entries without serialization. With the per-file lock, all five land.
+    const entries = ["alpha", "bravo", "charlie", "delta", "echo"]
+    await Promise.all(
+      entries.map((entry) =>
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Principles",
+            section: "Working style (newest first)",
+            entry,
+            date: "2026-06-14",
+          },
+          logger,
+        ),
+      ),
+    )
+
+    const section = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+      },
+      logger,
+    )
+    // All five new entries plus the original survive, newest-first in the order
+    // they serialized (each appends at the top), with no losses or duplicates.
+    const bulletLines = section
+      .split("\n")
+      .filter((line) => line.startsWith("- **"))
+    expect(bulletLines).toEqual([
+      "- **2026-06-14**: echo",
+      "- **2026-06-14**: delta",
+      "- **2026-06-14**: charlie",
+      "- **2026-06-14**: bravo",
+      "- **2026-06-14**: alpha",
+      "- **2026-05-04**: Single-purpose files",
+    ])
+  })
+
+  it("persists concurrent updates to different files without interference", async () => {
+    // Different files key on different lock paths, so concurrent writes to each
+    // must both land intact and not corrupt one another (or deadlock).
+    await Promise.all([
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working style (newest first)",
+          entry: "principles entry",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "Code patterns (newest first)",
+          entry: "opinions entry",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+    ])
+
+    const principles = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+      },
+      logger,
+    )
+    const opinions = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Code patterns (newest first)",
+      },
+      logger,
+    )
+    expect(
+      principles.split("\n").filter((line) => line.startsWith("- **")),
+    ).toEqual([
+      "- **2026-06-14**: principles entry",
+      "- **2026-05-04**: Single-purpose files",
+    ])
+    expect(
+      opinions.split("\n").filter((line) => line.startsWith("- **")),
+    ).toEqual([
+      "- **2026-06-14**: opinions entry",
+      "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
+    ])
+  })
+
+  it("leaves a consistent file when an update and delete race on one file", async () => {
+    // A concurrent add + remove on the same file must serialize so neither
+    // operates on stale content: the deleted entry is gone, the added entry is
+    // present, and the untouched original survives — no torn or lost lines.
+    await Promise.all([
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "freshly added",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          date: "2026-05-05",
+          entry: "Least-privilege for AI agents",
+        },
+        logger,
+      ),
+    ])
+
+    const section = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+      },
+      logger,
+    )
+    // The add applied then the delete: new entry on top, the targeted entry
+    // gone, the untouched entry intact — exactly two bullets, no torn lines.
+    const bulletLines = section
+      .split("\n")
+      .filter((line) => line.startsWith("- **"))
+    expect(bulletLines).toEqual([
+      "- **2026-06-14**: freshly added",
+      "- **2026-05-06**: Secrets invisible at every layer",
+    ])
   })
 })
