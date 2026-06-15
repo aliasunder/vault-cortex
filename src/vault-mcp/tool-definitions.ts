@@ -344,6 +344,7 @@ Returns: Confirmation message.`,
         content: z.string().describe("Content to insert or replace with"),
         heading: z
           .string()
+          .min(1)
           .optional()
           .describe(
             "Target heading text (case-sensitive exact match). Required for replace and insert_before. Optional for append/prepend (omit for file-level operation).",
