@@ -867,7 +867,7 @@ Returns: Raw markdown text.`,
           .string()
           .optional()
           .describe(
-            'H2 section heading (e.g. "Decision heuristics (newest first)"). Call vault_list_memory_files first to discover valid names.',
+            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Call vault_list_memory_files first to discover valid names.',
           ),
       },
       annotations: {
@@ -902,7 +902,7 @@ Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
 Prefer vault_write_note for creating non-memory notes.
 
-Behavior: Additive — existing entries are never overwritten, and repeat calls add duplicate entries. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it ("Design preferences" becomes "Design preferences (newest first)") — use that full name in later calls.
+Behavior: Additive — existing entries are never overwritten, and repeat calls add duplicate entries. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it when creating a new section ("Design preferences" becomes "Design preferences (newest first)"); an existing section is matched with or without the suffix.
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
@@ -921,7 +921,7 @@ Returns: Confirmation message.`,
         section: z
           .string()
           .describe(
-            'H2 section heading (e.g. "Decision heuristics (newest first)")',
+            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
         entry: z.string().describe("Entry text (no date prefix)"),
         options: z
@@ -1027,7 +1027,11 @@ Returns: Confirmation message.`,
         file: z
           .string()
           .describe('Memory file name without .md (e.g. "Principles")'),
-        section: z.string().describe("H2 section heading containing the entry"),
+        section: z
+          .string()
+          .describe(
+            'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
+          ),
         date: z.string().describe("ISO YYYY-MM-DD date of the entry"),
         entry: z
           .string()

@@ -61,8 +61,8 @@ const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
-/** Appends "(newest first)" to a section name if not already present (case-insensitive). */
-const ensureNewestFirstSuffix = (sectionName: string): string =>
+/** Returns the heading name with the "(newest first)" suffix, appending it if absent (case-insensitive). */
+const headingWithNewestFirstSuffix = (sectionName: string): string =>
   sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
     ? sectionName
     : `${sectionName} (newest first)`
@@ -163,10 +163,16 @@ const findSection = (
   sectionName: string,
   level: 1 | 2,
 ): ParsedSection | undefined => {
-  const needle = sectionName.trim().toLowerCase()
+  // Memory headings are canonically suffixed "(newest first)"; resolve the
+  // caller's name to that form so a short name matches the stored heading
+  // (and update_memory doesn't append a duplicate section).
+  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName)
+    .trim()
+    .toLowerCase()
   return sections.find(
     (section) =>
-      section.level === level && section.heading.toLowerCase() === needle,
+      section.level === level &&
+      section.heading.toLowerCase() === normalizedSectionName,
   )
 }
 
@@ -385,7 +391,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
       // File does not exist — create directory + file with section and entry
       if (existingContent === null) {
-        const newSection = ensureNewestFirstSuffix(params.section)
+        const newSection = headingWithNewestFirstSuffix(params.section)
         const filePath = memoryFilePath(params.vaultPath, params.file)
         await mkdir(dirname(filePath), { recursive: true })
         const content = buildNewMemoryFile({
@@ -411,7 +417,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
       // File exists but section does not — append new H2 + entry at end
       if (!match) {
-        const newSection = ensureNewestFirstSuffix(params.section)
+        const newSection = headingWithNewestFirstSuffix(params.section)
         const appendedLines = [...contentLines, `## ${newSection}`, bullet]
         const newContent = appendedLines.join("\n")
         const serialized = stringifyNote(newContent, parsed.data)
