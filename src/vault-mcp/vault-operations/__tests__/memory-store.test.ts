@@ -10,7 +10,6 @@ import {
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import matter from "gray-matter"
 import { parseNote } from "../frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
@@ -839,7 +838,7 @@ describe("bootstrapMemoryDir", () => {
       join(emptyVault, "About Me/Principles.md"),
       "utf8",
     )
-    const parsed = matter(raw)
+    const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Principles")
     expect(parsed.data.type).toBe("profile")
     expect(parsed.data.tags).toEqual(["memory", "principles"])
@@ -880,7 +879,7 @@ describe("bootstrapMemoryDir", () => {
   it("preserves existing files when directory already exists", async () => {
     await bootstrapMemoryDir({ vaultPath: vault }, logger)
     const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    const parsed = matter(raw)
+    const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Principles — About Me")
     expect(raw).toContain("Secrets invisible at every layer")
   })
