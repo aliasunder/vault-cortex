@@ -45,7 +45,10 @@ const withFileLock = async <T>(
   fn: () => Promise<T>,
 ): Promise<T> => {
   const previous = fileWriteLocks.get(key) ?? Promise.resolve()
-  // Chain onto the previous op (swallowing its result/error) so ours waits its turn.
+  // Start our op only after the previous one settles. .then's two args are the
+  // fulfilled and rejected handlers; we pass the same fn to both so ours runs
+  // whether the previous op succeeded OR threw — a prior failure must not skip
+  // our turn or poison the chain. (Our own error still surfaces via `await run`.)
   const run = previous.then(
     () => fn(),
     () => fn(),
