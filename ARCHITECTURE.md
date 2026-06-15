@@ -179,14 +179,16 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ### Phase 1: Vault Read/Write (R2, R3)
 
-| Tool                    | Input                                                | Annotation      |
-| ----------------------- | ---------------------------------------------------- | --------------- |
-| `vault_read_note`       | `path`                                               | readOnlyHint    |
-| `vault_write_note`      | `path, body, frontmatter?`                           | destructiveHint |
-| `vault_patch_note`      | `path, operation, content, heading?, heading_level?` | destructiveHint |
-| `vault_replace_in_note` | `path, old_text, new_text, replace_all_occurrences?` | destructiveHint |
-| `vault_list_notes`      | `folder?, glob?`                                     | readOnlyHint    |
-| `vault_delete_note`     | `path`                                               | destructiveHint |
+| Tool                    | Input                                                        | Annotation      |
+| ----------------------- | ------------------------------------------------------------ | --------------- |
+| `vault_read_note`       | `path, properties_only?, outline?, heading?, heading_level?` | readOnlyHint    |
+| `vault_write_note`      | `path, body, frontmatter?`                                   | destructiveHint |
+| `vault_patch_note`      | `path, operation, content, heading?, heading_level?`         | destructiveHint |
+| `vault_replace_in_note` | `path, old_text, new_text, replace_all_occurrences?`         | destructiveHint |
+| `vault_list_notes`      | `folder?, glob?`                                             | readOnlyHint    |
+| `vault_delete_note`     | `path`                                                       | destructiveHint |
+
+`vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the heading tree, or a single section — cheap partial reads for large notes.
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
 
