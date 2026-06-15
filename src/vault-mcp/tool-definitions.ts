@@ -176,16 +176,36 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
       })
       reqLogger.info("tool_call", { path, properties_only, outline, heading })
 
-      // The read modes select different content; allowing more than one would
-      // make the result ambiguous, so reject the combination up front.
-      if ([properties_only, outline, heading].filter(Boolean).length > 1) {
-        const message =
-          "outline, heading, and properties_only are mutually exclusive — set at most one"
+      const returnError = (
+        message: string,
+      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
         reqLogger.warn("tool_error", { error: message })
         return {
           content: [{ type: "text" as const, text: message }],
           isError: true as const,
         }
+      }
+
+      // The read modes select different content; allowing more than one would
+      // make the result ambiguous, so reject the combination up front. An empty
+      // heading still counts as section mode (heading !== undefined) so it's
+      // rejected here rather than silently falling through to a full read.
+      if (
+        [
+          properties_only === true,
+          outline === true,
+          heading !== undefined,
+        ].filter(Boolean).length > 1
+      ) {
+        return returnError(
+          "outline, heading, and properties_only are mutually exclusive — set at most one",
+        )
+      }
+
+      // heading_level only disambiguates a heading; on its own it would be
+      // silently ignored, so require its companion explicitly.
+      if (heading_level !== undefined && heading === undefined) {
+        return returnError("heading_level requires a heading")
       }
 
       if (properties_only) {
@@ -204,7 +224,9 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
         )
       }
 
-      if (heading) {
+      // An empty heading reaches readNoteSection and surfaces findHeading's
+      // "heading cannot be empty" error rather than silently reading the file.
+      if (heading !== undefined) {
         return safeHandler(
           reqLogger,
           () =>

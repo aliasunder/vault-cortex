@@ -304,4 +304,18 @@ describe("error handling", () => {
       "outline, heading, and properties_only are mutually exclusive — set at most one",
     )
   })
+
+  it("vault_read_note rejects heading_level without a heading", async () => {
+    const call = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const handler = call[2]
+    const result = (await handler(
+      { path: "note.md", heading_level: 2 },
+      mockExtra,
+    )) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe("heading_level requires a heading")
+  })
 })

@@ -794,4 +794,13 @@ describe("readNoteSection", () => {
       ),
     ).rejects.toThrow('note not found: "missing.md"')
   })
+
+  it("throws heading cannot be empty for an empty heading", async () => {
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: "board.md", heading: "" },
+        logger,
+      ),
+    ).rejects.toThrow("heading cannot be empty")
+  })
 })
