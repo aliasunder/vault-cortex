@@ -112,9 +112,9 @@ Example: vault_read_note({ path: "TASKS.md", outline: true })
 Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
-Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties). To edit a section you've read, use vault_patch_note (same heading targeting).
+Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties). To edit a section you've read, use vault_patch_note.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section. This matches vault_patch_note exactly, so "read section X" and "edit section X" resolve to the same span.
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
 Modes are mutually exclusive — set at most one of properties_only, outline, or heading. heading_level only applies with heading.
 
@@ -147,7 +147,7 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
           .string()
           .optional()
           .describe(
-            "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match. Mirrors vault_patch_note's heading targeting",
+            "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
           ),
         heading_level: z
           .number()
