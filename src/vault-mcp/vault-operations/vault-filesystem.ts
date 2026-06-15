@@ -132,19 +132,23 @@ const readNoteOutline = async (
   }
   const lines = parseNote(content).content.split("\n")
   const headings = parseHeadings(lines)
-  const outline = headings.map((heading) => ({
-    level: heading.level,
-    text: heading.text,
+  const outline = headings.map((heading) => {
     // Section span = heading line through bodyEndLine (the same span a section
     // read returns), so the size hint matches what reading it would cost.
-    bytes: Buffer.byteLength(
-      lines.slice(heading.startLine, heading.bodyEndLine).join("\n"),
-      "utf8",
-    ),
-  }))
+    const sectionText = lines
+      .slice(heading.startLine, heading.bodyEndLine)
+      .join("\n")
+    return {
+      level: heading.level,
+      text: heading.text,
+      bytes: Buffer.byteLength(sectionText, "utf8"),
+    }
+  })
+  const totalBytes = outline.reduce((sum, section) => sum + section.bytes, 0)
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
+    totalBytes,
   })
   return outline
 }
