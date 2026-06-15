@@ -954,3 +954,134 @@ describe("memory write size logging", () => {
     })
   })
 })
+
+describe("concurrent memory writes", () => {
+  it("does not lose entries when appending to the same section concurrently", async () => {
+    // Each updateMemory is a read-modify-write. Fired together they would
+    // interleave (all read the same base, last write wins) and silently drop
+    // entries without serialization. With the per-file lock, all five land.
+    const entries = ["alpha", "bravo", "charlie", "delta", "echo"]
+    await Promise.all(
+      entries.map((entry) =>
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Principles",
+            section: "Working style (newest first)",
+            entry,
+            date: "2026-06-14",
+          },
+          logger,
+        ),
+      ),
+    )
+
+    const section = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+      },
+      logger,
+    )
+    // All five new entries plus the one original entry survive.
+    for (const entry of entries) {
+      expect(section).toContain(`- **2026-06-14**: ${entry}`)
+    }
+    expect(section).toContain("Single-purpose files")
+    const bulletCount = section
+      .split("\n")
+      .filter((line) => line.startsWith("- **")).length
+    expect(bulletCount).toBe(entries.length + 1)
+  })
+
+  it("writes concurrent updates to different files in parallel", async () => {
+    // Different files key on different lock paths, so they must not serialize
+    // into each other or deadlock — both writes complete and persist.
+    await Promise.all([
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working style (newest first)",
+          entry: "principles entry",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "Code patterns (newest first)",
+          entry: "opinions entry",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+    ])
+
+    const principles = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+      },
+      logger,
+    )
+    const opinions = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Opinions",
+        section: "Code patterns (newest first)",
+      },
+      logger,
+    )
+    expect(principles).toContain("- **2026-06-14**: principles entry")
+    expect(opinions).toContain("- **2026-06-14**: opinions entry")
+  })
+
+  it("leaves a consistent file when an update and delete race on one file", async () => {
+    // A concurrent add + remove on the same file must serialize so neither
+    // operates on stale content: the deleted entry is gone, the added entry is
+    // present, and the untouched original survives — no torn or lost lines.
+    await Promise.all([
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "freshly added",
+          date: "2026-06-14",
+        },
+        logger,
+      ),
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          date: "2026-05-05",
+          entry: "Least-privilege for AI agents",
+        },
+        logger,
+      ),
+    ])
+
+    const section = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+      },
+      logger,
+    )
+    expect(section).toContain("- **2026-06-14**: freshly added")
+    expect(section).not.toContain("Least-privilege for AI agents")
+    expect(section).toContain("Secrets invisible at every layer")
+    const bulletCount = section
+      .split("\n")
+      .filter((line) => line.startsWith("- **")).length
+    expect(bulletCount).toBe(2)
+  })
+})
