@@ -1,0 +1,4 @@
+# js-yaml is a transitive dep of gray-matter but never executes: gray-matter's
+# YAML engine is overridden with the `yaml` package (YAML 1.2) via
+# src/vault-mcp/vault-operations/frontmatter.ts
+CVE-2026-53550

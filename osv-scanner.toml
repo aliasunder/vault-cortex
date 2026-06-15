@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GHSA-h67p-54hq-rp68"
+reason = "js-yaml is a transitive dep of gray-matter but never executes: gray-matter's YAML engine is overridden with the `yaml` package (YAML 1.2) via src/vault-mcp/vault-operations/frontmatter.ts"
