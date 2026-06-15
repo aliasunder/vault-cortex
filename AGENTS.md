@@ -26,6 +26,16 @@ the author's machine, it's not done.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
+## Public repository
+
+This is a public, open-source project. Keep everything that lands in the
+repo — code comments, commit messages, PR titles and descriptions, docs —
+free of internal-only references: incident dates, internal tracker/card
+IDs, private URLs, model identifiers, and anything that only makes sense to
+the author. Describe failure modes and rationale in general technical terms
+(e.g. "a skeleton template overwriting real content"), not by pointing at a
+specific internal event.
+
 ## Structure
 
 ```text
