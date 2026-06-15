@@ -145,6 +145,7 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
           ),
         heading: z
           .string()
+          .min(1)
           .optional()
           .describe(
             "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
