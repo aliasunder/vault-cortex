@@ -225,8 +225,9 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
       }
 
       // A present heading selects section mode; its absence falls through to a
-      // full read. The schema's min(1) already rejects an empty heading.
-      if (heading !== undefined) {
+      // full read. The schema's min(1) already rejects an empty heading, so a
+      // truthy check is sufficient.
+      if (heading) {
         return safeHandler(
           reqLogger,
           () =>
