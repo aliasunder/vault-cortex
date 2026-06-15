@@ -23,6 +23,8 @@ import { logger } from "../../../logger.js"
 
 const {
   readNote,
+  readNoteOutline,
+  readNoteSection,
   readNoteProperties,
   writeNote,
   updateProperties,
@@ -655,5 +657,150 @@ describe("write size logging", () => {
       beforeBytes: Buffer.byteLength(original, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
     })
+  })
+})
+
+describe("readNoteOutline", () => {
+  it("returns each heading's level, text, and section byte size", async () => {
+    const body = "# Title\n\nIntro line.\n\n## Active\n\n- one\n- two\n"
+    await writeFile(join(vault, "outline.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "outline.md" },
+      logger,
+    )
+
+    // "# Title" (H1) has no later H1, so its span includes the nested "## Active"
+    // child — its byte size is the whole body. "## Active" is just its own span.
+    expect(outline).toEqual([
+      { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
+      {
+        level: 2,
+        text: "Active",
+        bytes: Buffer.byteLength("## Active\n\n- one\n- two\n", "utf8"),
+      },
+    ])
+  })
+
+  it("returns an empty array for a note with no headings", async () => {
+    await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
+    expect(
+      await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger),
+    ).toEqual([])
+  })
+
+  it("excludes frontmatter from section line ranges", async () => {
+    // The heading sits after a multi-line frontmatter block; bytes must be
+    // computed on the body only, so a longer frontmatter doesn't change them.
+    const body = "## Only\n\nbody\n"
+    await writeFile(
+      join(vault, "fm.md"),
+      `---\ntitle: A\ntags:\n  - x\n  - y\n---\n${body}`,
+      "utf8",
+    )
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "fm.md" },
+      logger,
+    )
+    expect(outline).toEqual([
+      { level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") },
+    ])
+  })
+
+  it("throws note not found for a missing path", async () => {
+    await expect(
+      readNoteOutline({ vaultPath: vault, path: "missing.md" }, logger),
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
+})
+
+describe("readNoteSection", () => {
+  const board =
+    "# Board\n\n## Active\n\n- [ ] task A\n\n## Done\n\n- [x] task B\n"
+
+  beforeEach(async () => {
+    await writeFile(join(vault, "board.md"), board, "utf8")
+  })
+
+  it("returns the heading line plus its body, stopping at the next same-level heading", async () => {
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "board.md", heading: "Active" },
+      logger,
+    )
+    expect(section).toBe("## Active\n\n- [ ] task A\n")
+  })
+
+  it("includes child headings in a parent section", async () => {
+    const body =
+      "## Parent\n\nintro\n\n### Child\n\nchild body\n\n## Sibling\n\nx\n"
+    await writeFile(join(vault, "nested.md"), body, "utf8")
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "nested.md", heading: "Parent" },
+      logger,
+    )
+    expect(section).toBe("## Parent\n\nintro\n\n### Child\n\nchild body\n")
+  })
+
+  it("disambiguates duplicate headings via heading_level", async () => {
+    // "Notes" appears as both an H2 and an H3; heading_level picks the H3.
+    const body = "## Notes\n\ntop notes\n\n## Other\n\n### Notes\n\nsub notes\n"
+    await writeFile(join(vault, "dup.md"), body, "utf8")
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "dup.md", heading: "Notes", headingLevel: 3 },
+      logger,
+    )
+    expect(section).toBe("### Notes\n\nsub notes\n")
+  })
+
+  it("excludes a trailing Kanban %% settings block from the last section", async () => {
+    const withSettings =
+      "## Active\n\n- [ ] task\n\n%% kanban:settings\n```\n{}\n```\n%%\n"
+    await writeFile(join(vault, "kanban.md"), withSettings, "utf8")
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "kanban.md", heading: "Active" },
+      logger,
+    )
+    // The blank line before the %% block is absorbed too — no dangling blank.
+    expect(section).toBe("## Active\n\n- [ ] task")
+  })
+
+  it("throws and lists available headings when the heading is not found", async () => {
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: "board.md", heading: "Missing" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'heading not found: "Missing". Available headings: # Board, ## Active, ## Done',
+    )
+  })
+
+  it("throws ambiguous when two headings share text and level", async () => {
+    const body = "## Dup\n\na\n\n## Dup\n\nb\n"
+    await writeFile(join(vault, "amb.md"), body, "utf8")
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: "amb.md", heading: "Dup" },
+        logger,
+      ),
+    ).rejects.toThrow('ambiguous heading: "Dup"')
+  })
+
+  it("throws note not found for a missing path", async () => {
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: "missing.md", heading: "Active" },
+        logger,
+      ),
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
+
+  it("throws heading cannot be empty for an empty heading", async () => {
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: "board.md", heading: "" },
+        logger,
+      ),
+    ).rejects.toThrow("heading cannot be empty")
   })
 })

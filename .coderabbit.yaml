@@ -1,0 +1,7 @@
+# CodeRabbit configuration.
+# Docs: https://docs.coderabbit.ai/getting-started/yaml-configuration
+reviews:
+  # Trim the recurring summary comment to just the useful parts.
+  poem: false
+  sequence_diagrams: false
+  review_status: false

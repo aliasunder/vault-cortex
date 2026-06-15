@@ -104,15 +104,27 @@ export const registerTools = (params: {
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
-      description: `Read a markdown note by its vault-relative path. Returns the full raw content including properties, or just the parsed properties when properties_only is set.
+      description: `Read a markdown note by its vault-relative path. By default returns the full raw content including properties; optional modes return just the properties, just the heading outline, or just one section — so large notes don't blow the token budget.
 
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 Example: vault_read_note({ path: "Projects/vault-cortex.md", properties_only: true })
+Example: vault_read_note({ path: "TASKS.md", outline: true })
+Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
+Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 
-When to use: You know the exact path and need the full content of a specific note. Use properties_only: true when you only need properties (saves tokens on large notes).
-Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).
+When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
+Prefer vault_search when you don't know the path. Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties). To edit a section you've read, use vault_patch_note.
 
-Returns: Raw markdown string (default), or JSON object of properties (when properties_only: true).`,
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
+
+Modes are mutually exclusive — set at most one of properties_only, outline, or heading. heading_level only applies with heading.
+
+Errors:
+- "heading not found" — no heading matches the text; error lists available headings
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate
+- "outline, heading, and properties_only are mutually exclusive" — only one mode per call
+
+Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON array of { level, text, bytes } per heading (outline); raw markdown of the section, heading line included (heading).`,
       inputSchema: {
         path: z
           .string()
@@ -126,6 +138,28 @@ Returns: Raw markdown string (default), or JSON object of properties (when prope
           .describe(
             "If true, returns parsed properties as JSON instead of full note content",
           ),
+        outline: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, returns the heading tree as JSON (level, text, and section byte size per heading) instead of any body content — a cheap structure fetch for large notes",
+          ),
+        heading: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
+          ),
+        heading_level: z
+          .number()
+          .int()
+          .min(1)
+          .max(6)
+          .optional()
+          .describe(
+            "Heading level (1-6) for disambiguation when multiple headings share the same text; only applies with heading",
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -134,18 +168,75 @@ Returns: Raw markdown string (default), or JSON object of properties (when prope
         openWorldHint: false,
       },
     },
-    async ({ path, properties_only }, extra) => {
+    async (
+      { path, properties_only, outline, heading, heading_level },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_NOTE,
       })
-      reqLogger.info("tool_call", { path, properties_only })
+      reqLogger.info("tool_call", { path, properties_only, outline, heading })
+
+      const returnError = (
+        message: string,
+      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+        reqLogger.warn("tool_error", { error: message })
+        return {
+          content: [{ type: "text" as const, text: message }],
+          isError: true as const,
+        }
+      }
+
+      // The read modes select different content; allowing more than one would
+      // make the result ambiguous, so reject the combination up front. An empty
+      // heading still counts as section mode (heading !== undefined) so it's
+      // rejected here rather than silently falling through to a full read.
+      const selectedModeCount = [
+        properties_only === true,
+        outline === true,
+        heading !== undefined,
+      ].filter(Boolean).length
+      if (selectedModeCount > 1) {
+        return returnError(
+          "outline, heading, and properties_only are mutually exclusive — set at most one",
+        )
+      }
+
+      // heading_level only disambiguates a heading; on its own it would be
+      // silently ignored, so require its companion explicitly.
+      if (heading_level !== undefined && heading === undefined) {
+        return returnError("heading_level requires a heading")
+      }
 
       if (properties_only) {
         return safeHandler(
           reqLogger,
           () => vaultFs.readNoteProperties({ vaultPath, path }, reqLogger),
           (properties) => JSON.stringify(properties, null, 2),
+        )
+      }
+
+      if (outline) {
+        return safeHandler(
+          reqLogger,
+          () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
+          (headings) => JSON.stringify(headings),
+        )
+      }
+
+      // A present heading selects section mode; its absence falls through to a
+      // full read. The schema's min(1) already rejects an empty heading, so a
+      // truthy check is sufficient.
+      if (heading) {
+        return safeHandler(
+          reqLogger,
+          () =>
+            vaultFs.readNoteSection(
+              { vaultPath, path, heading, headingLevel: heading_level },
+              reqLogger,
+            ),
+          (text) => text,
         )
       }
 
@@ -254,6 +345,7 @@ Returns: Confirmation message.`,
         content: z.string().describe("Content to insert or replace with"),
         heading: z
           .string()
+          .min(1)
           .optional()
           .describe(
             "Target heading text (case-sensitive exact match). Required for replace and insert_before. Optional for append/prepend (omit for file-level operation).",
