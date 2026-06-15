@@ -1,30 +1,13 @@
 import Database from "better-sqlite3"
-import matter from "gray-matter"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
+import { parseNote } from "../vault-operations/frontmatter.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
-
-const isDate = (value: unknown): value is Date => value instanceof Date
-
-/** Converts Date instances in frontmatter to ISO date strings (YYYY-MM-DD)
- *  before JSON.stringify, preventing gray-matter's YAML 1.1 Date parsing
- *  from producing full ISO timestamps in the properties column. */
-const convertFrontmatterDatesToIsoStrings = (
-  data: Record<string, unknown>,
-): Record<string, unknown> =>
-  Object.fromEntries(
-    Object.entries(data).map(([key, value]) => [
-      key,
-      isDate(value)
-        ? DateTime.fromJSDate(value, { zone: "utc" }).toFormat("yyyy-MM-dd")
-        : value,
-    ]),
-  )
 
 /** Coerces a YAML frontmatter field to a string array.
  *  gray-matter may parse multi-value YAML fields as a single string
@@ -372,14 +355,12 @@ export const createSearchIndex = (dbPath: string) => {
     options?: { skipLinks?: boolean },
   ): void => {
     const skipLinks = options?.skipLinks ?? false
-    const parsed = matter(rawContent)
+    const parsed = parseNote(rawContent)
     const { data: frontmatter } = parsed
 
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
 
-    // gray-matter auto-parses YAML dates to JS Date objects (YAML 1.1);
-    // handle both Date and string forms to normalize to ISO
     const note = {
       path: filePath,
       title: isString(frontmatter.title)
@@ -390,15 +371,11 @@ export const createSearchIndex = (dbPath: string) => {
       related: JSON.stringify(related),
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
-      created: isDate(frontmatter.created)
-        ? DateTime.fromJSDate(frontmatter.created).toISO()
-        : isString(frontmatter.created)
-          ? DateTime.fromISO(frontmatter.created).toISO()
-          : null,
+      created: isString(frontmatter.created)
+        ? DateTime.fromISO(frontmatter.created).toISO()
+        : null,
       mtime: lastModifiedMs,
-      properties: JSON.stringify(
-        convertFrontmatterDatesToIsoStrings(frontmatter),
-      ),
+      properties: JSON.stringify(frontmatter),
     }
 
     deleteFtsStmt.run(note.path)
@@ -503,7 +480,7 @@ export const createSearchIndex = (dbPath: string) => {
 
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
-        const parsed = matter(note.content)
+        const parsed = parseNote(note.content)
         for (const rawTarget of extractLinks(parsed.content)) {
           const resolved = resolveLink(rawTarget, pathList)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
