@@ -44,7 +44,7 @@ related:
 ## Working style (newest first)
 - **2026-05-04**: Single-purpose files
 
-## Empty section
+## Empty section (newest first)
 `
 
 const OPINIONS_MD = `---
@@ -131,9 +131,25 @@ describe("getMemory", () => {
     expect(result).toContain("Secrets invisible at every layer")
   })
 
+  it("resolves a section addressed by its short name (no suffix)", async () => {
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style",
+      },
+      logger,
+    )
+    expect(result).toBe("- **2026-05-04**: Single-purpose files")
+  })
+
   it("returns empty string for section with no entries", async () => {
     const result = await getMemory(
-      { vaultPath: vault, file: "Principles", section: "Empty section" },
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Empty section (newest first)",
+      },
       logger,
     )
     expect(result).toBe("")
@@ -220,14 +236,18 @@ describe("updateMemory", () => {
       {
         vaultPath: vault,
         file: "Principles",
-        section: "Empty section",
+        section: "Empty section (newest first)",
         entry: "first entry",
         date: "2026-05-08",
       },
       logger,
     )
     const result = await getMemory(
-      { vaultPath: vault, file: "Principles", section: "Empty section" },
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Empty section (newest first)",
+      },
       logger,
     )
     expect(result).toBe("- **2026-05-08**: first entry")
@@ -345,6 +365,36 @@ describe("updateMemory", () => {
       logger,
     )
     expect(result).toBe("- **2026-05-15**: section entry")
+  })
+
+  it("appends to an existing section by its short name without duplicating it", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style",
+        entry: "short-name entry",
+        date: "2026-05-09",
+      },
+      logger,
+    )
+    const principlesContent = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    // The entry lands in the existing section — no second "## Working style …"
+    // heading is appended at EOF (the duplicate-section bug).
+    expect(principlesContent.match(/^## Working style/gm)).toHaveLength(1)
+    expect(principlesContent).toContain("- **2026-05-09**: short-name entry")
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
+    const workingStyle = principles.headings.find(
+      (heading) => heading.text === "Working style (newest first)",
+    )
+    expect(workingStyle?.entryCount).toBe(2)
   })
 })
 
@@ -510,6 +560,29 @@ describe("deleteMemory", () => {
     expect(result).toContain("Secrets invisible")
   })
 
+  it("resolves a section addressed by its short name (no suffix)", async () => {
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        date: "2026-05-06",
+        entry: "Secrets invisible at every layer",
+      },
+      logger,
+    )
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+      },
+      logger,
+    )
+    expect(result).not.toContain("Secrets invisible")
+    expect(result).toContain("Least-privilege for AI agents")
+  })
+
   it("throws on no matching entry", async () => {
     await expect(
       deleteMemory(
@@ -532,7 +605,7 @@ title: Dupe
 
 # Dupe
 
-## Section
+## Section (newest first)
 - **2026-01-01**: same entry
 - **2026-01-01**: same entry
 `
@@ -542,7 +615,7 @@ title: Dupe
         {
           vaultPath: vault,
           file: "Dupe",
-          section: "Section",
+          section: "Section (newest first)",
           date: "2026-01-01",
           entry: "same entry",
         },
@@ -662,7 +735,7 @@ describe("listMemoryFiles", () => {
     expect(workingStyle?.entryCount).toBe(1)
 
     const emptySection = principles.headings.find(
-      (h) => h.text === "Empty section",
+      (h) => h.text === "Empty section (newest first)",
     )
     expect(emptySection?.entryCount).toBe(0)
   })
