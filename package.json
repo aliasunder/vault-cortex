@@ -66,6 +66,9 @@
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
+  "overrides": {
+    "js-yaml": "4.2.0"
+  },
   "devDependencies": {
     "@clack/prompts": "1.5.1",
     "@eslint/js": "10.0.1",

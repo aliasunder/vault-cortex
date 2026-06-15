@@ -54,7 +54,6 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          trivyignores: .trivyignore
           format: sarif
           output: trivy-results.sarif
           exit-code: "0"
@@ -98,7 +97,6 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          trivyignores: .trivyignore
           format: sarif
           output: trivy-results.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings

@@ -17,8 +17,8 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import matter from "gray-matter"
 import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
+import { parseNote } from "../frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -414,7 +414,7 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "test.md"), "utf8")
-    const parsed = matter(content)
+    const parsed = parseNote(content)
     expect(parsed.content.trim()).toBe("Body content")
     expect(parsed.data.status).toBe("active")
     expect(parsed.data.title).toBe("Original")
@@ -454,7 +454,7 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "test.md"), "utf8")
-    const parsed = matter(content)
+    const parsed = parseNote(content)
     expect(parsed.data.title).toBe("Keep")
     expect(parsed.data.tags).toEqual(["a", "b"])
     expect(parsed.data.status).toBe("active")
