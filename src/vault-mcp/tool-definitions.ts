@@ -224,8 +224,8 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
         )
       }
 
-      // An empty heading reaches readNoteSection and surfaces findHeading's
-      // "heading cannot be empty" error rather than silently reading the file.
+      // A present heading selects section mode; its absence falls through to a
+      // full read. The schema's min(1) already rejects an empty heading.
       if (heading !== undefined) {
         return safeHandler(
           reqLogger,
