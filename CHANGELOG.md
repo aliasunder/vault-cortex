@@ -40,6 +40,19 @@
 
 
 
+
+## [0.18.2] — 2026-06-15
+
+### Bug Fixes
+
+- **security:** Override js-yaml to 4.2.0, drop ignore files (#138)
+- **security:** Eliminate js-yaml runtime path (GHSA-h67p-54hq-rp68) (#137)
+
+### Documentation
+
+- Foreground vault_search filter API in tool description (#136)
+- Update CHANGELOG.md for v0.18.1
+
 ## [0.18.1] — 2026-06-15
 
 ### Bug Fixes
