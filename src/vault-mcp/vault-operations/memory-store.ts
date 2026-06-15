@@ -40,15 +40,33 @@ const guardAgainstShrink = (
 // Mutable Map because the chain tail is replaced in place as operations enqueue.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
+/**
+ * Runs `fn` with mutual exclusion per `key`: calls sharing a key execute one
+ * at a time in arrival order, while different keys never block each other.
+ *
+ * This is a mutex built from a promise chain rather than a held flag/boolean.
+ * `fileWriteLocks` stores, per key, a promise standing for "the last operation
+ * queued for this key" — the tail of that key's queue. Each call:
+ *
+ *   1. reads the current tail (or a resolved promise if the queue is empty);
+ *   2. chains its own work after that tail and installs *itself* as the new
+ *      tail — so the next caller will wait behind us;
+ *   3. on completion, deletes the map entry, but only if no newer op has since
+ *      become the tail (otherwise we'd drop someone else's place in line).
+ *
+ * Step 2 runs synchronously, before any `await`, so two calls racing within the
+ * same tick still serialize: the second reads the first's promise as its tail.
+ */
 const withFileLock = async <T>(
   key: string,
   fn: () => Promise<T>,
 ): Promise<T> => {
   const previous = fileWriteLocks.get(key) ?? Promise.resolve()
-  // Start our op only after the previous one settles. .then's two args are the
+  // Start our op only after the previous one settles. `.then`'s two args are the
   // fulfilled and rejected handlers; we pass the same fn to both so ours runs
   // whether the previous op succeeded OR threw — a prior failure must not skip
-  // our turn or poison the chain. (Our own error still surfaces via `await run`.)
+  // our turn or leave a rejected promise as the tail (which would poison every
+  // op queued behind it). Our own error still surfaces to our caller via `await`.
   const run = previous.then(
     () => fn(),
     () => fn(),
@@ -57,7 +75,8 @@ const withFileLock = async <T>(
   try {
     return await run
   } finally {
-    // Drop the entry only if no newer op chained on, to bound Map growth.
+    // Drop the entry only if we're still the tail (no newer op chained on),
+    // so the map doesn't grow unbounded across many one-off keys.
     if (fileWriteLocks.get(key) === run) fileWriteLocks.delete(key)
   }
 }
