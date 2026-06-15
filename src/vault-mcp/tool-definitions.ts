@@ -607,28 +607,25 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
-      description: `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata and rank by content relevance — the "narrow by metadata, search by text" pattern.
+      description: `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
-Query syntax: unquoted terms use implicit AND with porter stemming. Wrap terms in double quotes for exact phrase matching (e.g. '"machine learning"'). Punctuated terms (vault-cortex, mcpservers.org, deploy/local) are matched as exact adjacent-word phrases automatically — no quoting needed.
-
-Filters — all conditions AND-combine with each other and with the text query:
-- folder: restrict to a path prefix (e.g. "Projects")
-- tags: require all listed tags (AND — every tag must be present)
-- type: exact match on frontmatter type field (e.g. "person", "meeting", "session-log")
+Filters — all conditions AND-combine with each other and the text query:
+- folder: path prefix (e.g. "Projects")
+- tags: require all listed tags (AND)
+- type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
-- properties: match arbitrary frontmatter key-value pairs — the most flexible filter, supports string, number, and boolean values (e.g. { status: "active", priority: 1 })
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" })
 
-Example: vault_search({ query: "setup guide" })
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
 Example: vault_search({ query: "deployment", filters: { properties: { status: "active" } } })
 
-When to use: The primary discovery tool — use whenever you need content-based search, optionally constrained by metadata. When you know metadata constraints (type, tags, folder) but need text relevance to rank results, combine both.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder without a search term. Prefer vault_search_by_property for metadata-only queries without text. Prefer vault_recent_notes for time-based browsing.
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
+Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
 
 Errors:
-- No matches returns { results: [], total: 0 }, not an error — don't treat empty results as a failure
-- Malformed query syntax (unbalanced quotes, special characters) is sanitized automatically — the tool never throws a query syntax error
+- No matches returns { results: [], total: 0 }, not an error
+- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null.`,
       inputSchema: {
