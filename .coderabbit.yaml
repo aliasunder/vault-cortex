@@ -5,3 +5,8 @@ reviews:
   poem: false
   sequence_diagrams: false
   review_status: false
+  auto_review:
+    # Review once when a PR opens; skip the re-review on every push so the
+    # summary comment (and its large hidden state blob) isn't reposted per
+    # commit. Trigger a manual re-review with "@coderabbitai review".
+    auto_incremental_review: false
