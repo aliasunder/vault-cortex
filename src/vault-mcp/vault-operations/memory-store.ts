@@ -10,8 +10,8 @@ import type { Logger } from "../../logger.js"
 
 // Refuse a memory write that would remove more than half of an existing file's
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
-// (e.g. a skeleton template clobbering real content, the June 13 data loss)
-// rather than a legitimate single-entry edit. The 200-byte floor sits just
+// (e.g. a skeleton template clobbering real content) rather than a legitimate
+// single-entry edit. The 200-byte floor sits just
 // above the largest empty memory template (Me 152 B, Principles 193 B,
 // Opinions 197 B — frontmatter + headings, no entries), so a file with no real
 // content is never guarded, while a file with even one dated entry (~240 B+) is.

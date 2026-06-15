@@ -816,7 +816,7 @@ describe("bootstrapMemoryDir", () => {
 describe("large-shrink guard", () => {
   it("refuses a delete that would shrink the file by more than half", async () => {
     // One dominant entry: deleting it drops the file from ~2 KB to ~90 bytes,
-    // a >50% shrink the guard must reject (the June 13 skeleton-clobber shape).
+    // a >50% shrink the guard must reject (a skeleton template overwriting real content).
     const dominantEntry = "x".repeat(2000)
     const fileContent = `---
 title: Big
