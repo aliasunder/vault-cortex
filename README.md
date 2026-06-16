@@ -186,25 +186,26 @@ Beyond tools (model-driven, always on), Vault Cortex exposes **prompts** — wor
 | `memory-review`     | `file` (optional) | Reads the `About Me/` memory layer as a dated timeline — an evolution, not "latest wins" — and proposes append-only updates. Never prunes.      |
 | `daily-review`      | `date` (optional) | Reviews a day's daily note against recent activity, captures follow-ups, and surfaces durable facts worth saving to memory.                     |
 
-Prompts are parameterized through the same config as the tools (`MEMORY_DIR`, daily-notes settings), so they work for any vault out of the box.
+Prompts are parameterized through the same config as the tools (`MEMORY_DIR`, daily-notes settings), so they work for any vault out of the box. `memory-review` and `daily-review` embed full vault content by default; set [`PROMPT_MAX_CHARS`](#configuration) to cap that content if your MCP client has strict payload limits.
 
 ## Configuration
 
 All settings are environment variables with sensible defaults.
 
-| Variable                    | Required?   | Default                              | Description                                                             |
-| --------------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)              |
-| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume) |
-| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                 |
-| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                |
-| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                       |
-| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                  |
-| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                  |
-| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                |
-| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                     |
-| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.    |
-| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup              |
+| Variable                    | Required?   | Default                              | Description                                                                                                             |
+| --------------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)                                                              |
+| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                 |
+| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                 |
+| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                |
+| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                       |
+| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                                                                  |
+| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                  |
+| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                |
+| `PROMPT_MAX_CHARS`          | —           | _(no cap)_                           | Cap on vault content embedded by the `memory-review`/`daily-review` prompts before truncation; unset means full content |
+| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                     |
+| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.                                                    |
+| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                              |
 
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list.
 

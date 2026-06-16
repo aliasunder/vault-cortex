@@ -81,6 +81,19 @@ const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
 
+/** Opt-in safety cap for live content embedded in a prompt. When a max is
+ *  configured (PROMPT_MAX_CHARS) and the content exceeds it, truncate and
+ *  append a marker pointing at the tool for the full content. When unset (the
+ *  default), content is returned in full — preserving review fidelity. */
+const capContent = (
+  text: string,
+  maxChars: number | undefined,
+  toolHint: string,
+): string =>
+  maxChars !== undefined && text.length > maxChars
+    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters — use ${toolHint} for the full content)`
+    : text
+
 export const registerPrompts = (params: {
   server: McpServer
   vaultPath: string
@@ -277,7 +290,11 @@ export const registerPrompts = (params: {
           "## Current memory",
           "",
           memory.trim().length > 0
-            ? memory.trim()
+            ? capContent(
+                memory.trim(),
+                config.promptMaxChars,
+                "vault_get_memory",
+              )
             : "_(the selected memory is empty)_",
           "",
           "## How to reflect",
@@ -340,7 +357,11 @@ export const registerPrompts = (params: {
 
         const dailySection =
           daily.exists && daily.content && daily.content.trim().length > 0
-            ? daily.content.trim()
+            ? capContent(
+                daily.content.trim(),
+                config.promptMaxChars,
+                "vault_get_daily_note",
+              )
             : `_No daily note exists at \`${daily.path}\` yet._`
         const recentSection =
           recent.length > 0

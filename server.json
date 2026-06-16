@@ -114,6 +114,11 @@
           "name": "SERVICE_DOCUMENTATION_URL",
           "description": "Override the OAuth service documentation URL exposed via discovery metadata.",
           "default": "https://github.com/aliasunder/vault-cortex"
+        },
+        {
+          "name": "PROMPT_MAX_CHARS",
+          "description": "Optional cap on the characters of vault content embedded by the memory-review and daily-review prompts. Unset means no cap (full content). Set a positive integer for MCP clients with strict payload limits; content past the cap is truncated with a marker pointing to vault_get_memory / vault_get_daily_note.",
+          "format": "number"
         }
       ]
     }

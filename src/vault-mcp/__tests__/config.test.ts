@@ -17,6 +17,7 @@ describe("loadConfig", () => {
       expect(config.serviceDocumentationUrl).toBe(
         "https://github.com/aliasunder/vault-cortex",
       )
+      expect(config.promptMaxChars).toBeUndefined()
     })
 
     it("returns a frozen (immutable) config object", () => {
@@ -167,6 +168,32 @@ describe("loadConfig", () => {
       expect(() =>
         loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" }),
       ).toThrow()
+    })
+  })
+
+  describe("PROMPT_MAX_CHARS", () => {
+    it("parses a positive integer", () => {
+      const config = loadConfig({ PROMPT_MAX_CHARS: "5000" })
+      expect(config.promptMaxChars).toBe(5000)
+    })
+
+    it("is undefined when unset (no cap)", () => {
+      const config = loadConfig({})
+      expect(config.promptMaxChars).toBeUndefined()
+    })
+
+    it("treats blank whitespace as unset", () => {
+      const config = loadConfig({ PROMPT_MAX_CHARS: "   " })
+      expect(config.promptMaxChars).toBeUndefined()
+    })
+
+    it("rejects non-numeric values", () => {
+      expect(() => loadConfig({ PROMPT_MAX_CHARS: "lots" })).toThrow()
+    })
+
+    it("rejects zero and negative values", () => {
+      expect(() => loadConfig({ PROMPT_MAX_CHARS: "0" })).toThrow()
+      expect(() => loadConfig({ PROMPT_MAX_CHARS: "-100" })).toThrow()
     })
   })
 })
