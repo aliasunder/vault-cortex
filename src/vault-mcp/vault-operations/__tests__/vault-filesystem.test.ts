@@ -672,21 +672,56 @@ describe("readNoteOutline", () => {
 
     // "# Title" (H1) has no later H1, so its span includes the nested "## Active"
     // child — its byte size is the whole body. "## Active" is just its own span.
-    expect(outline).toEqual([
-      { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
-      {
-        level: 2,
-        text: "Active",
-        bytes: Buffer.byteLength("## Active\n\n- one\n- two\n", "utf8"),
-      },
-    ])
+    // No leading callout, so `callout` is omitted from the outline object.
+    expect(outline).toEqual({
+      headings: [
+        { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
+        {
+          level: 2,
+          text: "Active",
+          bytes: Buffer.byteLength("## Active\n\n- one\n- two\n", "utf8"),
+        },
+      ],
+    })
   })
 
-  it("returns an empty array for a note with no headings", async () => {
+  it("returns an empty headings array for a note with no headings", async () => {
     await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
     expect(
       await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger),
-    ).toEqual([])
+    ).toEqual({ headings: [] })
+  })
+
+  it("surfaces a leading callout below the H1 alongside the headings", async () => {
+    const body =
+      "# Me\n\n> [!info] Scope of this file\n> **Contains:** identity facts.\n> **Convention:** append newest first.\n\n## Identity\n\n- a\n"
+    await writeFile(join(vault, "scoped.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "scoped.md" },
+      logger,
+    )
+
+    expect(outline.callout).toEqual({
+      type: "info",
+      title: "Scope of this file",
+      body: "**Contains:** identity facts.\n**Convention:** append newest first.",
+    })
+    expect(outline.headings.map((heading) => heading.text)).toEqual([
+      "Me",
+      "Identity",
+    ])
+  })
+
+  it("omits callout when the first body content is not a callout", async () => {
+    const body = "# Title\n\nIntro prose, not a callout.\n\n## Section\n"
+    await writeFile(join(vault, "nocallout.md"), body, "utf8")
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "nocallout.md" },
+      logger,
+    )
+    expect(outline.callout).toBeUndefined()
+    expect("callout" in outline).toBe(false)
   })
 
   it("excludes frontmatter from section line ranges", async () => {
@@ -702,9 +737,11 @@ describe("readNoteOutline", () => {
       { vaultPath: vault, path: "fm.md" },
       logger,
     )
-    expect(outline).toEqual([
-      { level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") },
-    ])
+    expect(outline).toEqual({
+      headings: [
+        { level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") },
+      ],
+    })
   })
 
   it("throws note not found for a missing path", async () => {

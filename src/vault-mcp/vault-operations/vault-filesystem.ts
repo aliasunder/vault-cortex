@@ -13,6 +13,8 @@ import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
 import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
 import { parseHeadings, findHeading } from "./heading-parser.js"
+import { parseLeadingCallout } from "./callout-parser.js"
+import type { LeadingCallout } from "./callout-parser.js"
 import type { Logger } from "../../logger.js"
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
@@ -115,22 +117,32 @@ export type HeadingOutline = Readonly<{
   bytes: number
 }>
 
+/** A note's outline: its optional leading callout (a top-of-file scope/summary
+ *  block) plus the heading tree. `callout` is omitted when the note has none. */
+export type NoteOutline = Readonly<{
+  callout?: LeadingCallout
+  headings: HeadingOutline[]
+}>
+
 /**
  * Returns a note's heading tree (no bodies) — H1–H6 with each section's byte
  * size, so an agent can pick which section to read without pulling the whole
- * file. Frontmatter is excluded (line ranges are body-relative, matching
- * vault_patch_note). A note with no headings returns an empty array.
+ * file — plus any leading callout (the top-of-file scope/summary block), so a
+ * note's purpose is visible without a full read. Frontmatter is excluded (line
+ * ranges are body-relative, matching vault_patch_note). A note with no headings
+ * returns an empty headings array.
  */
 const readNoteOutline = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
-): Promise<HeadingOutline[]> => {
+): Promise<NoteOutline> => {
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
   const lines = parseNote(content).content.split("\n")
+  const callout = parseLeadingCallout(lines)
   const headings = parseHeadings(lines)
   const outline = headings.map((heading) => {
     // Section span = heading line through bodyEndLine (the same span a section
@@ -148,9 +160,11 @@ const readNoteOutline = async (
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
+    hasCallout: callout !== null,
     totalBytes,
   })
-  return outline
+  // Omit `callout` entirely when absent, rather than emitting `callout: null`.
+  return callout ? { callout, headings: outline } : { headings: outline }
 }
 
 /**

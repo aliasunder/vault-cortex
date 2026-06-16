@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import Database from "better-sqlite3"
 import {
   createSearchIndex,
   sanitizeFtsQuery,
@@ -38,6 +39,21 @@ const NOTE_MINIMAL = `# Just a note
 Some content without frontmatter.
 `
 
+const NOTE_WITH_CALLOUT = `---
+title: Me
+---
+
+# Me
+
+> [!info] Scope of this file
+> **Contains:** identity facts.
+> **Convention:** append newest first.
+
+## Identity
+
+- a fact about burnout boundaries
+`
+
 describe("schema creation", () => {
   it("creates without throwing", () => {
     expect(() => createSearchIndex(":memory:")).not.toThrow()
@@ -47,6 +63,67 @@ describe("schema creation", () => {
     index.upsertNote("test.md", "# Test\n", Date.now())
     const results = index.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
+  })
+})
+
+describe("leading callout", () => {
+  it("surfaces a note's leading callout in discovery results", () => {
+    index.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000)
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
+    expect(results[0].callout).toEqual({
+      type: "info",
+      title: "Scope of this file",
+      body: "**Contains:** identity facts.\n**Convention:** append newest first.",
+    })
+  })
+
+  it("returns callout null for a note without a leading callout", () => {
+    index.upsertNote("notes/plain.md", NOTE_MINIMAL, 1000)
+    const results = index.searchByFolder({ folder: "notes" }, logger)
+    expect(results[0].callout).toBeNull()
+  })
+
+  it("omits the callout from fullTextSearch by default, includes it on request", () => {
+    index.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000)
+
+    const withoutFlag = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(withoutFlag).toHaveLength(1)
+    expect(withoutFlag[0].callout).toBeUndefined()
+
+    const withFlag = index.fullTextSearch(
+      { query: "burnout", filters: { include_callout: true } },
+      logger,
+    )
+    expect(withFlag[0].callout?.title).toBe("Scope of this file")
+  })
+
+  it("adds the callout column to a pre-existing notes table (warm-DB migration)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
+    const dbPath = join(dir, "search.db")
+    // Simulate a database file created before the callout column existed.
+    const legacy = new Database(dbPath)
+    legacy.exec(`
+      CREATE TABLE notes (
+        path TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, related TEXT,
+        folder TEXT, type TEXT, created TEXT, mtime INTEGER, properties TEXT
+      );
+      CREATE VIRTUAL TABLE notes_fts USING fts5(
+        path UNINDEXED, title, content, tokenize='porter unicode61'
+      );
+      CREATE TABLE links (
+        source TEXT NOT NULL, target TEXT NOT NULL, PRIMARY KEY (source, target)
+      );
+    `)
+    legacy.close()
+
+    // Opening through the factory must add the missing column, not throw on upsert.
+    const warmIndex = createSearchIndex(dbPath)
+    expect(() =>
+      warmIndex.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000),
+    ).not.toThrow()
+    const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
+    expect(results[0].callout?.title).toBe("Scope of this file")
+    await rm(dir, { recursive: true })
   })
 })
 

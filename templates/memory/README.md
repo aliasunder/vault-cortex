@@ -31,6 +31,11 @@ Then copy into that folder instead.
 Memory files use a specific format that Vault Cortex tools understand:
 
 - **H1 heading**: file title (one per file)
+- **Scope callout** (recommended): an Obsidian `> [!info] Scope of this file`
+  block right below the H1, describing what the file contains and what it
+  doesn't. Surfaced by `vault_read_note` (outline) and `vault_list_memory_files`
+  so an agent can see a file's purpose without reading it. Edit it with
+  `vault_patch_note` (operation `prepend`, no heading).
 - **H2 headings**: sections (topics, categories)
 - **Dated bullets**: entries under each section, in `- **YYYY-MM-DD**: text` format
 

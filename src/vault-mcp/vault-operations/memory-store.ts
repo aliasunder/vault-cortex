@@ -5,6 +5,8 @@ import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
+import { parseLeadingCallout } from "./callout-parser.js"
+import type { LeadingCallout } from "./callout-parser.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -98,8 +100,16 @@ type MemoryHeading = Readonly<{
 type MemoryFileOutline = Readonly<{
   file: string
   title: string
+  callout: LeadingCallout | null
   headings: MemoryHeading[]
 }>
+
+/** What an updateMemory call did — lets the tool layer tailor its confirmation
+ *  (e.g. nudge the caller to fill in a new file's scope callout). */
+export type UpdateMemoryOutcome =
+  | "created-file"
+  | "created-section"
+  | "appended"
 
 type ParsedSection = Readonly<{
   heading: string
@@ -213,6 +223,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "",
         "# Me",
         "",
+        "> [!info] Scope of this file",
+        "> **Contains:** Identity, interests, and durable context about the user — who they are, what they're into, situational facts.",
+        "> **Does NOT contain:** Opinions or preferences (→ Opinions), guiding principles (→ Principles), recurring routines (→ Routines).",
+        '> **Section structure:** H2 sections grouped by theme, each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "",
         "## Identity (newest first)",
         "",
         "## Interests (newest first)",
@@ -234,6 +250,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "",
         "# Opinions",
         "",
+        "> [!info] Scope of this file",
+        "> **Contains:** Evolving views on tools, patterns, methods, and processes — stances that may shift over time.",
+        "> **Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me).",
+        '> **Section structure:** H2 sections by topic, each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "",
         "## Tools and workflows (newest first)",
         "",
         "## Code patterns (newest first)",
@@ -254,6 +276,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "---",
         "",
         "# Principles",
+        "",
+        "> [!info] Scope of this file",
+        "> **Contains:** Stable values, decision heuristics, and non-negotiables — how the user thinks and what they hold firm.",
+        "> **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me).",
+        '> **Section structure:** H2 sections by theme, each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
         "",
         "## Decision heuristics (newest first)",
         "",
@@ -306,9 +334,17 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
     }
+    // A programmatically-created file has an unknown purpose, so seed only the
+    // generic convention + a Contains placeholder for the caller to fill in
+    // (the full scope callout — Does NOT contain / Section structure — is
+    // authored per-file in MEMORY_TEMPLATES for the known seed files).
     const body = [
       "",
       `# ${params.fileName}`,
+      "",
+      "> [!info] Scope of this file",
+      "> **Contains:** (describe what belongs in this file — and what doesn't)",
+      "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
       "",
       `## ${params.section}`,
       params.bullet,
@@ -388,7 +424,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       position?: "top" | "bottom"
     },
     logger: Logger,
-  ): Promise<void> =>
+  ): Promise<UpdateMemoryOutcome> =>
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
     withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
@@ -419,7 +455,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           beforeBytes: 0,
           afterBytes: Buffer.byteLength(content, "utf8"),
         })
-        return
+        return "created-file"
       }
 
       const parsed = parseNote(existingContent)
@@ -447,7 +483,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           beforeBytes,
           afterBytes,
         })
-        return
+        return "created-section"
       }
 
       // File + section exist — find the first and last dated bullet within the
@@ -501,6 +537,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         beforeBytes,
         afterBytes,
       })
+      return "appended"
     })
 
   const listMemoryFiles = async (
@@ -527,6 +564,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = parsed.content.split("\n")
+        const callout = parseLeadingCallout(lines)
         const sections = parseSections(lines)
 
         const headings: MemoryHeading[] = sections.map((section) =>
@@ -539,7 +577,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
               },
         )
 
-        return { file: name, title, headings }
+        return { file: name, title, callout, headings }
       }),
     )
 
