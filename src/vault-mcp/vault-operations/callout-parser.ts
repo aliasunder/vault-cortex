@@ -31,10 +31,11 @@ const CALLOUT_BODY_REGEX = /^>\s?(.*)$/
 const H1_REGEX = /^# .+$/
 
 /**
- * Index of the first body line, skipping leading blank lines and at most one H1
- * title. Recursion (rather than a mutable cursor) carries the scan position and
- * the one-H1 allowance, so the parser stays `let`-free. Returns lines.length
- * when nothing but blanks/an H1 remain.
+ * Returns the index of the first body line — the first line that is neither
+ * blank nor the note's single leading H1 title. Returns lines.length when the
+ * note contains only blank lines and/or that H1.
+ *
+ * `index` and `skippedH1` are recursion accumulators; callers pass neither.
  */
 const firstBodyLineIndex = (
   lines: readonly string[],
