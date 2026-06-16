@@ -208,16 +208,22 @@ export const registerPrompts = (params: {
               `Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`,
             ),
           // Autocomplete from the live set of memory file names (prefix match).
-          // No request context here, so use the session logger.
+          // Uses the name-only lister (readdir, no parsing) because completion
+          // fires per keystroke. No request context here, so use the session
+          // logger; degrade to [] so completion never hard-fails.
           async (value) => {
-            const outlines = await memoryStore.listMemoryFiles(
-              { vaultPath },
-              sessionLogger,
-            )
-            const loweredValue = (value ?? "").toLowerCase()
-            return outlines
-              .map((outline) => outline.file)
-              .filter((name) => name.toLowerCase().startsWith(loweredValue))
+            try {
+              const names = await memoryStore.listMemoryFileNames(
+                { vaultPath },
+                sessionLogger,
+              )
+              const loweredValue = (value ?? "").toLowerCase()
+              return names.filter((name) =>
+                name.toLowerCase().startsWith(loweredValue),
+              )
+            } catch {
+              return []
+            }
           },
         ),
       },
