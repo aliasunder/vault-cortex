@@ -468,10 +468,9 @@ describe("updateMemory auto-creation", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const health = outlines.find((outline) => outline.file === "Health")!
     expect(health.callout?.title).toBe("Scope of this file")
-    // Generic form: convention present, but no per-file Does-NOT-contain yet.
-    expect(health.callout?.body).toContain("append newest first")
-    expect(health.callout?.body).toContain(
-      "(describe what belongs in this file",
+    // Generic form: convention + a Contains placeholder, no per-file Does-NOT-contain.
+    expect(health.callout?.body).toBe(
+      "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
     )
     await rm(emptyVault, { recursive: true })
   })
