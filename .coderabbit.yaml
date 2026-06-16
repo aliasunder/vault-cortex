@@ -6,16 +6,8 @@ reviews:
   sequence_diagrams: false
   review_status: false
   auto_review:
-    # Review once when a PR opens; skip the re-review on every push so the
-    # summary comment (and its large hidden state blob) isn't reposted per
-    # commit. Trigger a manual re-review with "@coderabbitai review".
-    #
-    # Scope: this only suppresses the incremental *code re-review*. It does NOT
-    # stop CodeRabbit from editing its single summary comment on each push
-    # (walkthrough + pre-merge checks re-render regardless), nor the initial
-    # on-open review. The per-push noise in watched Claude Code sessions comes
-    # from the PR-activity relay forwarding the whole comment body on every
-    # edit — an upstream gap, not something this key controls. Fewer pushes per
-    # PR is the only in-repo lever; auto_review.enabled: false (manual-only) is
-    # the heavier hammer.
-    auto_incremental_review: false
+    # Turn off automatic reviews entirely — no on-open review and no per-push
+    # re-review. CodeRabbit only reviews when explicitly asked via the
+    # "@coderabbitai review" command. With auto reviews off, the
+    # auto_incremental_review key is redundant and has been removed.
+    enabled: false
