@@ -38,7 +38,6 @@ export type VaultConfig = Readonly<{
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
-  promptMaxChars: number | undefined
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -70,19 +69,10 @@ export const loadConfig = (
     ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())
     : "https://github.com/aliasunder/vault-cortex"
 
-  // Opt-in safety cap for prompt-embedded vault content (memory-review,
-  // daily-review). Unset means no cap — the default — which preserves full
-  // content for review. Operators whose MCP client has strict payload limits
-  // can set a positive integer; an invalid value fails fast.
-  const promptMaxChars = env.PROMPT_MAX_CHARS?.trim()
-    ? z.coerce.number().int().positive().parse(env.PROMPT_MAX_CHARS.trim())
-    : undefined
-
   return Object.freeze({
     memoryDir,
     protectedPaths,
     orphanExcludeFolders,
     serviceDocumentationUrl,
-    promptMaxChars,
   })
 }

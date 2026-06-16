@@ -33,6 +33,15 @@ export const PROMPT_NAMES = {
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
+/** Matches a positive integer with no leading zero — the wire format for the
+ *  optional max_chars prompt argument (MCP prompt args arrive as strings). */
+const POSITIVE_INT_REGEX = /^[1-9]\d*$/
+
+/** Shared description for the optional max_chars argument on content-embedding
+ *  prompts. Omitted by default, which embeds the full content. */
+const MAX_CHARS_DESCRIPTION =
+  "Optional cap on embedded content length (characters); omit for full content"
+
 // How many entries to show in the orientation survey before truncating — enough
 // to convey the vault's conventions without flooding the prompt.
 const ORIENTATION_TAG_LIMIT = 30
@@ -81,10 +90,10 @@ const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
 
-/** Opt-in safety cap for live content embedded in a prompt. When a max is
- *  configured (PROMPT_MAX_CHARS) and the content exceeds it, truncate and
- *  append a marker pointing at the tool for the full content. When unset (the
- *  default), content is returned in full — preserving review fidelity. */
+/** Opt-in safety cap for live content embedded in a prompt. When the caller
+ *  passes a max (the max_chars argument) and the content exceeds it, truncate
+ *  and append a marker pointing at the tool for the full content. When omitted
+ *  (the default), content is returned in full — preserving review fidelity. */
 const capContent = (
   text: string,
   maxChars: number | undefined,
@@ -239,6 +248,11 @@ export const registerPrompts = (params: {
             }
           },
         ),
+        max_chars: z
+          .string()
+          .regex(POSITIVE_INT_REGEX, "must be a positive integer")
+          .optional()
+          .describe(MAX_CHARS_DESCRIPTION),
       },
     },
     async (args, extra) => {
@@ -246,7 +260,11 @@ export const registerPrompts = (params: {
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.MEMORY_REVIEW,
       })
-      reqLogger.info("prompt_call", { file: args.file })
+      reqLogger.info("prompt_call", {
+        file: args.file,
+        maxChars: args.max_chars,
+      })
+      const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {
         const outlines = await memoryStore.listMemoryFiles(
@@ -290,11 +308,7 @@ export const registerPrompts = (params: {
           "## Current memory",
           "",
           memory.trim().length > 0
-            ? capContent(
-                memory.trim(),
-                config.promptMaxChars,
-                "vault_get_memory",
-              )
+            ? capContent(memory.trim(), maxChars, "vault_get_memory")
             : "_(the selected memory is empty)_",
           "",
           "## How to reflect",
@@ -332,6 +346,11 @@ export const registerPrompts = (params: {
           .regex(ISO_DATE_REGEX, "use YYYY-MM-DD")
           .optional()
           .describe("Day to review in YYYY-MM-DD format (defaults to today)"),
+        max_chars: z
+          .string()
+          .regex(POSITIVE_INT_REGEX, "must be a positive integer")
+          .optional()
+          .describe(MAX_CHARS_DESCRIPTION),
       },
     },
     async (args, extra) => {
@@ -339,7 +358,11 @@ export const registerPrompts = (params: {
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.DAILY_REVIEW,
       })
-      reqLogger.info("prompt_call", { date: args.date })
+      reqLogger.info("prompt_call", {
+        date: args.date,
+        maxChars: args.max_chars,
+      })
+      const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {
         // Touch the daily-notes config so a vault with none degrades to the
@@ -357,11 +380,7 @@ export const registerPrompts = (params: {
 
         const dailySection =
           daily.exists && daily.content && daily.content.trim().length > 0
-            ? capContent(
-                daily.content.trim(),
-                config.promptMaxChars,
-                "vault_get_daily_note",
-              )
+            ? capContent(daily.content.trim(), maxChars, "vault_get_daily_note")
             : `_No daily note exists at \`${daily.path}\` yet._`
         const recentSection =
           recent.length > 0

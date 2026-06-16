@@ -199,6 +199,16 @@ describe("registerPrompts — registration", () => {
       findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[1].argsSchema,
     ).toBeDefined()
   })
+
+  it("memory-review and daily-review accept an optional max_chars argument", () => {
+    const calls = captureRegistration()
+    expect(
+      findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema,
+    ).toHaveProperty("max_chars")
+    expect(
+      findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[1].argsSchema,
+    ).toHaveProperty("max_chars")
+  })
 })
 
 // ── Genericness (works for any vault via MEMORY_DIR) ─────────────
@@ -335,17 +345,24 @@ describe("memory-review handler", () => {
     expect(filtered).toEqual(["Principles"])
   })
 
-  it("truncates memory content with a marker when PROMPT_MAX_CHARS is set", async () => {
-    const { calls } = await setupVault({
-      config: loadConfig({ PROMPT_MAX_CHARS: "40" }),
-    })
+  it("truncates memory content with a marker when max_chars is passed", async () => {
+    const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
-    const text = textOf(await handler({}, fakeExtra))
+    const text = textOf(await handler({ max_chars: "40" }, fakeExtra))
 
     expect(text).toContain("truncated at 40 characters")
     expect(text).toContain("vault_get_memory")
     // Content past the 40-char budget must not appear verbatim.
     expect(text).not.toContain("Research current docs before configuring")
+  })
+
+  it("returns full memory content when max_chars is omitted", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).not.toContain("truncated at")
+    expect(text).toContain("Research current docs before configuring")
   })
 })
 
@@ -398,10 +415,8 @@ describe("daily-review handler", () => {
     expect(text).toContain("Today's log.")
   })
 
-  it("truncates a long daily note with a marker when PROMPT_MAX_CHARS is set", async () => {
-    const { vault, calls } = await setupVault({
-      config: loadConfig({ PROMPT_MAX_CHARS: "30" }),
-    })
+  it("truncates a long daily note with a marker when max_chars is passed", async () => {
+    const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     await writeFile(
       join(vault, "Daily Notes", "2026-06-16.md"),
@@ -409,7 +424,9 @@ describe("daily-review handler", () => {
       "utf8",
     )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+    const text = textOf(
+      await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra),
+    )
 
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
