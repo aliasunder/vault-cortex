@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, onTestFinished, afterEach } from "vitest"
+import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -13,6 +14,7 @@ const ALL_PROMPT_NAMES = Object.values(PROMPT_NAMES)
 
 // A captured registerPrompt(name, config, handler) call. The handler arity
 // varies: vault-orientation is (extra) =>, the others are (args, extra) =>.
+// Both params are optional so a single capture type covers both shapes.
 type PromptConfig = {
   title?: string
   description?: string
@@ -21,14 +23,18 @@ type PromptConfig = {
 type PromptResult = {
   messages: Array<{ role: string; content: { type: string; text: string } }>
 }
+type PromptExtra = { requestId?: string }
+type PromptHandler = (
+  argsOrExtra?: Record<string, unknown> | PromptExtra,
+  extra?: PromptExtra,
+) => Promise<PromptResult>
 type RegisterPromptCall = [
   name: string,
   config: PromptConfig,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler: (...args: any[]) => Promise<PromptResult>,
+  handler: PromptHandler,
 ]
 
-const fakeExtra = { requestId: "1" } as never
+const fakeExtra: PromptExtra = { requestId: "1" }
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -239,7 +245,9 @@ describe("vault-orientation handler", () => {
   })
 
   it("returns sentinels and never throws on an empty vault", async () => {
+    const config = loadConfig({})
     const { calls } = await setupVault({
+      config,
       indexNotes: false,
       memoryFiles: false,
     })
@@ -248,7 +256,7 @@ describe("vault-orientation handler", () => {
 
     expect(text).toContain("No tags yet.")
     expect(text).toContain("No frontmatter properties yet.")
-    expect(text).toContain("the About Me/ layer is empty")
+    expect(text).toContain(`the ${config.memoryDir}/ layer is empty`)
   })
 })
 
@@ -358,7 +366,7 @@ describe("daily-review handler", () => {
 
   it("defaults to today when no date is given", async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-06-16T12:00:00Z"))
+    vi.setSystemTime(DateTime.fromISO("2026-06-16T12:00:00Z").toJSDate())
     onTestFinished(() => {
       vi.useRealTimers()
     })
