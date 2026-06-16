@@ -379,8 +379,9 @@ export const createSearchIndex = (dbPath: string) => {
 
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
-    // Store the leading callout (top-of-file scope/summary block) as JSON so
-    // discovery tools can return it structured; null when the note has none.
+    // Store the leading callout (a top-of-file `> [!type]` block — info,
+    // warning, etc.) as JSON so discovery tools can return it structured;
+    // null when the note has none.
     const leadingCallout = parseLeadingCallout(parsed.content.split("\n"))
 
     const note = {

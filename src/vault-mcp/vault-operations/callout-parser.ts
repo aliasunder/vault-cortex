@@ -1,5 +1,6 @@
 /** Markdown leading-callout parser — extracts the first callout block at the
- * top of a note body, so a note's scope/summary can be surfaced cheaply
+ * top of a note body (an info/warning/etc. block flagging context or state),
+ * so it can be surfaced cheaply
  * (outline, discovery, search) without reading the whole file.
  *
  * A "leading callout" is the first Obsidian callout block appearing before any

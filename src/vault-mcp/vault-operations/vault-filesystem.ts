@@ -117,8 +117,9 @@ export type HeadingOutline = Readonly<{
   bytes: number
 }>
 
-/** A note's outline: its optional leading callout (a top-of-file scope/summary
- *  block) plus the heading tree. `leading_callout` is omitted when the note has none. */
+/** A note's outline: its optional leading callout (a top-of-file `> [!type]`
+ *  block — info, warning, etc.) plus the heading tree. `leading_callout` is
+ *  omitted when the note has none. */
 export type NoteOutline = Readonly<{
   leading_callout?: LeadingCallout
   headings: HeadingOutline[]
@@ -127,8 +128,9 @@ export type NoteOutline = Readonly<{
 /**
  * Returns a note's heading tree (no bodies) — H1–H6 with each section's byte
  * size, so an agent can pick which section to read without pulling the whole
- * file — plus any leading callout (the top-of-file scope/summary block), so a
- * note's purpose is visible without a full read. Frontmatter is excluded (line
+ * file — plus any leading callout (a top-of-file `> [!type]` block — info,
+ * warning, etc.), so notable context or state is visible without a full read.
+ * Frontmatter is excluded (line
  * ranges are body-relative, matching vault_patch_note). A note with no headings
  * returns an empty headings array.
  */
