@@ -32,8 +32,8 @@ const H1_REGEX = /^# .+$/
 
 /**
  * Returns the index of the first body line — the first line that is neither
- * blank nor the note's single leading H1 title. Returns lines.length when the
- * note contains only blank lines and/or that H1.
+ * blank nor the note's single leading H1 title. Returns lines.length when no
+ * such line exists (an empty, blank-only, or H1-only note).
  *
  * `index` and `skippedH1` are recursion accumulators; callers pass neither.
  */
