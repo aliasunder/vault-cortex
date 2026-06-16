@@ -30,6 +30,25 @@ const CALLOUT_BODY_REGEX = /^>\s?(.*)$/
 /** Matches an H1 heading line (`# Title`). Only one leading H1 is skipped. */
 const H1_REGEX = /^# .+$/
 
+/**
+ * Index of the first body line, skipping leading blank lines and at most one H1
+ * title. Recursion (rather than a mutable cursor) carries the scan position and
+ * the one-H1 allowance, so the parser stays `let`-free. Returns lines.length
+ * when nothing but blanks/an H1 remain.
+ */
+const firstBodyLineIndex = (
+  lines: readonly string[],
+  index = 0,
+  skippedH1 = false,
+): number => {
+  if (index >= lines.length) return index
+  const line = lines[index]
+  if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
+  if (!skippedH1 && H1_REGEX.test(line))
+    return firstBodyLineIndex(lines, index + 1, true)
+  return index
+}
+
 // ── Exported parser ─────────────────────────────────────────────
 
 /**
@@ -51,24 +70,8 @@ export const parseLeadingCallout = (
     line.endsWith("\r") ? line.slice(0, -1) : line,
   )
 
-  // Scan past leading blank lines and at most one H1 title to find where the
-  // first real body content begins. `let` carries the scan position and the
-  // one-H1 allowance across lines — a reduce can't early-exit cleanly here.
-  let cursor = 0
-  let skippedH1 = false
-  while (cursor < normalizedLines.length) {
-    const line = normalizedLines[cursor]
-    if (line.trim() === "") {
-      cursor++
-      continue
-    }
-    if (!skippedH1 && H1_REGEX.test(line)) {
-      skippedH1 = true
-      cursor++
-      continue
-    }
-    break
-  }
+  // Find where the first real body content begins (past blank lines + one H1).
+  const cursor = firstBodyLineIndex(normalizedLines)
 
   const openerMatch =
     cursor < normalizedLines.length
