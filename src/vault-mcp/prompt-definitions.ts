@@ -16,10 +16,7 @@ import {
   createMemoryStore,
   type MemoryFileOutline,
 } from "./vault-operations/memory-store.js"
-import {
-  getDailyNote,
-  readDailyNotesConfig,
-} from "./vault-operations/daily-notes.js"
+import { getDailyNote } from "./vault-operations/daily-notes.js"
 import type { SearchIndex } from "./search/search-index.js"
 import type { VaultConfig } from "./config.js"
 import type { Logger } from "../logger.js"
@@ -365,9 +362,8 @@ export const registerPrompts = (params: {
       const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {
-        // Touch the daily-notes config so a vault with none degrades to the
-        // documented Obsidian defaults rather than failing.
-        await readDailyNotesConfig(vaultPath)
+        // getDailyNote resolves the path via the vault's daily-notes config and
+        // degrades to the documented Obsidian defaults when none is present.
         const [daily, recent] = await Promise.all([
           getDailyNote({ vaultPath, date: args.date }, reqLogger),
           Promise.resolve(

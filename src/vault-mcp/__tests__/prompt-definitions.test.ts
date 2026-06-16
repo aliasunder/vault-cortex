@@ -139,6 +139,28 @@ const setupVault = async (
   return { vault, search, calls }
 }
 
+/** Registers the prompts against a real vault path and a caller-supplied
+ *  search (used to inject failures), capturing the calls. */
+const registerWithSearch = (
+  vaultPath: string,
+  search: SearchIndex,
+): RegisterPromptCall[] => {
+  const calls: RegisterPromptCall[] = []
+  const server = {
+    registerPrompt: vi.fn((...args: unknown[]) =>
+      calls.push(args as RegisterPromptCall),
+    ),
+  }
+  registerPrompts({
+    server: server as unknown as McpServer,
+    vaultPath,
+    search,
+    logger,
+    config: loadConfig({}),
+  })
+  return calls
+}
+
 const findCall = (
   calls: RegisterPromptCall[],
   name: string,
@@ -431,5 +453,73 @@ describe("daily-review handler", () => {
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
     expect(text).not.toContain("runs well past the cap")
+  })
+})
+
+// ── Error degradation (handlers must degrade, never throw) ────────
+
+describe("handler error degradation", () => {
+  // A fresh empty temp vault, auto-cleaned when the test finishes.
+  const makeVault = async (): Promise<string> => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    return vault
+  }
+
+  it("vault-orientation returns a fallback (no throw) when the index fails", async () => {
+    const vault = await makeVault()
+    const throwingSearch = {
+      listAllTags: () => {
+        throw new Error("index unavailable")
+      },
+    } as unknown as SearchIndex
+    const calls = registerWithSearch(vault, throwingSearch)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    const text = textOf(await handler(fakeExtra))
+    expect(text).toContain("index unavailable")
+    expect(text).toContain("vault_list_tags")
+  })
+
+  it("daily-review returns a fallback (no throw) when a lookup fails", async () => {
+    const vault = await makeVault()
+    const throwingSearch = {
+      recentNotes: () => {
+        throw new Error("index unavailable")
+      },
+    } as unknown as SearchIndex
+    const calls = registerWithSearch(vault, throwingSearch)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({}, fakeExtra))
+    expect(text).toContain("vault_get_daily_note")
+  })
+
+  it("memory-review returns a fallback (no throw) when the memory store fails", async () => {
+    const vault = await makeVault()
+    // Make the memory dir a file so readdir fails with ENOTDIR (not ENOENT),
+    // which listMemoryFiles re-throws — exercising the handler's catch path.
+    await writeFile(join(vault, "About Me"), "not a directory", "utf8")
+    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const text = textOf(await handler({}, fakeExtra))
+    expect(text).toContain("vault_list_memory_files")
+  })
+
+  it("memory-review completion returns [] when listing names fails", async () => {
+    const vault = await makeVault()
+    await writeFile(join(vault, "About Me"), "not a directory", "utf8")
+    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .argsSchema as { file: unknown }
+    const complete = getCompleter(argsSchema.file as never) as unknown as (
+      value: string,
+      context?: unknown,
+    ) => Promise<string[]>
+
+    expect(await complete("", {})).toEqual([])
   })
 })
