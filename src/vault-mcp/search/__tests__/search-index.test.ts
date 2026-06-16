@@ -70,7 +70,7 @@ describe("leading callout", () => {
   it("surfaces a note's leading callout in discovery results", () => {
     index.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000)
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].callout).toEqual({
+    expect(results[0].leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** identity facts.\n**Convention:** append newest first.",
@@ -80,7 +80,7 @@ describe("leading callout", () => {
   it("returns callout null for a note without a leading callout", () => {
     index.upsertNote("notes/plain.md", NOTE_MINIMAL, 1000)
     const results = index.searchByFolder({ folder: "notes" }, logger)
-    expect(results[0].callout).toBeNull()
+    expect(results[0].leading_callout).toBeNull()
   })
 
   it("omits the callout from fullTextSearch by default, includes it on request", () => {
@@ -88,21 +88,21 @@ describe("leading callout", () => {
 
     const withoutFlag = index.fullTextSearch({ query: "burnout" }, logger)
     expect(withoutFlag).toHaveLength(1)
-    expect(withoutFlag[0].callout).toBeUndefined()
+    expect(withoutFlag[0].leading_callout).toBeUndefined()
 
     const withFlag = index.fullTextSearch(
-      { query: "burnout", filters: { include_callout: true } },
+      { query: "burnout", filters: { include_leading_callout: true } },
       logger,
     )
-    expect(withFlag[0].callout?.title).toBe("Scope of this file")
+    expect(withFlag[0].leading_callout?.title).toBe("Scope of this file")
   })
 
-  it("adds the callout column to a pre-existing notes table (warm-DB migration)", async () => {
+  it("adds the leading_callout column to a pre-existing notes table (warm-DB migration)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
     const dbPath = join(dir, "search.db")
-    // Simulate a database file created before the callout column existed.
-    const legacy = new Database(dbPath)
-    legacy.exec(`
+    // Simulate a database file created before the leading_callout column existed.
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
       CREATE TABLE notes (
         path TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, related TEXT,
         folder TEXT, type TEXT, created TEXT, mtime INTEGER, properties TEXT
@@ -114,7 +114,7 @@ describe("leading callout", () => {
         source TEXT NOT NULL, target TEXT NOT NULL, PRIMARY KEY (source, target)
       );
     `)
-    legacy.close()
+    legacyDb.close()
 
     // Opening through the factory must add the missing column, not throw on upsert.
     const warmIndex = createSearchIndex(dbPath)
@@ -122,7 +122,7 @@ describe("leading callout", () => {
       warmIndex.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000),
     ).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].callout?.title).toBe("Scope of this file")
+    expect(results[0].leading_callout?.title).toBe("Scope of this file")
     await rm(dir, { recursive: true })
   })
 })

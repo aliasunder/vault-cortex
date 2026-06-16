@@ -100,7 +100,7 @@ type MemoryHeading = Readonly<{
 type MemoryFileOutline = Readonly<{
   file: string
   title: string
-  callout: LeadingCallout | null
+  leading_callout: LeadingCallout | null
   headings: MemoryHeading[]
 }>
 
@@ -564,7 +564,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = parsed.content.split("\n")
-        const callout = parseLeadingCallout(lines)
+        const leadingCallout = parseLeadingCallout(lines)
         const sections = parseSections(lines)
 
         const headings: MemoryHeading[] = sections.map((section) =>
@@ -577,7 +577,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
               },
         )
 
-        return { file: name, title, callout, headings }
+        return { file: name, title, leading_callout: leadingCallout, headings }
       }),
     )
 

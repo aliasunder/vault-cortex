@@ -118,9 +118,9 @@ export type HeadingOutline = Readonly<{
 }>
 
 /** A note's outline: its optional leading callout (a top-of-file scope/summary
- *  block) plus the heading tree. `callout` is omitted when the note has none. */
+ *  block) plus the heading tree. `leading_callout` is omitted when the note has none. */
 export type NoteOutline = Readonly<{
-  callout?: LeadingCallout
+  leading_callout?: LeadingCallout
   headings: HeadingOutline[]
 }>
 
@@ -142,7 +142,7 @@ const readNoteOutline = async (
     throw new Error(`note not found: "${params.path}"`)
   }
   const lines = parseNote(content).content.split("\n")
-  const callout = parseLeadingCallout(lines)
+  const leadingCallout = parseLeadingCallout(lines)
   const headings = parseHeadings(lines)
   const outline = headings.map((heading) => {
     // Section span = heading line through bodyEndLine (the same span a section
@@ -160,11 +160,13 @@ const readNoteOutline = async (
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
-    hasCallout: callout !== null,
+    hasCallout: leadingCallout !== null,
     totalBytes,
   })
-  // Omit `callout` entirely when absent, rather than emitting `callout: null`.
-  return callout ? { callout, headings: outline } : { headings: outline }
+  // Omit `leading_callout` when absent, rather than emitting `leading_callout: null`.
+  return leadingCallout
+    ? { leading_callout: leadingCallout, headings: outline }
+    : { headings: outline }
 }
 
 /**

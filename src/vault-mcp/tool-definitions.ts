@@ -50,9 +50,9 @@ const formatNoteMetadata = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }) => {
-  // Drop a null `callout` so notes without a leading callout don't carry the
-  // key; keep it (the { type, title, body } block) when present.
-  const { properties, callout, ...fields } = meta
+  // Drop a null `leading_callout` so notes without one don't carry the key;
+  // keep it (the { type, title, body } block) when present.
+  const { properties, leading_callout: leadingCallout, ...fields } = meta
 
   const additional_properties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !PROMOTED_KEYS.has(key)),
@@ -60,7 +60,7 @@ const formatNoteMetadata = (meta: {
 
   return {
     ...fields,
-    ...(callout ? { callout } : {}),
+    ...(leadingCallout ? { leading_callout: leadingCallout } : {}),
     ...(Object.keys(additional_properties).length > 0
       ? { additional_properties }
       : {}),
@@ -127,7 +127,7 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 
-Returns: Raw markdown string (default); JSON object of properties (properties_only); for outline, a JSON object { callout?, headings } where headings is an array of { level, text, bytes } and callout (when present) is the note's leading callout { type, title, body } — a top-of-file scope/summary block; raw markdown of the section, heading line included (heading).`,
+Returns: Raw markdown string (default); JSON object of properties (properties_only); for outline, a JSON object { leading_callout?, headings } where headings is an array of { level, text, bytes } and leading_callout (when present) is the note's top-of-file callout { type, title, body } — a scope/summary block; raw markdown of the section, heading line included (heading).`,
       inputSchema: {
         path: z
           .string()
@@ -145,7 +145,7 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
           .boolean()
           .optional()
           .describe(
-            "If true, returns { callout?, headings } as JSON — the heading tree (level, text, section byte size) plus any leading callout (top-of-file scope/summary block) — instead of any body content. A cheap structure fetch for large notes.",
+            "If true, returns { leading_callout?, headings } as JSON — the heading tree (level, text, section byte size) plus any leading callout (top-of-file scope/summary block) — instead of any body content. A cheap structure fetch for large notes.",
           ),
         heading: z
           .string()
@@ -632,7 +632,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null. With filters.include_callout, each result also carries callout ({ type, title, body }) when the note has a leading callout.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when the note has a top-of-file callout.`,
       inputSchema: {
         query: z
           .string()
@@ -675,7 +675,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .number()
               .optional()
               .describe("Snippet length in tokens (default 30)"),
-            include_callout: z
+            include_leading_callout: z
               .boolean()
               .optional()
               .describe(
@@ -726,7 +726,7 @@ Parameters:
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, callout? (the note's leading scope/summary callout, when present), additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, leading_callout? (the note's top-of-file scope/summary callout, when present), additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -800,7 +800,7 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 When to use: Catching up on vault changes or finding recent work.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, callout? (the note's leading scope/summary callout, when present), additional_properties), sorted by chosen timestamp.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout? (the note's top-of-file scope/summary callout, when present), additional_properties), sorted by chosen timestamp.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -848,7 +848,7 @@ Parameters:
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, callout? (the note's leading scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout? (the note's top-of-file scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
       inputSchema: {
         folder: z
           .string()
@@ -1031,7 +1031,7 @@ Example: vault_list_memory_files() returns file outlines with headings like "Dec
 
 When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
 
-Returns: JSON array of file outlines, each { file, title, callout, headings } — callout is the file's leading scope callout ({ type, title, body }) or null.`,
+Returns: JSON array of file outlines, each { file, title, leading_callout, headings } — leading_callout is the file's top-of-file scope callout ({ type, title, body }) or null.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -1255,7 +1255,7 @@ Example: vault_search_by_property({ key: "status", value: "in-progress" })
 When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, callout? (the note's leading scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout? (the note's top-of-file scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
       inputSchema: {
         key: z.string().describe("Property key name"),
         value: z.string().describe("Value to match (exact, case-sensitive)"),
@@ -1399,7 +1399,7 @@ Parameters:
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, callout? (the note's leading scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout? (the note's top-of-file scope/summary callout, when present), additional_properties), sorted by most recently modified.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string())

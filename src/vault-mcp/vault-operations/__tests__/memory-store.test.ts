@@ -467,9 +467,9 @@ describe("updateMemory auto-creation", () => {
     expect(outcome).toBe("created-file")
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const health = outlines.find((outline) => outline.file === "Health")!
-    expect(health.callout?.title).toBe("Scope of this file")
+    expect(health.leading_callout?.title).toBe("Scope of this file")
     // Generic form: convention + a Contains placeholder, no per-file Does-NOT-contain.
-    expect(health.callout?.body).toBe(
+    expect(health.leading_callout?.body).toBe(
       "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
     )
     await rm(emptyVault, { recursive: true })
@@ -756,13 +756,13 @@ describe("listMemoryFiles", () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((o) => o.file === "Principles")!
     const opinions = outlines.find((o) => o.file === "Opinions")!
-    expect(principles.callout).toEqual({
+    expect(principles.leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** Values, decision heuristics, non-negotiables.\n**Convention:** Append newest first; never overwrite dated entries.",
     })
     // OPINIONS_MD has no leading callout.
-    expect(opinions.callout).toBeNull()
+    expect(opinions.leading_callout).toBeNull()
   })
 
   it("falls back to filename when no frontmatter title", async () => {
@@ -925,9 +925,9 @@ describe("bootstrapMemoryDir", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const opinions = outlines.find((outline) => outline.file === "Opinions")!
     // The callout is surfaced and is NOT miscounted as a dated entry.
-    expect(opinions.callout?.type).toBe("info")
-    expect(opinions.callout?.title).toBe("Scope of this file")
-    expect(opinions.callout?.body).toContain("**Contains:**")
+    expect(opinions.leading_callout?.type).toBe("info")
+    expect(opinions.leading_callout?.title).toBe("Scope of this file")
+    expect(opinions.leading_callout?.body).toContain("**Contains:**")
     const totalEntries = opinions.headings.reduce(
       (sum, heading) => sum + (heading.entryCount ?? 0),
       0,

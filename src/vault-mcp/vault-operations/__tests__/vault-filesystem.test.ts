@@ -672,7 +672,7 @@ describe("readNoteOutline", () => {
 
     // "# Title" (H1) has no later H1, so its span includes the nested "## Active"
     // child — its byte size is the whole body. "## Active" is just its own span.
-    // No leading callout, so `callout` is omitted from the outline object.
+    // No leading callout, so `leading_callout` is omitted from the outline object.
     expect(outline).toEqual({
       headings: [
         { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
@@ -702,7 +702,7 @@ describe("readNoteOutline", () => {
       logger,
     )
 
-    expect(outline.callout).toEqual({
+    expect(outline.leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** identity facts.\n**Convention:** append newest first.",
@@ -720,8 +720,8 @@ describe("readNoteOutline", () => {
       { vaultPath: vault, path: "nocallout.md" },
       logger,
     )
-    expect(outline.callout).toBeUndefined()
-    expect("callout" in outline).toBe(false)
+    expect(outline.leading_callout).toBeUndefined()
+    expect("leading_callout" in outline).toBe(false)
   })
 
   it("excludes frontmatter from section line ranges", async () => {
