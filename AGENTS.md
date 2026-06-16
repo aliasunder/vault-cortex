@@ -59,6 +59,7 @@ src/
     config.ts                          # Env-var loader + ServerConfig type (loadConfig)
     mcp-router.ts                      # /mcp session routes + transport lifecycle
     tool-definitions.ts                # MCP tool registrations + Zod schemas
+    prompt-definitions.ts              # MCP prompt registrations + Zod arg schemas
     vault-operations/                  # Vault content read/write/patch
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
@@ -185,6 +186,27 @@ search.fullTextSearch({ query, filters }, reqLogger)
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
+
+### MCP prompt conventions
+
+Prompts (`prompt-definitions.ts`) are user-initiated workflows, distinct
+from tools:
+
+- **Kebab-case names** (`vault-orientation`, `memory-review`), exported
+  via `PROMPT_NAMES` — mirroring `TOOL_NAMES`.
+- **Short, picker-facing `title`/`description`** — they render in slash
+  command / **+**-menu pickers, so no `Example:`/`Returns:` scaffolding;
+  one or two sentences.
+- **A prompt earns its place only through live content** — assembled at
+  invocation time from the data layer — plus thin, durable instruction.
+  Never re-encode a procedure that can drift (a prior `memory-checkpoint`
+  slash command was removed for exactly this). Zero-arg prompts **omit**
+  `argsSchema` so the SDK calls back as `(extra) =>`.
+- **Handlers degrade, never throw** — wrap data gathering so a failure
+  returns a valid fallback message; a prompt must not hard-fail the client.
+- **`memory-review` is append-only by design** — it reads the memory layer
+  as a dated **evolution** (never "newest supersedes older"), proposes only
+  append updates, and never prunes "stale" entries.
 
 ### MCP naming conventions
 

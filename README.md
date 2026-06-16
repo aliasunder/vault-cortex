@@ -28,7 +28,7 @@
 
 ## What is this?
 
-**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools over a single Docker container.
+**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools and 3 guided prompts over a single Docker container.
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
 
@@ -37,6 +37,7 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
+- **Guided workflows** — user-initiated prompts (orientation, memory review, daily review) surfaced as slash commands or **+**-menu actions, assembling live vault content on demand and costing zero tokens until invoked
 
 ### Roadmap
 
@@ -174,6 +175,18 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_get_outgoing_links`   | Links from a given note                                    |
 |                 | `vault_find_orphans`         | Notes with no incoming links                               |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                         |
+
+## Prompts (3)
+
+Beyond tools (model-driven, always on), Vault Cortex exposes **prompts** — workflows you trigger explicitly. They cost zero tokens until invoked and assemble live vault content at call time. In Claude Code they appear as `/mcp__vault-cortex__<name>`; in Claude Desktop and claude.ai connectors they appear in the **+** menu.
+
+| Prompt              | Arguments         | What it does                                                                                                                                    |
+| ------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                 | Surveys the vault's folders, tags, property keys, recent notes, and memory layer so the assistant works with your conventions, not assumptions. |
+| `memory-review`     | `file` (optional) | Reads the `About Me/` memory layer as a dated timeline — an evolution, not "latest wins" — and proposes append-only updates. Never prunes.      |
+| `daily-review`      | `date` (optional) | Reviews a day's daily note against recent activity, captures follow-ups, and surfaces durable facts worth saving to memory.                     |
+
+Prompts are parameterized through the same config as the tools (`MEMORY_DIR`, daily-notes settings), so they work for any vault out of the box.
 
 ## Configuration
 

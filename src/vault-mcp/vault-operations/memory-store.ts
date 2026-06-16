@@ -89,13 +89,13 @@ const toKebabCase = (text: string): string =>
 
 // ── Types ───────────────────────────────────────────────────────
 
-type MemoryHeading = Readonly<{
+export type MemoryHeading = Readonly<{
   level: 1 | 2
   text: string
   entryCount?: number
 }>
 
-type MemoryFileOutline = Readonly<{
+export type MemoryFileOutline = Readonly<{
   file: string
   title: string
   headings: MemoryHeading[]

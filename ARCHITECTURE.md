@@ -24,8 +24,10 @@ API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 ## Phasing
 
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
-About Me/ memory layer. This alone makes any MCP client vault-aware and
-personalized across conversations.
+About Me/ memory layer. The MCP surface is **tools + prompts** — model-driven
+tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
+This alone makes any MCP client vault-aware and personalized across
+conversations.
 
 **Phase 2** adds a LightRAG container for semantic and knowledge-graph
 queries over the vault. The file watcher gains a second hook for LightRAG
@@ -245,6 +247,18 @@ Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.
 | `vault_query_kb` | `query, mode?` | readOnlyHint |
 
 `mode` options: `hybrid` (default), `local` (entity-centric), `global` (conceptual), `naive` (vector-only).
+
+## MCP Prompts
+
+Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated (slash command / **+** menu), cost no tokens until invoked, and assemble live vault content at invocation time over the same data layer the tools use — so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
+
+| Prompt              | Arguments         | Purpose                                                                                                |
+| ------------------- | ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `vault-orientation` | —                 | Surveys folders, tags, property keys, recent notes, and the memory layer to expose vault conventions.  |
+| `memory-review`     | `file` (optional) | Reflects on the memory layer as an append-with-dates **evolution**; proposes append-only updates only. |
+| `daily-review`      | `date` (optional) | Reconciles a day's daily note against recent activity and feeds durable facts back into memory.        |
+
+Each handler degrades to a valid message rather than throwing, so a prompt never hard-fails the client. `memory-review` is deliberately append-only: it reads dated entries as a timeline (each entry true when written), never as "newest supersedes older," and never prunes "stale" entries — matching the memory layer's design.
 
 ## Infrastructure
 
