@@ -43,13 +43,21 @@ const H1_REGEX = /^# .+$/
 export const parseLeadingCallout = (
   lines: readonly string[],
 ): LeadingCallout | null => {
+  // Callers split on "\n", so a CRLF (Windows-authored) file leaves a trailing
+  // "\r" on each line. `.` never matches "\r" and a non-multiline `$` only
+  // anchors at end-of-input, so a stray "\r" would defeat the regexes below
+  // (and leak into the captured body) — strip it once, up front.
+  const normalizedLines = lines.map((line) =>
+    line.endsWith("\r") ? line.slice(0, -1) : line,
+  )
+
   // Scan past leading blank lines and at most one H1 title to find where the
   // first real body content begins. `let` carries the scan position and the
   // one-H1 allowance across lines — a reduce can't early-exit cleanly here.
   let cursor = 0
   let skippedH1 = false
-  while (cursor < lines.length) {
-    const line = lines[cursor]
+  while (cursor < normalizedLines.length) {
+    const line = normalizedLines[cursor]
     if (line.trim() === "") {
       cursor++
       continue
@@ -63,7 +71,9 @@ export const parseLeadingCallout = (
   }
 
   const openerMatch =
-    cursor < lines.length ? CALLOUT_OPENER_REGEX.exec(lines[cursor]) : null
+    cursor < normalizedLines.length
+      ? CALLOUT_OPENER_REGEX.exec(normalizedLines[cursor])
+      : null
   if (!openerMatch) return null
 
   const type = openerMatch[1].toLowerCase()
@@ -71,7 +81,7 @@ export const parseLeadingCallout = (
 
   // Body = consecutive `>` lines after the opener, until the next callout
   // opener (stacked callout), a non-blockquote line (incl. a blank line), or EOF.
-  const afterOpener = lines.slice(cursor + 1)
+  const afterOpener = normalizedLines.slice(cursor + 1)
   const stopIndex = afterOpener.findIndex(
     (line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line),
   )

@@ -122,6 +122,22 @@ describe("parseLeadingCallout", () => {
     expect(parseLeadingCallout(["", "   ", ""])).toBeNull()
   })
 
+  it("handles CRLF line endings without leaking carriage returns", () => {
+    // A CRLF file split on "\n" leaves a trailing "\r" on every line.
+    const lines =
+      "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split(
+        "\n",
+      )
+    const callout = parseLeadingCallout(lines)
+    expect(callout).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "line one\nline two",
+    })
+    expect(callout?.body).not.toContain("\r")
+    expect(callout?.title).not.toContain("\r")
+  })
+
   it("handles a callout with no space after the blockquote marker", () => {
     const lines = [">[!tip] Tight", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
