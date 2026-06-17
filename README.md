@@ -192,7 +192,7 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 ## Properties
 
-Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated indexed columns for fast filtering, and top-level fields in every search and discovery result:
+Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
 
 | Property  | What you can do                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
