@@ -243,6 +243,13 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.
+- Prefer an exact assertion on the **whole** value (`toBe` on the
+  full output/object) over `contains`/substring checks when the
+  output is deterministic and you control the inputs — `contains`
+  silently tolerates ordering changes, formatting drift, and
+  accidental duplication. Reserve `contains` for when only a
+  fragment is genuinely under test (one branch among many, or an
+  excerpt of large output).
 - Explicit callback parameter names — `orphan` not `o`, `entry`
   not `e`, `link` not `l`. Same naming rules as production code.
 - Test names match what they assert. If the test asserts 1 result,
