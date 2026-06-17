@@ -47,7 +47,6 @@
 ### ⚠ BREAKING CHANGES
 
 - vault_read_note outline mode now returns { leading_callout?, headings } instead of a bare array of headings; clients parsing it as an array must read .headings.
-- vault_read_note outline mode now returns { leading_callout?, headings } instead of a bare array of headings; clients parsing it as an array must read .headings.
 
 ### Features
 
