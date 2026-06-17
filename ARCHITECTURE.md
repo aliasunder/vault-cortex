@@ -250,7 +250,7 @@ Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.
 
 ## MCP Prompts
 
-Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated (slash command / **+** menu), cost no tokens until invoked, and assemble live vault content at invocation time over the same data layer the tools use — so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
+Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated — the client surfaces them as slash commands, a **+** menu, or similar — and assemble live vault content at invocation time over the same data layer the tools use, so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
 
 | Prompt              | Arguments             | Purpose                                                                                                |
 | ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |

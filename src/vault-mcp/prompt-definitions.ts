@@ -1,11 +1,11 @@
 /** MCP prompt definitions — user-initiated guided workflows over the vault.
  *
- * Prompts are the counterpart to tools: tools are model-driven and cost tokens
- * on every request, while prompts are user-initiated (slash command / "+" menu),
- * cost nothing until invoked, and assemble live vault content at invocation time.
- * Each handler gathers from the same data layer the tools use, then returns a
- * single text message — no embedded procedure that can drift, just live content
- * plus thin, durable instruction. */
+ * Prompts are the counterpart to tools: tools are model-driven, while prompts
+ * are user-initiated — the client surfaces them as slash commands, a "+" menu,
+ * or similar — and assemble live vault content at invocation time. Each handler
+ * gathers from the same data layer the tools use, then returns a single text
+ * message — no embedded procedure that can drift, just live content plus thin,
+ * durable instruction. */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"

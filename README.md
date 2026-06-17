@@ -37,7 +37,7 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **Guided workflows** — user-initiated prompts (orientation, memory review, daily review) surfaced as slash commands or **+**-menu actions, assembling live vault content on demand and costing zero tokens until invoked
+- **Guided workflows** — user-initiated prompts (orientation, memory review, daily review) that your MCP client surfaces as slash commands or **+**-menu actions, assembling live vault content on demand when you run them
 
 ### Roadmap
 
@@ -178,7 +178,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Prompts (3)
 
-Beyond tools (model-driven, always on), Vault Cortex exposes **prompts** — workflows you trigger explicitly. They cost zero tokens until invoked and assemble live vault content at call time. In Claude Code they appear as `/mcp__vault-cortex__<name>`; in Claude Desktop and claude.ai connectors they appear in the **+** menu.
+Where tools are model-driven, **prompts** are workflows you trigger explicitly — their live vault content is assembled only when you run them. MCP clients surface them as user-initiated actions: for example, slash commands in Claude Code (`/mcp__vault-cortex__<name>`) or the **+** menu in Claude Desktop and claude.ai connectors. Other clients expose them in their own UI.
 
 | Prompt              | Arguments             | What it does                                                                                                                                    |
 | ------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |

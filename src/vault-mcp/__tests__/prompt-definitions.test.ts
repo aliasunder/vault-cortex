@@ -289,18 +289,8 @@ describe("registerPrompts — genericness", () => {
 // ── vault-orientation handler ────────────────────────────────────
 
 describe("vault-orientation handler", () => {
-  it("surveys folders, tags, property keys, recent notes, and memory", async () => {
-    const { calls } = await setupVault()
-    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
-    const text = textOf(await handler(fakeExtra))
-
-    expect(text).toContain("Projects") // derived folder
-    expect(text).toContain("#project") // a tag
-    expect(text).toContain("status") // a property key
-    expect(text).toContain("Projects/alpha.md") // a recent note
-    expect(text).toContain("Principles") // a memory file
-  })
-
+  // Exact assembled output is asserted in "full prompt output"; the cases below
+  // cover sentinels and degradation.
   it("returns sentinels and never throws on an empty vault", async () => {
     const config = loadConfig({})
     const { calls } = await setupVault({
@@ -330,7 +320,7 @@ describe("memory-review handler", () => {
     expect(text).toContain("Secrets invisible at every layer")
   })
 
-  it("scopes to a single file when file is given", async () => {
+  it("scopes to the requested file, excluding the others", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
     const text = textOf(await handler({ file: "Principles" }, fakeExtra))
@@ -416,21 +406,8 @@ describe("memory-review handler", () => {
 // ── daily-review handler ─────────────────────────────────────────
 
 describe("daily-review handler", () => {
-  it("returns the daily note path and content when it exists", async () => {
-    const { vault, calls } = await setupVault()
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nWorked on the prompts feature.\n",
-      "utf8",
-    )
-    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
-
-    expect(text).toContain("Daily Notes/2026-06-16.md")
-    expect(text).toContain("Worked on the prompts feature.")
-  })
-
+  // Exact assembled output (note + recent notes) is asserted in "full prompt
+  // output"; the cases below cover the missing-note and default-date branches.
   it("offers to create a missing note and still lists recent notes", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
@@ -637,5 +614,137 @@ describe("prompt logging", () => {
     )
     expect(warn?.level).toBe("warn")
     expect(warn?.data.prompt).toBe("memory-review")
+  })
+})
+
+// ── Full output (exact assertions on controlled fixtures) ────────
+// Minimal, fully-deterministic fixtures so each prompt's complete assembled
+// message can be asserted character-for-character — not just `contains`.
+
+describe("full prompt output", () => {
+  const MEM_MD =
+    "---\ntitle: Mem\ntype: profile\n---\n\n# Mem\n\n## Notes (newest first)\n- **2026-05-06**: Keep it simple\n"
+  const ALPHA_MD = "---\ntitle: Alpha\n---\n# Alpha\n\nbody\n"
+
+  const freshVault = async (): Promise<string> => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-exact-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    return vault
+  }
+
+  it("memory-review assembles the exact message for a single file", async () => {
+    const vault = await freshVault()
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me", "Mem.md"), MEM_MD, "utf8")
+    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const text = textOf(await handler({ file: "Mem" }, fakeExtra))
+    expect(text).toBe(
+      [
+        "# Memory review — Mem",
+        "",
+        "Below is the current content of the About Me/Mem memory file. It is an **append-with-dates, newest-first** record: each dated entry was true when it was written, and the timeline read top-to-bottom *is* the meaning.",
+        "",
+        "## Current memory",
+        "",
+        "# Mem",
+        "",
+        "## Notes (newest first)",
+        "- **2026-05-06**: Keep it simple",
+        "",
+        "## How to reflect",
+        "",
+        '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
+        "2. **Scope-fit.** Note any entry that seems to belong in a different file or section, based on each file's declared scope (respect a scope header if the file states one; don't assume one otherwise).",
+        "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
+        "4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.",
+        "",
+        "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
+      ].join("\n"),
+    )
+  })
+
+  it("vault-orientation assembles the exact message", async () => {
+    const vault = await freshVault()
+    await mkdir(join(vault, "Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "Notes", "alpha.md"), ALPHA_MD, "utf8")
+    await writeFile(join(vault, "About Me", "Mem.md"), MEM_MD, "utf8")
+    const search = createSearchIndex(":memory:")
+    // Only alpha.md is indexed, so tags/properties/recent are deterministic.
+    search.upsertNote("Notes/alpha.md", ALPHA_MD, 1000)
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    const text = textOf(await handler(fakeExtra))
+    expect(text).toBe(
+      [
+        "# Vault orientation",
+        "",
+        "This vault is a structured, convention-driven Obsidian system. Survey its actual conventions below, then use the `vault_*` tools to go deeper.",
+        "",
+        "## Folders",
+        "- About Me",
+        "- Notes",
+        "",
+        "## Tags",
+        "No tags yet.",
+        "",
+        "## Property keys",
+        "- title (1) — e.g. Alpha",
+        "",
+        "## Recently modified",
+        "- Notes/alpha.md — Alpha",
+        "",
+        "## Memory (About Me/)",
+        "- Mem",
+        "  - Notes (newest first) (1)",
+        "",
+        "---",
+        "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`.",
+      ].join("\n"),
+    )
+  })
+
+  it("daily-review assembles the exact message when the note exists", async () => {
+    const vault = await freshVault()
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nShipped the prompts.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote("Log/note.md", "---\ntitle: Note One\n---\nbody\n", 1000)
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+    expect(text).toBe(
+      [
+        "# Daily review",
+        "",
+        "Daily note: `Daily Notes/2026-06-16.md`",
+        "",
+        "## Daily note",
+        "",
+        "# 2026-06-16",
+        "",
+        "Shipped the prompts.",
+        "",
+        "## Recently modified notes",
+        "",
+        "- Log/note.md — Note One",
+        "",
+        "## How to review",
+        "",
+        "1. **Reconcile the day** — what got done, what's still open, what changed — cross-referencing the recent notes above.",
+        "2. **Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
+        "3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to About Me/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.",
+      ].join("\n"),
+    )
   })
 })
