@@ -452,6 +452,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           file: params.file,
           section: newSection,
           date,
+          outcome: "created-file",
           beforeBytes: 0,
           afterBytes: Buffer.byteLength(content, "utf8"),
         })
@@ -480,6 +481,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           file: params.file,
           section: newSection,
           date,
+          outcome: "created-section",
           beforeBytes,
           afterBytes,
         })
@@ -534,6 +536,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         file: params.file,
         section: params.section,
         date,
+        outcome: "appended",
         beforeBytes,
         afterBytes,
       })

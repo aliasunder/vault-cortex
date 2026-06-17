@@ -1066,6 +1066,7 @@ describe("memory write size logging", () => {
       file: "Principles",
       section: "Working style (newest first)",
       date: "2026-06-14",
+      outcome: "appended",
       beforeBytes: Buffer.byteLength(PRINCIPLES_MD, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
     })
