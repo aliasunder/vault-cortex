@@ -11,6 +11,7 @@ import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/
 import type { SearchIndex } from "./search/search-index.js"
 import type { VaultConfig } from "./config.js"
 import { registerTools } from "./tool-definitions.js"
+import { registerPrompts } from "./prompt-definitions.js"
 import { logger } from "../logger.js"
 
 export type McpRouterOptions = {
@@ -97,6 +98,13 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
           clientIp,
         })
         registerTools({
+          server,
+          vaultPath,
+          search,
+          logger: sessionLogger,
+          config,
+        })
+        registerPrompts({
           server,
           vaultPath,
           search,

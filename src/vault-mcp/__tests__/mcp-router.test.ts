@@ -20,6 +20,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { registerTools } from "../tool-definitions.js"
+import { registerPrompts } from "../prompt-definitions.js"
 import { logger } from "../../logger.js"
 
 // `logger` is a real exported object; its methods become spies inside
@@ -48,6 +49,7 @@ vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   isInitializeRequest: vi.fn(),
 }))
 vi.mock("../tool-definitions.js", () => ({ registerTools: vi.fn() }))
+vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }))
 
 const FORWARDED_IP = "192.0.2.10"
 const VAULT_PATH = "/test-vault"
@@ -301,6 +303,19 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(arg.search).toBe(harness.search)
       expect(arg.logger).toBeDefined()
       expect(arg.config).toBe(DEFAULT_CONFIG)
+    })
+
+    it("registers prompts on the new server with the same vault context as the tools", async () => {
+      const { harness } = await setupInitializedSession()
+      expect(registerPrompts).toHaveBeenCalledTimes(1)
+      const promptArg = vi.mocked(registerPrompts).mock.calls[0]![0]
+      const toolArg = vi.mocked(registerTools).mock.calls[0]![0]
+      expect(promptArg.server).toBe(harness.serverInstances[0])
+      expect(promptArg.vaultPath).toBe(VAULT_PATH)
+      expect(promptArg.search).toBe(harness.search)
+      expect(promptArg.config).toBe(DEFAULT_CONFIG)
+      // Prompts and tools share the same session-scoped logger and context.
+      expect(promptArg.logger).toBe(toolArg.logger)
     })
 
     it("scopes the logger for registerTools to the sessionId and clientIp", async () => {

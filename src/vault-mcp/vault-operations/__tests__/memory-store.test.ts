@@ -14,8 +14,13 @@ import { parseNote } from "../frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const { getMemory, updateMemory, listMemoryFiles, deleteMemory } =
-  createMemoryStore({ memoryDir: "About Me" })
+const {
+  getMemory,
+  updateMemory,
+  listMemoryFiles,
+  listMemoryFileNames,
+  deleteMemory,
+} = createMemoryStore({ memoryDir: "About Me" })
 
 let vault: string
 
@@ -824,6 +829,26 @@ describe("listMemoryFiles", () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-"))
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     expect(outlines).toEqual([])
+    await rm(emptyVault, { recursive: true })
+  })
+})
+
+describe("listMemoryFileNames", () => {
+  it("returns file names (without .md) sorted alphabetically", async () => {
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("ignores non-markdown files", async () => {
+    await writeFile(join(vault, "About Me/notes.txt"), "ignore me", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("returns an empty array when the memory directory does not exist", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-names-"))
+    const names = await listMemoryFileNames({ vaultPath: emptyVault }, logger)
+    expect(names).toEqual([])
     await rm(emptyVault, { recursive: true })
   })
 })

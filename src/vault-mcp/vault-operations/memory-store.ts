@@ -91,13 +91,13 @@ const toKebabCase = (text: string): string =>
 
 // ── Types ───────────────────────────────────────────────────────
 
-type MemoryHeading = Readonly<{
+export type MemoryHeading = Readonly<{
   level: 1 | 2
   text: string
   entryCount?: number
 }>
 
-type MemoryFileOutline = Readonly<{
+export type MemoryFileOutline = Readonly<{
   file: string
   title: string
   leading_callout: LeadingCallout | null
@@ -588,6 +588,29 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return outlines
   }
 
+  /** Lists memory file names (without .md), sorted. Cheap by design — a
+   *  readdir + filter with no file reads or parsing — so it's safe to call
+   *  on a hot path like prompt-arg autocomplete, which fires per keystroke. */
+  const listMemoryFileNames = async (
+    params: { vaultPath: string },
+    logger: Logger,
+  ): Promise<string[]> => {
+    const dir = join(params.vaultPath, memoryDir)
+    let entries: string[]
+    try {
+      entries = await readdir(dir)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+      throw err
+    }
+    const names = entries
+      .filter((filename) => filename.endsWith(".md"))
+      .map((filename) => basename(filename, ".md"))
+      .sort()
+    logger.debug("listed memory file names", { count: names.length })
+    return names
+  }
+
   const deleteMemory = async (
     params: {
       vaultPath: string
@@ -691,6 +714,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     getMemory,
     updateMemory,
     listMemoryFiles,
+    listMemoryFileNames,
     deleteMemory,
     bootstrapMemoryDir,
   }
