@@ -197,10 +197,15 @@ export const registerPrompts = (params: {
           "---",
           "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`.",
         ].join("\n")
+        reqLogger.info("prompt_result", {
+          outcome: "ok",
+          chars: text.length,
+          memoryFiles: memoryFiles.length,
+        })
         return textResult(text)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        reqLogger.warn("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_list_memory_files.`,
         )
@@ -240,7 +245,13 @@ export const registerPrompts = (params: {
               return names.filter((name) =>
                 name.toLowerCase().startsWith(loweredValue),
               )
-            } catch {
+            } catch (err) {
+              // Recoverable and high-frequency (fires per keystroke), so warn
+              // rather than error — but never swallow it silently.
+              sessionLogger.warn("prompt_completion_failed", {
+                prompt: PROMPT_NAMES.MEMORY_REVIEW,
+                error: err instanceof Error ? err.message : String(err),
+              })
               return []
             }
           },
@@ -271,17 +282,22 @@ export const registerPrompts = (params: {
 
         // Empty memory is not an error — explain how the layer gets started.
         if (outlines.length === 0) {
+          reqLogger.info("prompt_result", { outcome: "empty_memory" })
           return textResult(
             `The ${config.memoryDir}/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.`,
           )
         }
 
         // A bad file name degrades to a friendly "valid names" message rather
-        // than throwing through to the client.
+        // than throwing through to the client. Bad client input → warn.
         if (
           args.file &&
           !outlines.some((outline) => outline.file === args.file)
         ) {
+          reqLogger.warn("prompt_bad_argument", {
+            argument: "file",
+            value: args.file,
+          })
           return textResult(
             `No memory file named "${args.file}" in ${config.memoryDir}/. Available files: ${outlines
               .map((outline) => outline.file)
@@ -293,6 +309,9 @@ export const registerPrompts = (params: {
           { vaultPath, file: args.file },
           reqLogger,
         )
+        const trimmedMemory = memory.trim()
+        const truncated =
+          maxChars !== undefined && trimmedMemory.length > maxChars
         const scope = args.file
           ? `the ${config.memoryDir}/${args.file} memory file`
           : `the ${config.memoryDir}/ memory layer`
@@ -304,8 +323,8 @@ export const registerPrompts = (params: {
           "",
           "## Current memory",
           "",
-          memory.trim().length > 0
-            ? capContent(memory.trim(), maxChars, "vault_get_memory")
+          trimmedMemory.length > 0
+            ? capContent(trimmedMemory, maxChars, "vault_get_memory")
             : "_(the selected memory is empty)_",
           "",
           "## How to reflect",
@@ -317,10 +336,17 @@ export const registerPrompts = (params: {
           "",
           "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
         ].join("\n")
+        reqLogger.info("prompt_result", {
+          outcome: "ok",
+          file: args.file ?? null,
+          files: outlines.length,
+          chars: text.length,
+          truncated,
+        })
         return textResult(text)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        reqLogger.warn("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
         )
@@ -374,9 +400,12 @@ export const registerPrompts = (params: {
           ),
         ])
 
+        const trimmedDaily = daily.content?.trim() ?? ""
+        const truncated =
+          maxChars !== undefined && trimmedDaily.length > maxChars
         const dailySection =
-          daily.exists && daily.content && daily.content.trim().length > 0
-            ? capContent(daily.content.trim(), maxChars, "vault_get_daily_note")
+          daily.exists && trimmedDaily.length > 0
+            ? capContent(trimmedDaily, maxChars, "vault_get_daily_note")
             : `_No daily note exists at \`${daily.path}\` yet._`
         const recentSection =
           recent.length > 0
@@ -404,10 +433,15 @@ export const registerPrompts = (params: {
           "2. **Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
           `3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`,
         ].join("\n")
+        reqLogger.info("prompt_result", {
+          outcome: daily.exists ? "ok" : "no_note",
+          chars: text.length,
+          truncated,
+        })
         return textResult(text)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        reqLogger.warn("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not load the daily note (${message}). Try vault_get_daily_note to fetch it directly.`,
         )

@@ -8,7 +8,7 @@ import { loadConfig } from "../config.js"
 import { createSearchIndex, type SearchIndex } from "../search/search-index.js"
 import { getCompleter } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { logger } from "../../logger.js"
+import { logger, type Logger } from "../../logger.js"
 
 const ALL_PROMPT_NAMES = Object.values(PROMPT_NAMES)
 
@@ -35,6 +35,28 @@ type RegisterPromptCall = [
 ]
 
 const fakeExtra: PromptExtra = { requestId: "1" }
+
+// A logger that records every call into a sink, merging child props the way the
+// real logger does — so tests can assert on emitted events and their level.
+type LogCall = {
+  level: "debug" | "info" | "warn" | "error"
+  message: string
+  data: Record<string, unknown>
+}
+const recordingLogger = (sink: LogCall[]): Logger => {
+  const make = (props: Record<string, unknown>): Logger => ({
+    debug: (message, data = {}) =>
+      sink.push({ level: "debug", message, data: { ...props, ...data } }),
+    info: (message, data = {}) =>
+      sink.push({ level: "info", message, data: { ...props, ...data } }),
+    warn: (message, data = {}) =>
+      sink.push({ level: "warn", message, data: { ...props, ...data } }),
+    error: (message, data = {}) =>
+      sink.push({ level: "error", message, data: { ...props, ...data } }),
+    child: (childProps) => make({ ...props, ...childProps }),
+  })
+  return make({})
+}
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -89,6 +111,7 @@ const setupVault = async (
     config?: ReturnType<typeof loadConfig>
     indexNotes?: boolean
     memoryFiles?: boolean
+    logger?: Logger
   } = {},
 ): Promise<{
   vault: string
@@ -98,6 +121,7 @@ const setupVault = async (
   const config = options.config ?? loadConfig({})
   const indexNotes = options.indexNotes ?? true
   const memoryFiles = options.memoryFiles ?? true
+  const log = options.logger ?? logger
 
   const vault = await mkdtemp(join(tmpdir(), "prompt-test-"))
   onTestFinished(async () => {
@@ -132,7 +156,7 @@ const setupVault = async (
     server: server as unknown as McpServer,
     vaultPath: vault,
     search,
-    logger,
+    logger: log,
     config,
   })
 
@@ -144,6 +168,7 @@ const setupVault = async (
 const registerWithSearch = (
   vaultPath: string,
   search: SearchIndex,
+  log: Logger = logger,
 ): RegisterPromptCall[] => {
   const calls: RegisterPromptCall[] = []
   const server = {
@@ -155,7 +180,7 @@ const registerWithSearch = (
     server: server as unknown as McpServer,
     vaultPath,
     search,
-    logger,
+    logger: log,
     config: loadConfig({}),
   })
   return calls
@@ -521,5 +546,96 @@ describe("handler error degradation", () => {
     ) => Promise<string[]>
 
     expect(await complete("", {})).toEqual([])
+  })
+})
+
+// ── Logging (usage + error signal) ───────────────────────────────
+
+describe("prompt logging", () => {
+  const makeVault = async (): Promise<string> => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-log-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    return vault
+  }
+
+  it("logs prompt_result on a successful memory-review, with the truncated flag", async () => {
+    const logs: LogCall[] = []
+    const { calls } = await setupVault({ logger: recordingLogger(logs) })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    await handler({ max_chars: "40" }, fakeExtra)
+    const result = logs.find((call) => call.message === "prompt_result")
+    expect(result?.level).toBe("info")
+    expect(result?.data.outcome).toBe("ok")
+    expect(result?.data.truncated).toBe(true)
+    expect(result?.data.prompt).toBe("memory-review")
+  })
+
+  it("does not flag truncation when max_chars is omitted", async () => {
+    const logs: LogCall[] = []
+    const { calls } = await setupVault({ logger: recordingLogger(logs) })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    await handler({}, fakeExtra)
+    const result = logs.find((call) => call.message === "prompt_result")
+    expect(result?.data.truncated).toBe(false)
+  })
+
+  it("warns (not errors) when memory-review gets an unknown file", async () => {
+    const logs: LogCall[] = []
+    const { calls } = await setupVault({ logger: recordingLogger(logs) })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    await handler({ file: "Nope" }, fakeExtra)
+    const warn = logs.find((call) => call.message === "prompt_bad_argument")
+    expect(warn?.level).toBe("warn")
+    expect(warn?.data.argument).toBe("file")
+    expect(warn?.data.value).toBe("Nope")
+  })
+
+  it("logs prompt_error at error level when a handler fails unexpectedly", async () => {
+    const logs: LogCall[] = []
+    const vault = await makeVault()
+    const throwingSearch = {
+      listAllTags: () => {
+        throw new Error("index unavailable")
+      },
+    } as unknown as SearchIndex
+    const calls = registerWithSearch(
+      vault,
+      throwingSearch,
+      recordingLogger(logs),
+    )
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    await handler(fakeExtra)
+    const err = logs.find((call) => call.message === "prompt_error")
+    expect(err?.level).toBe("error")
+  })
+
+  it("warns when the memory-review completion callback fails", async () => {
+    const logs: LogCall[] = []
+    const vault = await makeVault()
+    await writeFile(join(vault, "About Me"), "not a directory", "utf8")
+    const calls = registerWithSearch(
+      vault,
+      {} as SearchIndex,
+      recordingLogger(logs),
+    )
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .argsSchema as { file: unknown }
+    const complete = getCompleter(argsSchema.file as never) as unknown as (
+      value: string,
+      context?: unknown,
+    ) => Promise<string[]>
+
+    await complete("", {})
+    const warn = logs.find(
+      (call) => call.message === "prompt_completion_failed",
+    )
+    expect(warn?.level).toBe("warn")
+    expect(warn?.data.prompt).toBe("memory-review")
   })
 })
