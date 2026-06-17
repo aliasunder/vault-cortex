@@ -42,6 +42,26 @@
 
 
 
+
+## [0.19.1] — 2026-06-17
+
+### ⚠ BREAKING CHANGES
+
+- vault_read_note outline mode now returns { leading_callout?, headings } …
+
+### Bug Fixes
+
+- **registry:** Shorten server.json description under the 100-char cap (#147)
+
+### Documentation
+
+- Surface 3 guided prompts in CLI README + fix stale memory-template lists (#145)
+- Update CHANGELOG.md for v0.19.0
+
+### CI / Infrastructure
+
+- **release:** De-duplicate identical breaking-change lines in release notes (#146)
+
 ## [0.19.0] — 2026-06-17
 
 ### ⚠ BREAKING CHANGES
