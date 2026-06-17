@@ -207,6 +207,8 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). The discovery tools (`vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include each note's `leading_callout` in its metadata when present. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
+**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated indexed columns in the `notes` table for efficient filtering. In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-definitions.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated column indexing.
+
 ### Phase 1: Property Discovery + Daily Notes
 
 | Tool                         | Input                         | Annotation   |
@@ -249,7 +251,7 @@ Link queries use a `links` table populated from `[[wikilink]]` and `[text](path.
 
 ## MCP Prompts
 
-Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated — the client surfaces them as slash commands, a **+** menu, or similar — and assemble live vault content at invocation time over the same data layer the tools use, so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
+Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated — clients that support the `prompts/list` capability surface them as slash commands or menu actions (Claude Code, OpenCode, Zed); support varies by client and most (Cursor, Windsurf, claude.ai) currently expose tools only. Handlers assemble live vault content at invocation time over the same data layer the tools use, so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
 
 | Prompt              | Arguments             | Purpose                                                                                                |
 | ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |
