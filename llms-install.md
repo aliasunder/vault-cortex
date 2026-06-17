@@ -100,7 +100,7 @@ The server is at `http://localhost:8000/mcp`, authenticated by the **raw** `MCP_
 }
 ```
 
-Save, then confirm the connection by calling a read-only tool such as `vault_list_memory_files`. A healthy install discovers **23 tools** (vault CRUD, search, memory, link graph, daily notes) and **3 guided prompts** (orientation, memory review, daily review).
+Save, then confirm the connection by calling a read-only tool such as `vault_list_memory_files`. A healthy install discovers **23 tools** (vault CRUD, search, memory, link graph, daily notes) and **3 guided prompts** (`vault-orientation`, `memory-review`, `daily-review`).
 
 If the client only speaks stdio, bridge with `mcp-remote` (same token):
 
