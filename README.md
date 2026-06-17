@@ -37,7 +37,7 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **Guided workflows** — user-initiated prompts (orientation, memory review, daily review) that your MCP client surfaces as slash commands or **+**-menu actions, assembling live vault content on demand when you run them
+- **Guided workflows** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work — assembled from live vault content each time you run them
 
 ### Roadmap
 
@@ -153,7 +153,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
 | **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section |
-|                 | `vault_write_note`           | Create or overwrite a note with frontmatter                |
+|                 | `vault_write_note`           | Create or overwrite a note with properties                 |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)   |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
@@ -167,9 +167,9 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                   |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                     |
 |                 | `vault_list_memory_files`    | Discover memory files and their sections                   |
-| **Properties**  | `vault_list_property_keys`   | All frontmatter keys with sample values                    |
+| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                       |
 |                 | `vault_list_property_values` | Distinct values for a property key                         |
-|                 | `vault_search_by_property`   | Find notes by frontmatter key-value                        |
+|                 | `vault_search_by_property`   | Find notes by property key-value                           |
 |                 | `vault_update_properties`    | Add or update properties without touching the body         |
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                              |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                    |
@@ -178,15 +178,33 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Prompts (3)
 
-Where tools are model-driven, **prompts** are workflows you trigger explicitly — their live vault content is assembled only when you run them. MCP clients surface them as user-initiated actions: for example, slash commands in Claude Code (`/mcp__vault-cortex__<name>`) or the **+** menu in Claude Desktop and claude.ai connectors. Other clients expose them in their own UI.
+Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger: run one to instantly ground a session in your vault's structure, reflect on how your preferences have evolved, or reconcile a day's work into follow-ups and memory. Each prompt assembles live vault content when you invoke it, so the context is always current.
 
-| Prompt              | Arguments             | What it does                                                                                                                                    |
-| ------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys the vault's folders, tags, property keys, recent notes, and memory layer so the assistant works with your conventions, not assumptions. |
-| `memory-review`     | `file?`, `max_chars?` | Reads the `About Me/` memory layer as a dated timeline — an evolution, not "latest wins" — and proposes append-only updates. Never prunes.      |
-| `daily-review`      | `date?`, `max_chars?` | Reviews a day's daily note against recent activity, captures follow-ups, and surfaces durable facts worth saving to memory.                     |
+| Prompt              | Arguments             | What it does                                                                                                                           |
+| ------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys your folders, tags, property keys, recent notes, and memory layer — grounds a new session in your vault's real conventions     |
+| `memory-review`     | `file?`, `max_chars?` | Reads your memory as a dated timeline (an evolution, not "latest wins"), surfaces scope-fit issues, and proposes append-only updates   |
+| `daily-review`      | `date?`, `max_chars?` | Cross-references a day's daily note with recent vault activity, captures follow-ups, and surfaces durable facts worth saving to memory |
 
-Prompts are parameterized through the same config as the tools (`MEMORY_DIR`, daily-notes settings), so they work for any vault out of the box. `memory-review` and `daily-review` embed full vault content by default; pass the optional `max_chars` argument when invoking them to cap that content (truncated with a marker pointing to the relevant tool) if your client has strict payload limits.
+Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
+
+> **Client support:** Prompts work in Claude Code and OpenCode today. Support in other clients (Cursor, Claude Desktop, Windsurf) varies — most currently support tools only. See the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
+
+## Properties
+
+Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
+
+| Property  | What you can do                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------ |
+| `title`   | Display name in search results; falls back to the filename when missing                                      |
+| `tags`    | Search and filter by tag, including parent-child hierarchies (`project` matches `project/vault-cortex`)      |
+| `type`    | Filter by note type — `meeting`, `person`, `session-log`, or any value your vault uses                       |
+| `created` | Sort by creation date and see when each note was created alongside every search result                       |
+| `related` | Filter for notes that cross-reference a specific link — surfaces connections invisible without a graph query |
+
+**All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
+
+These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
 ## Configuration
 
