@@ -188,7 +188,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_list_notes`      | `folder?, glob?`                                             | readOnlyHint    |
 | `vault_delete_note`     | `path`                                                       | destructiveHint |
 
-`vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the heading tree, or a single section — cheap partial reads for large notes.
+`vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, headings }` — the heading tree plus any top-of-file callout (a `> [!type]` block) when present.
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
 
@@ -204,7 +204,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_list_tags`        | —                            | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
 
-`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, and `snippet_tokens`. `sort_by` is `"created" | "modified"` (default `"modified"`).
+`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). The discovery tools (`vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include each note's `leading_callout` in its metadata when present. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
 ### Phase 1: Property Discovery + Daily Notes
 
