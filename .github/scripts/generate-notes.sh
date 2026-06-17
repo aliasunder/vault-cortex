@@ -142,6 +142,12 @@ for rec in records:
             note = desc
         breaking.append(f"- {note}")
 
+# Collapse identical breaking lines. A follow-up PR (a docs PR documenting the
+# change, or a revert) can carry the same BREAKING CHANGE footer that another PR
+# in the range already contributed; without this, the same line is listed twice.
+# dict.fromkeys preserves first-seen order.
+breaking = list(dict.fromkeys(breaking))
+
 # Output — BREAKING CHANGES lead so they're impossible to miss.
 out = []
 if breaking:
