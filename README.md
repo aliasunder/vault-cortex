@@ -153,7 +153,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
 | **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section |
-|                 | `vault_write_note`           | Create or overwrite a note with frontmatter                |
+|                 | `vault_write_note`           | Create or overwrite a note with properties                 |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)   |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
@@ -167,9 +167,9 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                   |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                     |
 |                 | `vault_list_memory_files`    | Discover memory files and their sections                   |
-| **Properties**  | `vault_list_property_keys`   | All frontmatter keys with sample values                    |
+| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                       |
 |                 | `vault_list_property_values` | Distinct values for a property key                         |
-|                 | `vault_search_by_property`   | Find notes by frontmatter key-value                        |
+|                 | `vault_search_by_property`   | Find notes by property key-value                           |
 |                 | `vault_update_properties`    | Add or update properties without touching the body         |
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                              |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                    |
@@ -190,9 +190,9 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 > **Client support:** Prompts work in Claude Code and OpenCode today. Support in other clients (Cursor, Claude Desktop, Windsurf) varies — most currently support tools only. See the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
 
-## Frontmatter Properties
+## Properties
 
-Vault Cortex indexes every frontmatter property in your notes, but five get **promoted** treatment — dedicated indexed columns for fast filtering, and top-level fields in every search and discovery result:
+Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated indexed columns for fast filtering, and top-level fields in every search and discovery result:
 
 | Property  | What you can do                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
@@ -204,7 +204,7 @@ Vault Cortex indexes every frontmatter property in your notes, but five get **pr
 
 **All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
 
-These are conventions, not requirements — Vault Cortex works with any frontmatter schema. Promoted properties just give you richer filtering and cleaner results out of the box.
+These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
 ## Configuration
 
