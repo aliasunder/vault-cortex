@@ -8,8 +8,9 @@
 # itself (a `!` type marker or a `BREAKING CHANGE:` footer). The PR is the
 # reliable source: a squash commit's body is often dropped at merge time
 # (e.g. the GitHub mobile app), but PR labels/body always survive. PR lookups
-# use `gh` + GH_TOKEN; when `gh` is unavailable (local runs without auth) the
-# commit-only signals are used.
+# need both the `gh` binary and GH_TOKEN; when either is missing (local runs
+# without auth) the commit-only signals are used. A lookup that fails despite
+# being enabled warns on stderr rather than silently dropping the signal.
 
 set -euo pipefail
 
@@ -65,23 +66,31 @@ breaking_pat = re.compile(r'^BREAKING[ -]CHANGE:\s*(.+)$', re.MULTILINE)
 # Squash subjects end with the PR number, e.g. "… (#142)".
 pr_pat = re.compile(r'\(#(\d+)\)\s*$')
 
-GH = shutil.which("gh")
+# PR lookups need both the `gh` binary and a token. CI passes GH_TOKEN; a local
+# run without it skips lookups and falls back to commit-only signals (the
+# documented offline behavior) instead of firing unauthenticated calls.
+GH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 BREAKING_LABEL = "breaking-change"
 _pr_cache = {}
 
-def pr_info(num):
-    """Return {labels, body} for a merged PR via `gh`, or None when `gh` is
-    unavailable or the lookup fails (so local runs degrade to commit-only)."""
+def warn(message):
+    print(f"generate-notes: {message}", file=sys.stderr)
+
+def pr_info(pr_number):
+    """Return {labels, body} for a merged PR via `gh`, or None when lookups are
+    disabled (no `gh`/token) or the lookup fails. A failed lookup warns on
+    stderr — a silent None could drop a breaking change that lives only in the
+    PR body/label from the release notes."""
     if not GH:
         return None
-    if num in _pr_cache:
-        return _pr_cache[num]
+    if pr_number in _pr_cache:
+        return _pr_cache[pr_number]
     info = None
     try:
         repo_args = ["-R", REPO] if REPO else []
         result = subprocess.run(
-            [GH, "pr", "view", num, *repo_args, "--json", "labels,body"],
+            [GH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
             capture_output=True, text=True, timeout=20,
         )
         if result.returncode == 0:
@@ -90,9 +99,13 @@ def pr_info(num):
                 "labels": {label["name"] for label in data.get("labels", [])},
                 "body": data.get("body") or "",
             }
-    except Exception:
-        info = None
-    _pr_cache[num] = info
+        else:
+            warn(f"gh pr view #{pr_number} failed (exit {result.returncode}): "
+                 f"{result.stderr.strip()} — falling back to commit-only signals")
+    except Exception as error:
+        warn(f"gh pr view #{pr_number} errored: {error} — "
+             f"falling back to commit-only signals")
+    _pr_cache[pr_number] = info
     return info
 
 for rec in records:
