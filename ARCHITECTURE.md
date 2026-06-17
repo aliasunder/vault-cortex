@@ -226,7 +226,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint |
 | `vault_list_memory_files` | —                                | readOnlyHint    |
 
-**Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Principles.md, Opinions.md) so agents discover a ready structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
+**Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
 
 ### Phase 1: Link Queries
 

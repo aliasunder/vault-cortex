@@ -16,20 +16,21 @@ else
   RANGE="$NEW_TAG"
 fi
 
-# Collect commits (skip release commits — server "release:" and CLI
-# "release(cli):" bumps — and merge commits)
-COMMITS=$(git log --oneline --no-merges "$RANGE" | grep -vE '^[a-f0-9]+ release(\(cli\))?:' || true)
+# Write one record per non-merge commit as `<subject>\x1f<body>`, records
+# NUL-separated, to a temp file. The body is included so BREAKING CHANGE:
+# footers are visible. A file (not a pipe) is used because the Python program
+# is fed to `python3 -` on stdin via the heredoc — the data must come from
+# elsewhere. Release commits are filtered out in Python.
+NOTES_INPUT="$(mktemp)"
+trap 'rm -f "$NOTES_INPUT"' EXIT
+git log --no-merges --format='%s%x1f%b%x00' "$RANGE" > "$NOTES_INPUT"
 
-if [ -z "$COMMITS" ]; then
-  echo "No notable changes."
-  exit 0
-fi
-
-# Use python for reliable parsing — bash regex with nested groups is fragile
-python3 - "$COMMITS" << 'PYTHON'
+python3 - "$NOTES_INPUT" << 'PYTHON'
 import sys, re
 
-commits = sys.argv[1]
+with open(sys.argv[1], "rb") as fh:
+    raw = fh.read().decode("utf-8", "replace")
+records = [r for r in raw.split("\x00") if r.strip()]
 
 # Category config: (prefix, heading)
 categories = [
@@ -46,47 +47,53 @@ cat_order = [c[0] for c in categories]
 
 buckets = {c[0]: [] for c in categories}
 other = []
+breaking = []
 
-# Pattern: type(scope): description  OR  type: description
-pat = re.compile(r'^([a-z]+)(?:\(([^)]+)\))?:\s+(.+)$')
+# Pattern: type(scope)!: description — scope and the breaking `!` are optional.
+pat = re.compile(r'^([a-z]+)(?:\(([^)]+)\))?(!)?:\s+(.+)$')
+# Release bump commits (server "release:" and CLI "release(cli):") are noise.
+release_pat = re.compile(r'^release(\(cli\))?:')
+# A BREAKING CHANGE footer — conventional commits allows a space or hyphen.
+breaking_pat = re.compile(r'^BREAKING[ -]CHANGE:\s*(.+)$', re.MULTILINE)
 
-for line in commits.strip().split('\n'):
-    if not line.strip():
+for rec in records:
+    subject, _, body = rec.partition("\x1f")
+    subject = subject.strip()
+    if not subject or release_pat.match(subject):
         continue
-    # Strip the short hash prefix
-    msg = line.split(' ', 1)[1] if ' ' in line else line
 
-    m = pat.match(msg)
+    m = pat.match(subject)
+    footer = breaking_pat.search(body or "")
+    is_breaking = bool((m and m.group(3)) or footer)
+
     if m:
-        typ, scope, desc = m.group(1), m.group(2), m.group(3)
+        typ, scope, _, desc = m.group(1), m.group(2), m.group(3), m.group(4)
         desc = desc[0].upper() + desc[1:]  # capitalize
-        if scope:
-            entry = f"- **{scope}:** {desc}"
-        else:
-            entry = f"- {desc}"
-        if typ in buckets:
-            buckets[typ].append(entry)
-        else:
-            other.append(entry)
+        entry = f"- **{scope}:** {desc}" if scope else f"- {desc}"
+        (buckets[typ] if typ in buckets else other).append(entry)
     else:
-        msg = msg[0].upper() + msg[1:] if msg else msg
-        other.append(f"- {msg}")
+        desc = subject[0].upper() + subject[1:] if subject else subject
+        other.append(f"- {desc}")
 
-# Output
-first = True
+    if is_breaking:
+        # Prefer the footer's explanatory text; fall back to the subject desc.
+        breaking.append(f"- {footer.group(1).strip() if footer else desc}")
+
+# Output — BREAKING CHANGES lead so they're impossible to miss.
+out = []
+if breaking:
+    out += ["### ⚠ BREAKING CHANGES", ""] + breaking
+
 for typ in cat_order:
     if buckets[typ]:
-        if not first:
-            print()
-        first = False
-        print(f"### {cat_map[typ]}")
-        print()
-        print('\n'.join(buckets[typ]))
+        if out:
+            out.append("")
+        out += [f"### {cat_map[typ]}", ""] + buckets[typ]
 
 if other:
-    if not first:
-        print()
-    print("### Other Changes")
-    print()
-    print('\n'.join(other))
+    if out:
+        out.append("")
+    out += ["### Other Changes", ""] + other
+
+print("\n".join(out) if out else "No notable changes.")
 PYTHON

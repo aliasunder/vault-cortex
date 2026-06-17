@@ -50,7 +50,9 @@ const formatNoteMetadata = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }) => {
-  const { properties, ...fields } = meta
+  // Drop a null `leading_callout` so notes without one don't carry the key;
+  // keep it (the { type, title, body } block) when present.
+  const { properties, leading_callout: leadingCallout, ...fields } = meta
 
   const additional_properties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !PROMOTED_KEYS.has(key)),
@@ -58,6 +60,7 @@ const formatNoteMetadata = (meta: {
 
   return {
     ...fields,
+    ...(leadingCallout ? { leading_callout: leadingCallout } : {}),
     ...(Object.keys(additional_properties).length > 0
       ? { additional_properties }
       : {}),
@@ -124,7 +127,9 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 
-Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON array of { level, text, bytes } per heading (outline); raw markdown of the section, heading line included (heading).`,
+Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading).
+
+Outline shape: { leading_callout?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout, when present.`,
       inputSchema: {
         path: z
           .string()
@@ -142,7 +147,7 @@ Returns: Raw markdown string (default); JSON object of properties (properties_on
           .boolean()
           .optional()
           .describe(
-            "If true, returns the heading tree as JSON (level, text, and section byte size per heading) instead of any body content — a cheap structure fetch for large notes",
+            "If true, returns { leading_callout?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout.",
           ),
         heading: z
           .string()
@@ -321,11 +326,13 @@ Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_re
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
-- prepend: add content after heading line (or after frontmatter if no heading)
+- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout)
 - replace: replace section body (heading preserved; requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
+
+Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).
 
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
@@ -627,7 +634,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -670,6 +677,12 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .number()
               .optional()
               .describe("Snippet length in tokens (default 30)"),
+            include_leading_callout: z
+              .boolean()
+              .optional()
+              .describe(
+                "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
+              ),
           })
           .optional()
           .describe(
@@ -715,7 +728,7 @@ Parameters:
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -789,7 +802,7 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 When to use: Catching up on vault changes or finding recent work.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by chosen timestamp.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by chosen timestamp.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -837,7 +850,7 @@ Parameters:
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         folder: z
           .string()
@@ -930,7 +943,7 @@ Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
 Prefer vault_write_note for creating non-memory notes.
 
-Behavior: Additive — existing entries are never overwritten, and repeat calls add duplicate entries. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it when creating a new section ("Design preferences" becomes "Design preferences (newest first)"); an existing section is matched with or without the suffix.
+Behavior: Append-only by design — existing entries are never overwritten, and repeat calls add duplicate entries. When a preference or fact changes, append a new dated entry (newest wins; older entries stay as history); delete (vault_delete_memory) is only for entries that were wrong when written. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it when creating a new section ("Design preferences" becomes "Design preferences (newest first)"); an existing section is matched with or without the suffix. Creating a brand-new file also seeds a placeholder scope callout — the confirmation message nudges you to fill in its Contains/Does NOT contain via vault_patch_note so other agents know what belongs in the file.
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
@@ -996,7 +1009,14 @@ Returns: Confirmation message.`,
             },
             reqLogger,
           ),
-        () => `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`,
+        (outcome) => {
+          const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
+          // Nudge the caller to author the scope callout the new file was
+          // seeded with, so the file self-documents what belongs in it.
+          return outcome === "created-file"
+            ? `${confirmation}. Created a new memory file with a placeholder scope callout — fill in its "Contains"/"Does NOT contain" via vault_patch_note (operation "prepend", no heading) so other agents know what this file is for.`
+            : confirmation
+        },
       )
     },
   )
@@ -1005,13 +1025,13 @@ Returns: Confirmation message.`,
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure and per-section entry counts. Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)" and entry counts.
+Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, and the file's scope callout.
 
-When to use: Discovering what memory files and sections exist BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
+When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
 
-Returns: JSON array of file outlines.`,
+Returns: JSON array of file outlines, each { file, title, leading_callout, headings } — leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -1042,8 +1062,8 @@ Returns: JSON array of file outlines.`,
 
 Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
 
-When to use: Removing an outdated or incorrect entry from a memory file. Call vault_get_memory(file, section) first to see exact entry text for matching.
-Prefer vault_delete_note for deleting entire non-protected notes.
+When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory is append-only by design, so do NOT delete to reflect a change: when a preference or fact has since evolved, append the new state via vault_update_memory (newest-first naturally supersedes). Call vault_get_memory(file, section) first to see exact entry text for matching.
+Prefer vault_update_memory to supersede a changed entry; prefer vault_delete_note for deleting entire non-protected notes.
 
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
@@ -1235,7 +1255,7 @@ Example: vault_search_by_property({ key: "status", value: "in-progress" })
 When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         key: z.string().describe("Property key name"),
         value: z.string().describe("Value to match (exact, case-sensitive)"),
@@ -1379,7 +1399,7 @@ Parameters:
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string())

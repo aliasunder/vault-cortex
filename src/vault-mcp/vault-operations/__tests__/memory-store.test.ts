@@ -452,6 +452,49 @@ describe("updateMemory auto-creation", () => {
     await rm(emptyVault, { recursive: true })
   })
 
+  it("seeds a generic scope callout in an auto-created file and reports created-file", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "new-callout-"))
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Health",
+        section: "Sleep",
+        entry: "Aims for 8 hours",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-file")
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    const health = outlines.find((outline) => outline.file === "Health")!
+    expect(health.leading_callout?.title).toBe("Scope of this file")
+    // Generic form: convention + a Contains placeholder, no per-file Does-NOT-contain.
+    expect(health.leading_callout?.body).toBe(
+      "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+    )
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("reports created-section then appended for subsequent writes", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "outcome-"))
+    const first = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "A", entry: "one" },
+      logger,
+    )
+    const second = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "B", entry: "two" },
+      logger,
+    )
+    const third = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "B", entry: "three" },
+      logger,
+    )
+    expect(first).toBe("created-file")
+    expect(second).toBe("created-section")
+    expect(third).toBe("appended")
+    await rm(emptyVault, { recursive: true })
+  })
+
   it("auto-created file has correct H1 and H2 structure", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "structure-"))
     await updateMemory(
@@ -709,6 +752,19 @@ describe("listMemoryFiles", () => {
     expect(outlines[1].title).toBe("Principles — About Me")
   })
 
+  it("surfaces each file's leading scope callout (null when absent)", async () => {
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const principles = outlines.find((o) => o.file === "Principles")!
+    const opinions = outlines.find((o) => o.file === "Opinions")!
+    expect(principles.leading_callout).toEqual({
+      type: "info",
+      title: "Scope of this file",
+      body: "**Contains:** Values, decision heuristics, non-negotiables.\n**Convention:** Append newest first; never overwrite dated entries.",
+    })
+    // OPINIONS_MD has no leading callout.
+    expect(opinions.leading_callout).toBeNull()
+  })
+
   it("falls back to filename when no frontmatter title", async () => {
     await writeFile(
       join(vault, "About Me/NoTitle.md"),
@@ -863,6 +919,23 @@ describe("bootstrapMemoryDir", () => {
     await rm(emptyVault, { recursive: true })
   })
 
+  it("template files open with a scope callout and count zero entries", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-callout-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    const opinions = outlines.find((outline) => outline.file === "Opinions")!
+    // The callout is surfaced and is NOT miscounted as a dated entry.
+    expect(opinions.leading_callout?.type).toBe("info")
+    expect(opinions.leading_callout?.title).toBe("Scope of this file")
+    expect(opinions.leading_callout?.body).toContain("**Contains:**")
+    const totalEntries = opinions.headings.reduce(
+      (sum, heading) => sum + (heading.entryCount ?? 0),
+      0,
+    )
+    expect(totalEntries).toBe(0)
+    await rm(emptyVault, { recursive: true })
+  })
+
   it("is a no-op when memory directory already exists", async () => {
     const contentBefore = await readFile(
       join(vault, "About Me/Principles.md"),
@@ -993,6 +1066,7 @@ describe("memory write size logging", () => {
       file: "Principles",
       section: "Working style (newest first)",
       date: "2026-06-14",
+      outcome: "appended",
       beforeBytes: Buffer.byteLength(PRINCIPLES_MD, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
     })

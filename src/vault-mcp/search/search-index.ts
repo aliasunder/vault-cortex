@@ -4,6 +4,8 @@ import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../vault-operations/frontmatter.js"
+import { parseLeadingCallout } from "../vault-operations/callout-parser.js"
+import type { LeadingCallout } from "../vault-operations/callout-parser.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -103,6 +105,7 @@ type SearchResult = {
   type: string | null
   created?: string
   modified: string
+  leading_callout?: LeadingCallout
 }
 
 type NoteMetadata = {
@@ -115,6 +118,7 @@ type NoteMetadata = {
   created: string | null
   modified: string
   properties: Record<string, unknown>
+  leading_callout: LeadingCallout | null
 }
 
 type TagCount = {
@@ -141,6 +145,7 @@ type SearchFilters = {
   properties?: Record<string, string | number | boolean>
   limit?: number
   snippet_tokens?: number
+  include_leading_callout?: boolean
 }
 
 type NoteRow = {
@@ -153,6 +158,7 @@ type NoteRow = {
   created: string | null
   mtime: number
   properties: string
+  leading_callout: string | null
 }
 
 type BacklinkEntry = { path: string; title: string }
@@ -305,7 +311,8 @@ export const createSearchIndex = (dbPath: string) => {
       type        TEXT,
       created     TEXT,
       mtime       INTEGER,
-      properties  TEXT
+      properties  TEXT,
+      leading_callout TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -322,12 +329,24 @@ export const createSearchIndex = (dbPath: string) => {
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
+  // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
+  // database from before the `leading_callout` column was added would lack it
+  // (and the upsert below would throw). Add it idempotently when absent. The
+  // column is not FTS-indexed — the callout text already lives in `content`, so
+  // it's searchable; this column only stores the parsed block for cheap retrieval.
+  const noteColumns = db.prepare(`PRAGMA table_info(notes)`).all() as Array<{
+    name: string
+  }>
+  if (!noteColumns.some((column) => column.name === "leading_callout")) {
+    db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
+  }
+
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
   // would re-compile on every invocation.
   const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
@@ -360,6 +379,10 @@ export const createSearchIndex = (dbPath: string) => {
 
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
+    // Store the leading callout (a top-of-file `> [!type]` block — info,
+    // warning, etc.) as JSON so discovery tools can return it structured;
+    // null when the note has none.
+    const leadingCallout = parseLeadingCallout(parsed.content.split("\n"))
 
     const note = {
       path: filePath,
@@ -376,6 +399,7 @@ export const createSearchIndex = (dbPath: string) => {
         : null,
       mtime: lastModifiedMs,
       properties: JSON.stringify(frontmatter),
+      leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
     }
 
     deleteFtsStmt.run(note.path)
@@ -390,6 +414,7 @@ export const createSearchIndex = (dbPath: string) => {
       note.created,
       note.mtime,
       note.properties,
+      note.leading_callout,
     )
     insertFtsStmt.run(note.path, note.title, note.content)
 
@@ -543,12 +568,18 @@ export const createSearchIndex = (dbPath: string) => {
 
     const limit = params.filters?.limit ?? 20
     const snippetTokens = params.filters?.snippet_tokens ?? 30
+    // Opt-in: the leading callout is omitted by default to keep this hot-path
+    // result lean; callers triaging which note to open can request it.
+    const includeLeadingCallout =
+      params.filters?.include_leading_callout ?? false
     queryParams.push(limit)
 
     const sql = `
       SELECT n.path, n.title,
              snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime
+             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime${
+               includeLeadingCallout ? ", n.leading_callout" : ""
+             }
       FROM notes_fts
       JOIN notes n ON n.path = notes_fts.path
       WHERE ${conditions.join(" AND ")}
@@ -565,6 +596,7 @@ export const createSearchIndex = (dbPath: string) => {
         > & {
           snippet: string
           score: number
+          leading_callout?: string | null
         }
       >
 
@@ -578,6 +610,13 @@ export const createSearchIndex = (dbPath: string) => {
         type: row.type,
         ...(row.created !== null ? { created: row.created } : {}),
         modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
+        ...(includeLeadingCallout && row.leading_callout
+          ? {
+              leading_callout: JSON.parse(
+                row.leading_callout,
+              ) as LeadingCallout,
+            }
+          : {}),
       }))
       logger.info("full text search", {
         query: params.query,
@@ -609,7 +648,7 @@ export const createSearchIndex = (dbPath: string) => {
       : [params.tag, params.tag, limit]
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
       FROM notes n
       WHERE ${condition}
       LIMIT ?
@@ -641,7 +680,7 @@ export const createSearchIndex = (dbPath: string) => {
       : [params.folder, params.folder, limit]
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
       FROM notes
       WHERE ${condition}
       ORDER BY mtime DESC
@@ -685,7 +724,7 @@ export const createSearchIndex = (dbPath: string) => {
         : "ORDER BY mtime DESC" // SQL column is still `mtime`
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
       FROM notes
       ${orderClause}
       LIMIT ?
@@ -824,7 +863,7 @@ export const createSearchIndex = (dbPath: string) => {
     // - Scalar properties (status: "active"): check direct equality
     // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
       FROM notes n
       WHERE (
         (json_type(n.properties, '$.' || @key) = 'array'
@@ -932,7 +971,7 @@ export const createSearchIndex = (dbPath: string) => {
     // Self-links (source = target) are excluded from the backlink subquery
     // so a note that only links to itself is still considered an orphan.
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
       FROM notes
       WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
         ${whereClause}
@@ -977,6 +1016,9 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   created: row.created,
   modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
   properties: JSON.parse(row.properties) as Record<string, unknown>,
+  leading_callout: row.leading_callout
+    ? (JSON.parse(row.leading_callout) as LeadingCallout)
+    : null,
 })
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>
