@@ -254,3 +254,8 @@ The README is the front door — humans land there first. The full AWS/SST
 deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
 Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
 file focused on conventions; don't duplicate procedure here.
+
+Contributor and release conventions live in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
+for the generated release notes with a `!` type marker (`feat(scope)!:`)
+and/or a `BREAKING CHANGE:` footer in the PR description.
