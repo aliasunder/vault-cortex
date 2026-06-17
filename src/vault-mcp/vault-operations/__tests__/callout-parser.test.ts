@@ -80,7 +80,7 @@ describe("parseLeadingCallout", () => {
     })
   })
 
-  it("returns null when the first significant line opens a code fence", () => {
+  it("returns null when the first significant line is a code fence, not a callout opener", () => {
     const lines = ["```md", "> [!info] inside a fence", "> body", "```"]
     expect(parseLeadingCallout(lines)).toBeNull()
   })
