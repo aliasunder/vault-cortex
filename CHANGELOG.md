@@ -41,6 +41,36 @@
 
 
 
+
+## [0.19.0] — 2026-06-17
+
+### ⚠ BREAKING CHANGES
+
+- vault_read_note outline mode now returns { leading_callout?, headings } instead of a bare array of headings; clients parsing it as an array must read .headings.
+- vault_read_note outline mode now returns { leading_callout?, headings } instead of a bare array of headings; clients parsing it as an array must read .headings.
+
+### Features
+
+- Add MCP prompts (vault-orientation, memory-review, daily-review) (#139)
+- **callouts:** Surface note leading-callouts + self-documenting memory files (#140)
+
+### Documentation
+
+- Callout/outline docs, breaking-change release flow, tech-agnostic Phase 2 (#142)
+- Update CHANGELOG.md for v0.18.2
+
+### CI / Infrastructure
+
+- **release:** Detect breaking changes from the merged PR, not the squash body (#143)
+
+### Maintenance
+
+- Bump node:24-alpine base image to clear trivy CVE (#144)
+
+### Other Changes
+
+- Disable CodeRabbit auto reviews (#141)
+
 ## [0.18.2] — 2026-06-15
 
 ### Bug Fixes
