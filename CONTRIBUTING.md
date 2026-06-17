@@ -130,24 +130,26 @@ truth. Key points:
 
 ## Breaking changes
 
-Release notes are generated from commit messages (`.github/scripts/generate-notes.sh`),
-which detects breaking changes and leads the notes with a **⚠ BREAKING CHANGES**
-section. To mark a change as breaking, do **either** (both is fine):
+Release notes (`.github/scripts/generate-notes.sh`) lead with a **⚠ BREAKING
+CHANGES** section. Breaking changes are detected from the **merged PR**, read
+via the API at release time — the reliable source: a squash commit's body is
+often dropped at merge (e.g. the GitHub mobile app), but the PR body and labels
+always survive.
 
-- **`!` after the type** in the PR title — `feat(scope)!: …` — which carries
-  into the squash commit subject.
-- **A `BREAKING CHANGE:` footer** (its own paragraph) at the **end of the PR
-  description**. Squash merges use the PR **title and description** as the
-  commit message, so the footer lands in the commit body and its text becomes
-  the breaking-changes entry.
-
-The `!` alone guarantees the section appears (it falls back to the subject as
-the entry); the footer adds a descriptive line, so prefer including it. Example
-footer:
+To mark a PR as breaking, add a **`BREAKING CHANGE:` footer** (its own
+paragraph) at the **end of the PR description**. Its text becomes the
+descriptive line in the ⚠ section. Example:
 
 > BREAKING CHANGE: `vault_read_note` outline mode now returns an object
 > `{ leading_callout?, headings }` instead of a bare array; clients parsing it
 > as an array must read `.headings`.
+
+Also recognized as breaking signals: a **`breaking-change` PR label** (optional —
+create it once under repo Settings → Labels if you want a clickable flag) and a
+**`!` type marker** in the squash subject (`feat(scope)!: …`), which survives the
+merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
+because it carries the descriptive line; the label and `!` only flag that a change
+is breaking.
 
 ## Release Process
 
