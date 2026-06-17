@@ -16,9 +16,9 @@ endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.
 
-**Phase 2** adds LightRAG for semantic/knowledge-graph queries over the
-vault. The file watcher gains a second hook for LightRAG ingestion,
-and a new `vault_query_kb` tool is added. Additive — not a rewrite.
+**Phase 2** adds semantic / knowledge-graph queries over the vault. The
+file watcher gains a second hook for semantic ingestion, and a new
+`vault_query_kb` tool is added. Additive — not a rewrite.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
@@ -68,7 +68,7 @@ src/
     search/                            # SQLite FTS5 indexing + file watching
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
-                                       # Phase 2: gains LightRAG ingestion hook
+                                       # Phase 2: gains a semantic-ingestion hook
     auth/                              # OAuth 2.1
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler

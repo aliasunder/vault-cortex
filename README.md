@@ -40,10 +40,10 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 
 ### Roadmap
 
-| Phase | What                                                                                | Status   |
-| ----- | ----------------------------------------------------------------------------------- | -------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                        | Complete |
-| **2** | Semantic search + knowledge graph via [LightRAG](https://github.com/HKUDS/LightRAG) | Planned  |
+| Phase | What                                                         | Status   |
+| ----- | ------------------------------------------------------------ | -------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
+| **2** | Semantic search + knowledge graph                            | Planned  |
 
 ## Quick Start
 

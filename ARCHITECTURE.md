@@ -27,12 +27,11 @@ API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 About Me/ memory layer. This alone makes any MCP client vault-aware and
 personalized across conversations.
 
-**Phase 2** adds a LightRAG container for semantic and knowledge-graph
-queries over the vault. The file watcher gains a second hook for LightRAG
-ingestion (delete + re-insert on change), a new `vault_query_kb` MCP tool
-is added, and the Lightsail instance upgrades to 2–4 GB ($24/mo). The
-architecture is designed so this is additive — no rewrites, just a new
-container, a new watcher callback, and a new tool.
+**Phase 2** adds semantic and knowledge-graph queries over the vault. The
+file watcher gains a second hook for semantic ingestion (re-index on
+change) and a new `vault_query_kb` MCP tool is added — additive, no
+rewrites. The retrieval stack is being finalized in a design spike, so the
+detailed Phase 2 sections below reflect the original candidate.
 
 ## User Requirements
 
