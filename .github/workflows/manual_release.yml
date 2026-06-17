@@ -113,9 +113,12 @@ jobs:
     needs: [bump-and-tag, deploy]
     runs-on: ubuntu-latest
     # gh release create uses GITHUB_TOKEN; the CHANGELOG push to main
-    # authenticates as the release App, not this token.
+    # authenticates as the release App, not this token. generate-notes.sh
+    # reads merged PRs (labels/body) for breaking-change detection, so the
+    # token also needs pull-requests: read.
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - name: Generate App token
         id: app-token
@@ -133,6 +136,7 @@ jobs:
       - name: Generate release notes
         env:
           TAG: ${{ needs.bump-and-tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/generate-notes.sh "$TAG" > /tmp/release-notes.md
 
       - name: Update changelog

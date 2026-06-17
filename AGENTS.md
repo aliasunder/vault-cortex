@@ -257,5 +257,6 @@ file focused on conventions; don't duplicate procedure here.
 
 Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
-for the generated release notes with a `!` type marker (`feat(scope)!:`)
-and/or a `BREAKING CHANGE:` footer in the PR description.
+for the generated release notes with the `breaking-change` PR label (primary)
+plus a `BREAKING CHANGE:` footer in the PR description for the descriptive
+line; a `!` type marker (`feat(scope)!:`) also works.
