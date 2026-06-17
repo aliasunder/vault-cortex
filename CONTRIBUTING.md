@@ -131,25 +131,25 @@ truth. Key points:
 ## Breaking changes
 
 Release notes (`.github/scripts/generate-notes.sh`) lead with a **⚠ BREAKING
-CHANGES** section. Breaking changes are detected from the **merged PR**, which
-is the reliable source: a squash commit's body is often dropped at merge time
-(e.g. the GitHub mobile app), but PR labels and the PR body always survive.
+CHANGES** section. Breaking changes are detected from the **merged PR**, read
+via the API at release time — the reliable source: a squash commit's body is
+often dropped at merge (e.g. the GitHub mobile app), but the PR body and labels
+always survive.
 
-To mark a PR as breaking:
-
-- **Add the `breaking-change` label** — the primary signal. The release reads
-  it from the PR via the API, so it works regardless of how the PR was merged.
-- **Add a `BREAKING CHANGE:` footer** (its own paragraph) at the **end of the
-  PR description** — its text becomes the descriptive line in the notes. Prefer
-  including it; without it the entry falls back to the PR title.
-
-A `!` after the type in the PR title (`feat(scope)!: …`) also flags a breaking
-change — it rides in the squash subject — and serves as a fallback. Example
-footer:
+To mark a PR as breaking, add a **`BREAKING CHANGE:` footer** (its own
+paragraph) at the **end of the PR description**. Its text becomes the
+descriptive line in the ⚠ section. Example:
 
 > BREAKING CHANGE: `vault_read_note` outline mode now returns an object
 > `{ leading_callout?, headings }` instead of a bare array; clients parsing it
 > as an array must read `.headings`.
+
+Also recognized as breaking signals: a **`breaking-change` PR label** (optional —
+create it once under repo Settings → Labels if you want a clickable flag) and a
+**`!` type marker** in the squash subject (`feat(scope)!: …`), which survives the
+merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
+because it carries the descriptive line; the label and `!` only flag that a change
+is breaking.
 
 ## Release Process
 
