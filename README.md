@@ -192,7 +192,7 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 ## Frontmatter Properties
 
-If you already use `tags`, `type`, or `created` in your frontmatter, Vault Cortex picks them up automatically. Five properties are **promoted** — indexed for fast filtering and surfaced as top-level fields in every search and discovery result:
+Vault Cortex indexes every frontmatter property in your notes, but five get **promoted** treatment — dedicated indexed columns for fast filtering, and top-level fields in every search and discovery result:
 
 | Property  | What you can do                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
