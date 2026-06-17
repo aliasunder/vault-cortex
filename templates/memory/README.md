@@ -64,7 +64,7 @@ convention:
    months ago saying "prefers tabs" followed by a recent one saying "switched to
    spaces" is more useful than a single overwritten value
 3. **Semantic retrieval (Phase 2)** — dated entries become the corpus for
-   LightRAG's knowledge graph, enabling temporal queries ("how has the user's
+   semantic/vector search, enabling temporal queries ("how has the user's
    stance on X evolved?", "what did they believe about Y last month?")
 
 This is append-only by design. Entries are never overwritten — new entries are
