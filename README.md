@@ -188,7 +188,7 @@ Tools are model-driven — the assistant calls them. **Prompts** are workflows _
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
-> **Client support:** Prompts work in Claude Code and OpenCode today. Support in other clients (Cursor, Claude Desktop, Windsurf) varies — most currently support tools only. See the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
+> **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
 
 ## Properties
 
