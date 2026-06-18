@@ -2040,10 +2040,10 @@ describe("frontmatter links in the graph", () => {
 })
 
 describe("relative links (path from current file)", () => {
-  it("resolves an upward ../ link to a note in a sibling folder", () => {
-    // Obsidian's "Path from current file" format writes links relative to the
-    // linking note. Index the target first so it exists when the source links
-    // to it by a "../sibling/note" path that traverses up and across folders.
+  // Obsidian's "Path from current file" format writes links relative to the
+  // linking note. note.md links up and across to a sibling folder via
+  // "../Health/target"; the target is indexed first so it exists at link time.
+  beforeEach(() => {
     index.upsertNote(
       {
         filePath: "Areas/Health/target.md",
@@ -2060,14 +2060,18 @@ describe("relative links (path from current file)", () => {
       },
       logger,
     )
+  })
 
+  it("resolves the ../ link so the target lists the source as a backlink", () => {
     const backlinks = index.getBacklinks(
       { path: "Areas/Health/target.md" },
       logger,
     )
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("Areas/Work/note.md")
+  })
 
+  it("resolves the ../ link so the source lists the target as an outgoing link", () => {
     const outgoing = index.getOutgoingLinks(
       { path: "Areas/Work/note.md" },
       logger,
