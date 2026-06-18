@@ -506,7 +506,7 @@ export const createSearchIndex = (dbPath: string) => {
     // store the full path without the extension ("folder/Note"); explicit-ext
     // wikilinks ([[folder/Note.md]]) store the full path with it.
     const fileBasename = basename(note.path, ".md")
-    const pathWithoutExtension = note.path.slice(0, -3) // note.path always ends in .md
+    const pathWithoutExtension = note.path.replace(/\.md$/, "")
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
     reResolveStmt.run({ resolved: note.path, raw: pathWithoutExtension })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
