@@ -174,6 +174,11 @@ log would produce N lines during a vault rebuild (one per note), it's
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.
+- Function and helper names state what they _do_, specifically — a reader
+  should know what a function does without reading its body
+  (`collectWikilinksFrom` not `collect`,
+  `convertFrontmatterDatesToIsoStrings` not `normalizeDates`). A docstring
+  complements a self-documenting name; it never excuses a vague one.
 - Regex constants get doc comments explaining what they match.
   Inline regexes used more than once should be extracted to a named
   `const` with a doc comment.
