@@ -45,6 +45,17 @@
 
 
 
+
+## [0.19.4] — 2026-06-18
+
+### Bug Fixes
+
+- **search:** Resolve relative (path-from-current-file) links (#152)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.19.3
+
 ## [0.19.3] — 2026-06-18
 
 ### Bug Fixes
