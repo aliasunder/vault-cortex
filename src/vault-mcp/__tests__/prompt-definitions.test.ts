@@ -144,7 +144,7 @@ const setupVault = async (
             size: Buffer.byteLength(note.content, "utf8"),
           },
         },
-        logger,
+        log,
       )
     }
   }
