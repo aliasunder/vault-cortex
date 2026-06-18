@@ -376,12 +376,16 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Parses a note's content and frontmatter, then indexes it for search. */
   const upsertNote = (
-    filePath: string,
-    rawContent: string,
-    fileStat: { mtimeMs: number; size: number },
-    options?: { skipLinks?: boolean },
+    params: {
+      filePath: string
+      rawContent: string
+      fileStat: { mtimeMs: number; size: number }
+      skipLinks?: boolean
+    },
+    logger: Logger,
   ): void => {
-    const skipLinks = options?.skipLinks ?? false
+    const { filePath, rawContent, fileStat } = params
+    const skipLinks = params.skipLinks ?? false
     const parsed = parseNote(rawContent)
     const { data: frontmatter } = parsed
 
@@ -427,6 +431,7 @@ export const createSearchIndex = (dbPath: string) => {
       note.bytes,
     )
     insertFtsStmt.run(note.path, note.title, note.content)
+    logger.debug("indexed note", { path: note.path, bytes: note.bytes })
 
     if (skipLinks) return
 
@@ -502,10 +507,13 @@ export const createSearchIndex = (dbPath: string) => {
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
         upsertNote(
-          note.relativePath,
-          note.content,
-          { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
-          { skipLinks: true },
+          {
+            filePath: note.relativePath,
+            rawContent: note.content,
+            fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+            skipLinks: true,
+          },
+          logger,
         )
       }
 
