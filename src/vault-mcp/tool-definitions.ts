@@ -634,7 +634,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified) and total count. created is omitted when null. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -728,7 +728,7 @@ Parameters:
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z.string().describe("Tag to search for"),
         exact: z
@@ -802,7 +802,7 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 When to use: Catching up on vault changes or finding recent work.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by chosen timestamp.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by chosen timestamp. bytes is the on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -850,7 +850,7 @@ Parameters:
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         folder: z
           .string()
@@ -1255,7 +1255,7 @@ Example: vault_search_by_property({ key: "status", value: "in-progress" })
 When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         key: z.string().describe("Property key name"),
         value: z.string().describe("Value to match (exact, case-sensitive)"),
@@ -1303,7 +1303,7 @@ Parameters:
 Errors:
 - A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
 
-Returns: JSON with path (the queried note), backlinks (array of { path, title }, sorted by title), and count.`,
+Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes }, sorted by title), and count. bytes is the on-disk file size.`,
       inputSchema: {
         path: z
           .string()
@@ -1351,7 +1351,7 @@ Parameters:
 Errors:
 - A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }, sorted by target path), and count.`,
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, bytes }, sorted by target path), and count. bytes is the on-disk file size (null for broken links where exists is false).`,
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note"),
       },
@@ -1399,7 +1399,7 @@ Parameters:
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, leading_callout?, additional_properties), sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string())

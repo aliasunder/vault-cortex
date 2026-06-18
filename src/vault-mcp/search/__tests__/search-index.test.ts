@@ -54,13 +54,25 @@ title: Me
 - a fact about burnout boundaries
 `
 
+/** Builds a fileStat object for upsertNote. Defaults to size 100. */
+const testStat = (
+  mtimeMs: number,
+  size = 100,
+): { mtimeMs: number; size: number } => ({
+  mtimeMs,
+  size,
+})
+
 describe("schema creation", () => {
   it("creates without throwing", () => {
     expect(() => createSearchIndex(":memory:")).not.toThrow()
   })
 
   it("creates notes and notes_fts tables", () => {
-    index.upsertNote("test.md", "# Test\n", Date.now())
+    index.upsertNote(
+      { filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
   })
@@ -68,7 +80,14 @@ describe("schema creation", () => {
 
 describe("leading callout", () => {
   it("surfaces a note's leading callout in discovery results", () => {
-    index.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Me.md",
+        rawContent: NOTE_WITH_CALLOUT,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].leading_callout).toEqual({
       type: "info",
@@ -78,13 +97,27 @@ describe("leading callout", () => {
   })
 
   it("returns callout null for a note without a leading callout", () => {
-    index.upsertNote("notes/plain.md", NOTE_MINIMAL, 1000)
+    index.upsertNote(
+      {
+        filePath: "notes/plain.md",
+        rawContent: NOTE_MINIMAL,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.searchByFolder({ folder: "notes" }, logger)
     expect(results[0].leading_callout).toBeNull()
   })
 
   it("omits the callout from fullTextSearch by default, includes it on request", () => {
-    index.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Me.md",
+        rawContent: NOTE_WITH_CALLOUT,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
 
     const withoutFlag = index.fullTextSearch({ query: "burnout" }, logger)
     expect(withoutFlag).toHaveLength(1)
@@ -119,17 +152,86 @@ describe("leading callout", () => {
     // Opening through the factory must add the missing column, not throw on upsert.
     const warmIndex = createSearchIndex(dbPath)
     expect(() =>
-      warmIndex.upsertNote("About Me/Me.md", NOTE_WITH_CALLOUT, 1000),
+      warmIndex.upsertNote(
+        {
+          filePath: "About Me/Me.md",
+          rawContent: NOTE_WITH_CALLOUT,
+          fileStat: testStat(1000),
+        },
+        logger,
+      ),
     ).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].leading_callout?.title).toBe("Scope of this file")
+    expect(results[0].bytes).toBe(100)
     await rm(dir, { recursive: true })
+  })
+})
+
+describe("bytes", () => {
+  it("surfaces file size in bytes in discovery results", () => {
+    index.upsertNote(
+      {
+        filePath: "notes/sized.md",
+        rawContent: NOTE_MINIMAL,
+        fileStat: testStat(1000, 42),
+      },
+      logger,
+    )
+    const results = index.searchByFolder({ folder: "notes" }, logger)
+    expect(results[0].bytes).toBe(42)
+  })
+
+  it("includes bytes in full text search results", () => {
+    index.upsertNote(
+      {
+        filePath: "sized.md",
+        rawContent: "searchable content\n",
+        fileStat: testStat(1000, 256),
+      },
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "searchable" }, logger)
+    expect(results[0].bytes).toBe(256)
+  })
+
+  it("includes bytes in recent notes results", () => {
+    index.upsertNote(
+      {
+        filePath: "recent.md",
+        rawContent: "---\ntitle: R\n---\nbody\n",
+        fileStat: testStat(5000, 128),
+      },
+      logger,
+    )
+    const results = index.recentNotes({}, logger)
+    expect(results[0].bytes).toBe(128)
+  })
+
+  it("stores and retrieves a bytes value of 0", () => {
+    index.upsertNote(
+      {
+        filePath: "notes/zero.md",
+        rawContent: "body\n",
+        fileStat: testStat(1000, 0),
+      },
+      logger,
+    )
+    const results = index.searchByFolder({ folder: "notes" }, logger)
+    expect(results[0].bytes).toBe(0)
   })
 })
 
 describe("upsertNote", () => {
   it("indexes a note with full frontmatter", () => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
@@ -138,46 +240,102 @@ describe("upsertNote", () => {
   })
 
   it("extracts title from frontmatter", () => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].title).toBe("Principles")
   })
 
   it("falls back to filename for title when no frontmatter title", () => {
-    index.upsertNote("notes/random.md", NOTE_MINIMAL, 1000)
+    index.upsertNote(
+      {
+        filePath: "notes/random.md",
+        rawContent: NOTE_MINIMAL,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.searchByFolder({ folder: "notes" }, logger)
     expect(results[0].title).toBe("random")
   })
 
   it("stores folder as first path segment", () => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].folder).toBe("About Me")
   })
 
   it("stores empty folder for root-level notes", () => {
-    index.upsertNote("root.md", NOTE_MINIMAL, 1000)
+    index.upsertNote(
+      {
+        filePath: "root.md",
+        rawContent: NOTE_MINIMAL,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const recent = index.recentNotes({}, logger)
     expect(recent[0].folder).toBe("")
   })
 
   it("updates existing note on re-index", () => {
-    index.upsertNote("test.md", "---\ntitle: V1\n---\nold\n", 1000)
-    index.upsertNote("test.md", "---\ntitle: V2\n---\nnew content\n", 2000)
+    index.upsertNote(
+      {
+        filePath: "test.md",
+        rawContent: "---\ntitle: V1\n---\nold\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "test.md",
+        rawContent: "---\ntitle: V2\n---\nnew content\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "new content" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].title).toBe("V2")
   })
 
   it("handles notes with no frontmatter", () => {
-    index.upsertNote("bare.md", "Just plain text\n", 1000)
+    index.upsertNote(
+      {
+        filePath: "bare.md",
+        rawContent: "Just plain text\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "plain text" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].tags).toEqual([])
   })
 
   it("normalizes tags to array when given as string", () => {
-    index.upsertNote("t.md", "---\ntags: single-tag\n---\nbody\n", 1000)
+    index.upsertNote(
+      {
+        filePath: "t.md",
+        rawContent: "---\ntags: single-tag\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     const tags = index.listAllTags(logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
@@ -185,7 +343,14 @@ describe("upsertNote", () => {
 
 describe("removeNote", () => {
   it("removes an indexed note", () => {
-    index.upsertNote("test.md", "# Removable\n", 1000)
+    index.upsertNote(
+      {
+        filePath: "test.md",
+        rawContent: "# Removable\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     index.removeNote("test.md")
     const results = index.fullTextSearch({ query: "Removable" }, logger)
     expect(results).toHaveLength(0)
@@ -198,13 +363,31 @@ describe("removeNote", () => {
 
 describe("fullTextSearch", () => {
   beforeEach(() => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
     index.upsertNote(
-      "Projects/notes.md",
-      "---\ntitle: Project Notes\ntype: project\ntags: [project]\n---\n\nMeeting notes about the vault project\n",
-      2000,
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
     )
-    index.upsertNote("notes/random.md", NOTE_MINIMAL, 3000)
+    index.upsertNote(
+      {
+        filePath: "Projects/notes.md",
+        rawContent:
+          "---\ntitle: Project Notes\ntype: project\ntags: [project]\n---\n\nMeeting notes about the vault project\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/random.md",
+        rawContent: NOTE_MINIMAL,
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("finds notes by content keyword", () => {
@@ -305,7 +488,14 @@ describe("fullTextSearch", () => {
   })
 
   it("handles porter stemming", () => {
-    index.upsertNote("stem.md", "The runners were running quickly\n", 4000)
+    index.upsertNote(
+      {
+        filePath: "stem.md",
+        rawContent: "The runners were running quickly\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "run" }, logger)
     expect(results.length).toBeGreaterThan(0)
     expect(results.some((r) => r.path === "stem.md")).toBe(true)
@@ -322,9 +512,12 @@ describe("fullTextSearch", () => {
 
   it("multi-word query does not require exact phrase adjacency", () => {
     index.upsertNote(
-      "spread.md",
-      "The word alpha appears here. Much later, beta shows up.\n",
-      5000,
+      {
+        filePath: "spread.md",
+        rawContent: "The word alpha appears here. Much later, beta shows up.\n",
+        fileStat: testStat(5000),
+      },
+      logger,
     )
     const results = index.fullTextSearch({ query: "alpha beta" }, logger)
     expect(results).toHaveLength(1)
@@ -332,11 +525,21 @@ describe("fullTextSearch", () => {
   })
 
   it("exact phrase match with quotes", () => {
-    index.upsertNote("phrase.md", "Learn machine learning today\n", 5000)
     index.upsertNote(
-      "separate.md",
-      "The machine was broken. Learning was slow.\n",
-      5001,
+      {
+        filePath: "phrase.md",
+        rawContent: "Learn machine learning today\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "separate.md",
+        rawContent: "The machine was broken. Learning was slow.\n",
+        fileStat: testStat(5001),
+      },
+      logger,
     )
     const phraseResults = index.fullTextSearch(
       { query: '"machine learning"' },
@@ -357,9 +560,12 @@ describe("fullTextSearch", () => {
 
   it("hyphenated query matches content containing the hyphenated term", () => {
     index.upsertNote(
-      "project.md",
-      "The flux-capacitor enables time travel\n",
-      6000,
+      {
+        filePath: "project.md",
+        rawContent: "The flux-capacitor enables time travel\n",
+        fileStat: testStat(6000),
+      },
+      logger,
     )
     const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
     expect(results).toHaveLength(1)
@@ -368,14 +574,20 @@ describe("fullTextSearch", () => {
 
   it("dotted query matches content containing the dotted term", () => {
     index.upsertNote(
-      "directories.md",
-      "Submitted the listing to mcpservers.org yesterday\n",
-      6001,
+      {
+        filePath: "directories.md",
+        rawContent: "Submitted the listing to mcpservers.org yesterday\n",
+        fileStat: testStat(6001),
+      },
+      logger,
     )
     index.upsertNote(
-      "unrelated.md",
-      "The mcpservers registry has no org field\n",
-      6002,
+      {
+        filePath: "unrelated.md",
+        rawContent: "The mcpservers registry has no org field\n",
+        fileStat: testStat(6002),
+      },
+      logger,
     )
     const results = index.fullTextSearch({ query: "mcpservers.org" }, logger)
     expect(results).toHaveLength(1)
@@ -555,12 +767,29 @@ describe("sanitizeFtsQuery", () => {
 describe("searchByTag", () => {
   beforeEach(() => {
     index.upsertNote(
-      "a.md",
-      "---\ntags: [project/vault-mcp, self]\n---\nbody\n",
-      1000,
+      {
+        filePath: "a.md",
+        rawContent: "---\ntags: [project/vault-mcp, self]\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
     )
-    index.upsertNote("b.md", "---\ntags: [project/other]\n---\nbody\n", 2000)
-    index.upsertNote("c.md", "---\ntags: [unrelated]\n---\nbody\n", 3000)
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [project/other]\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\ntags: [unrelated]\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("prefix match: parent tag matches children", () => {
@@ -593,13 +822,30 @@ describe("searchByTag", () => {
 
 describe("searchByFolder", () => {
   beforeEach(() => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
     index.upsertNote(
-      "About Me/sub/deep.md",
-      "---\ntitle: Deep\n---\nbody\n",
-      2000,
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
     )
-    index.upsertNote("Projects/notes.md", "---\ntitle: P\n---\nbody\n", 3000)
+    index.upsertNote(
+      {
+        filePath: "About Me/sub/deep.md",
+        rawContent: "---\ntitle: Deep\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/notes.md",
+        rawContent: "---\ntitle: P\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("recursive mode includes nested files", () => {
@@ -630,8 +876,22 @@ describe("searchByFolder", () => {
 
 describe("listAllTags", () => {
   beforeEach(() => {
-    index.upsertNote("About Me/Principles.md", NOTE_WITH_FRONTMATTER, 1000)
-    index.upsertNote("a.md", "---\ntags: [principles, work]\n---\nbody\n", 2000)
+    index.upsertNote(
+      {
+        filePath: "About Me/Principles.md",
+        rawContent: NOTE_WITH_FRONTMATTER,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\ntags: [principles, work]\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
   })
 
   it("returns tags with counts ordered by count desc", () => {
@@ -644,7 +904,14 @@ describe("listAllTags", () => {
   })
 
   it("handles notes with no tags", () => {
-    index.upsertNote("bare.md", "no tags\n", 3000)
+    index.upsertNote(
+      {
+        filePath: "bare.md",
+        rawContent: "no tags\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
     const tags = index.listAllTags(logger)
     expect(tags.length).toBeGreaterThan(0)
   })
@@ -652,9 +919,30 @@ describe("listAllTags", () => {
 
 describe("recentNotes", () => {
   beforeEach(() => {
-    index.upsertNote("old.md", "---\ncreated: 2025-01-01\n---\nold\n", 1000)
-    index.upsertNote("new.md", "---\ncreated: 2026-05-01\n---\nnew\n", 5000)
-    index.upsertNote("no-created.md", "no date\n", 3000)
+    index.upsertNote(
+      {
+        filePath: "old.md",
+        rawContent: "---\ncreated: 2025-01-01\n---\nold\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "new.md",
+        rawContent: "---\ncreated: 2026-05-01\n---\nnew\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "no-created.md",
+        rawContent: "no date\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("sorts by modified by default", () => {
@@ -721,9 +1009,30 @@ No custom properties.
 
 describe("listPropertyKeys", () => {
   beforeEach(() => {
-    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
-    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
-    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+    index.upsertNote(
+      {
+        filePath: "Projects/active.md",
+        rawContent: NOTE_WITH_STATUS,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/done.md",
+        rawContent: NOTE_WITH_DIFFERENT_STATUS,
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/plain.md",
+        rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("returns all property keys with counts", () => {
@@ -745,9 +1054,12 @@ describe("listPropertyKeys", () => {
   it("returns at most 3 sample values", () => {
     for (let i = 0; i < 5; i++) {
       index.upsertNote(
-        `extra/n${i}.md`,
-        `---\nvariety: value-${i}\n---\nbody\n`,
-        4000 + i,
+        {
+          filePath: `extra/n${i}.md`,
+          rawContent: `---\nvariety: value-${i}\n---\nbody\n`,
+          fileStat: testStat(4000 + i),
+        },
+        logger,
       )
     }
     const keys = index.listPropertyKeys({}, logger)
@@ -777,9 +1089,12 @@ describe("listPropertyKeys", () => {
 
   it("sample_values are scoped to the folder filter", () => {
     index.upsertNote(
-      "Other/other.md",
-      "---\nstatus: blocked\n---\nbody\n",
-      4000,
+      {
+        filePath: "Other/other.md",
+        rawContent: "---\nstatus: blocked\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
     )
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
@@ -790,9 +1105,30 @@ describe("listPropertyKeys", () => {
 
 describe("listPropertyValues", () => {
   beforeEach(() => {
-    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
-    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
-    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+    index.upsertNote(
+      {
+        filePath: "Projects/active.md",
+        rawContent: NOTE_WITH_STATUS,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/done.md",
+        rawContent: NOTE_WITH_DIFFERENT_STATUS,
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/plain.md",
+        rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("returns distinct values with counts for a scalar property", () => {
@@ -829,9 +1165,12 @@ describe("listPropertyValues", () => {
 
   it("respects folder filter", () => {
     index.upsertNote(
-      "Other/excluded.md",
-      "---\nstatus: blocked\n---\nbody\n",
-      4000,
+      {
+        filePath: "Other/excluded.md",
+        rawContent: "---\nstatus: blocked\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
     )
     const values = index.listPropertyValues(
       { key: "status", folder: "Projects" },
@@ -850,9 +1189,30 @@ describe("listPropertyValues", () => {
 
 describe("searchByProperty", () => {
   beforeEach(() => {
-    index.upsertNote("Projects/active.md", NOTE_WITH_STATUS, 1000)
-    index.upsertNote("Projects/done.md", NOTE_WITH_DIFFERENT_STATUS, 2000)
-    index.upsertNote("notes/plain.md", NOTE_WITH_NO_CUSTOM_PROPS, 3000)
+    index.upsertNote(
+      {
+        filePath: "Projects/active.md",
+        rawContent: NOTE_WITH_STATUS,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/done.md",
+        rawContent: NOTE_WITH_DIFFERENT_STATUS,
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/plain.md",
+        rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
   })
 
   it("finds notes by scalar property value", () => {
@@ -885,6 +1245,7 @@ describe("searchByProperty", () => {
     expect(results[0]).toHaveProperty("folder")
     expect(results[0]).toHaveProperty("type")
     expect(results[0]).toHaveProperty("modified")
+    expect(results[0]).toHaveProperty("bytes")
     expect(results[0]).toHaveProperty("properties")
   })
 
@@ -906,9 +1267,12 @@ describe("searchByProperty", () => {
 
   it("respects folder filter", () => {
     index.upsertNote(
-      "Other/also-active.md",
-      "---\nstatus: in-progress\n---\nbody\n",
-      4000,
+      {
+        filePath: "Other/also-active.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
     )
     const results = index.searchByProperty(
       { key: "status", value: "in-progress", folder: "Projects" },
@@ -920,9 +1284,12 @@ describe("searchByProperty", () => {
 
   it("respects limit", () => {
     index.upsertNote(
-      "Projects/another.md",
-      "---\nstatus: in-progress\n---\nbody\n",
-      4000,
+      {
+        filePath: "Projects/another.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
     )
     const results = index.searchByProperty(
       { key: "status", value: "in-progress", limit: 1 },
@@ -932,7 +1299,14 @@ describe("searchByProperty", () => {
   })
 
   it("finds notes by YAML date property (normalized from Date object)", () => {
-    index.upsertNote("dated.md", "---\ndue: 2026-05-13\n---\nbody\n", 5000)
+    index.upsertNote(
+      {
+        filePath: "dated.md",
+        rawContent: "---\ndue: 2026-05-13\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
     const results = index.searchByProperty(
       { key: "due", value: "2026-05-13" },
       logger,
@@ -974,7 +1348,14 @@ describe("rebuildFromVault", () => {
   })
 
   it("clears existing data before rebuilding", async () => {
-    index.upsertNote("stale.md", "stale content\n", 1000)
+    index.upsertNote(
+      {
+        filePath: "stale.md",
+        rawContent: "stale content\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
     await index.rebuildFromVault(vaultDir)
     const results = index.fullTextSearch({ query: "stale" }, logger)
     expect(results).toHaveLength(0)
@@ -1164,17 +1545,37 @@ describe("getBacklinks", () => {
     // hub links to spoke-a and spoke-b; spoke-a links back to hub.
     // upsertNote re-resolves stale targets, so ordering doesn't matter.
     index.upsertNote(
-      "hub.md",
-      "# Hub\n\nLinks to [[spoke-a]] and [[spoke-b]].\n",
-      1000,
+      {
+        filePath: "hub.md",
+        rawContent: "# Hub\n\nLinks to [[spoke-a]] and [[spoke-b]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
     )
     index.upsertNote(
-      "spoke-a.md",
-      "# Spoke A\n\nLinks back to [[hub]].\n",
-      2000,
+      {
+        filePath: "spoke-a.md",
+        rawContent: "# Spoke A\n\nLinks back to [[hub]].\n",
+        fileStat: testStat(2000),
+      },
+      logger,
     )
-    index.upsertNote("spoke-b.md", "# Spoke B\n\nNo backlink.\n", 3000)
-    index.upsertNote("island.md", "# Island\n\nNo links at all.\n", 4000)
+    index.upsertNote(
+      {
+        filePath: "spoke-b.md",
+        rawContent: "# Spoke B\n\nNo backlink.\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "island.md",
+        rawContent: "# Island\n\nNo links at all.\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
   })
 
   it("finds notes linking to the target", () => {
@@ -1198,20 +1599,31 @@ describe("getBacklinks", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
     expect(backlinks[0].title).toBe("hub")
   })
+
+  it("includes bytes in results", () => {
+    const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
+    expect(backlinks[0].bytes).toBe(100)
+  })
 })
 
 describe("getOutgoingLinks", () => {
   beforeEach(() => {
     // source links to target-exists (will be resolved) and NonExistent (unresolved)
     index.upsertNote(
-      "source.md",
-      "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
-      1000,
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
+        fileStat: testStat(1000, 11),
+      },
+      logger,
     )
     index.upsertNote(
-      "target-exists.md",
-      "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
-      2000,
+      {
+        filePath: "target-exists.md",
+        rawContent: "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
+        fileStat: testStat(2000, 222),
+      },
+      logger,
     )
   })
 
@@ -1231,10 +1643,26 @@ describe("getOutgoingLinks", () => {
     expect(missing).toBeDefined()
     expect(missing!.exists).toBe(false)
     expect(missing!.title).toBeNull()
+    expect(missing!.bytes).toBeNull()
+  })
+
+  it("includes bytes for existing targets, null for broken links", () => {
+    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const existing = links.find((link) => link.path === "target-exists.md")
+    expect(existing!.bytes).toBe(222)
+    const broken = links.find((link) => link.path === "NonExistent")
+    expect(broken!.bytes).toBeNull()
   })
 
   it("returns empty for notes with no outgoing links", () => {
-    index.upsertNote("lonely.md", "# Lonely\n\nNo links.\n", 3000)
+    index.upsertNote(
+      {
+        filePath: "lonely.md",
+        rawContent: "# Lonely\n\nNo links.\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
     const links = index.getOutgoingLinks({ path: "lonely.md" }, logger)
     expect(links).toHaveLength(0)
   })
@@ -1242,17 +1670,38 @@ describe("getOutgoingLinks", () => {
 
 describe("findOrphans", () => {
   beforeEach(() => {
-    index.upsertNote("hub.md", "# Hub\n\n[[connected]].\n", 1000)
-    index.upsertNote("connected.md", "# Connected\n\nBody.\n", 2000)
     index.upsertNote(
-      "Projects/orphan.md",
-      "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
-      3000,
+      {
+        filePath: "hub.md",
+        rawContent: "# Hub\n\n[[connected]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
     )
     index.upsertNote(
-      "Daily Notes/2026-05-13.md",
-      "---\ntitle: 2026-05-13\n---\n\n# Daily\n",
-      4000,
+      {
+        filePath: "connected.md",
+        rawContent: "# Connected\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/orphan.md",
+        rawContent:
+          "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-05-13.md",
+        rawContent: "---\ntitle: 2026-05-13\n---\n\n# Daily\n",
+        fileStat: testStat(4000),
+      },
+      logger,
     )
   })
 
@@ -1298,10 +1747,18 @@ describe("findOrphans", () => {
     expect(projectOrphan).toHaveProperty("tags")
     expect(projectOrphan).toHaveProperty("folder")
     expect(projectOrphan).toHaveProperty("modified")
+    expect(projectOrphan).toHaveProperty("bytes")
   })
 
   it("treats self-linking notes as orphans", () => {
-    index.upsertNote("self-ref.md", "# Self\n\nLinks to [[self-ref]].\n", 5000)
+    index.upsertNote(
+      {
+        filePath: "self-ref.md",
+        rawContent: "# Self\n\nLinks to [[self-ref]].\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
     const orphans = index.findOrphans({}, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("self-ref.md")
@@ -1310,8 +1767,22 @@ describe("findOrphans", () => {
 
 describe("forward reference resolution", () => {
   it("resolves backlinks when target is indexed after source", () => {
-    index.upsertNote("source.md", "# Source\n\nLinks to [[target]].\n", 1000)
-    index.upsertNote("target.md", "# Target\n\nBody.\n", 2000)
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\nLinks to [[target]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
 
     const backlinks = index.getBacklinks({ path: "target.md" }, logger)
     expect(backlinks).toHaveLength(1)

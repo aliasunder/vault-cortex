@@ -135,7 +135,17 @@ const setupVault = async (
       const fullPath = join(vault, note.path)
       await mkdir(dirname(fullPath), { recursive: true })
       await writeFile(fullPath, note.content, "utf8")
-      search.upsertNote(note.path, note.content, note.mtime)
+      search.upsertNote(
+        {
+          filePath: note.path,
+          rawContent: note.content,
+          fileStat: {
+            mtimeMs: note.mtime,
+            size: Buffer.byteLength(note.content, "utf8"),
+          },
+        },
+        log,
+      )
     }
   }
 
@@ -675,7 +685,14 @@ describe("full prompt output", () => {
     await writeFile(join(vault, "About Me", "Mem.md"), MEM_MD, "utf8")
     const search = createSearchIndex(":memory:")
     // Only alpha.md is indexed, so tags/properties/recent are deterministic.
-    search.upsertNote("Notes/alpha.md", ALPHA_MD, 1000)
+    search.upsertNote(
+      {
+        filePath: "Notes/alpha.md",
+        rawContent: ALPHA_MD,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
     const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
 
@@ -718,7 +735,14 @@ describe("full prompt output", () => {
       "utf8",
     )
     const search = createSearchIndex(":memory:")
-    search.upsertNote("Log/note.md", "---\ntitle: Note One\n---\nbody\n", 1000)
+    search.upsertNote(
+      {
+        filePath: "Log/note.md",
+        rawContent: "---\ntitle: Note One\n---\nbody\n",
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
     const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
 

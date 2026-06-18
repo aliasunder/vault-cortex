@@ -142,6 +142,13 @@ search.fullTextSearch({ query, filters }, reqLogger)
 | `info`  | Normal operations (tool calls, reads, writes) | No            |
 | `debug` | Verbose tracing (file watcher, dev only)      | No            |
 
+**info vs debug boundary:** `info` is for **per-request summaries** —
+one log per tool call or lifecycle event (startup, shutdown, rebuild).
+`debug` is for **per-file background events** — fired by the file
+watcher or during bulk indexing, with no user-initiated action. If the
+log would produce N lines during a vault rebuild (one per note), it's
+`debug`; if it produces one summary line, it's `info`.
+
 ## Code style
 
 - Functional over OOP. Arrow functions over `function` declarations.

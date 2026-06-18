@@ -27,8 +27,14 @@ export const startFileWatcher = (
         readFile(filePath, "utf8"),
         stat(filePath),
       ])
-      search.upsertNote(relativePath, content, fileStat.mtimeMs)
-      logger.debug("indexed", { path: relativePath })
+      search.upsertNote(
+        {
+          filePath: relativePath,
+          rawContent: content,
+          fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+        },
+        logger,
+      )
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
