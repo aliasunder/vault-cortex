@@ -43,6 +43,19 @@
 
 
 
+
+## [0.19.2] — 2026-06-18
+
+### Features
+
+- **search:** Surface file size (bytes) in discovery tool responses (#150)
+
+### Documentation
+
+- Claude Desktop supports prompts (Chat + Cowork) (#149)
+- Document promoted properties and fix prompt client support claims (#148)
+- Update CHANGELOG.md for v0.19.1
+
 ## [0.19.1] — 2026-06-17
 
 ### ⚠ BREAKING CHANGES
