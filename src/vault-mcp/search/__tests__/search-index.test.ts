@@ -1926,6 +1926,38 @@ describe("forward reference resolution", () => {
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("source.md")
   })
+
+  it("re-resolves a relative ../ forward reference when the target is created later", () => {
+    // A source-relative link is stored raw ("../Health/later") while the target
+    // doesn't exist yet. Re-resolution must re-run with the link's own source so
+    // the relative form upgrades, not just basename/full-path forms.
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/early.md",
+        rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(
+      index.getBacklinks({ path: "Areas/Health/later.md" }, logger),
+    ).toHaveLength(0)
+
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/later.md",
+        rawContent: "# Later\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks(
+      { path: "Areas/Health/later.md" },
+      logger,
+    )
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("Areas/Work/early.md")
+  })
 })
 
 describe("frontmatter links in the graph", () => {

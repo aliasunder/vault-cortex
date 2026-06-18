@@ -435,8 +435,15 @@ export const createSearchIndex = (dbPath: string) => {
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
   )
-  const reResolveStmt = db.prepare(
-    `UPDATE links SET target = @resolved WHERE target = @raw`,
+  // Links whose target isn't a known note path — stored as raw text because
+  // they were unresolved when indexed (e.g. a forward reference).
+  const selectUnresolvedLinksStmt = db.prepare(
+    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes)`,
+  )
+  // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
+  // (source, resolved) row so re-resolution can't hit a PK collision.
+  const updateLinkTargetStmt = db.prepare(
+    `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
 
   // ── Index maintenance ──────────────────────────────────────────
@@ -516,16 +523,23 @@ export const createSearchIndex = (dbPath: string) => {
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
-    // Re-resolve stale unresolved targets that match the newly added note.
-    // Three stored forms: wikilinks store the basename ("Note"); folder
-    // wikilinks ([[folder/Note]]) and markdown links ([text](folder/Note.md))
-    // store the full path without the extension ("folder/Note"); explicit-ext
-    // wikilinks ([[folder/Note.md]]) store the full path with it.
-    const fileBasename = basename(note.path, ".md")
-    const pathWithoutExtension = note.path.replace(/\.md$/, "")
-    reResolveStmt.run({ resolved: note.path, raw: fileBasename })
-    reResolveStmt.run({ resolved: note.path, raw: pathWithoutExtension })
-    reResolveStmt.run({ resolved: note.path, raw: note.path })
+    // Re-resolve links still stored as raw text now that this note exists.
+    // Re-run resolveLink with each link's own source so every form upgrades
+    // uniformly — basename, full path, and source-relative ("../") — covering
+    // Obsidian's "link first, create the note later" workflow.
+    for (const link of selectUnresolvedLinksStmt.all() as Array<{
+      source: string
+      target: string
+    }>) {
+      const resolved = resolveLink(link.target, pathList, link.source)
+      if (resolved !== null && resolved !== link.target) {
+        updateLinkTargetStmt.run({
+          resolved,
+          source: link.source,
+          rawTarget: link.target,
+        })
+      }
+    }
   }
 
   /** Removes a note from the notes table, FTS index, and links. */
