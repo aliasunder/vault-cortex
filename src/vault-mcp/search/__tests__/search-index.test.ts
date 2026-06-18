@@ -1637,10 +1637,10 @@ describe("resolveLink", () => {
     expect(resolveLink("../C/target", ["A/C/target.md"])).toBeNull()
   })
 
-  it("returns null for a relative path that escapes the vault root", () => {
-    expect(
-      resolveLink("../../outside/secret", ["note.md"], "note.md"),
-    ).toBeNull()
+  it("does not let an upward ../ path escape to a same-named vault-root note", () => {
+    // "secret.md" exists at the vault root, but "../secret" from a root note
+    // points above the vault — it must stay unresolved, not collapse onto it.
+    expect(resolveLink("../secret", ["secret.md"], "note.md")).toBeNull()
   })
 })
 
@@ -1955,8 +1955,9 @@ describe("forward reference resolution", () => {
       { path: "Areas/Health/later.md" },
       logger,
     )
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("Areas/Work/early.md")
+    expect(backlinks).toEqual([
+      { path: "Areas/Work/early.md", title: "early", bytes: 100 },
+    ])
   })
 })
 
@@ -2099,8 +2100,9 @@ describe("relative links (path from current file)", () => {
       { path: "Areas/Health/target.md" },
       logger,
     )
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("Areas/Work/note.md")
+    expect(backlinks).toEqual([
+      { path: "Areas/Work/note.md", title: "note", bytes: 100 },
+    ])
   })
 
   it("resolves the ../ link so the source lists the target as an outgoing link", () => {
@@ -2108,8 +2110,13 @@ describe("relative links (path from current file)", () => {
       { path: "Areas/Work/note.md" },
       logger,
     )
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0].path).toBe("Areas/Health/target.md")
-    expect(outgoing[0].exists).toBe(true)
+    expect(outgoing).toEqual([
+      {
+        path: "Areas/Health/target.md",
+        title: "target",
+        exists: true,
+        bytes: 100,
+      },
+    ])
   })
 })
