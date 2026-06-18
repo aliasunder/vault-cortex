@@ -1342,8 +1342,7 @@ describe("getBacklinks", () => {
 
   it("includes bytes in results", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
-    expect(backlinks[0]).toHaveProperty("bytes")
-    expect(typeof backlinks[0].bytes).toBe("number")
+    expect(backlinks[0].bytes).toBe(100)
   })
 })
 
