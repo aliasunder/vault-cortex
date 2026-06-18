@@ -1613,7 +1613,7 @@ describe("getOutgoingLinks", () => {
       {
         filePath: "source.md",
         rawContent: "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
-        fileStat: testStat(1000),
+        fileStat: testStat(1000, 11),
       },
       logger,
     )
@@ -1621,7 +1621,7 @@ describe("getOutgoingLinks", () => {
       {
         filePath: "target-exists.md",
         rawContent: "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
-        fileStat: testStat(2000),
+        fileStat: testStat(2000, 222),
       },
       logger,
     )
@@ -1649,7 +1649,7 @@ describe("getOutgoingLinks", () => {
   it("includes bytes for existing targets, null for broken links", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing!.bytes).toBe(100)
+    expect(existing!.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
     expect(broken!.bytes).toBeNull()
   })
