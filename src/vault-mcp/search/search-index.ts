@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
-import { join, basename, relative, resolve } from "node:path"
+import { join, basename, relative, resolve, posix } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../vault-operations/frontmatter.js"
 import { parseLeadingCallout } from "../vault-operations/callout-parser.js"
@@ -183,8 +183,8 @@ type OutgoingLinkEntry = {
 //      ([text](path.md)) from the note body (skipping fenced code blocks
 //      and inline code spans); extractFrontmatterLinks() adds [[wikilinks]]
 //      from frontmatter property values (e.g. related:).
-//   2. resolveLink() maps each raw target to a vault-relative path by
-//      trying exact match → basename match → shortest-path heuristic.
+//   2. resolveLink() maps each raw target to a vault-relative path by trying
+//      exact match → relative-to-source match → basename/shortest-path heuristic.
 //   3. upsertNote stores resolved links in the `links` table. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
 //   4. When a new note is created, upsertNote re-resolves any stale
@@ -323,16 +323,32 @@ const extractAllLinks = (
   ...new Set([...extractLinks(content), ...extractFrontmatterLinks(data)]),
 ]
 
-/** Resolves a wikilink target to a vault-relative path using all known paths.
+/** Resolves a link target to a vault-relative path using all known paths,
+ *  covering Obsidian's three "New link format" modes: path from vault folder
+ *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
+ *  is supplied — path from current file, including upward "../" segments.
  *  Returns null if unresolvable. */
 export const resolveLink = (
   target: string,
   allPaths: string[],
+  sourcePath?: string,
 ): string | null => {
   const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
 
-  // Exact path match: "folder/Note.md" or "Note.md"
+  // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
   if (allPaths.includes(targetWithExtension)) return targetWithExtension
+
+  // Relative-to-source match ("path from current file"): resolve the target
+  // against the linking note's directory so "../C/target" and "sub/target"
+  // land on the right note. posix.join collapses ".."/"."; a target that
+  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
+  if (sourcePath) {
+    const targetRelativeToSource = posix.join(
+      posix.dirname(sourcePath),
+      targetWithExtension,
+    )
+    if (allPaths.includes(targetRelativeToSource)) return targetRelativeToSource
+  }
 
   // Basename match: find all paths that end with the target filename
   const basenameMatches = allPaths.filter(
@@ -419,8 +435,15 @@ export const createSearchIndex = (dbPath: string) => {
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
   )
-  const reResolveStmt = db.prepare(
-    `UPDATE links SET target = @resolved WHERE target = @raw`,
+  // Links whose target isn't a known note path — stored as raw text because
+  // they were unresolved when indexed (e.g. a forward reference).
+  const selectUnresolvedLinksStmt = db.prepare(
+    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes)`,
+  )
+  // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
+  // (source, resolved) row so re-resolution can't hit a PK collision.
+  const updateLinkTargetStmt = db.prepare(
+    `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
 
   // ── Index maintenance ──────────────────────────────────────────
@@ -496,20 +519,28 @@ export const createSearchIndex = (dbPath: string) => {
 
     deleteLinksStmt.run(note.path)
     for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
-      const resolved = resolveLink(rawTarget, pathList)
+      const resolved = resolveLink(rawTarget, pathList, note.path)
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
-    // Re-resolve stale unresolved targets that match the newly added note.
-    // Three stored forms: wikilinks store the basename ("Note"); folder
-    // wikilinks ([[folder/Note]]) and markdown links ([text](folder/Note.md))
-    // store the full path without the extension ("folder/Note"); explicit-ext
-    // wikilinks ([[folder/Note.md]]) store the full path with it.
-    const fileBasename = basename(note.path, ".md")
-    const pathWithoutExtension = note.path.replace(/\.md$/, "")
-    reResolveStmt.run({ resolved: note.path, raw: fileBasename })
-    reResolveStmt.run({ resolved: note.path, raw: pathWithoutExtension })
-    reResolveStmt.run({ resolved: note.path, raw: note.path })
+    // Re-resolve links still stored as raw text now that this note exists.
+    // Re-run resolveLink with each link's own source so every form upgrades
+    // uniformly — basename, full path, and source-relative ("../") — covering
+    // Obsidian's "link first, create the note later" workflow.
+    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
+      source: string
+      target: string
+    }>
+    for (const link of unresolvedLinks) {
+      const resolved = resolveLink(link.target, pathList, link.source)
+      if (resolved !== null) {
+        updateLinkTargetStmt.run({
+          resolved,
+          source: link.source,
+          rawTarget: link.target,
+        })
+      }
+    }
   }
 
   /** Removes a note from the notes table, FTS index, and links. */
@@ -587,7 +618,7 @@ export const createSearchIndex = (dbPath: string) => {
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
         for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
-          const resolved = resolveLink(rawTarget, pathList)
+          const resolved = resolveLink(rawTarget, pathList, note.relativePath)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
       }

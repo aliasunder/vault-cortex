@@ -1609,6 +1609,39 @@ describe("resolveLink", () => {
   it("returns null for unresolvable target", () => {
     expect(resolveLink("NonExistent", allPaths)).toBeNull()
   })
+
+  it("resolves an upward relative path against the source note's directory", () => {
+    const paths = ["A/C/target.md", "A/B/note.md"]
+    expect(resolveLink("../C/target", paths, "A/B/note.md")).toBe(
+      "A/C/target.md",
+    )
+  })
+
+  it("resolves a descending relative path to the source's own subfolder over a shorter same-named path elsewhere", () => {
+    // "X/sub/target.md" is the shorter basename/suffix match, but the link is
+    // relative to Areas/note.md, so it must resolve into Areas/sub/.
+    const paths = ["Areas/sub/target.md", "X/sub/target.md", "Areas/note.md"]
+    expect(resolveLink("sub/target", paths, "Areas/note.md")).toBe(
+      "Areas/sub/target.md",
+    )
+  })
+
+  it("prefers an exact vault-absolute path over a relative-to-source match", () => {
+    const paths = ["Projects/other.md", "A/B/Projects/other.md", "A/B/note.md"]
+    expect(resolveLink("Projects/other", paths, "A/B/note.md")).toBe(
+      "Projects/other.md",
+    )
+  })
+
+  it("cannot resolve an upward relative path without a source note", () => {
+    expect(resolveLink("../C/target", ["A/C/target.md"])).toBeNull()
+  })
+
+  it("does not let an upward ../ path escape to a same-named vault-root note", () => {
+    // "secret.md" exists at the vault root, but "../secret" from a root note
+    // points above the vault — it must stay unresolved, not collapse onto it.
+    expect(resolveLink("../secret", ["secret.md"], "note.md")).toBeNull()
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
@@ -1893,6 +1926,39 @@ describe("forward reference resolution", () => {
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("source.md")
   })
+
+  it("re-resolves a relative ../ forward reference when the target is created later", () => {
+    // A source-relative link is stored raw ("../Health/later") while the target
+    // doesn't exist yet. Re-resolution must re-run with the link's own source so
+    // the relative form upgrades, not just basename/full-path forms.
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/early.md",
+        rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(
+      index.getBacklinks({ path: "Areas/Health/later.md" }, logger),
+    ).toHaveLength(0)
+
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/later.md",
+        rawContent: "# Later\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks(
+      { path: "Areas/Health/later.md" },
+      logger,
+    )
+    expect(backlinks).toEqual([
+      { path: "Areas/Work/early.md", title: "early", bytes: 100 },
+    ])
+  })
 })
 
 describe("frontmatter links in the graph", () => {
@@ -2003,5 +2069,54 @@ describe("frontmatter links in the graph", () => {
     const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("double.md")
+  })
+})
+
+describe("relative links (path from current file)", () => {
+  // Obsidian's "Path from current file" format writes links relative to the
+  // linking note. note.md links up and across to a sibling folder via
+  // "../Health/target"; the target is indexed first so it exists at link time.
+  beforeEach(() => {
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/note.md",
+        rawContent: "# Note\n\nLinks to [[../Health/target]].\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+  })
+
+  it("resolves the ../ link so the target lists the source as a backlink", () => {
+    const backlinks = index.getBacklinks(
+      { path: "Areas/Health/target.md" },
+      logger,
+    )
+    expect(backlinks).toEqual([
+      { path: "Areas/Work/note.md", title: "note", bytes: 100 },
+    ])
+  })
+
+  it("resolves the ../ link so the source lists the target as an outgoing link", () => {
+    const outgoing = index.getOutgoingLinks(
+      { path: "Areas/Work/note.md" },
+      logger,
+    )
+    expect(outgoing).toEqual([
+      {
+        path: "Areas/Health/target.md",
+        title: "target",
+        exists: true,
+        bytes: 100,
+      },
+    ])
   })
 })
