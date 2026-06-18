@@ -283,24 +283,33 @@ export const extractFrontmatterLinks = (
 ): string[] => {
   const targets = new Set<string>()
 
-  const collect = (value: unknown): void => {
-    if (typeof value === "string") {
-      for (const match of value.matchAll(WIKILINK_RE)) {
+  // Walks one frontmatter value, adding every [[wikilink]] target it finds to
+  // `targets`. A value is one of three shapes, so it recurses through the two
+  // container shapes down to the string leaves.
+  const collectWikilinksFrom = (frontmatterValue: unknown): void => {
+    // Leaf: a string may hold one or more wikilinks — pull out each target.
+    if (typeof frontmatterValue === "string") {
+      for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
         const target = match[1]!.trim()
         if (target.length > 0) targets.add(target)
       }
       return
     }
-    if (Array.isArray(value)) {
-      for (const item of value) collect(item)
+    // Array (e.g. a multi-value `related:`): recurse into every element.
+    if (Array.isArray(frontmatterValue)) {
+      for (const item of frontmatterValue) collectWikilinksFrom(item)
       return
     }
-    if (value !== null && typeof value === "object") {
-      for (const nested of Object.values(value)) collect(nested)
+    // Nested object: recurse into every value. The null guard is required —
+    // `typeof null === "object"`, and Object.values(null) would throw.
+    if (frontmatterValue !== null && typeof frontmatterValue === "object") {
+      for (const nestedValue of Object.values(frontmatterValue)) {
+        collectWikilinksFrom(nestedValue)
+      }
     }
   }
 
-  collect(data)
+  collectWikilinksFrom(data)
   return [...targets]
 }
 
