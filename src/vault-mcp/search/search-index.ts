@@ -180,8 +180,9 @@ type OutgoingLinkEntry = {
 //
 // Indexing flow:
 //   1. extractLinks() parses wikilinks ([[target]]) and markdown links
-//      ([text](path.md)) from note body, skipping fenced code blocks
-//      and inline code spans.
+//      ([text](path.md)) from the note body (skipping fenced code blocks
+//      and inline code spans); extractFrontmatterLinks() adds [[wikilinks]]
+//      from frontmatter property values (e.g. related:).
 //   2. resolveLink() maps each raw target to a vault-relative path by
 //      trying exact match → basename match → shortest-path heuristic.
 //   3. upsertNote stores resolved links in the `links` table. Unresolved
@@ -268,6 +269,59 @@ export const extractLinks = (content: string): string[] => {
   }
   return [...targets]
 }
+
+/** Extracts [[wikilink]] targets from frontmatter property values. Obsidian
+ *  resolves wikilinks in any frontmatter property (e.g. `related:`), so they
+ *  are real graph edges — body-only extraction silently drops them. Recursively
+ *  walks strings, arrays, and nested objects, applying WIKILINK_RE to every
+ *  string. Frontmatter is YAML (no code fences or inline-code spans), so the
+ *  body extractor's fence handling doesn't apply. Markdown [text](path.md)
+ *  links are a body convention and are intentionally not scanned here. Returns
+ *  deduplicated raw targets (pre-resolution), matching extractLinks' contract. */
+export const extractFrontmatterLinks = (
+  data: Record<string, unknown>,
+): string[] => {
+  const targets = new Set<string>()
+
+  // Walks one frontmatter value, adding every [[wikilink]] target it finds to
+  // `targets`. A value is one of three shapes, so it recurses through the two
+  // container shapes down to the string leaves.
+  const collectWikilinksFrom = (frontmatterValue: unknown): void => {
+    // Leaf: a string may hold one or more wikilinks — pull out each target.
+    if (typeof frontmatterValue === "string") {
+      for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
+        const target = match[1]!.trim()
+        if (target.length > 0) targets.add(target)
+      }
+      return
+    }
+    // Array (e.g. a multi-value `related:`): recurse into every element.
+    if (Array.isArray(frontmatterValue)) {
+      for (const item of frontmatterValue) collectWikilinksFrom(item)
+      return
+    }
+    // Nested object: recurse into every value. The null guard is required —
+    // `typeof null === "object"`, and Object.values(null) would throw.
+    if (frontmatterValue !== null && typeof frontmatterValue === "object") {
+      for (const nestedValue of Object.values(frontmatterValue)) {
+        collectWikilinksFrom(nestedValue)
+      }
+    }
+  }
+
+  collectWikilinksFrom(data)
+  return [...targets]
+}
+
+/** A note's complete link set — body links unioned with frontmatter wikilinks,
+ *  deduplicated. Single source of truth for "what does this note link to",
+ *  shared by incremental upsert and full rebuild so the two can't diverge. */
+const extractAllLinks = (
+  content: string,
+  data: Record<string, unknown>,
+): string[] => [
+  ...new Set([...extractLinks(content), ...extractFrontmatterLinks(data)]),
+]
 
 /** Resolves a wikilink target to a vault-relative path using all known paths.
  *  Returns null if unresolvable. */
@@ -441,16 +495,20 @@ export const createSearchIndex = (dbPath: string) => {
     const pathList = allPaths.map((row) => row.path)
 
     deleteLinksStmt.run(note.path)
-    for (const rawTarget of extractLinks(parsed.content)) {
+    for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
       const resolved = resolveLink(rawTarget, pathList)
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
     // Re-resolve stale unresolved targets that match the newly added note.
-    // Two forms: wikilinks store just the basename ("Note"), markdown links
-    // may store the full path ("folder/Note.md").
+    // Three stored forms: wikilinks store the basename ("Note"); folder
+    // wikilinks ([[folder/Note]]) and markdown links ([text](folder/Note.md))
+    // store the full path without the extension ("folder/Note"); explicit-ext
+    // wikilinks ([[folder/Note.md]]) store the full path with it.
     const fileBasename = basename(note.path, ".md")
+    const pathWithoutExtension = note.path.replace(/\.md$/, "")
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
+    reResolveStmt.run({ resolved: note.path, raw: pathWithoutExtension })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
   }
 
@@ -528,7 +586,7 @@ export const createSearchIndex = (dbPath: string) => {
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
-        for (const rawTarget of extractLinks(parsed.content)) {
+        for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
           const resolved = resolveLink(rawTarget, pathList)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
