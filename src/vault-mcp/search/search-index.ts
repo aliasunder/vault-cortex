@@ -374,6 +374,19 @@ export const createSearchIndex = (dbPath: string) => {
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
 
+  // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
+  // that lacks the metadata column, drop the table so the CREATE below rebuilds
+  // it with the new schema. rebuildFromVault repopulates on every startup.
+  const ftsColumns = db.prepare("PRAGMA table_info(notes_fts)").all() as Array<{
+    name: string
+  }>
+  if (
+    ftsColumns.length > 0 &&
+    !ftsColumns.some((column) => column.name === "metadata")
+  ) {
+    db.exec("DROP TABLE notes_fts")
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       path        TEXT PRIMARY KEY,
@@ -391,7 +404,7 @@ export const createSearchIndex = (dbPath: string) => {
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      path UNINDEXED, title, content, tokenize='porter unicode61'
+      path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
 
     CREATE TABLE IF NOT EXISTS links (
@@ -428,7 +441,7 @@ export const createSearchIndex = (dbPath: string) => {
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
-    `INSERT INTO notes_fts (path, title, content) VALUES (?, ?, ?)`,
+    `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
   )
   const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
@@ -450,6 +463,24 @@ export const createSearchIndex = (dbPath: string) => {
 
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
+
+  /** Flattens frontmatter into a searchable text block for the FTS metadata column.
+   *  Keys are included (so "lifecycle" is findable), title is excluded (separate FTS column). */
+  const buildFtsMetadataText = (
+    frontmatter: Record<string, unknown>,
+  ): string => {
+    const lines: string[] = []
+    for (const [key, value] of Object.entries(frontmatter)) {
+      if (key === "title") continue
+      if (value == null) continue
+      if (Array.isArray(value)) {
+        lines.push(`${key}: ${value.map(String).join(" ")}`)
+      } else if (typeof value !== "object") {
+        lines.push(`${key}: ${String(value)}`)
+      }
+    }
+    return lines.join("\n")
+  }
 
   /** Parses a note's content and frontmatter, then indexes it for search. */
   const upsertNote = (
@@ -507,7 +538,8 @@ export const createSearchIndex = (dbPath: string) => {
       note.leading_callout,
       note.bytes,
     )
-    insertFtsStmt.run(note.path, note.title, note.content)
+    const metadataText = buildFtsMetadataText(frontmatter)
+    insertFtsStmt.run(note.path, note.title, note.content, metadataText)
     logger.debug("indexed note", { path: note.path, bytes: note.bytes })
 
     if (skipLinks) return

@@ -605,6 +605,148 @@ describe("fullTextSearch", () => {
   })
 })
 
+// ── Metadata search (frontmatter in FTS5) ──────────────────────
+//
+// Test notes use terms that appear ONLY in frontmatter — never in
+// the title or body — so the tests genuinely prove FTS metadata
+// indexing (and fail if the metadata column is empty).
+
+const NOTE_WITH_TAXONOMY = `---
+title: Garden Layout
+type: blueprint
+tags: [perennial, xeriscaping]
+status: dormant
+lifecycle: evergreen
+---
+
+# Garden Layout
+
+Raised beds along the south fence with drip irrigation.
+`
+
+const NOTE_WITH_PRIORITY = `---
+title: Fence Repair
+type: maintenance
+tags: [structural]
+status: overdue
+priority: critical
+---
+
+# Fence Repair
+
+Replace the rotted posts on the north side.
+`
+
+describe("metadata search", () => {
+  beforeEach(() => {
+    index.upsertNote(
+      {
+        filePath: "garden/layout.md",
+        rawContent: NOTE_WITH_TAXONOMY,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "garden/fence.md",
+        rawContent: NOTE_WITH_PRIORITY,
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "garden/notes.md",
+        rawContent:
+          "---\ntitle: Soil Notes\ntype: reference\ntags: [compost]\n---\n\nAmend with gypsum before planting season.\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+  })
+
+  it("finds a note by a type value that appears only in frontmatter", () => {
+    const results = index.fullTextSearch({ query: "blueprint" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/layout.md")
+  })
+
+  it("finds a note by a status value that appears only in frontmatter", () => {
+    const results = index.fullTextSearch({ query: "overdue" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/fence.md")
+  })
+
+  it("finds a note by a tag that appears only in frontmatter", () => {
+    const results = index.fullTextSearch({ query: "xeriscaping" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/layout.md")
+  })
+
+  it("finds a note by a frontmatter key name", () => {
+    const results = index.fullTextSearch({ query: "lifecycle" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/layout.md")
+  })
+
+  it("cross-field query matches a frontmatter term + body term together", () => {
+    const results = index.fullTextSearch({ query: "compost gypsum" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/notes.md")
+  })
+
+  it("snippet contains body text, not metadata, for a frontmatter-only match", () => {
+    const results = index.fullTextSearch({ query: "overdue" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].snippet).not.toContain("status")
+    expect(results[0].snippet).not.toContain("overdue")
+    expect(results[0].snippet).toContain("rotted posts")
+  })
+
+  it("does not match notes that lack the queried frontmatter term", () => {
+    const results = index.fullTextSearch({ query: "dormant" }, logger)
+    const paths = results.map((result) => result.path)
+    expect(paths).toEqual(["garden/layout.md"])
+  })
+
+  it("warm-DB migration: FTS metadata column is added to a pre-existing database", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-fts-"))
+    const dbPath = join(dir, "search.db")
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE TABLE notes (
+        path TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, related TEXT,
+        folder TEXT, type TEXT, created TEXT, mtime INTEGER, properties TEXT,
+        leading_callout TEXT, bytes INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE VIRTUAL TABLE notes_fts USING fts5(
+        path UNINDEXED, title, content, tokenize='porter unicode61'
+      );
+      CREATE TABLE links (
+        source TEXT NOT NULL, target TEXT NOT NULL, PRIMARY KEY (source, target)
+      );
+    `)
+    legacyDb.close()
+
+    const warmIndex = createSearchIndex(dbPath)
+    warmIndex.upsertNote(
+      {
+        filePath: "garden/layout.md",
+        rawContent: NOTE_WITH_TAXONOMY,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("garden/layout.md")
+
+    await rm(dir, { recursive: true })
+  })
+})
+
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
     {
