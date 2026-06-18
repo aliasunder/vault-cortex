@@ -44,6 +44,17 @@
 
 
 
+
+## [0.19.3] — 2026-06-18
+
+### Bug Fixes
+
+- **search:** Count frontmatter wikilinks in the link graph (#151)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.19.2
+
 ## [0.19.2] — 2026-06-18
 
 ### Features
