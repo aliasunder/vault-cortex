@@ -46,6 +46,17 @@
 
 
 
+
+## [0.19.5] — 2026-06-18
+
+### Features
+
+- **search:** Include frontmatter in FTS5 search index (#153)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.19.4
+
 ## [0.19.4] — 2026-06-18
 
 ### Bug Fixes
