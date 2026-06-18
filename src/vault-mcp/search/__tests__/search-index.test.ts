@@ -1339,6 +1339,12 @@ describe("getBacklinks", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
     expect(backlinks[0].title).toBe("hub")
   })
+
+  it("includes bytes in results", () => {
+    const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
+    expect(backlinks[0]).toHaveProperty("bytes")
+    expect(typeof backlinks[0].bytes).toBe("number")
+  })
 })
 
 describe("getOutgoingLinks", () => {
@@ -1372,6 +1378,15 @@ describe("getOutgoingLinks", () => {
     expect(missing).toBeDefined()
     expect(missing!.exists).toBe(false)
     expect(missing!.title).toBeNull()
+    expect(missing!.bytes).toBeNull()
+  })
+
+  it("includes bytes for existing targets, null for broken links", () => {
+    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const existing = links.find((link) => link.path === "target-exists.md")
+    expect(existing!.bytes).toBe(100)
+    const broken = links.find((link) => link.path === "NonExistent")
+    expect(broken!.bytes).toBeNull()
   })
 
   it("returns empty for notes with no outgoing links", () => {

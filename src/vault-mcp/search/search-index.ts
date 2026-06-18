@@ -164,12 +164,13 @@ type NoteRow = {
   bytes: number
 }
 
-type BacklinkEntry = { path: string; title: string }
+type BacklinkEntry = { path: string; title: string; bytes: number }
 
 type OutgoingLinkEntry = {
   path: string
   title: string | null
   exists: boolean
+  bytes: number | null
 }
 
 // ── Link extraction ─────────────────────────────────────────────
@@ -929,7 +930,7 @@ export const createSearchIndex = (dbPath: string) => {
     logger: Logger,
   ): BacklinkEntry[] => {
     const sql = `
-      SELECT n.path, n.title
+      SELECT n.path, n.title, n.bytes
       FROM links l
       JOIN notes n ON n.path = l.source
       WHERE l.target = ?
@@ -938,12 +939,18 @@ export const createSearchIndex = (dbPath: string) => {
     const rows = db.prepare(sql).all(params.path) as Array<{
       path: string
       title: string
+      bytes: number
     }>
+    const results: BacklinkEntry[] = rows.map((row) => ({
+      path: row.path,
+      title: row.title,
+      bytes: row.bytes ?? 0,
+    }))
     logger.info("get backlinks", {
       path: params.path,
-      count: rows.length,
+      count: results.length,
     })
-    return rows
+    return results
   }
 
   /** Returns notes that the given path links TO (outgoing links). */
@@ -954,7 +961,8 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT l.target as path,
              n.title,
-             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag
+             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag,
+             n.bytes
       FROM links l
       LEFT JOIN notes n ON n.path = l.target
       WHERE l.source = ?
@@ -964,11 +972,13 @@ export const createSearchIndex = (dbPath: string) => {
       path: string
       title: string | null
       exists_flag: number
+      bytes: number | null
     }>
-    const results = rows.map((row) => ({
+    const results: OutgoingLinkEntry[] = rows.map((row) => ({
       path: row.path,
       title: row.title,
       exists: row.exists_flag === 1,
+      bytes: row.bytes ?? null,
     }))
     logger.info("get outgoing links", {
       path: params.path,

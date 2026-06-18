@@ -1303,7 +1303,7 @@ Parameters:
 Errors:
 - A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
 
-Returns: JSON with path (the queried note), backlinks (array of { path, title }, sorted by title), and count.`,
+Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes }, sorted by title), and count. bytes is the on-disk file size.`,
       inputSchema: {
         path: z
           .string()
@@ -1351,7 +1351,7 @@ Parameters:
 Errors:
 - A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists }, sorted by target path), and count.`,
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, bytes }, sorted by target path), and count. bytes is the on-disk file size (null for broken links where exists is false).`,
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note"),
       },
