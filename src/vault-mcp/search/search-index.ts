@@ -527,12 +527,13 @@ export const createSearchIndex = (dbPath: string) => {
     // Re-run resolveLink with each link's own source so every form upgrades
     // uniformly — basename, full path, and source-relative ("../") — covering
     // Obsidian's "link first, create the note later" workflow.
-    for (const link of selectUnresolvedLinksStmt.all() as Array<{
+    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
       source: string
       target: string
-    }>) {
+    }>
+    for (const link of unresolvedLinks) {
       const resolved = resolveLink(link.target, pathList, link.source)
-      if (resolved !== null && resolved !== link.target) {
+      if (resolved !== null) {
         updateLinkTargetStmt.run({
           resolved,
           source: link.source,
