@@ -69,7 +69,7 @@ describe("schema creation", () => {
   })
 
   it("creates notes and notes_fts tables", () => {
-    index.upsertNote("test.md", "# Test\n", testStat(Date.now()))
+    index.upsertNote("test.md", "# Test\n", testStat(1000))
     const results = index.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
   })
