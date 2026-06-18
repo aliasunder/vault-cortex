@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -133,6 +140,7 @@ describe("leading callout", () => {
 
   it("adds the leading_callout column to a pre-existing notes table (warm-DB migration)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
     const dbPath = join(dir, "search.db")
     // Simulate a database file created before the leading_callout column existed.
     const legacyDb = new Database(dbPath)
@@ -165,7 +173,6 @@ describe("leading callout", () => {
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].leading_callout?.title).toBe("Scope of this file")
     expect(results[0].bytes).toBe(100)
-    await rm(dir, { recursive: true })
   })
 })
 
@@ -712,6 +719,7 @@ describe("metadata search", () => {
 
   it("warm-DB migration: FTS metadata column is added to a pre-existing database", async () => {
     const dir = await mkdtemp(join(tmpdir(), "warm-fts-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
     const dbPath = join(dir, "search.db")
     const legacyDb = new Database(dbPath)
     legacyDb.exec(`
@@ -742,8 +750,6 @@ describe("metadata search", () => {
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("garden/layout.md")
-
-    await rm(dir, { recursive: true })
   })
 })
 
