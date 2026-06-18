@@ -1609,6 +1609,39 @@ describe("resolveLink", () => {
   it("returns null for unresolvable target", () => {
     expect(resolveLink("NonExistent", allPaths)).toBeNull()
   })
+
+  it("resolves an upward relative path against the source note's directory", () => {
+    const paths = ["A/C/target.md", "A/B/note.md"]
+    expect(resolveLink("../C/target", paths, "A/B/note.md")).toBe(
+      "A/C/target.md",
+    )
+  })
+
+  it("resolves a descending relative path to the source's own subfolder over a shorter same-named path elsewhere", () => {
+    // "X/sub/target.md" is the shorter basename/suffix match, but the link is
+    // relative to Areas/note.md, so it must resolve into Areas/sub/.
+    const paths = ["Areas/sub/target.md", "X/sub/target.md", "Areas/note.md"]
+    expect(resolveLink("sub/target", paths, "Areas/note.md")).toBe(
+      "Areas/sub/target.md",
+    )
+  })
+
+  it("prefers an exact vault-absolute path over a relative-to-source match", () => {
+    const paths = ["Projects/other.md", "A/B/Projects/other.md", "A/B/note.md"]
+    expect(resolveLink("Projects/other", paths, "A/B/note.md")).toBe(
+      "Projects/other.md",
+    )
+  })
+
+  it("cannot resolve an upward relative path without a source note", () => {
+    expect(resolveLink("../C/target", ["A/C/target.md"])).toBeNull()
+  })
+
+  it("returns null for a relative path that escapes the vault root", () => {
+    expect(
+      resolveLink("../../outside/secret", ["note.md"], "note.md"),
+    ).toBeNull()
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
@@ -2003,5 +2036,44 @@ describe("frontmatter links in the graph", () => {
     const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("double.md")
+  })
+})
+
+describe("relative links (path from current file)", () => {
+  it("resolves an upward ../ link to a note in a sibling folder", () => {
+    // Obsidian's "Path from current file" format writes links relative to the
+    // linking note. Index the target first so it exists when the source links
+    // to it by a "../sibling/note" path that traverses up and across folders.
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/note.md",
+        rawContent: "# Note\n\nLinks to [[../Health/target]].\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const backlinks = index.getBacklinks(
+      { path: "Areas/Health/target.md" },
+      logger,
+    )
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("Areas/Work/note.md")
+
+    const outgoing = index.getOutgoingLinks(
+      { path: "Areas/Work/note.md" },
+      logger,
+    )
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0].path).toBe("Areas/Health/target.md")
+    expect(outgoing[0].exists).toBe(true)
   })
 })

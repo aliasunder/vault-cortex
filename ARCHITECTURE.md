@@ -239,7 +239,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_get_outgoing_links` | `path`                     | readOnlyHint |
 | `vault_find_orphans`       | `exclude_folders?, limit?` | readOnlyHint |
 
-Link queries use a `links` table populated during indexing from `[[wikilink]]` and `[text](path.md)` links in the note body (fence-aware parsing skips code blocks) plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`), matching Obsidian's graph. Links are resolved against all known note paths (shortest-path-first for ambiguous basenames). `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
+Link queries use a `links` table populated during indexing from `[[wikilink]]` and `[text](path.md)` links in the note body (fence-aware parsing skips code blocks) plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`), matching Obsidian's graph. Each target is resolved against all known note paths covering Obsidian's three "New link format" modes: exact vault-relative path (path from vault folder), path relative to the linking note (path from current file, including upward `../`), then basename (shortest-path-first for ambiguous basenames). `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
 ### Phase 2: Knowledge Base (R8)
 

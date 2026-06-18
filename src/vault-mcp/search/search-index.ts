@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
-import { join, basename, relative, resolve } from "node:path"
+import { join, basename, relative, resolve, posix } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../vault-operations/frontmatter.js"
 import { parseLeadingCallout } from "../vault-operations/callout-parser.js"
@@ -183,8 +183,8 @@ type OutgoingLinkEntry = {
 //      ([text](path.md)) from the note body (skipping fenced code blocks
 //      and inline code spans); extractFrontmatterLinks() adds [[wikilinks]]
 //      from frontmatter property values (e.g. related:).
-//   2. resolveLink() maps each raw target to a vault-relative path by
-//      trying exact match → basename match → shortest-path heuristic.
+//   2. resolveLink() maps each raw target to a vault-relative path by trying
+//      exact match → relative-to-source match → basename/shortest-path heuristic.
 //   3. upsertNote stores resolved links in the `links` table. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
 //   4. When a new note is created, upsertNote re-resolves any stale
@@ -323,16 +323,32 @@ const extractAllLinks = (
   ...new Set([...extractLinks(content), ...extractFrontmatterLinks(data)]),
 ]
 
-/** Resolves a wikilink target to a vault-relative path using all known paths.
+/** Resolves a link target to a vault-relative path using all known paths,
+ *  covering Obsidian's three "New link format" modes: path from vault folder
+ *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
+ *  is supplied — path from current file, including upward "../" segments.
  *  Returns null if unresolvable. */
 export const resolveLink = (
   target: string,
   allPaths: string[],
+  sourcePath?: string,
 ): string | null => {
   const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
 
-  // Exact path match: "folder/Note.md" or "Note.md"
+  // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
   if (allPaths.includes(targetWithExtension)) return targetWithExtension
+
+  // Relative-to-source match ("path from current file"): resolve the target
+  // against the linking note's directory so "../C/target" and "sub/target"
+  // land on the right note. posix.join collapses ".."/"."; a target that
+  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
+  if (sourcePath) {
+    const targetRelativeToSource = posix.join(
+      posix.dirname(sourcePath),
+      targetWithExtension,
+    )
+    if (allPaths.includes(targetRelativeToSource)) return targetRelativeToSource
+  }
 
   // Basename match: find all paths that end with the target filename
   const basenameMatches = allPaths.filter(
@@ -496,7 +512,7 @@ export const createSearchIndex = (dbPath: string) => {
 
     deleteLinksStmt.run(note.path)
     for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
-      const resolved = resolveLink(rawTarget, pathList)
+      const resolved = resolveLink(rawTarget, pathList, note.path)
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
@@ -587,7 +603,7 @@ export const createSearchIndex = (dbPath: string) => {
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
         for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
-          const resolved = resolveLink(rawTarget, pathList)
+          const resolved = resolveLink(rawTarget, pathList, note.relativePath)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
       }
