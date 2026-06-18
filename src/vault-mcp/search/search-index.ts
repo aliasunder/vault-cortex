@@ -474,7 +474,12 @@ export const createSearchIndex = (dbPath: string) => {
       if (key === "title") continue
       if (value == null) continue
       if (Array.isArray(value)) {
-        lines.push(`${key}: ${value.map(String).join(" ")}`)
+        const primitiveElements = value
+          .filter((element) => element != null && typeof element !== "object")
+          .map(String)
+        if (primitiveElements.length > 0) {
+          lines.push(`${key}: ${primitiveElements.join(" ")}`)
+        }
       } else if (typeof value !== "object") {
         lines.push(`${key}: ${String(value)}`)
       }
