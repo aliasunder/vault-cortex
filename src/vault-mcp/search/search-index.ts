@@ -105,6 +105,7 @@ type SearchResult = {
   type: string | null
   created?: string
   modified: string
+  bytes: number
   leading_callout?: LeadingCallout
 }
 
@@ -117,6 +118,7 @@ type NoteMetadata = {
   type: string | null
   created: string | null
   modified: string
+  bytes: number
   properties: Record<string, unknown>
   leading_callout: LeadingCallout | null
 }
@@ -159,6 +161,7 @@ type NoteRow = {
   mtime: number
   properties: string
   leading_callout: string | null
+  bytes: number
 }
 
 type BacklinkEntry = { path: string; title: string }
@@ -312,7 +315,8 @@ export const createSearchIndex = (dbPath: string) => {
       created     TEXT,
       mtime       INTEGER,
       properties  TEXT,
-      leading_callout TEXT
+      leading_callout TEXT,
+      bytes       INTEGER
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -340,13 +344,16 @@ export const createSearchIndex = (dbPath: string) => {
   if (!noteColumns.some((column) => column.name === "leading_callout")) {
     db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
   }
+  if (!noteColumns.some((column) => column.name === "bytes")) {
+    db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER`)
+  }
 
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
   // would re-compile on every invocation.
   const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
@@ -370,7 +377,7 @@ export const createSearchIndex = (dbPath: string) => {
   const upsertNote = (
     filePath: string,
     rawContent: string,
-    lastModifiedMs: number,
+    fileStat: { mtimeMs: number; size: number },
     options?: { skipLinks?: boolean },
   ): void => {
     const skipLinks = options?.skipLinks ?? false
@@ -397,9 +404,10 @@ export const createSearchIndex = (dbPath: string) => {
       created: isString(frontmatter.created)
         ? DateTime.fromISO(frontmatter.created).toISO()
         : null,
-      mtime: lastModifiedMs,
+      mtime: fileStat.mtimeMs,
       properties: JSON.stringify(frontmatter),
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
+      bytes: fileStat.size,
     }
 
     deleteFtsStmt.run(note.path)
@@ -415,6 +423,7 @@ export const createSearchIndex = (dbPath: string) => {
       note.mtime,
       note.properties,
       note.leading_callout,
+      note.bytes,
     )
     insertFtsStmt.run(note.path, note.title, note.content)
 
@@ -481,6 +490,7 @@ export const createSearchIndex = (dbPath: string) => {
           relativePath: file.relativePath,
           content,
           modifiedAtMs: fileStat.mtimeMs,
+          sizeBytes: fileStat.size,
         }
       }),
     )
@@ -490,9 +500,12 @@ export const createSearchIndex = (dbPath: string) => {
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
-        upsertNote(note.relativePath, note.content, note.modifiedAtMs, {
-          skipLinks: true,
-        })
+        upsertNote(
+          note.relativePath,
+          note.content,
+          { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+          { skipLinks: true },
+        )
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
@@ -513,7 +526,11 @@ export const createSearchIndex = (dbPath: string) => {
       }
     })()
 
-    logger.info("rebuilt index", { count: noteContents.length })
+    const totalBytes = noteContents.reduce(
+      (sum, note) => sum + note.sizeBytes,
+      0,
+    )
+    logger.info("rebuilt index", { count: noteContents.length, totalBytes })
     return noteContents.length
   }
 
@@ -577,9 +594,8 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT n.path, n.title,
              snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime${
-               includeLeadingCallout ? ", n.leading_callout" : ""
-             }
+             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime,
+             n.bytes${includeLeadingCallout ? ", n.leading_callout" : ""}
       FROM notes_fts
       JOIN notes n ON n.path = notes_fts.path
       WHERE ${conditions.join(" AND ")}
@@ -592,7 +608,14 @@ export const createSearchIndex = (dbPath: string) => {
       const rows = db.prepare(sql).all(...queryParams) as Array<
         Pick<
           NoteRow,
-          "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime"
+          | "path"
+          | "title"
+          | "tags"
+          | "folder"
+          | "type"
+          | "created"
+          | "mtime"
+          | "bytes"
         > & {
           snippet: string
           score: number
@@ -610,6 +633,7 @@ export const createSearchIndex = (dbPath: string) => {
         type: row.type,
         ...(row.created !== null ? { created: row.created } : {}),
         modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
+        bytes: row.bytes ?? 0,
         ...(includeLeadingCallout && row.leading_callout
           ? {
               leading_callout: JSON.parse(
@@ -648,7 +672,7 @@ export const createSearchIndex = (dbPath: string) => {
       : [params.tag, params.tag, limit]
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes n
       WHERE ${condition}
       LIMIT ?
@@ -680,7 +704,7 @@ export const createSearchIndex = (dbPath: string) => {
       : [params.folder, params.folder, limit]
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes
       WHERE ${condition}
       ORDER BY mtime DESC
@@ -724,7 +748,7 @@ export const createSearchIndex = (dbPath: string) => {
         : "ORDER BY mtime DESC" // SQL column is still `mtime`
 
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes
       ${orderClause}
       LIMIT ?
@@ -863,7 +887,7 @@ export const createSearchIndex = (dbPath: string) => {
     // - Scalar properties (status: "active"): check direct equality
     // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes n
       WHERE (
         (json_type(n.properties, '$.' || @key) = 'array'
@@ -971,7 +995,7 @@ export const createSearchIndex = (dbPath: string) => {
     // Self-links (source = target) are excluded from the backlink subquery
     // so a note that only links to itself is still considered an orphan.
     const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes
       WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
         ${whereClause}
@@ -1015,6 +1039,7 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   type: row.type,
   created: row.created,
   modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
+  bytes: row.bytes ?? 0,
   properties: JSON.parse(row.properties) as Record<string, unknown>,
   leading_callout: row.leading_callout
     ? (JSON.parse(row.leading_callout) as LeadingCallout)
