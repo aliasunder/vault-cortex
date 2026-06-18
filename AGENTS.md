@@ -24,6 +24,17 @@ All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
 the author's machine, it's not done.
 
+Design for the Obsidian user. The end user is always an Obsidian user, so
+anything that mirrors an Obsidian concept — backlinks, outgoing links, orphans,
+the graph, tags, properties, daily notes — must match what Obsidian itself does.
+At minimum, recognize every form Obsidian recognizes; behavior that is a strict
+subset of Obsidian's is a bug, not a limitation. For link resolution
+specifically, that means all of Obsidian's link styles (`[[wikilink]]`,
+`[[wikilink|alias]]`, `[[wikilink#heading]]`, `![[embed]]`, `[md](path.md)`),
+links in frontmatter properties (e.g. `related:`), and all three "New link
+format" modes — shortest path, path from vault folder, and path from current
+file (including relative `../` paths).
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
