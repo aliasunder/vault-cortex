@@ -132,7 +132,7 @@ describe("leading callout", () => {
     ).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0].leading_callout?.title).toBe("Scope of this file")
-    expect(results[0].bytes).toBeGreaterThan(0)
+    expect(results[0].bytes).toBe(100)
     await rm(dir, { recursive: true })
   })
 })
@@ -160,7 +160,7 @@ describe("bytes", () => {
     expect(results[0].bytes).toBe(128)
   })
 
-  it("defaults bytes to 0 for rows without the column (warm-DB fallback)", () => {
+  it("stores and retrieves a bytes value of 0", () => {
     index.upsertNote("notes/zero.md", "body\n", testStat(1000, 0))
     const results = index.searchByFolder({ folder: "notes" }, logger)
     expect(results[0].bytes).toBe(0)

@@ -317,7 +317,7 @@ export const createSearchIndex = (dbPath: string) => {
       mtime       INTEGER,
       properties  TEXT,
       leading_callout TEXT,
-      bytes       INTEGER
+      bytes       INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -346,7 +346,7 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
   }
   if (!noteColumns.some((column) => column.name === "bytes")) {
-    db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER`)
+    db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`)
   }
 
   // Prepared statements are compiled once here and reused across all calls.
