@@ -7,6 +7,7 @@ import {
   createSearchIndex,
   sanitizeFtsQuery,
   extractLinks,
+  extractFrontmatterLinks,
   resolveLink,
 } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
@@ -1367,6 +1368,26 @@ describe("rebuildFromVault", () => {
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
   })
+
+  it("resolves a frontmatter wikilink whose target is indexed later (forward reference)", async () => {
+    // related: points to a note that sorts after the source, so the source is
+    // indexed first; the two-pass rebuild must still resolve it. The body has
+    // no link to z-target, so only frontmatter extraction can produce the edge.
+    await writeFile(
+      join(vaultDir, "a-source.md"),
+      '---\ntitle: Source\nrelated: ["[[z-target]]"]\n---\n\n# Source\n\nProse only.\n',
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "z-target.md"),
+      "# Z Target\n\nBody.\n",
+      "utf8",
+    )
+    await index.rebuildFromVault(vaultDir)
+    const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("a-source.md")
+  })
 })
 
 // ── extractLinks ─────────────────────────────────────────────────
@@ -1499,6 +1520,58 @@ describe("extractLinks", () => {
   it("falls back to raw target when percent-encoding is malformed", () => {
     const links = extractLinks("[done](100%zzcomplete.md)")
     expect(links).toContain("100%zzcomplete")
+  })
+})
+
+// ── extractFrontmatterLinks ──────────────────────────────────────
+
+describe("extractFrontmatterLinks", () => {
+  it("extracts a wikilink from a string property value", () => {
+    expect(extractFrontmatterLinks({ up: "[[Parent Note]]" })).toEqual([
+      "Parent Note",
+    ])
+  })
+
+  it("extracts wikilinks from an array property (e.g. related)", () => {
+    expect(
+      extractFrontmatterLinks({ related: ["[[Note A]]", "[[Note B]]"] }),
+    ).toEqual(["Note A", "Note B"])
+  })
+
+  it("strips alias and heading from a frontmatter wikilink", () => {
+    expect(
+      extractFrontmatterLinks({ related: ["[[Note A#Section|display]]"] }),
+    ).toEqual(["Note A"])
+  })
+
+  it("extracts a wikilink embedded in surrounding text", () => {
+    expect(
+      extractFrontmatterLinks({ note: "see [[Note A]] for context" }),
+    ).toEqual(["Note A"])
+  })
+
+  it("walks nested object property values", () => {
+    expect(extractFrontmatterLinks({ meta: { parent: "[[Note A]]" } })).toEqual(
+      ["Note A"],
+    )
+  })
+
+  it("returns empty for plain-string values with no wikilinks", () => {
+    expect(
+      extractFrontmatterLinks({ related: ["Routines", "Career"] }),
+    ).toEqual([])
+  })
+
+  it("ignores non-string scalar values", () => {
+    expect(
+      extractFrontmatterLinks({ count: 3, draft: true, missing: null }),
+    ).toEqual([])
+  })
+
+  it("deduplicates a target repeated across properties", () => {
+    expect(
+      extractFrontmatterLinks({ up: "[[Note A]]", related: ["[[Note A]]"] }),
+    ).toEqual(["Note A"])
   })
 })
 
@@ -1787,5 +1860,116 @@ describe("forward reference resolution", () => {
     const backlinks = index.getBacklinks({ path: "target.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("source.md")
+  })
+})
+
+describe("frontmatter links in the graph", () => {
+  // Every fixture below gives the source a body with NO link to the target, so
+  // the asserted edge can only come from the frontmatter wikilink — never from a
+  // body link that happened to cover it.
+
+  it("surfaces a frontmatter-only target in getOutgoingLinks", () => {
+    index.upsertNote(
+      {
+        filePath: "session.md",
+        rawContent:
+          '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "task-board.md",
+        rawContent: "# Task Board\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const links = index.getOutgoingLinks({ path: "session.md" }, logger)
+    expect(links).toHaveLength(1)
+    expect(links[0].path).toBe("task-board.md")
+    expect(links[0].exists).toBe(true)
+  })
+
+  it("surfaces a frontmatter-only source in getBacklinks", () => {
+    index.upsertNote(
+      {
+        filePath: "session.md",
+        rawContent:
+          '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "task-board.md",
+        rawContent: "# Task Board\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks({ path: "task-board.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("session.md")
+  })
+
+  it("does not flag a frontmatter-referenced note as an orphan, but still flags a truly unreferenced one", () => {
+    index.upsertNote(
+      {
+        filePath: "referencer.md",
+        rawContent:
+          '---\ntitle: Referencer\nrelated: ["[[referenced]]"]\n---\n\n# Referencer\n\nNo body links.\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "referenced.md",
+        rawContent: "# Referenced\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "true-orphan.md",
+        rawContent: "# True Orphan\n\nNobody links here.\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    const orphanPaths = index
+      .findOrphans({}, logger)
+      .map((orphan) => orphan.path)
+    // referenced only via frontmatter → connected, not an orphan
+    expect(orphanPaths).not.toContain("referenced.md")
+    // genuinely unreferenced → still an orphan (proves exclusion is selective)
+    expect(orphanPaths).toContain("true-orphan.md")
+  })
+
+  it("counts a target linked from both body and frontmatter as a single edge", () => {
+    index.upsertNote(
+      {
+        filePath: "double.md",
+        rawContent:
+          '---\ntitle: Double\nrelated: ["[[shared]]"]\n---\n\n# Double\n\nAlso links [[shared]] in the body.\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "shared.md",
+        rawContent: "# Shared\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("double.md")
   })
 })

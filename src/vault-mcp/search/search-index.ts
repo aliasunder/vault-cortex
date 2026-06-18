@@ -180,8 +180,9 @@ type OutgoingLinkEntry = {
 //
 // Indexing flow:
 //   1. extractLinks() parses wikilinks ([[target]]) and markdown links
-//      ([text](path.md)) from note body, skipping fenced code blocks
-//      and inline code spans.
+//      ([text](path.md)) from the note body (skipping fenced code blocks
+//      and inline code spans); extractFrontmatterLinks() adds [[wikilinks]]
+//      from frontmatter property values (e.g. related:).
 //   2. resolveLink() maps each raw target to a vault-relative path by
 //      trying exact match → basename match → shortest-path heuristic.
 //   3. upsertNote stores resolved links in the `links` table. Unresolved
@@ -268,6 +269,50 @@ export const extractLinks = (content: string): string[] => {
   }
   return [...targets]
 }
+
+/** Extracts [[wikilink]] targets from frontmatter property values. Obsidian
+ *  resolves wikilinks in any frontmatter property (e.g. `related:`), so they
+ *  are real graph edges — body-only extraction silently drops them. Recursively
+ *  walks strings, arrays, and nested objects, applying WIKILINK_RE to every
+ *  string. Frontmatter is YAML (no code fences or inline-code spans), so the
+ *  body extractor's fence handling doesn't apply. Markdown [text](path.md)
+ *  links are a body convention and are intentionally not scanned here. Returns
+ *  deduplicated raw targets (pre-resolution), matching extractLinks' contract. */
+export const extractFrontmatterLinks = (
+  data: Record<string, unknown>,
+): string[] => {
+  const targets = new Set<string>()
+
+  const collect = (value: unknown): void => {
+    if (typeof value === "string") {
+      for (const match of value.matchAll(WIKILINK_RE)) {
+        const target = match[1]!.trim()
+        if (target.length > 0) targets.add(target)
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item)
+      return
+    }
+    if (value !== null && typeof value === "object") {
+      for (const nested of Object.values(value)) collect(nested)
+    }
+  }
+
+  collect(data)
+  return [...targets]
+}
+
+/** A note's complete link set — body links unioned with frontmatter wikilinks,
+ *  deduplicated. Single source of truth for "what does this note link to",
+ *  shared by incremental upsert and full rebuild so the two can't diverge. */
+const extractAllLinks = (
+  content: string,
+  data: Record<string, unknown>,
+): string[] => [
+  ...new Set([...extractLinks(content), ...extractFrontmatterLinks(data)]),
+]
 
 /** Resolves a wikilink target to a vault-relative path using all known paths.
  *  Returns null if unresolvable. */
@@ -441,7 +486,7 @@ export const createSearchIndex = (dbPath: string) => {
     const pathList = allPaths.map((row) => row.path)
 
     deleteLinksStmt.run(note.path)
-    for (const rawTarget of extractLinks(parsed.content)) {
+    for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
       const resolved = resolveLink(rawTarget, pathList)
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
@@ -528,7 +573,7 @@ export const createSearchIndex = (dbPath: string) => {
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
-        for (const rawTarget of extractLinks(parsed.content)) {
+        for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
           const resolved = resolveLink(rawTarget, pathList)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
