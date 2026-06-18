@@ -492,10 +492,14 @@ export const createSearchIndex = (dbPath: string) => {
     }
 
     // Re-resolve stale unresolved targets that match the newly added note.
-    // Two forms: wikilinks store just the basename ("Note"), markdown links
-    // may store the full path ("folder/Note.md").
+    // Three stored forms: wikilinks store the basename ("Note"); folder
+    // wikilinks ([[folder/Note]]) and markdown links ([text](folder/Note.md))
+    // store the full path without the extension ("folder/Note"); explicit-ext
+    // wikilinks ([[folder/Note.md]]) store the full path with it.
     const fileBasename = basename(note.path, ".md")
+    const pathWithoutExtension = note.path.slice(0, -3) // note.path always ends in .md
     reResolveStmt.run({ resolved: note.path, raw: fileBasename })
+    reResolveStmt.run({ resolved: note.path, raw: pathWithoutExtension })
     reResolveStmt.run({ resolved: note.path, raw: note.path })
   }
 

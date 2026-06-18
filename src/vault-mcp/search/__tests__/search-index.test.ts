@@ -1861,6 +1861,38 @@ describe("forward reference resolution", () => {
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("source.md")
   })
+
+  it("re-resolves a full-path forward reference when the target is created later", () => {
+    // A full-path link is stored without .md ("folder/target") while the target
+    // doesn't exist yet. Frontmatter related: links are usually full-path, so
+    // this is the common incremental case. Body has no link → only the
+    // frontmatter edge is under test.
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent:
+          '---\ntitle: Source\nrelated: ["[[folder/target]]"]\n---\n\n# Source\n\nProse only.\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Target absent → link stored unresolved → no backlink yet.
+    expect(
+      index.getBacklinks({ path: "folder/target.md" }, logger),
+    ).toHaveLength(0)
+
+    index.upsertNote(
+      {
+        filePath: "folder/target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks({ path: "folder/target.md" }, logger)
+    expect(backlinks).toHaveLength(1)
+    expect(backlinks[0].path).toBe("source.md")
+  })
 })
 
 describe("frontmatter links in the graph", () => {
