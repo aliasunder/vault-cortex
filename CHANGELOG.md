@@ -47,6 +47,19 @@
 
 
 
+
+## [0.19.6] — 2026-06-19
+
+### Documentation
+
+- Update CHANGELOG.md for v0.19.5
+
+### Maintenance
+
+- **deps:** Bump node from `21f403a` to `156b55f` (#156)
+- **deps:** Bump actions/checkout from 6.0.3 to 7.0.0 (#155)
+- **deps:** Bump better-sqlite3 from 12.10.0 to 12.11.1 in the production group (#154)
+
 ## [0.19.5] — 2026-06-18
 
 ### Features
