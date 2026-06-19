@@ -422,6 +422,33 @@ const fileExists = async (fullPath: string): Promise<boolean> => {
   }
 }
 
+/** Max files rewritten concurrently. Caps open file handles so moving a note
+ *  with a very large backlink set (e.g. a hub note) can't exhaust the process
+ *  file-descriptor limit. */
+const REWRITE_BATCH_SIZE = 10
+
+/** Maps an async function over items in fixed-size batches, awaiting each batch
+ *  before starting the next so at most batchSize run concurrently. Results
+ *  preserve input order. */
+const mapInBatches = async <Item, Result>(
+  items: readonly Item[],
+  batchSize: number,
+  mapper: (item: Item) => Promise<Result>,
+): Promise<Result[]> => {
+  const batchStarts = Array.from(
+    { length: Math.ceil(items.length / batchSize) },
+    (_unused, batchIndex) => batchIndex * batchSize,
+  )
+  // Sequential over batches (await in loop is intentional — it bounds the
+  // concurrency); the files within each batch run together via Promise.all.
+  const results: Result[] = []
+  for (const start of batchStarts) {
+    const batch = items.slice(start, start + batchSize)
+    results.push(...(await Promise.all(batch.map(mapper))))
+  }
+  return results
+}
+
 /** Moves a note and rewrites every link across the vault that resolves to it.
  *
  *  backlinkSources is the set of notes that currently link to oldPath (supplied
@@ -501,20 +528,17 @@ const moveNote = async (
     allPathsAfter,
   })
 
-  const sourceRewrites = await Promise.all(
-    params.backlinkSources
-      .filter((source) => source !== oldPath)
-      .map(async (source) => {
-        const sourceFullPath = resolveSafePath(vaultPath, source)
-        const rawContent = await readFile(sourceFullPath, "utf8")
-        const rewrite = rewriteNoteContent(
-          rawContent,
-          rewriteContextFor(source),
-        )
-        if (rewrite === null) return null
-        await atomicWriteFile(sourceFullPath, rewrite.content)
-        return { source, count: rewrite.count }
-      }),
+  const sourceRewrites = await mapInBatches(
+    params.backlinkSources.filter((source) => source !== oldPath),
+    REWRITE_BATCH_SIZE,
+    async (source) => {
+      const sourceFullPath = resolveSafePath(vaultPath, source)
+      const rawContent = await readFile(sourceFullPath, "utf8")
+      const rewrite = rewriteNoteContent(rawContent, rewriteContextFor(source))
+      if (rewrite === null) return null
+      await atomicWriteFile(sourceFullPath, rewrite.content)
+      return { source, count: rewrite.count }
+    },
   )
   const appliedRewrites = sourceRewrites.filter((rewrite) => rewrite !== null)
 

@@ -279,6 +279,30 @@ describe("moveNote — counts and summary", () => {
       updated_notes: ["Alpha.md", "Beta.md"],
     })
   })
+
+  it("rewrites every source when there are more than one batch of them", async () => {
+    await writeFixture("Foo.md", "content\n")
+    // 25 sources spans three batches of 10 — exercises the batch-boundary logic.
+    const sources = Array.from({ length: 25 }, (_unused, index) => {
+      const padded = String(index).padStart(2, "0")
+      return `src-${padded}.md`
+    })
+    await Promise.all(
+      sources.map((source) => writeFixture(source, "Link to [[Foo]].\n")),
+    )
+
+    const result = await move("Foo.md", "Bar.md", sources)
+
+    const allRewritten = await Promise.all(
+      sources.map((source) => read(source)),
+    )
+    expect(allRewritten.every((body) => body === "Link to [[Bar]].\n")).toBe(true)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 25,
+      updated_notes: [...sources].sort(),
+    })
+  })
 })
 
 describe("moveNote — guards", () => {
