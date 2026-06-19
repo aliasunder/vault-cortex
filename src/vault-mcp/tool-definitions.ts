@@ -581,7 +581,7 @@ Errors:
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "only moves .md notes" — both paths must end in .md.
 - "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
-- Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is never deleted, so nothing is lost. If a write failed partway, new_path may already exist with some backlinks rewritten; re-run the move (delete the partial new_path first if it exists) to finish. The failing source and progress are logged.
+- Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is deleted only after the destination and all backlinks are written, so a failure never loses data. The error message names what failed and the resulting state: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish).
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its .md extension and link text. Only the target path is changed.
 

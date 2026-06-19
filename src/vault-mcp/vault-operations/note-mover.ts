@@ -545,7 +545,10 @@ const moveNote = async (
         to: newPath,
         error: describeError(error),
       })
-      throw error
+      throw new Error(
+        `move aborted: could not read the note being moved "${oldPath}"; nothing was written: ${describeError(error)}`,
+        { cause: error },
+      )
     }
   }
   const { content: movedContent, count: movedLinkCount } = await planMovedNote()
@@ -579,7 +582,10 @@ const moveNote = async (
             "note move aborted: could not read/plan a backlink source",
             { source, from: oldPath, to: newPath, error: describeError(error) },
           )
-          throw error
+          throw new Error(
+            `move aborted: could not read backlink source "${source}" (moving "${oldPath}" -> "${newPath}"); nothing was written: ${describeError(error)}`,
+            { cause: error },
+          )
         }
       },
     })
@@ -607,7 +613,10 @@ const moveNote = async (
         error: describeError(error),
       },
     )
-    throw error
+    throw new Error(
+      `move aborted: could not write the moved note to "${newPath}"; nothing was written: ${describeError(error)}`,
+      { cause: error },
+    )
   }
 
   // Mutable counter so a mid-commit write failure can report how many sources
@@ -631,7 +640,10 @@ const moveNote = async (
           note: "original left in place; some sources may already be updated",
           error: describeError(error),
         })
-        throw error
+        throw new Error(
+          `move incomplete: failed updating backlink source "${planned.source}" while moving "${oldPath}" -> "${newPath}" (${sourcesWritten}/${plannedRewrites.length} sources updated). "${newPath}" exists and the original was NOT deleted — re-run the move to finish: ${describeError(error)}`,
+          { cause: error },
+        )
       }
     },
   })
@@ -652,7 +664,10 @@ const moveNote = async (
       note: "destination and backlink sources were already written; the original may still exist — delete it to finish the move",
       error: describeError(error),
     })
-    throw error
+    throw new Error(
+      `move incomplete: the moved note and updated backlinks were written, but deleting the original "${oldPath}" failed — both "${oldPath}" and "${newPath}" now exist; delete "${oldPath}" to finish: ${describeError(error)}`,
+      { cause: error },
+    )
   }
 
   // Completion summary: counts of what was rewritten. Atomic move, so failures is
