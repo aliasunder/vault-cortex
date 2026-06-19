@@ -10,7 +10,7 @@
  *  name is still unambiguous). */
 
 import { readFile, mkdir, unlink, stat } from "node:fs/promises"
-import { posix } from "node:path"
+import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import {
@@ -424,7 +424,8 @@ const isProtected = (
  *  Collapses "./" and "../" segments so a path like "X/../Daily Notes/Foo.md"
  *  can't evade the protected-path prefix check and then resolve into a protected
  *  folder. Absolute or vault-escaping paths are left for resolveSafePath to reject. */
-const toVaultRelativePath = (input: string): string => posix.normalize(input)
+export const toVaultRelativePath = (input: string): string =>
+  posix.normalize(input)
 
 /** Resolves true if a file exists at the resolved vault path. */
 const fileExists = async (fullPath: string): Promise<boolean> => {
@@ -514,26 +515,36 @@ const moveNote = async (
   // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
 
   // The moved note itself: rewrite its self-links and any source-relative links
-  // so they still resolve from the new folder.
-  const movedRawContent = await readFile(oldFullPath, "utf8").catch(
-    (error: unknown) => {
+  // so they still resolve from the new folder. A read failure aborts the move
+  // before any write, named so the abort is debuggable.
+  const planMovedNote = async (): Promise<{
+    content: string
+    count: number
+  }> => {
+    try {
+      const rawContent = await readFile(oldFullPath, "utf8")
+      const rewrite = rewriteNoteContent(rawContent, {
+        oldSourcePath: oldPath,
+        newSourcePath: newPath,
+        oldTargetPath: oldPath,
+        newTargetPath: newPath,
+        allPaths: allPathsBefore,
+        allPathsAfter,
+      })
+      return {
+        content: rewrite?.content ?? rawContent,
+        count: rewrite?.count ?? 0,
+      }
+    } catch (error) {
       logger.error("note move aborted: could not read the note being moved", {
         from: oldPath,
         to: newPath,
         error: describeError(error),
       })
       throw error
-    },
-  )
-  const movedRewrite = rewriteNoteContent(movedRawContent, {
-    oldSourcePath: oldPath,
-    newSourcePath: newPath,
-    oldTargetPath: oldPath,
-    newTargetPath: newPath,
-    allPaths: allPathsBefore,
-    allPathsAfter,
-  })
-  const movedContent = movedRewrite?.content ?? movedRawContent
+    }
+  }
+  const { content: movedContent, count: movedLinkCount } = await planMovedNote()
 
   // Each backlink source (excluding the moved note, handled above): keep only the
   // ones whose content actually changes. A read/plan failure here aborts the whole
@@ -572,8 +583,12 @@ const moveNote = async (
 
   // ── Commit: all reads succeeded, so perform the writes. The original is
   //    deleted last, so a write failure here never loses data. ──
-  await mkdir(posix.dirname(newFullPath), { recursive: true })
-  await atomicWriteFile(newFullPath, movedContent).catch((error: unknown) => {
+  // dirname must be the native variant — newFullPath is an absolute filesystem
+  // path from resolveSafePath, not a vault-relative ("/"-separated) path.
+  await mkdir(dirname(newFullPath), { recursive: true })
+  try {
+    await atomicWriteFile(newFullPath, movedContent)
+  } catch (error) {
     logger.error(
       "note move aborted: could not write the note to its new path",
       {
@@ -583,7 +598,7 @@ const moveNote = async (
       },
     )
     throw error
-  })
+  }
 
   // Mutable counter so a mid-commit write failure can report how many sources
   // were already updated — in that rare case the vault is left partially
@@ -610,11 +625,26 @@ const moveNote = async (
       }
     },
   })
-  await unlink(oldFullPath)
-
   const linksUpdated =
-    (movedRewrite?.count ?? 0) +
+    movedLinkCount +
     plannedRewrites.reduce((sum, planned) => sum + planned.count, 0)
+
+  // Delete the original last. If this fails after the destination + sources are
+  // written, the vault is left with both copies — log enough context to recover.
+  try {
+    await unlink(oldFullPath)
+  } catch (error) {
+    logger.error("note move failed while deleting the original note", {
+      from: oldPath,
+      to: newPath,
+      sources_updated: plannedRewrites.length,
+      links_updated: linksUpdated,
+      note: "destination and backlink sources were already written; the original may still exist — delete it to finish the move",
+      error: describeError(error),
+    })
+    throw error
+  }
+
   // Completion summary: counts of what was rewritten. Atomic move, so failures is
   // always 0 here — a failure would have thrown above (logged with its source).
   logger.info("note move complete", {

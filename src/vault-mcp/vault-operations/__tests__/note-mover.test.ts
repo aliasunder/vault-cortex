@@ -325,8 +325,8 @@ describe("moveNote — counts and summary", () => {
     const allRewritten = await Promise.all(
       sources.map((source) => readNote(source)),
     )
-    expect(allRewritten.every((body) => body === "Link to [[Bar]].\n")).toBe(
-      true,
+    expect(allRewritten).toEqual(
+      Array.from({ length: sources.length }, () => "Link to [[Bar]].\n"),
     )
     expect(result).toEqual({
       moved_to: "Bar.md",
@@ -396,7 +396,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "Bar.txt")).rejects.toThrow(
-      "only moves .md",
+      "vault_move_note only moves .md notes (paths must end in .md)",
     )
   })
 

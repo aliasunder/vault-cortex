@@ -3,7 +3,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { vaultFs } from "./vault-operations/vault-filesystem.js"
-import { noteMover } from "./vault-operations/note-mover.js"
+import {
+  noteMover,
+  toVaultRelativePath,
+} from "./vault-operations/note-mover.js"
 import { vaultPatcher } from "./vault-operations/vault-patcher.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { getDailyNote } from "./vault-operations/daily-notes.js"
@@ -613,13 +616,21 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
       return safeHandler(
         reqLogger,
         async () => {
-          const backlinks = search.getBacklinks({ path: oldPath }, reqLogger)
+          // Normalize to the canonical vault-relative form before the index
+          // lookup so a non-canonical input (e.g. "A/../Note.md") still finds its
+          // backlinks — the same normalization moveNote applies internally.
+          const normalizedOldPath = toVaultRelativePath(oldPath)
+          const normalizedNewPath = toVaultRelativePath(newPath)
+          const backlinks = search.getBacklinks(
+            { path: normalizedOldPath },
+            reqLogger,
+          )
           const allPaths = await vaultFs.listNotes({ vaultPath }, reqLogger)
           return noteMover.moveNote(
             {
               vaultPath,
-              oldPath,
-              newPath,
+              oldPath: normalizedOldPath,
+              newPath: normalizedNewPath,
               protectedPaths: config.protectedPaths,
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allPaths,
