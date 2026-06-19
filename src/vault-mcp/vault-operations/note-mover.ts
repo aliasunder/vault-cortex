@@ -171,10 +171,18 @@ const rewriteTarget = (
 
 // ── Body rewriting ──────────────────────────────────────────────
 
-/** Percent-encodes spaces in a markdown link path (Obsidian's convention);
- *  other characters are left as authored. */
+/** Percent-encodes each segment of a markdown link path so reserved characters
+ *  (spaces, #, parentheses, %, …) can't break markdown link parsing or change the
+ *  link's meaning. encodeURIComponent leaves "()" alone, so they're encoded
+ *  explicitly — an unencoded ")" would close the link early. "/" separators are
+ *  preserved by encoding per segment. */
 const encodeMarkdownLinkPath = (path: string): string =>
-  path.replaceAll(" ", "%20")
+  path
+    .split("/")
+    .map((segment) =>
+      encodeURIComponent(segment).replace(/\(/g, "%28").replace(/\)/g, "%29"),
+    )
+    .join("/")
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
@@ -411,6 +419,12 @@ const isProtected = (
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
 
+/** Canonical vault-relative form used for guard checks and index comparisons.
+ *  Collapses "./" and "../" segments so a path like "X/../Daily Notes/Foo.md"
+ *  can't evade the protected-path prefix check and then resolve into a protected
+ *  folder. Absolute or vault-escaping paths are left for resolveSafePath to reject. */
+const toVaultRelativePath = (input: string): string => posix.normalize(input)
+
 /** Resolves true if a file exists at the resolved vault path. */
 const fileExists = async (fullPath: string): Promise<boolean> => {
   try {
@@ -422,28 +436,29 @@ const fileExists = async (fullPath: string): Promise<boolean> => {
   }
 }
 
-/** Max files rewritten concurrently. Caps open file handles so moving a note
- *  with a very large backlink set (e.g. a hub note) can't exhaust the process
+/** Max notes processed concurrently. Caps open file handles so moving a note with
+ *  a very large backlink set (e.g. a hub note) can't exhaust the process
  *  file-descriptor limit. */
-const REWRITE_BATCH_SIZE = 10
+const REWRITE_CONCURRENCY = 10
 
-/** Maps an async function over items in fixed-size batches, awaiting each batch
- *  before starting the next so at most batchSize run concurrently. Results
- *  preserve input order. */
-const mapInBatches = async <Item, Result>(
-  items: readonly Item[],
-  batchSize: number,
-  mapper: (item: Item) => Promise<Result>,
-): Promise<Result[]> => {
+/** Maps an async function over items, running at most `concurrency` at a time:
+ *  each fixed-size batch is awaited before the next starts. Results preserve
+ *  input order. */
+const mapWithConcurrency = async <Item, Result>(params: {
+  items: readonly Item[]
+  concurrency: number
+  mapper: (item: Item) => Promise<Result>
+}): Promise<Result[]> => {
+  const { items, concurrency, mapper } = params
   const batchStarts = Array.from(
-    { length: Math.ceil(items.length / batchSize) },
-    (_unused, batchIndex) => batchIndex * batchSize,
+    { length: Math.ceil(items.length / concurrency) },
+    (_unused, batchIndex) => batchIndex * concurrency,
   )
   // Sequential over batches (await in loop is intentional — it bounds the
-  // concurrency); the files within each batch run together via Promise.all.
+  // concurrency); the notes within each batch run together via Promise.all.
   const results: Result[] = []
   for (const start of batchStarts) {
-    const batch = items.slice(start, start + batchSize)
+    const batch = items.slice(start, start + concurrency)
     results.push(...(await Promise.all(batch.map(mapper))))
   }
   return results
@@ -453,9 +468,10 @@ const mapInBatches = async <Item, Result>(
  *
  *  backlinkSources is the set of notes that currently link to oldPath (supplied
  *  by the caller from the search index); allPaths is every note path before the
- *  move. The move is performed as: write the rewritten note to newPath, rewrite
- *  each backlink source, then delete oldPath last — so a mid-operation failure
- *  never strands a broken link (the original note stays in place until the end). */
+ *  move. Done in two phases for failure-safety: a preflight reads every file and
+ *  computes its rewrite (so a read failure aborts with the vault untouched), then
+ *  the commit writes the destination + sources and deletes the original last — so
+ *  even a write failure never loses data or strands a broken link. */
 const moveNote = async (
   params: {
     vaultPath: string
@@ -467,7 +483,10 @@ const moveNote = async (
   },
   logger: Logger,
 ): Promise<MoveResult> => {
-  const { vaultPath, oldPath, newPath, protectedPaths, allPaths } = params
+  const { vaultPath, protectedPaths, allPaths } = params
+  // Normalize before any guard or comparison — see toVaultRelativePath.
+  const oldPath = toVaultRelativePath(params.oldPath)
+  const newPath = toVaultRelativePath(params.newPath)
 
   if (oldPath === newPath) {
     throw new Error("source and destination are the same path")
@@ -501,8 +520,19 @@ const moveNote = async (
     path === oldPath ? newPath : path,
   )
 
-  // 1. Write the moved note to its destination, rewriting its own self-links
-  //    and any source-relative links so they still resolve from the new folder.
+  const rewriteContextFor = (source: string): RewriteContext => ({
+    oldSourcePath: source,
+    newSourcePath: source,
+    oldTargetPath: oldPath,
+    newTargetPath: newPath,
+    allPaths: allPathsBefore,
+    allPathsAfter,
+  })
+
+  // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
+
+  // The moved note itself: rewrite its self-links and any source-relative links
+  // so they still resolve from the new folder.
   const movedRawContent = await readFile(oldFullPath, "utf8")
   const movedRewrite = rewriteNoteContent(movedRawContent, {
     oldSourcePath: oldPath,
@@ -513,52 +543,57 @@ const moveNote = async (
     allPathsAfter,
   })
   const movedContent = movedRewrite?.content ?? movedRawContent
+
+  // Each backlink source (excluding the moved note, handled above): keep only the
+  // ones whose content actually changes.
+  const plannedRewrites = (
+    await mapWithConcurrency({
+      items: params.backlinkSources.filter((source) => source !== oldPath),
+      concurrency: REWRITE_CONCURRENCY,
+      mapper: async (source) => {
+        const sourceFullPath = resolveSafePath(vaultPath, source)
+        const rawContent = await readFile(sourceFullPath, "utf8")
+        const rewrite = rewriteNoteContent(
+          rawContent,
+          rewriteContextFor(source),
+        )
+        return rewrite === null
+          ? null
+          : {
+              source,
+              fullPath: sourceFullPath,
+              content: rewrite.content,
+              count: rewrite.count,
+            }
+      },
+    })
+  ).filter((planned) => planned !== null)
+
+  // ── Commit: all reads succeeded, so perform the writes. The original is
+  //    deleted last, so a write failure here never loses data. ──
   await mkdir(posix.dirname(newFullPath), { recursive: true })
   await atomicWriteFile(newFullPath, movedContent)
-
-  // 2. Rewrite each note that linked to the old path (skip the moved note
-  //    itself — its self-links were handled in step 1). Sources are distinct
-  //    files with no shared state, so they rewrite in parallel.
-  const rewriteContextFor = (source: string): RewriteContext => ({
-    oldSourcePath: source,
-    newSourcePath: source,
-    oldTargetPath: oldPath,
-    newTargetPath: newPath,
-    allPaths: allPathsBefore,
-    allPathsAfter,
+  await mapWithConcurrency({
+    items: plannedRewrites,
+    concurrency: REWRITE_CONCURRENCY,
+    mapper: (planned) => atomicWriteFile(planned.fullPath, planned.content),
   })
-
-  const sourceRewrites = await mapInBatches(
-    params.backlinkSources.filter((source) => source !== oldPath),
-    REWRITE_BATCH_SIZE,
-    async (source) => {
-      const sourceFullPath = resolveSafePath(vaultPath, source)
-      const rawContent = await readFile(sourceFullPath, "utf8")
-      const rewrite = rewriteNoteContent(rawContent, rewriteContextFor(source))
-      if (rewrite === null) return null
-      await atomicWriteFile(sourceFullPath, rewrite.content)
-      return { source, count: rewrite.count }
-    },
-  )
-  const appliedRewrites = sourceRewrites.filter((rewrite) => rewrite !== null)
-
-  // 3. Remove the original only after the destination and all sources are safe.
   await unlink(oldFullPath)
 
   const linksUpdated =
     (movedRewrite?.count ?? 0) +
-    appliedRewrites.reduce((sum, rewrite) => sum + rewrite.count, 0)
+    plannedRewrites.reduce((sum, planned) => sum + planned.count, 0)
   logger.info("moved note", {
     from: oldPath,
     to: newPath,
     linksUpdated,
-    notesUpdated: appliedRewrites.length,
+    notesUpdated: plannedRewrites.length,
   })
 
   return {
     moved_to: newPath,
     links_updated: linksUpdated,
-    updated_notes: appliedRewrites.map((rewrite) => rewrite.source).sort(),
+    updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
   }
 }
 
