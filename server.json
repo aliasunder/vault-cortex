@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "MCP server for Obsidian vaults — search, memory, links, 23 tools + 3 prompts, OAuth-protected.",
-  "version": "0.19.5",
+  "version": "0.19.6",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-mcp:0.19.5",
+      "identifier": "ghcr.io/aliasunder/vault-mcp:0.19.6",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
