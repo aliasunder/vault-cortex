@@ -20,12 +20,6 @@
 
 </div>
 
-<!-- TODO: Uncomment when demo GIF is recorded (see ^demo-gif task)
-<p align="center">
-  <img src="./assets/demo.gif" width="600" alt="Vault Cortex demo — vault_get_memory and vault_update_memory round-trip">
-</p>
--->
-
 ## What is this?
 
 **Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools and 3 guided prompts over a single Docker container.
@@ -38,6 +32,19 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **Guided workflows** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work — assembled from live vault content each time you run them
+
+<table align="center">
+  <tr>
+    <td align="center"><strong>Remember</strong></td>
+    <td align="center"><strong>Reason</strong></td>
+    <td align="center"><strong>Save</strong></td>
+  </tr>
+  <tr>
+    <td><img src="./assets/demo-remember.gif" width="240" alt="Ask Claude about a past trip — it searches the vault and recalls the route, cities, and highlights"></td>
+    <td><img src="./assets/demo-reason.gif" width="240" alt="Ask what went wrong — Claude synthesizes lessons from session logs and itinerary notes"></td>
+    <td><img src="./assets/demo-writeback.gif" width="240" alt="Save lessons learned to the vault, update travel preferences, then see both in Obsidian"></td>
+  </tr>
+</table>
 
 ### Roadmap
 
