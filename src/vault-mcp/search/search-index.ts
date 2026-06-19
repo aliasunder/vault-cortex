@@ -194,18 +194,21 @@ type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5). */
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5).
+ *  Exported so the link rewriter (note-mover.ts) skips code the same way indexing does. */
+export const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 
 /** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
  *  [[target#heading|text]], and embeds ![[target]]. Captures the
- *  target path/name (group 1) before any # or |. */
-const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
+ *  target path/name (group 1) before any # or |. Exported as the single
+ *  source of truth for wikilink syntax, reused by note-mover.ts. */
+export const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
 
 /** Matches markdown internal links to .md files: [text](path.md) or
  *  [text](path.md#heading). Excludes external URLs and non-.md assets
- *  (images, PDFs). Captures the path without extension (group 1). */
-const MD_LINK_RE =
+ *  (images, PDFs). Captures the path without extension (group 1). Exported
+ *  as the single source of truth for markdown-link syntax, reused by note-mover.ts. */
+export const MD_LINK_RE =
   /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
 
 /** Safely decodes a URI component, falling back to the raw string
@@ -219,8 +222,9 @@ const safeDecodeURIComponent = (encoded: string): string => {
 }
 
 /** Strips inline code spans from a line so links inside backticks
- *  (e.g. `[[Note]]`) are not extracted as real links. */
-const INLINE_CODE_RE = /`+[^`\n]*`+/g
+ *  (e.g. `[[Note]]`) are not extracted as real links. Exported so the link
+ *  rewriter (note-mover.ts) leaves links inside code spans untouched. */
+export const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
 /** Extracts link targets from markdown content, skipping fenced code
  *  blocks and inline code spans. Returns deduplicated raw targets

@@ -3,6 +3,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { vaultFs } from "./vault-operations/vault-filesystem.js"
+import { noteMover } from "./vault-operations/note-mover.js"
 import { vaultPatcher } from "./vault-operations/vault-patcher.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { getDailyNote } from "./vault-operations/daily-notes.js"
@@ -17,6 +18,7 @@ export const TOOL_NAMES = {
   VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
   VAULT_LIST_NOTES: "vault_list_notes",
   VAULT_DELETE_NOTE: "vault_delete_note",
+  VAULT_MOVE_NOTE: "vault_move_note",
   VAULT_SEARCH: "vault_search",
   VAULT_SEARCH_BY_TAG: "vault_search_by_tag",
   VAULT_SEARCH_BY_FOLDER: "vault_search_by_folder",
@@ -554,6 +556,77 @@ Returns: Confirmation message.`,
             reqLogger,
           ),
         () => `Deleted ${path}`,
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_MOVE_NOTE,
+    {
+      title: "Move Note",
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder. A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.
+
+Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
+Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder, updating links and the note's own relative links.
+
+When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) cannot be moved.
+
+Errors:
+- "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
+- "note not found: …" — old_path does not exist; verify it with vault_list_notes.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
+- "only moves .md notes" — both paths must end in .md.
+- "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
+
+Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its .md extension and link text. Only the target path is changed.
+
+Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), and updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to).`,
+      inputSchema: {
+        old_path: z
+          .string()
+          .min(1)
+          .describe(
+            'Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.',
+          ),
+        new_path: z
+          .string()
+          .min(1)
+          .describe(
+            'Destination vault-relative path (e.g. "Projects/Spec.md"). Must end in .md and must not already exist; parent folders are created as needed.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ old_path: oldPath, new_path: newPath }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_MOVE_NOTE,
+      })
+      reqLogger.info("tool_call", { oldPath, newPath })
+      return safeHandler(
+        reqLogger,
+        async () => {
+          const backlinks = search.getBacklinks({ path: oldPath }, reqLogger)
+          const allPaths = await vaultFs.listNotes({ vaultPath }, reqLogger)
+          return noteMover.moveNote(
+            {
+              vaultPath,
+              oldPath,
+              newPath,
+              protectedPaths: config.protectedPaths,
+              backlinkSources: backlinks.map((backlink) => backlink.path),
+              allPaths,
+            },
+            reqLogger,
+          )
+        },
+        (result) => JSON.stringify(result),
       )
     },
   )

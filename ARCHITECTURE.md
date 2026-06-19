@@ -188,12 +188,15 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_replace_in_note` | `path, old_text, new_text, replace_all_occurrences?`         | destructiveHint |
 | `vault_list_notes`      | `folder?, glob?`                                             | readOnlyHint    |
 | `vault_delete_note`     | `path`                                                       | destructiveHint |
+| `vault_move_note`       | `old_path, new_path`                                         | destructiveHint |
 
 `vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, headings }` — the heading tree plus any top-of-file callout (a `> [!type]` block) when present.
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
 
 `vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files.
+
+`vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links — mirroring Obsidian's built-in rename. It reuses the same link-resolution logic as the link-graph tools, only rewrites a link when leaving it would break it, and refuses to overwrite an existing destination or touch `PROTECTED_PATHS`.
 
 ### Phase 1: Search (R4)
 

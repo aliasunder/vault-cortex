@@ -8,7 +8,7 @@ npx vault-cortex@latest init
 ```
 
 Vault Cortex is a plugin-free, remote-capable MCP server for Obsidian vaults —
-23 tools for search (SQLite FTS5), notes, frontmatter, links, daily notes, and
+24 tools for search (SQLite FTS5), notes, frontmatter, links, daily notes, and
 a persistent memory layer, plus 3 guided prompts (orientation, memory review,
 daily review). It runs as a Docker container; this CLI scaffolds the config so
 you don't have to.

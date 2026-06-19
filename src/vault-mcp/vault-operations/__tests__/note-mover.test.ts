@@ -1,0 +1,342 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { mkdtemp, rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
+import { join, dirname } from "node:path"
+import { tmpdir } from "node:os"
+import { noteMover } from "../note-mover.js"
+import { vaultFs } from "../vault-filesystem.js"
+import { logger } from "../../../logger.js"
+
+const PROTECTED = ["About Me", "Daily Notes"] as const
+
+let vault: string
+
+beforeEach(async () => {
+  vault = await mkdtemp(join(tmpdir(), "note-mover-test-"))
+})
+
+afterEach(async () => {
+  await rm(vault, { recursive: true })
+})
+
+const writeFixture = async (path: string, content: string): Promise<void> => {
+  const fullPath = join(vault, path)
+  await mkdir(dirname(fullPath), { recursive: true })
+  await writeFile(fullPath, content, "utf8")
+}
+
+const read = (path: string): Promise<string> =>
+  readFile(join(vault, path), "utf8")
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(join(vault, path))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Moves a note, snapshotting the pre-move path list the way the tool does. */
+const move = async (
+  oldPath: string,
+  newPath: string,
+  backlinkSources: string[] = [],
+) =>
+  noteMover.moveNote(
+    {
+      vaultPath: vault,
+      oldPath,
+      newPath,
+      protectedPaths: PROTECTED,
+      backlinkSources,
+      allPaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
+    },
+    logger,
+  )
+
+describe("moveNote — file relocation", () => {
+  it("writes the note at the new path and removes the old one", async () => {
+    await writeFixture("Inbox/Draft.md", "Just a body.\n")
+
+    await move("Inbox/Draft.md", "Inbox/Spec.md")
+
+    expect(await exists("Inbox/Draft.md")).toBe(false)
+    expect(await read("Inbox/Spec.md")).toBe("Just a body.\n")
+  })
+
+  it("creates destination parent folders that do not yet exist", async () => {
+    await writeFixture("Inbox/Draft.md", "Body.\n")
+
+    await move("Inbox/Draft.md", "Projects/Specs/Draft.md")
+
+    expect(await read("Projects/Specs/Draft.md")).toBe("Body.\n")
+  })
+
+  it("returns the full move summary for a move with no backlinks", async () => {
+    await writeFixture("Inbox/Draft.md", "Body.\n")
+
+    const result = await move("Inbox/Draft.md", "Done/Draft.md")
+
+    expect(result).toEqual({
+      moved_to: "Done/Draft.md",
+      links_updated: 0,
+      updated_notes: [],
+    })
+  })
+})
+
+describe("moveNote — link rewriting forms", () => {
+  it("rewrites a bare wikilink on rename", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+
+    const result = await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("See [[Bar]] for details.\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+    })
+  })
+
+  it("leaves a bare wikilink untouched on a folder move when the short name stays unambiguous", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+
+    const result = await move("Foo.md", "Archive/Foo.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("See [[Foo]] for details.\n")
+    expect(result).toEqual({
+      moved_to: "Archive/Foo.md",
+      links_updated: 0,
+      updated_notes: [],
+    })
+  })
+
+  it("rewrites a full vault-path wikilink to the new path", async () => {
+    await writeFixture("Projects/Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Projects/Foo]] here.\n")
+
+    await move("Projects/Foo.md", "Archive/Foo.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("See [[Archive/Foo]] here.\n")
+  })
+
+  it("preserves an alias when rewriting a wikilink", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo|the foo note]].\n")
+
+    await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("See [[Bar|the foo note]].\n")
+  })
+
+  it("preserves a heading anchor when rewriting a wikilink", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Jump to [[Foo#Setup]].\n")
+
+    await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("Jump to [[Bar#Setup]].\n")
+  })
+
+  it("preserves the embed marker when rewriting an embed", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "![[Foo]]\n")
+
+    await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("![[Bar]]\n")
+  })
+
+  it("rewrites a markdown link, preserving its text and re-encoding spaces", async () => {
+    await writeFixture("Old Note.md", "content\n")
+    await writeFixture("Hub.md", "Read the [summary](Old%20Note.md) now.\n")
+
+    await move("Old Note.md", "New Note.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe(
+      "Read the [summary](New%20Note.md) now.\n",
+    )
+  })
+
+  it("rewrites a wikilink stored in a frontmatter property", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", '---\nrelated:\n  - "[[Foo]]"\n---\nBody\n')
+
+    const result = await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe(
+      '---\nrelated:\n  - "[[Bar]]"\n---\nBody\n',
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("rewrites a source-relative wikilink in another folder", async () => {
+    await writeFixture("B/Target.md", "content\n")
+    await writeFixture("A/Note.md", "Up and over to [[../B/Target]].\n")
+
+    await move("B/Target.md", "B/Renamed.md", ["A/Note.md"])
+
+    expect(await read("A/Note.md")).toBe("Up and over to [[../B/Renamed]].\n")
+  })
+
+  it("rewrites the moved note's own relative link so it still resolves from the new folder", async () => {
+    await writeFixture("A/Sibling.md", "sibling\n")
+    await writeFixture("B/Target.md", "Points to [[../A/Sibling]].\n")
+
+    const result = await move("B/Target.md", "C/Deep/Target.md")
+
+    expect(await exists("B/Target.md")).toBe(false)
+    expect(await read("C/Deep/Target.md")).toBe(
+      "Points to [[../../A/Sibling]].\n",
+    )
+    expect(result).toEqual({
+      moved_to: "C/Deep/Target.md",
+      links_updated: 1,
+      updated_notes: [],
+    })
+  })
+
+  it("upgrades a bare wikilink to a full path when the new basename is no longer unique", async () => {
+    await writeFixture("Common.md", "the other common\n")
+    await writeFixture("Inbox/Special.md", "content\n")
+    await writeFixture("Hub.md", "See [[Special]].\n")
+
+    await move("Inbox/Special.md", "Archive/Common.md", ["Hub.md"])
+
+    // A bare [[Common]] would resolve to the root Common.md, so the rewrite must
+    // use the full path to keep pointing at the moved note.
+    expect(await read("Hub.md")).toBe("See [[Archive/Common]].\n")
+  })
+})
+
+describe("moveNote — selectivity (must-not-rewrite cases)", () => {
+  it("rewrites only the link to the moved note, leaving unrelated links intact", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Keep.md", "keep\n")
+    await writeFixture("Hub.md", "Both [[Foo]] and [[Keep]] matter.\n")
+
+    const result = await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("Both [[Bar]] and [[Keep]] matter.\n")
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("does not rewrite a link inside a fenced code block", async () => {
+    await writeFixture("Foo.md", "content\n")
+    const body = "Real link [[Foo]].\n\n```\nExample: [[Foo]] in code\n```\n"
+    await writeFixture("Hub.md", body)
+
+    const result = await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe(
+      "Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("does not rewrite a link inside an inline code span", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Use `[[Foo]]` syntax to link [[Foo]].\n")
+
+    await move("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await read("Hub.md")).toBe("Use `[[Foo]]` syntax to link [[Bar]].\n")
+  })
+
+  it("does not rewrite a same-named link that resolves to a different note, even when passed as a candidate", async () => {
+    await writeFixture("Deep/Foo.md", "the moved note\n")
+    await writeFixture("Near/Foo.md", "a different foo\n")
+    // [[Foo]] here resolves to Near/Foo.md (same folder), not the moved Deep/Foo.md.
+    await writeFixture("Near/Note.md", "Local [[Foo]].\n")
+
+    const result = await move("Deep/Foo.md", "Deep/Bar.md", ["Near/Note.md"])
+
+    expect(await read("Near/Note.md")).toBe("Local [[Foo]].\n")
+    expect(result).toEqual({
+      moved_to: "Deep/Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+    })
+  })
+})
+
+describe("moveNote — counts and summary", () => {
+  it("counts every rewritten occurrence and lists changed notes sorted", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Beta.md", "[[Foo]] and again [[Foo|alias]].\n")
+    await writeFixture("Alpha.md", "Single [[Foo]].\n")
+
+    const result = await move("Foo.md", "Bar.md", ["Beta.md", "Alpha.md"])
+
+    expect(await read("Beta.md")).toBe("[[Bar]] and again [[Bar|alias]].\n")
+    expect(await read("Alpha.md")).toBe("Single [[Bar]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 3,
+      updated_notes: ["Alpha.md", "Beta.md"],
+    })
+  })
+})
+
+describe("moveNote — guards", () => {
+  it("throws when the destination already exists", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Bar.md", "occupied\n")
+
+    await expect(move("Foo.md", "Bar.md")).rejects.toThrow(
+      'destination exists: "Bar.md"',
+    )
+    // The existing destination is left untouched.
+    expect(await read("Bar.md")).toBe("occupied\n")
+    expect(await read("Foo.md")).toBe("content\n")
+  })
+
+  it("throws when the source note does not exist", async () => {
+    await expect(move("Missing.md", "Bar.md")).rejects.toThrow(
+      'note not found: "Missing.md"',
+    )
+  })
+
+  it("throws when the source is under a protected path", async () => {
+    await writeFixture("About Me/Me.md", "memory\n")
+
+    await expect(move("About Me/Me.md", "Bar.md")).rejects.toThrow(
+      'cannot move protected path "About Me/Me.md"',
+    )
+    expect(await exists("About Me/Me.md")).toBe(true)
+  })
+
+  it("throws when the destination is under a protected path", async () => {
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(move("Foo.md", "About Me/Foo.md")).rejects.toThrow(
+      'cannot move into protected path "About Me/Foo.md"',
+    )
+    expect(await exists("Foo.md")).toBe(true)
+  })
+
+  it("throws when source and destination are identical", async () => {
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(move("Foo.md", "Foo.md")).rejects.toThrow(
+      "source and destination are the same path",
+    )
+  })
+
+  it("throws when a path does not end in .md", async () => {
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(move("Foo.md", "Bar.txt")).rejects.toThrow("only moves .md")
+  })
+
+  it("throws when a path escapes the vault root", async () => {
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(move("Foo.md", "../escape.md")).rejects.toThrow(
+      "path traversal blocked",
+    )
+  })
+})
