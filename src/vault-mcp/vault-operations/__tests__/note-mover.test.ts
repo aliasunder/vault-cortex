@@ -296,7 +296,9 @@ describe("moveNote — counts and summary", () => {
     const allRewritten = await Promise.all(
       sources.map((source) => read(source)),
     )
-    expect(allRewritten.every((body) => body === "Link to [[Bar]].\n")).toBe(true)
+    expect(allRewritten.every((body) => body === "Link to [[Bar]].\n")).toBe(
+      true,
+    )
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 25,
