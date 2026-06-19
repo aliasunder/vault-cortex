@@ -400,3 +400,21 @@ describe("moveNote — guards", () => {
     )
   })
 })
+
+describe("moveNote — failure safety", () => {
+  it("aborts without writing anything when a backlink source cannot be read", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    // "Ghost.md" is listed as a backlink source (as a stale index row might be)
+    // but has no file on disk, so its preflight read fails. The preflight must
+    // fail before any write so the vault is left untouched.
+    await expect(
+      moveNote("Foo.md", "Bar.md", ["Hub.md", "Ghost.md"]),
+    ).rejects.toThrow()
+
+    expect(await noteExists("Foo.md")).toBe(true)
+    expect(await noteExists("Bar.md")).toBe(false)
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
+  })
+})
