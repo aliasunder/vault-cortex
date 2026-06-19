@@ -5,6 +5,7 @@ import {
   mkdir,
   unlink,
   rename,
+  link,
   rm,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
@@ -54,6 +55,32 @@ export const atomicWriteFile = async (
       // ignore — preserving the root-cause error below matters more
     }
     throw err
+  }
+}
+
+/**
+ * Creates a file atomically and exclusively: stage to a unique temp file, then
+ * hard-`link` it onto the target. Unlike atomicWriteFile (which renames *over*
+ * the target), `link` fails with EEXIST when the target already exists, so this
+ * never clobbers — closing the check-then-write race when the destination must
+ * be new (e.g. vault_move_note's destination). The content is fully staged before
+ * the link, so the target appears atomically. The temp link is always removed,
+ * leaving only the target on success.
+ */
+export const atomicCreateFile = async (
+  filePath: string,
+  content: string,
+): Promise<void> => {
+  const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  try {
+    await writeFile(tmpPath, content, "utf8")
+    // Atomic no-clobber create: throws EEXIST if filePath already exists.
+    await link(tmpPath, filePath)
+  } finally {
+    // Always drop the temp link — redundant on success (filePath is the durable
+    // name), and never stranded on failure. Swallow cleanup errors so the
+    // original failure (e.g. EEXIST) is what propagates.
+    await rm(tmpPath, { force: true }).catch(() => {})
   }
 }
 

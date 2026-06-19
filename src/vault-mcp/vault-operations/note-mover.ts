@@ -12,7 +12,11 @@
 import { readFile, mkdir, unlink, stat } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
-import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
+import {
+  resolveSafePath,
+  atomicWriteFile,
+  atomicCreateFile,
+} from "./vault-filesystem.js"
 import {
   resolveLink,
   WIKILINK_RE,
@@ -587,8 +591,14 @@ const moveNote = async (
   // path from resolveSafePath, not a vault-relative ("/"-separated) path.
   await mkdir(dirname(newFullPath), { recursive: true })
   try {
-    await atomicWriteFile(newFullPath, movedContent)
+    // Atomic no-clobber create: never overwrites an existing note even if one
+    // appears after the earlier destination-exists check (a concurrent writer).
+    await atomicCreateFile(newFullPath, movedContent)
   } catch (error) {
+    // EEXIST means we lost that race — surface the same error as the pre-check.
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`destination exists: "${newPath}"`, { cause: error })
+    }
     logger.error(
       "note move aborted: could not write the note to its new path",
       {
