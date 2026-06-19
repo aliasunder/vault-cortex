@@ -20,6 +20,7 @@ import {
   FENCE_OPEN,
   INLINE_CODE_RE,
 } from "../search/search-index.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -440,29 +441,6 @@ const fileExists = async (fullPath: string): Promise<boolean> => {
  *  a very large backlink set (e.g. a hub note) can't exhaust the process
  *  file-descriptor limit. */
 const REWRITE_CONCURRENCY = 10
-
-/** Maps an async function over items, running at most `concurrency` at a time:
- *  each fixed-size batch is awaited before the next starts. Results preserve
- *  input order. */
-const mapWithConcurrency = async <Item, Result>(params: {
-  items: readonly Item[]
-  concurrency: number
-  mapper: (item: Item) => Promise<Result>
-}): Promise<Result[]> => {
-  const { items, concurrency, mapper } = params
-  const batchStarts = Array.from(
-    { length: Math.ceil(items.length / concurrency) },
-    (_unused, batchIndex) => batchIndex * concurrency,
-  )
-  // Sequential over batches (await in loop is intentional — it bounds the
-  // concurrency); the notes within each batch run together via Promise.all.
-  const results: Result[] = []
-  for (const start of batchStarts) {
-    const batch = items.slice(start, start + concurrency)
-    results.push(...(await Promise.all(batch.map(mapper))))
-  }
-  return results
-}
 
 /** Human-readable message from an unknown thrown value, for structured logs. */
 const describeError = (error: unknown): string =>
