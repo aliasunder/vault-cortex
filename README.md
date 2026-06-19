@@ -20,11 +20,18 @@
 
 </div>
 
-<!-- TODO: Uncomment when demo GIF is recorded (see ^demo-gif task)
-<p align="center">
-  <img src="./assets/demo.gif" width="600" alt="Vault Cortex demo — vault_get_memory and vault_update_memory round-trip">
-</p>
--->
+<table align="center">
+  <tr>
+    <td align="center"><strong>Remember</strong></td>
+    <td align="center"><strong>Reason</strong></td>
+    <td align="center"><strong>Write back</strong></td>
+  </tr>
+  <tr>
+    <td><img src="./assets/demo-remember.gif" width="280" alt="Ask Claude about a past trip — it searches the vault and recalls the route, cities, and highlights"></td>
+    <td><img src="./assets/demo-reason.gif" width="280" alt="Ask what went wrong — Claude synthesizes lessons from session logs and itinerary notes"></td>
+    <td><img src="./assets/demo-writeback.gif" width="280" alt="Save lessons learned to the vault, update travel preferences, then see both in Obsidian"></td>
+  </tr>
+</table>
 
 ## What is this?
 
