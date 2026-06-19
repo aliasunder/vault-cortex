@@ -63,6 +63,8 @@ src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
+  utils/                               # Cross-cutting helpers (no domain logic)
+    map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -74,6 +76,7 @@ src/
     vault-operations/                  # Vault content read/write/patch
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
+      note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       heading-parser.ts                # Shared H1–H6 section-span parser (read + patch)
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
@@ -129,8 +132,8 @@ root logger (src/logger.ts)
   adding `requestId` + `tool` name from the MCP SDK's
   `RequestHandlerExtra`
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
-  `memory-store`, `search-index`) take the logger as a **required**
-  second argument (two-arg pattern: `(params, logger)`)
+  `note-mover`, `memory-store`, `search-index`) take the logger as a
+  **required** second argument (two-arg pattern: `(params, logger)`)
 - Background callers (file-watcher, startup) use the root logger
   directly — no request context available
 
