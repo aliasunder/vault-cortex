@@ -464,6 +464,10 @@ const mapWithConcurrency = async <Item, Result>(params: {
   return results
 }
 
+/** Human-readable message from an unknown thrown value, for structured logs. */
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 /** Moves a note and rewrites every link across the vault that resolves to it.
  *
  *  backlinkSources is the set of notes that currently link to oldPath (supplied
@@ -533,7 +537,16 @@ const moveNote = async (
 
   // The moved note itself: rewrite its self-links and any source-relative links
   // so they still resolve from the new folder.
-  const movedRawContent = await readFile(oldFullPath, "utf8")
+  const movedRawContent = await readFile(oldFullPath, "utf8").catch(
+    (error: unknown) => {
+      logger.error("note move aborted: could not read the note being moved", {
+        from: oldPath,
+        to: newPath,
+        error: describeError(error),
+      })
+      throw error
+    },
+  )
   const movedRewrite = rewriteNoteContent(movedRawContent, {
     oldSourcePath: oldPath,
     newSourcePath: newPath,
@@ -545,26 +558,36 @@ const moveNote = async (
   const movedContent = movedRewrite?.content ?? movedRawContent
 
   // Each backlink source (excluding the moved note, handled above): keep only the
-  // ones whose content actually changes.
+  // ones whose content actually changes. A read/plan failure here aborts the whole
+  // move (nothing has been written yet) — logged with the offending source and the
+  // intended destination so the abort is debuggable.
   const plannedRewrites = (
     await mapWithConcurrency({
       items: params.backlinkSources.filter((source) => source !== oldPath),
       concurrency: REWRITE_CONCURRENCY,
       mapper: async (source) => {
-        const sourceFullPath = resolveSafePath(vaultPath, source)
-        const rawContent = await readFile(sourceFullPath, "utf8")
-        const rewrite = rewriteNoteContent(
-          rawContent,
-          rewriteContextFor(source),
-        )
-        return rewrite === null
-          ? null
-          : {
-              source,
-              fullPath: sourceFullPath,
-              content: rewrite.content,
-              count: rewrite.count,
-            }
+        try {
+          const sourceFullPath = resolveSafePath(vaultPath, source)
+          const rawContent = await readFile(sourceFullPath, "utf8")
+          const rewrite = rewriteNoteContent(
+            rawContent,
+            rewriteContextFor(source),
+          )
+          return rewrite === null
+            ? null
+            : {
+                source,
+                fullPath: sourceFullPath,
+                content: rewrite.content,
+                count: rewrite.count,
+              }
+        } catch (error) {
+          logger.error(
+            "note move aborted: could not read/plan a backlink source",
+            { source, from: oldPath, to: newPath, error: describeError(error) },
+          )
+          throw error
+        }
       },
     })
   ).filter((planned) => planned !== null)
@@ -572,22 +595,56 @@ const moveNote = async (
   // ── Commit: all reads succeeded, so perform the writes. The original is
   //    deleted last, so a write failure here never loses data. ──
   await mkdir(posix.dirname(newFullPath), { recursive: true })
-  await atomicWriteFile(newFullPath, movedContent)
+  await atomicWriteFile(newFullPath, movedContent).catch((error: unknown) => {
+    logger.error(
+      "note move aborted: could not write the note to its new path",
+      {
+        from: oldPath,
+        to: newPath,
+        error: describeError(error),
+      },
+    )
+    throw error
+  })
+
+  // Mutable counter so a mid-commit write failure can report how many sources
+  // were already updated — in that rare case the vault is left partially
+  // rewritten (the original is still in place), which the operator needs to see.
+  let sourcesWritten = 0
   await mapWithConcurrency({
     items: plannedRewrites,
     concurrency: REWRITE_CONCURRENCY,
-    mapper: (planned) => atomicWriteFile(planned.fullPath, planned.content),
+    mapper: async (planned) => {
+      try {
+        await atomicWriteFile(planned.fullPath, planned.content)
+        sourcesWritten += 1
+      } catch (error) {
+        logger.error("note move failed while writing a backlink source", {
+          source: planned.source,
+          from: oldPath,
+          to: newPath,
+          sources_written: sourcesWritten,
+          sources_planned: plannedRewrites.length,
+          note: "original left in place; some sources may already be updated",
+          error: describeError(error),
+        })
+        throw error
+      }
+    },
   })
   await unlink(oldFullPath)
 
   const linksUpdated =
     (movedRewrite?.count ?? 0) +
     plannedRewrites.reduce((sum, planned) => sum + planned.count, 0)
-  logger.info("moved note", {
+  // Completion summary: counts of what was rewritten. Atomic move, so failures is
+  // always 0 here — a failure would have thrown above (logged with its source).
+  logger.info("note move complete", {
     from: oldPath,
     to: newPath,
-    linksUpdated,
-    notesUpdated: plannedRewrites.length,
+    links_updated: linksUpdated,
+    sources_updated: plannedRewrites.length,
+    sources_failed: 0,
   })
 
   return {

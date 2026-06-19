@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -416,5 +424,42 @@ describe("moveNote — failure safety", () => {
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
     expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
+  })
+
+  it("logs the offending source and destination when a rewrite aborts the move", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const errorLog = vi.spyOn(logger, "error")
+    onTestFinished(() => errorLog.mockRestore())
+
+    await expect(
+      moveNote("Foo.md", "Bar.md", ["Hub.md", "Ghost.md"]),
+    ).rejects.toThrow()
+
+    expect(errorLog).toHaveBeenCalledWith(
+      "note move aborted: could not read/plan a backlink source",
+      expect.objectContaining({
+        source: "Ghost.md",
+        from: "Foo.md",
+        to: "Bar.md",
+      }),
+    )
+  })
+
+  it("logs a completion summary with the success and failure counts", async () => {
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const infoLog = vi.spyOn(logger, "info")
+    onTestFinished(() => infoLog.mockRestore())
+
+    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(infoLog).toHaveBeenCalledWith("note move complete", {
+      from: "Foo.md",
+      to: "Bar.md",
+      links_updated: 1,
+      sources_updated: 1,
+      sources_failed: 0,
+    })
   })
 })
