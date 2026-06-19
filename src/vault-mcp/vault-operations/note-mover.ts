@@ -15,7 +15,7 @@ import { parseNote, stringifyNote } from "./frontmatter.js"
 import {
   resolveSafePath,
   atomicWriteFile,
-  atomicCreateFile,
+  atomicWriteFileExclusive,
 } from "./vault-filesystem.js"
 import {
   resolveLink,
@@ -593,7 +593,7 @@ const moveNote = async (
   try {
     // Atomic no-clobber create: never overwrites an existing note even if one
     // appears after the earlier destination-exists check (a concurrent writer).
-    await atomicCreateFile(newFullPath, movedContent)
+    await atomicWriteFileExclusive(newFullPath, movedContent)
   } catch (error) {
     // EEXIST means we lost that race — surface the same error as the pre-check.
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
