@@ -40,9 +40,9 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
     <td align="center"><strong>Save</strong></td>
   </tr>
   <tr>
-    <td><img src="./assets/demo-remember.gif" width="260" alt="Ask Claude about a past trip — it searches the vault and recalls the route, cities, and highlights"></td>
-    <td><img src="./assets/demo-reason.gif" width="260" alt="Ask what went wrong — Claude synthesizes lessons from session logs and itinerary notes"></td>
-    <td><img src="./assets/demo-writeback.gif" width="260" alt="Save lessons learned to the vault, update travel preferences, then see both in Obsidian"></td>
+    <td><img src="./assets/demo-remember.gif" width="240" alt="Ask Claude about a past trip — it searches the vault and recalls the route, cities, and highlights"></td>
+    <td><img src="./assets/demo-reason.gif" width="240" alt="Ask what went wrong — Claude synthesizes lessons from session logs and itinerary notes"></td>
+    <td><img src="./assets/demo-writeback.gif" width="240" alt="Save lessons learned to the vault, update travel preferences, then see both in Obsidian"></td>
   </tr>
 </table>
 
