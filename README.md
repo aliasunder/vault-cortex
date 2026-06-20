@@ -76,9 +76,7 @@ docker compose up
 
 </details>
 
-**[Full local guide →](./deploy/local/)**
-
-> **Windows users:** the server runs in a Linux container via Docker Desktop, but keep your vault inside the **WSL2** filesystem rather than on a `C:\…` drive. Bind-mounting a Windows-drive folder breaks live re-indexing and `vault_move_note` (reads, writes, and search still work). See [Windows (Docker Desktop)](./deploy/local/#windows-docker-desktop) for the recommended layout.
+**[Full local guide →](./deploy/local/)** — on Windows, [run it under WSL2](./deploy/local/#windows-docker-desktop).
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
