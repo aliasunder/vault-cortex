@@ -341,6 +341,29 @@ describe("deleteNote", () => {
     ).rejects.toThrow()
   })
 
+  it("rejects a traversal path that resolves into a protected folder", async () => {
+    // "decoy/../About Me/..." does not literally start with "About Me/" but
+    // resolves into it — the guard must normalize before the prefix check.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "decoy/../About Me/Principles.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow("cannot delete protected path")
+    // The protected file must survive — the guard prevented its deletion.
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
   describe("empty-folder prune", () => {
     /** True when a folder still exists in the vault — used to assert pruning. */
     const folderExists = async (path: string): Promise<boolean> => {

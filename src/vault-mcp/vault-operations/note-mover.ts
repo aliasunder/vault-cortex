@@ -24,6 +24,7 @@ import {
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
+  toVaultRelativePath,
 } from "./vault-filesystem.js"
 import {
   resolveLink,
@@ -435,11 +436,6 @@ const isProtected = (
   protectedPaths
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
-
-/** Collapses "./" and "../" so traversal paths can't evade the protected-path
- *  prefix check. Absolute or vault-escaping paths are left for resolveSafePath. */
-export const toVaultRelativePath = (input: string): string =>
-  posix.normalize(input)
 
 /** Resolves true if a file exists at the resolved vault path. */
 const fileExists = async (fullPath: string): Promise<boolean> => {

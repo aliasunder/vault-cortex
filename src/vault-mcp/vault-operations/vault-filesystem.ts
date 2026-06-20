@@ -10,7 +10,7 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve } from "node:path"
+import { join, dirname, relative, resolve, posix } from "node:path"
 import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
 import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
@@ -18,6 +18,11 @@ import { parseHeadings, findHeading } from "./heading-parser.js"
 import { parseLeadingCallout } from "./callout-parser.js"
 import type { LeadingCallout } from "./callout-parser.js"
 import type { Logger } from "../../logger.js"
+
+/** Collapses "./" and "../" so traversal paths can't evade the protected-path
+ *  prefix check. Absolute or vault-escaping paths are left for resolveSafePath. */
+export const toVaultRelativePath = (input: string): string =>
+  posix.normalize(input)
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
 export const resolveSafePath = (
@@ -346,25 +351,27 @@ const deleteNote = async (
   },
   logger: Logger,
 ): Promise<number> => {
+  // Normalize before the protected-path check so a traversal path like
+  // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
+  // into a protected folder.
+  const path = toVaultRelativePath(params.path)
+
   const protectedPrefixes = params.protectedPaths.map((folder) =>
     folder.endsWith("/") ? folder : `${folder}/`,
   )
-  if (protectedPrefixes.some((prefix) => params.path.startsWith(prefix))) {
+  if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
     throw new Error(
-      `cannot delete protected path "${params.path}" (use vault_delete_memory for individual entries)`,
+      `cannot delete protected path "${path}" (use vault_delete_memory for individual entries)`,
     )
   }
 
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const fullPath = resolveSafePath(params.vaultPath, path)
   await unlink(fullPath)
   const prunedEmptyFolders = params.pruneEmptyFolders
-    ? await pruneEmptyParents(
-        { vaultPath: params.vaultPath, path: params.path },
-        logger,
-      )
+    ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
     : 0
   logger.info("deleted note", {
-    path: params.path,
+    path,
     pruned_empty_folders: prunedEmptyFolders,
   })
   return prunedEmptyFolders

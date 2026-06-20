@@ -2,11 +2,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
-import { vaultFs } from "./vault-operations/vault-filesystem.js"
 import {
-  noteMover,
+  vaultFs,
   toVaultRelativePath,
-} from "./vault-operations/note-mover.js"
+} from "./vault-operations/vault-filesystem.js"
+import { noteMover } from "./vault-operations/note-mover.js"
 import { vaultPatcher } from "./vault-operations/vault-patcher.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { getDailyNote } from "./vault-operations/daily-notes.js"
