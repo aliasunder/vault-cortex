@@ -903,11 +903,12 @@ describe("bootstrapMemoryDir", () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-"))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    expect(outlines).toHaveLength(3)
+    expect(outlines).toHaveLength(4)
     expect(outlines.map((outline) => outline.file).sort()).toEqual([
       "Me",
       "Opinions",
       "Principles",
+      "Routines",
     ])
     await rm(emptyVault, { recursive: true })
   })

@@ -270,6 +270,24 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "Non-negotiables (newest first)",
       ],
     },
+    {
+      fileName: "Routines",
+      title: "Routines",
+      tag: "routines",
+      related: ["Me"],
+      scope: [
+        "> [!info] Scope of this file",
+        "> **Contains:** Recurring routines, cadences, and practiced habits — what the user actually does on a regular rhythm.",
+        "> **Does NOT contain:** One-off events or plans, identity facts (→ Me), principles (→ Principles).",
+        '> **Section structure:** H2 sections by cadence, each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+      ].join("\n"),
+      sections: [
+        "Daily (newest first)",
+        "Weekly (newest first)",
+        "Commitments (newest first)",
+      ],
+    },
   ]
 
   /** Renders a memory template with the current timestamp so bootstrapped files
