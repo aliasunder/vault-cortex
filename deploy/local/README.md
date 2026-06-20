@@ -38,6 +38,36 @@ docker compose up
 Add `-d` to run in the background. First start pulls the image (~150MB) and
 builds the search index — this takes a few seconds depending on vault size.
 
+## Windows (Docker Desktop)
+
+Vault Cortex runs in a Linux container, so it works on Windows through Docker
+Desktop — but **where your vault folder lives matters.** Docker Desktop runs on
+WSL2, and bind-mounting a folder from a Windows drive (e.g. `C:\Users\you\Vault`)
+crosses the Windows ↔ Linux filesystem boundary, where two things quietly break:
+
+- **Live re-indexing stops.** Changes to the vault don't reach the file watcher,
+  so `vault_search` results go stale until you restart the server.
+- **`vault_move_note` fails.** Moving or renaming a note uses an atomic hard-link
+  write, which bind mounts from a Windows drive don't support.
+
+Reading, writing, and searching still work from a `C:` folder — only live
+re-indexing and note moves are affected.
+
+**Recommended: keep your vault in WSL2.** Store the vault inside the WSL2 Linux
+filesystem (ext4) and point `VAULT_PATH` at the Linux path, then run
+`docker compose up` from inside your WSL distro:
+
+```bash
+# inside WSL (e.g. Ubuntu)
+mkdir -p ~/vaults/MyVault          # vault lives here, on ext4
+# then in .env:  VAULT_PATH=/home/you/vaults/MyVault
+```
+
+You can still open and edit that vault in Obsidian on Windows — it shows up in
+File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`. With the vault on the
+Linux filesystem the container sees native files, so live re-indexing,
+`vault_move_note`, and atomic writes all work.
+
 ## Connect your MCP client
 
 The server listens at `http://localhost:8000/mcp`.

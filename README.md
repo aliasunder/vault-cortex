@@ -78,6 +78,8 @@ docker compose up
 
 **[Full local guide →](./deploy/local/)**
 
+> **Windows users:** the server runs in a Linux container via Docker Desktop, but keep your vault inside the **WSL2** filesystem rather than on a `C:\…` drive. Bind-mounting a Windows-drive folder breaks live re-indexing and `vault_move_note` (reads, writes, and search still work). See [Windows (Docker Desktop)](./deploy/local/#windows-docker-desktop) for the recommended layout.
+
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
