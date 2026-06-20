@@ -1,29 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+<svg xmlns="http://www.w3.org/2000/svg"
      width="1280" height="640" viewBox="0 0 1280 640" fill="none">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0d1117"/>
       <stop offset="1" stop-color="#10151d"/>
     </linearGradient>
+    <linearGradient id="tileGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161b22"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
     <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
   <rect width="1280" height="640" fill="url(#bg)"/>
 
-  <!-- The icon -->
-  <image x="96" y="130" width="380" height="380" xlink:href="icon-400.png"/>
+  <!-- Icon (inline vector, same mark as icon-400.svg) -->
+  <g transform="translate(70,104) scale(1.08)">
+    <rect x="24" y="24" width="352" height="352" rx="76" fill="url(#tileGrad)"/>
+    <rect x="25" y="25" width="350" height="350" rx="75" fill="none" stroke="#00e5ff" stroke-width="2" opacity="0.22"/>
+    <g filter="url(#glow)" stroke-linecap="round">
+      <line x1="112" y1="128" x2="156" y2="210" stroke="#00e5ff" stroke-width="8" opacity="0.85"/>
+      <line x1="156" y1="210" x2="200" y2="292" stroke="#00e5ff" stroke-width="8" opacity="0.85"/>
+      <line x1="288" y1="128" x2="244" y2="210" stroke="#00e5ff" stroke-width="8" opacity="0.85"/>
+      <line x1="244" y1="210" x2="200" y2="292" stroke="#00e5ff" stroke-width="8" opacity="0.85"/>
+      <line x1="112" y1="128" x2="200" y2="166" stroke="#7c3aed" stroke-width="6" opacity="0.8"/>
+      <line x1="288" y1="128" x2="200" y2="166" stroke="#7c3aed" stroke-width="6" opacity="0.8"/>
+      <circle cx="112" cy="128" r="22" fill="#00e5ff"/>
+      <circle cx="288" cy="128" r="22" fill="#00e5ff"/>
+      <circle cx="156" cy="210" r="13" fill="#00e5ff"/>
+      <circle cx="244" cy="210" r="13" fill="#00e5ff"/>
+      <circle cx="200" cy="166" r="12" fill="#7c3aed"/>
+      <circle cx="200" cy="292" r="25" fill="#7c3aed"/>
+    </g>
+  </g>
 
-  <!-- Wordmark + tagline -->
-  <text x="540" y="300" font-family="JetBrains Mono" font-size="80" font-weight="600"
-        fill="#f0f6fc" letter-spacing="-1">Vault Cortex</text>
-  <text x="544" y="348" font-family="DejaVu Sans" font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
+  <!-- Wordmark (JetBrains Mono SemiBold, converted to paths for universal rendering) -->
+  <g transform="translate(540,300) scale(0.08,-0.08)" fill="#f0f6fc">
+    <path transform="translate(0,0)" d="M228 0 43 730H153L271 244Q282 200 290.0 158.0Q298 116 302 93Q306 116 314.5 158.5Q323 201 334 245L447 730H558L372 0Z"/>
+    <path transform="translate(600,0)" d="M245 -10Q161 -10 111.5 37.5Q62 85 62 162Q62 240 115.0 287.5Q168 335 256 335H408V375Q408 470 301 470Q253 470 224.0 452.0Q195 434 193 402H87Q92 471 149.0 515.5Q206 560 302 560Q404 560 460.0 511.5Q516 463 516 376V0H410V103H409Q402 50 359.0 20.0Q316 -10 245 -10ZM276 79Q337 79 372.5 108.5Q408 138 408 188V259H264Q221 259 195.5 234.0Q170 209 170 170Q170 128 198.0 103.5Q226 79 276 79Z"/>
+    <path transform="translate(1200,0)" d="M299 -10Q199 -10 140.5 47.5Q82 105 82 204V550H190V205Q190 149 219.0 116.5Q248 84 299 84Q351 84 380.5 116.5Q410 149 410 205V550H518V204Q518 105 458.5 47.5Q399 -10 299 -10Z"/>
+    <path transform="translate(1800,0)" d="M385 0Q307 0 260.5 45.5Q214 91 214 167V632H29V730H322V169Q322 136 340.0 117.0Q358 98 389 98H555V0Z"/>
+    <path transform="translate(2400,0)" d="M355 0Q282 0 239.0 42.0Q196 84 196 156V452H41V550H196V705H304V550H526V452H304V157Q304 131 319.0 114.5Q334 98 360 98H521V0Z"/>
+    <path transform="translate(3600,0)" d="M308 -10Q205 -10 144.5 47.5Q84 105 84 203V527Q84 626 144.5 683.0Q205 740 308 740Q410 740 470.5 682.5Q531 625 531 527H423Q423 584 392.5 614.0Q362 644 308 644Q253 644 222.5 614.0Q192 584 192 527V203Q192 146 222.5 116.0Q253 86 308 86Q362 86 392.5 116.0Q423 146 423 203H531Q531 105 470.5 47.5Q410 -10 308 -10Z"/>
+    <path transform="translate(4200,0)" d="M300 -9Q198 -9 137.5 50.0Q77 109 77 211V339Q77 442 137.0 500.5Q197 559 300 559Q403 559 463.0 500.5Q523 442 523 339V211Q523 109 462.5 50.0Q402 -9 300 -9ZM300 86Q354 86 384.5 116.5Q415 147 415 204V346Q415 403 384.5 433.5Q354 464 300 464Q246 464 215.5 433.5Q185 403 185 346V204Q185 147 215.5 116.5Q246 86 300 86Z"/>
+    <path transform="translate(4800,0)" d="M104 0V550H211V442Q219 497 258.0 528.5Q297 560 361 560Q446 560 493.0 507.0Q540 454 540 358V309H432V355Q432 466 323 466Q269 466 240.5 434.5Q212 403 212 343V0Z"/>
+    <path transform="translate(5400,0)" d="M355 0Q282 0 239.0 42.0Q196 84 196 156V452H41V550H196V705H304V550H526V452H304V157Q304 131 319.0 114.5Q334 98 360 98H521V0Z"/>
+    <path transform="translate(6000,0)" d="M300 -10Q199 -10 138.0 49.0Q77 108 77 210V340Q77 442 138.0 501.0Q199 560 300 560Q368 560 418.0 533.5Q468 507 495.5 459.0Q523 411 523 347V248H181V203Q181 145 213.0 113.0Q245 81 300 81Q345 81 375.0 97.5Q405 114 411 143H518Q507 73 447.5 31.5Q388 -10 300 -10ZM181 347V324H419V348Q419 409 388.0 442.0Q357 475 300 475Q243 475 212.0 441.5Q181 408 181 347Z"/>
+    <path transform="translate(6600,0)" d="M43 0 236 284 55 550H179L276 398Q283 386 290.0 372.5Q297 359 301 350Q304 359 310.5 372.5Q317 386 325 398L421 550H546L365 283L557 0H433L326 165Q319 177 312.0 192.0Q305 207 301 216Q296 207 289.0 192.0Q282 177 274 165L167 0Z"/>
+  </g>
+  <text x="544" y="348" font-family="DejaVu Sans"
+        font-size="27" fill="#8b949e">MCP server for Obsidian vaults</text>
 
-  <!-- Cyan pulse accent (echoes the banner) -->
+  <!-- Cyan pulse accent -->
   <rect x="544" y="372" width="180" height="4" rx="2" fill="#00e5ff" filter="url(#glow)" opacity="0.9"/>
 
   <!-- Feature line -->
-  <text x="544" y="430" font-family="DejaVu Sans" font-size="24" fill="#58a6ff">search · memory · link graph · 24 tools · OAuth</text>
+  <text x="544" y="430" font-family="DejaVu Sans"
+        font-size="24" fill="#58a6ff">search · memory · link graph · 24 tools · OAuth</text>
 </svg>
