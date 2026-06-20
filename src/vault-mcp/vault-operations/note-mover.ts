@@ -551,9 +551,18 @@ const moveNote = async (
     path === oldPath ? newPath : path,
   )
 
-  const rewriteContextFor = (source: string): RewriteContext => ({
-    oldSourcePath: source,
-    newSourcePath: source,
+  // Builds the RewriteContext for one note whose links we're rewriting (the
+  // "source" in link-graph terms — see RewriteContext). Everything but the
+  // source's own location is fixed for the whole move; that location is the only
+  // variable: a backlink source stays put (before === after), while the moved
+  // note shifts old → new, which is what re-resolves its own relative links from
+  // the new folder.
+  const rewriteContextForSource = (sourceLocation: {
+    before: string
+    after: string
+  }): RewriteContext => ({
+    oldSourcePath: sourceLocation.before,
+    newSourcePath: sourceLocation.after,
     oldTargetPath: oldPath,
     newTargetPath: newPath,
     allPaths: allPathsBefore,
@@ -571,14 +580,10 @@ const moveNote = async (
   }> => {
     try {
       const rawContent = await readFile(oldFullPath, "utf8")
-      const rewrite = rewriteNoteContent(rawContent, {
-        oldSourcePath: oldPath,
-        newSourcePath: newPath,
-        oldTargetPath: oldPath,
-        newTargetPath: newPath,
-        allPaths: allPathsBefore,
-        allPathsAfter,
-      })
+      const rewrite = rewriteNoteContent(
+        rawContent,
+        rewriteContextForSource({ before: oldPath, after: newPath }),
+      )
       return {
         content: rewrite?.content ?? rawContent,
         count: rewrite?.count ?? 0,
@@ -611,7 +616,7 @@ const moveNote = async (
           const rawContent = await readFile(sourceFullPath, "utf8")
           const rewrite = rewriteNoteContent(
             rawContent,
-            rewriteContextFor(source),
+            rewriteContextForSource({ before: source, after: source }),
           )
           return rewrite === null
             ? null
