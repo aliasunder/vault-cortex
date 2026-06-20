@@ -208,13 +208,12 @@ const rewriteBodyLine = (
 ): { line: string; count: number } => {
   // Inline-code spans are passed through verbatim — a link inside backticks is
   // documentation, not a real edge (matches the indexer's extraction).
-  const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map(
-    (match) => [match.index, match.index + match[0].length] as const,
-  )
-  const isInsideCode = (start: number): boolean =>
-    codeSpans.some(
-      ([spanStart, spanEnd]) => start >= spanStart && start < spanEnd,
-    )
+  const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
+  const isInsideCode = (position: number): boolean =>
+    codeSpans.some((span) => position >= span.start && position < span.end)
 
   const edits = collectLineEdits(line, context, isInsideCode)
   if (edits.length === 0) return { line, count: 0 }
@@ -240,27 +239,31 @@ const rewriteBodyLine = (
 const collectLineEdits = (
   line: string,
   context: RewriteContext,
-  isInsideCode: (start: number) => boolean,
+  isInsideCode: (position: number) => boolean,
 ): LinkEdit[] => {
-  const editsFor = (
-    pattern: RegExp,
-    rewrite: (linkText: string) => string | null,
+  /** Every match of linkPattern becomes one edit, except links that sit inside
+   *  inline code or whose target needs no change. rewriteLinkText returns the new
+   *  link text, or null to leave the link as-is. */
+  const editsForPattern = (
+    linkPattern: RegExp,
+    rewriteLinkText: (linkText: string) => string | null,
   ): LinkEdit[] =>
-    [...line.matchAll(pattern)].reduce<LinkEdit[]>((acc, match) => {
-      if (isInsideCode(match.index)) return acc
-      const replacement = rewrite(match[0])
-      if (replacement === null) return acc
-      acc.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        replacement,
-      })
-      return acc
-    }, [])
+    [...line.matchAll(linkPattern)].flatMap((linkMatch) => {
+      const linkText = linkMatch[0]
+      const start = linkMatch.index
+      if (isInsideCode(start)) return []
+      const replacement = rewriteLinkText(linkText)
+      if (replacement === null) return []
+      return [{ start, end: start + linkText.length, replacement }]
+    })
 
   return [
-    ...editsFor(WIKILINK_RE, (text) => rewriteWikilinkText(text, context)),
-    ...editsFor(MD_LINK_RE, (text) => rewriteMarkdownLinkText(text, context)),
+    ...editsForPattern(WIKILINK_RE, (text) =>
+      rewriteWikilinkText(text, context),
+    ),
+    ...editsForPattern(MD_LINK_RE, (text) =>
+      rewriteMarkdownLinkText(text, context),
+    ),
   ]
 }
 
