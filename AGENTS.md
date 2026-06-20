@@ -177,11 +177,20 @@ log would produce N lines during a vault rebuild (one per note), it's
   mutation (`date.setDate()`). Use `DateTime.now()` for current time,
   `.toISO()` for timestamps, `.toISODate()` for date-only strings,
   `.toUnixInteger()` for epoch seconds.
-- Immutable by default. Avoid `let` — carry state in reduce
-  accumulators, use early returns, or destructure conditional results.
-  A bit of duplication is acceptable to keep code immutable and clear.
-  When `let` is necessary (caching, parser state), add a comment
-  justifying why mutation is needed here.
+- Immutable by default. Avoid `let` — carry state in a reduce that
+  returns a _new_ accumulator each step, use early returns, or
+  destructure conditional results. A bit of duplication is acceptable to
+  keep code immutable and clear. When `let` is necessary (caching, parser
+  state), add a comment justifying why mutation is needed here.
+- Don't disguise mutation as a fold. A `reduce` that mutates its
+  accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
+  the worst of both worlds — it reads as declarative but isn't, so a
+  reader has to mentally run it to see what it builds. Pick one and be
+  honest: a genuine immutable fold (return a new value each step) for a
+  real reduction to a single value, or a plain `for…of` loop with a
+  justifying comment when the state is inherently sequential (a parser
+  threading line-by-line state). A map-plus-sum is not a reduce —
+  `items.map(rewrite)` then a separate, named count sum reads on its own.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
   `available`, `searchText` not `needle`, `fileContent` not `raw`).
@@ -211,7 +220,13 @@ log would produce N lines during a vault rebuild (one per note), it's
   lines in `if (!done) { ... }`.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
-  unnecessary cognitive overload.
+  unnecessary cognitive overload. Working is the floor, not the bar — if
+  "it passes" were enough, code review wouldn't matter. The first
+  structure that compiles is rarely the simplest: before settling, ask
+  whether it can be done with fewer moving parts and in fewer lines, and
+  whether this is the shape that makes the most sense or just the first
+  that came to mind. Each line should say what it does on its own — a
+  reader shouldn't have to simulate the code to follow it.
 - MCP tool descriptions include `Example:`, `When to use:`, and
   `Returns:` sections. Include `Errors:` whenever the tool has
   failure modes (with remediation guidance) or a no-match /
