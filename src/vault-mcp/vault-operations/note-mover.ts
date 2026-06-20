@@ -1,13 +1,6 @@
-/** Moving and renaming notes — relocates a .md file and rewrites every link
- *  across the vault that resolves to it, mirroring Obsidian's built-in rename.
- *
- *  Link resolution and link syntax are reused from search-index.ts (resolveLink
- *  plus the WIKILINK/MD/FENCE/INLINE-code regexes) so the rewriter can never
- *  disagree with the indexer about what a link is or where it points. The
- *  rewrite is form-preserving and minimal-churn: a link's text changes only
- *  when leaving it as-is would no longer resolve to the right note — exactly
- *  what Obsidian does (a bare [[Foo]] survives a folder move when its short
- *  name is still unambiguous). */
+/** Moves/renames a note and rewrites every vault-wide link that resolves to it,
+ *  mirroring Obsidian's built-in rename. Reuses resolveLink and the link regexes
+ *  from search-index.ts so the rewriter and indexer always agree. */
 
 import { readFile, mkdir, unlink, stat } from "node:fs/promises"
 import { dirname, posix } from "node:path"
@@ -41,30 +34,18 @@ export type MoveResult = {
   updated_notes: string[]
 }
 
-/** Everything a single link occurrence needs to decide whether — and how — to
- *  rewrite its target. Captured once per note being processed.
- *
- *  Two notes are in play, named by link-graph direction (a link points
- *  source → target): the **source** is the note that *holds* the link (whose body
- *  is being rewritten, and that relative links resolve from); the **target** is
- *  the note being *moved* (fixed for the whole operation). They're the same note
- *  only when rewriting the moved note's own links — which is why the source has an
- *  old/new pair too: it changes location only for the moved note, and that shift
- *  is what re-resolves the moved note's own relative links from the new folder. */
+/** Context for rewriting links in one note. Two notes are in play, named by
+ *  link-graph direction: the "source" holds the link (its location is where
+ *  relative links resolve from), the "target" is the note being moved. The
+ *  source has an old/new path pair because when rewriting the moved note's own
+ *  links, the source IS the moved note — its location changes, which shifts
+ *  how its relative links resolve. For every other note, old === new. */
 type RewriteContext = {
-  /** Path the source note (the one holding the link) is resolved-from before the
-   *  move — i.e. its current location. */
   oldSourcePath: string
-  /** Path the source note is resolved-from after the move. Equal to oldSourcePath
-   *  for every note except the moved note itself (the only source that relocates). */
   newSourcePath: string
-  /** The moved (target) note's path before the move (with .md). */
   oldTargetPath: string
-  /** The moved (target) note's path after the move (with .md). */
   newTargetPath: string
-  /** All note paths before the move (includes oldTargetPath). */
   allPaths: string[]
-  /** All note paths after the move (oldTargetPath replaced by newTargetPath). */
   allPathsAfter: string[]
 }
 
@@ -73,14 +54,11 @@ type RewriteContext = {
 type LinkForm = "basename" | "absolute" | "relative"
 
 // ── Link-text parsers (reconstruction) ──────────────────────────
-// The matching regexes are imported from search-index.ts; these split a single
-// already-matched link into its parts so the target can be swapped while the
-// embed marker, heading anchor, and alias/text are preserved verbatim.
 
-/** Splits one matched wikilink into [, embed `!`, target, `#heading`, `|alias`]. */
+/** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`]. */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
-/** Splits one matched markdown link into [, `[text](`, path-without-ext, `#heading`, `)`]. */
+/** Splits a matched markdown link into [, `[text](`, path-without-ext, `#heading`, `)`]. */
 const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)\.md(#[^)\s]*)?(\))$/
 
 // ── Target classification + construction ────────────────────────
@@ -89,9 +67,8 @@ const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)\.md(#[^)\s]*)?(\))$/
 const withoutExtension = (path: string): string =>
   path.endsWith(".md") ? path.slice(0, -".md".length) : path
 
-/** Re-derives which resolution branch a raw target took to reach resolvedTarget,
- *  mirroring resolveLink's precedence (exact path, then source-relative, then
- *  basename) so the replacement keeps the author's chosen link style. */
+/** Determines which link form (basename, absolute, relative) was used, so the
+ *  replacement can be written back in the same style. */
 const classifyLinkForm = (params: {
   rawTarget: string
   sourcePath: string
@@ -111,11 +88,9 @@ const classifyLinkForm = (params: {
   return "basename"
 }
 
-/** Builds a new extensionless target string that resolves to desiredTarget from
- *  newSourcePath in the post-move vault, keeping the original link form. Every
- *  candidate is verified with resolveLink and falls back to the always-correct
- *  vault-absolute path if the preferred shorter form would resolve elsewhere
- *  (e.g. a basename that is no longer unique after the move). */
+/** Builds a replacement target that resolves to desiredTarget from the new source
+ *  location, keeping the original link form. Falls back to vault-absolute if the
+ *  shorter form would resolve elsewhere after the move. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
@@ -141,9 +116,8 @@ const buildReplacementTarget = (params: {
   return absoluteForm
 }
 
-/** Decides the replacement for one raw link target, or null to leave it as-is.
- *  Returns null when the link is unresolved, points elsewhere and still will, or
- *  already resolves to the right note from the new location (minimal churn). */
+/** Returns the replacement target for one link, or null to leave it unchanged.
+ *  Null when unresolved, still pointing at the right note, or not affected. */
 const rewriteTarget = (
   rawTarget: string,
   context: RewriteContext,
@@ -155,15 +129,13 @@ const rewriteTarget = (
   )
   if (resolvedBefore === null) return null
 
-  // The note this link should still point at once the move settles: the new
-  // location if it pointed at the moved note, otherwise its unchanged target.
+  // Follow the moved note to its new location; leave other targets as-is.
   const desiredTarget =
     resolvedBefore === context.oldTargetPath
       ? context.newTargetPath
       : resolvedBefore
 
-  // Minimal churn: if the existing text already resolves to the desired note
-  // from the new location, leave it untouched (Obsidian-faithful).
+  // Already resolves correctly from the new location — leave it alone.
   const resolvedAfter = resolveLink(
     rawTarget,
     context.allPathsAfter,
@@ -185,11 +157,9 @@ const rewriteTarget = (
 
 // ── Body rewriting ──────────────────────────────────────────────
 
-/** Percent-encodes each segment of a markdown link path so reserved characters
- *  (spaces, #, parentheses, %, …) can't break markdown link parsing or change the
- *  link's meaning. encodeURIComponent leaves "()" alone, so they're encoded
- *  explicitly — an unencoded ")" would close the link early. "/" separators are
- *  preserved by encoding per segment. */
+/** Percent-encodes a markdown link path segment-by-segment. Parentheses are
+ *  encoded explicitly because encodeURIComponent skips them and an unencoded ")"
+ *  would close the link early. */
 const encodeMarkdownLinkPath = (path: string): string =>
   path
     .split("/")
@@ -200,14 +170,12 @@ const encodeMarkdownLinkPath = (path: string): string =>
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
-/** Rewrites the link targets in a single body line, skipping any link that sits
- *  inside an inline-code span. Returns the new line and how many links changed. */
+/** Rewrites link targets in a single body line, skipping links inside
+ *  inline-code spans. */
 const rewriteBodyLine = (
   line: string,
   context: RewriteContext,
 ): { line: string; count: number } => {
-  // Inline-code spans are passed through verbatim — a link inside backticks is
-  // documentation, not a real edge (matches the indexer's extraction).
   const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
     start: match.index,
     end: match.index + match[0].length,
@@ -218,39 +186,26 @@ const rewriteBodyLine = (
   const edits = collectLineEdits(line, context, isInsideCode)
   if (edits.length === 0) return { line, count: 0 }
 
-  // Apply edits left-to-right; wikilink and markdown matches never overlap.
   const orderedEdits = [...edits].sort(
     (left, right) => left.start - right.start,
   )
 
-  // Splice each replacement in over the original line, walking a cursor through
-  // the untouched gaps between edits. spliced.text is the line built so far;
-  // spliced.cursor is the index in the original line up to which we've consumed.
-  const spliced = orderedEdits.reduce(
-    (assembled, edit) => ({
-      text:
-        assembled.text +
-        line.slice(assembled.cursor, edit.start) +
-        edit.replacement,
-      cursor: edit.end,
-    }),
-    { text: "", cursor: 0 },
-  )
-  return {
-    line: spliced.text + line.slice(spliced.cursor),
-    count: edits.length,
+  // Splice replacements left-to-right; sequential cursor state.
+  let result = ""
+  let cursor = 0
+  for (const edit of orderedEdits) {
+    result += line.slice(cursor, edit.start) + edit.replacement
+    cursor = edit.end
   }
+  return { line: result + line.slice(cursor), count: edits.length }
 }
 
-/** Gathers the (non-code) wikilink and markdown-link edits for one line. */
+/** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
 const collectLineEdits = (
   line: string,
   context: RewriteContext,
   isInsideCode: (position: number) => boolean,
 ): LinkEdit[] => {
-  /** Every match of linkPattern becomes one edit, except links that sit inside
-   *  inline code or whose target needs no change. rewriteLinkText returns the new
-   *  link text, or null to leave the link as-is. */
   const editsForPattern = (
     linkPattern: RegExp,
     rewriteLinkText: (linkText: string) => string | null,
@@ -312,12 +267,8 @@ const decodeMarkdownLinkPath = (encoded: string): string => {
   }
 }
 
-/** Tracks whether the body walk is currently inside a fenced code block. The
- *  state is the open fence's delimiter (e.g. ``` or ~~~), or null when no fence
- *  is open; given that state and the next line, returns the state after it — an
- *  opening fence sets it, a matching closing fence clears it, any other line
- *  leaves it unchanged. Mirrors the indexer's fence handling so the two never
- *  disagree about where code blocks begin and end. */
+/** Returns the fence delimiter when inside a code block, null otherwise.
+ *  Mirrors the indexer's fence handling. */
 const advanceFence = (
   line: string,
   openFence: string | null,
@@ -326,13 +277,9 @@ const advanceFence = (
   if (!fenceMatch) return openFence
 
   const fenceChars = fenceMatch[1]!
-  // No fence open: this line opens one. Remember its delimiter run (the run of
-  // ``` or ~~~ characters) so the close can be matched against it.
   if (openFence === null) return fenceChars[0]!.repeat(fenceChars.length)
 
-  // A fence is open: close it only on a line of the same fence character, at
-  // least as long, and nothing but fence characters (a close carries no info
-  // string). Otherwise the fence stays open.
+  // Close only on the same fence character, at least as long, with no info string.
   const closesOpenFence =
     fenceChars[0] === openFence[0] &&
     fenceChars.length >= openFence.length &&
@@ -340,15 +287,12 @@ const advanceFence = (
   return closesOpenFence ? null : openFence
 }
 
-/** Rewrites every link in a note body, passing fenced code blocks through
- *  untouched. */
+/** Rewrites every link in a note body, skipping fenced code blocks. */
 const rewriteBody = (
   body: string,
   context: RewriteContext,
 ): { body: string; count: number } => {
-  // Whether we're inside a fenced code block has to be tracked line by line —
-  // each line's meaning depends on what came before it — so we carry that state
-  // through an honest loop. (let justified: line-by-line parser state.)
+  // Fence state tracked line-by-line; mutable by necessity.
   let openFence: string | null = null
   let linksRewritten = 0
   const outputLines: string[] = []
@@ -357,9 +301,6 @@ const rewriteBody = (
     const fenceBefore = openFence
     openFence = advanceFence(line, openFence)
 
-    // A line belongs to a code block if a fence was open before it or is open
-    // after it — covering the opening delimiter, the body, and the close. Those
-    // pass through untouched; only true prose lines get their links rewritten.
     if (fenceBefore !== null || openFence !== null) {
       outputLines.push(line)
       continue
@@ -381,16 +322,14 @@ type FrontmatterRewrite = { value: unknown; count: number }
 const totalCount = (rewrites: ReadonlyArray<FrontmatterRewrite>): number =>
   rewrites.reduce((runningTotal, child) => runningTotal + child.count, 0)
 
-/** Rewrites the wikilinks inside one frontmatter value (string, array, or
- *  nested object), recursing into containers. Markdown links are a body
- *  convention and are intentionally left untouched, matching the indexer. */
+/** Rewrites wikilinks inside a frontmatter value, recursing into arrays and
+ *  objects. Markdown links are body-only and left untouched. */
 const rewriteFrontmatterValue = (
   value: unknown,
   context: RewriteContext,
 ): FrontmatterRewrite => {
   if (typeof value === "string") {
-    // Mutable counter: replaceAll's callback is the only place a per-match tally
-    // can be kept without scanning the string a second time.
+    // Mutable: replaceAll's callback is the only way to tally per-match.
     let count = 0
     const rewritten = value.replaceAll(WIKILINK_RE, (linkText) => {
       const replacement = rewriteWikilinkText(linkText, context)
@@ -401,8 +340,6 @@ const rewriteFrontmatterValue = (
     return { value: rewritten, count }
   }
 
-  // Arrays: rewrite each element, then rebuild from the rewritten values and
-  // sum how many links changed across all of them.
   if (Array.isArray(value)) {
     const rewrittenItems = value.map((item) =>
       rewriteFrontmatterValue(item, context),
@@ -413,24 +350,21 @@ const rewriteFrontmatterValue = (
     }
   }
 
-  // Objects: rewrite each property's value while keeping its key, then rebuild
-  // the object and sum the counts the same way as arrays.
   if (value !== null && typeof value === "object") {
     const rewrittenEntries = Object.entries(value).map(
       ([key, nestedValue]) => ({
         key,
-        ...rewriteFrontmatterValue(nestedValue, context),
+        result: rewriteFrontmatterValue(nestedValue, context),
       }),
     )
     return {
       value: Object.fromEntries(
-        rewrittenEntries.map((entry) => [entry.key, entry.value]),
+        rewrittenEntries.map(({ key, result }) => [key, result.value]),
       ),
-      count: totalCount(rewrittenEntries),
+      count: totalCount(rewrittenEntries.map(({ result }) => result)),
     }
   }
 
-  // Numbers, booleans, null: no string to scan, nothing to rewrite.
   return { value, count: 0 }
 }
 
@@ -468,10 +402,8 @@ const isProtected = (
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
 
-/** Canonical vault-relative form used for guard checks and index comparisons.
- *  Collapses "./" and "../" segments so a path like "X/../Daily Notes/Foo.md"
- *  can't evade the protected-path prefix check and then resolve into a protected
- *  folder. Absolute or vault-escaping paths are left for resolveSafePath to reject. */
+/** Collapses "./" and "../" so traversal paths can't evade the protected-path
+ *  prefix check. Absolute or vault-escaping paths are left for resolveSafePath. */
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input)
 
@@ -486,9 +418,7 @@ const fileExists = async (fullPath: string): Promise<boolean> => {
   }
 }
 
-/** Max notes processed concurrently. Caps open file handles so moving a note with
- *  a very large backlink set (e.g. a hub note) can't exhaust the process
- *  file-descriptor limit. */
+/** Caps concurrent file handles during rewriting. */
 const REWRITE_CONCURRENCY = 10
 
 /** Human-readable message from an unknown thrown value, for structured logs. */
@@ -496,13 +426,9 @@ const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
 /** Moves a note and rewrites every link across the vault that resolves to it.
- *
- *  backlinkSources is the set of notes that currently link to oldPath (supplied
- *  by the caller from the search index); allPaths is every note path before the
- *  move. Done in two phases for failure-safety: a preflight reads every file and
- *  computes its rewrite (so a read failure aborts with the vault untouched), then
- *  the commit writes the destination + sources and deletes the original last — so
- *  even a write failure never loses data or strands a broken link. */
+ *  Two phases: preflight reads all files and computes rewrites (aborting on any
+ *  read failure before touching the vault), then commit writes everything and
+ *  deletes the original last — so a failure never loses data. */
 const moveNote = async (
   params: {
     vaultPath: string
@@ -544,19 +470,12 @@ const moveNote = async (
     throw new Error(`destination exists: "${newPath}"`)
   }
 
-  // Copy to a mutable array — resolveLink takes string[], and allPathsAfter is
-  // a fresh array anyway (oldPath swapped for newPath).
   const allPathsBefore = [...allPaths]
   const allPathsAfter = allPaths.map((path) =>
     path === oldPath ? newPath : path,
   )
 
-  // Builds the RewriteContext for one note whose links we're rewriting (the
-  // "source" in link-graph terms — see RewriteContext). Everything but the
-  // source's own location is fixed for the whole move; that location is the only
-  // variable: a backlink source stays put (before === after), while the moved
-  // note shifts old → new, which is what re-resolves its own relative links from
-  // the new folder.
+  // Backlink sources stay put (before === after); the moved note shifts old → new.
   const rewriteContextForSource = (sourceLocation: {
     before: string
     after: string
@@ -571,9 +490,8 @@ const moveNote = async (
 
   // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
 
-  // The moved note itself: rewrite its self-links and any source-relative links
-  // so they still resolve from the new folder. A read failure aborts the move
-  // before any write, named so the abort is debuggable.
+  // Rewrite the moved note's self-links and source-relative links so they still
+  // resolve from the new folder. A read failure aborts before any write.
   const planMovedNote = async (): Promise<{
     content: string
     count: number
@@ -595,17 +513,13 @@ const moveNote = async (
         error: describeError(error),
       })
       throw new Error(
-        `move aborted: could not read the note being moved "${oldPath}"; nothing was written: ${describeError(error)}`,
+        `move aborted: could not read "${oldPath}". Nothing was written.`,
         { cause: error },
       )
     }
   }
   const { content: movedContent, count: movedLinkCount } = await planMovedNote()
 
-  // Each backlink source (excluding the moved note, handled above): keep only the
-  // ones whose content actually changes. A read/plan failure here aborts the whole
-  // move (nothing has been written yet) — logged with the offending source and the
-  // intended destination so the abort is debuggable.
   const plannedRewrites = (
     await mapWithConcurrency({
       items: params.backlinkSources.filter((source) => source !== oldPath),
@@ -632,7 +546,7 @@ const moveNote = async (
             { source, from: oldPath, to: newPath, error: describeError(error) },
           )
           throw new Error(
-            `move aborted: could not read backlink source "${source}" (moving "${oldPath}" -> "${newPath}"); nothing was written: ${describeError(error)}`,
+            `move aborted: could not read backlink source "${source}". Nothing was written.`,
             { cause: error },
           )
         }
@@ -640,37 +554,26 @@ const moveNote = async (
     })
   ).filter((planned) => planned !== null)
 
-  // ── Commit: all reads succeeded, so perform the writes. The original is
-  //    deleted last, so a write failure here never loses data. ──
-  // dirname must be the native variant — newFullPath is an absolute filesystem
-  // path from resolveSafePath, not a vault-relative ("/"-separated) path.
+  // ── Commit: all reads succeeded — write destination, update sources, delete original last. ──
+
   await mkdir(dirname(newFullPath), { recursive: true })
   try {
-    // Atomic no-clobber create: never overwrites an existing note even if one
-    // appears after the earlier destination-exists check (a concurrent writer).
     await atomicWriteFileExclusive(newFullPath, movedContent)
   } catch (error) {
-    // EEXIST means we lost that race — surface the same error as the pre-check.
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new Error(`destination exists: "${newPath}"`, { cause: error })
     }
     logger.error(
       "note move aborted: could not write the note to its new path",
-      {
-        from: oldPath,
-        to: newPath,
-        error: describeError(error),
-      },
+      { from: oldPath, to: newPath, error: describeError(error) },
     )
     throw new Error(
-      `move aborted: could not write the moved note to "${newPath}"; nothing was written: ${describeError(error)}`,
+      `move aborted: could not write to "${newPath}". Nothing was written.`,
       { cause: error },
     )
   }
 
-  // Mutable counter so a mid-commit write failure can report how many sources
-  // were already updated — in that rare case the vault is left partially
-  // rewritten (the original is still in place), which the operator needs to see.
+  // Mutable: tracks progress so a mid-commit failure can report how far it got.
   let sourcesWritten = 0
   await mapWithConcurrency({
     items: plannedRewrites,
@@ -686,11 +589,10 @@ const moveNote = async (
           to: newPath,
           sources_written: sourcesWritten,
           sources_planned: plannedRewrites.length,
-          note: "original left in place; some sources may already be updated",
           error: describeError(error),
         })
         throw new Error(
-          `move incomplete: failed updating backlink source "${planned.source}" while moving "${oldPath}" -> "${newPath}" (${sourcesWritten}/${plannedRewrites.length} sources updated). "${newPath}" exists and the original was NOT deleted — re-run the move to finish: ${describeError(error)}`,
+          `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). Original not deleted — re-run to finish.`,
           { cause: error },
         )
       }
@@ -700,8 +602,7 @@ const moveNote = async (
     movedLinkCount +
     plannedRewrites.reduce((sum, planned) => sum + planned.count, 0)
 
-  // Delete the original last. If this fails after the destination + sources are
-  // written, the vault is left with both copies — log enough context to recover.
+  // Delete the original last — if this fails, both copies exist but no data is lost.
   try {
     await unlink(oldFullPath)
   } catch (error) {
@@ -710,17 +611,14 @@ const moveNote = async (
       to: newPath,
       sources_updated: plannedRewrites.length,
       links_updated: linksUpdated,
-      note: "destination and backlink sources were already written; the original may still exist — delete it to finish the move",
       error: describeError(error),
     })
     throw new Error(
-      `move incomplete: the moved note and updated backlinks were written, but deleting the original "${oldPath}" failed — both "${oldPath}" and "${newPath}" now exist; delete "${oldPath}" to finish: ${describeError(error)}`,
+      `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
       { cause: error },
     )
   }
 
-  // Completion summary: counts of what was rewritten. Any failure throws above
-  // (logged with its source), so sources_failed is always 0 once we reach here.
   logger.info("note move complete", {
     from: oldPath,
     to: newPath,
