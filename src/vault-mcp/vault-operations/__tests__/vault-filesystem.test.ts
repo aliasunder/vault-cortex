@@ -457,6 +457,9 @@ describe("deleteNote", () => {
 
       const pruned = await deleteWithPrune("Folder/note.md")
 
+      // The note must actually be gone, so the folder survives only because of
+      // the hidden file — not because the delete silently no-op'd.
+      expect(await folderExists("Folder/note.md")).toBe(false)
       expect(await folderExists("Folder")).toBe(true)
       expect(await folderExists("Folder/.DS_Store")).toBe(true)
       expect(pruned).toBe(0)

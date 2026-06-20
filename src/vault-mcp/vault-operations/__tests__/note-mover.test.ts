@@ -567,6 +567,10 @@ describe("moveNote — empty-folder prune", () => {
 
     const result = await moveNote("Inbox/move.md", "Projects/move.md", [], true)
 
+    // The move must actually happen, so Inbox survives only because keep.md
+    // remains — not because the move silently no-op'd.
+    expect(await noteExists("Inbox/move.md")).toBe(false)
+    expect(await noteExists("Projects/move.md")).toBe(true)
     expect(await folderExists("Inbox")).toBe(true)
     expect(await noteExists("Inbox/keep.md")).toBe(true)
     expect(result.pruned_empty_folders).toBe(0)
