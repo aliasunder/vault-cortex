@@ -280,11 +280,15 @@ const advanceFence = (
   if (openFence === null) return fenceChars[0]!.repeat(fenceChars.length)
 
   // Close only on the same fence character, at least as long, with no info string.
-  const closesOpenFence =
+  const trimmedLine = line.trim()
+  if (
     fenceChars[0] === openFence[0] &&
     fenceChars.length >= openFence.length &&
-    line.trim() === fenceChars[0]!.repeat(line.trim().length)
-  return closesOpenFence ? null : openFence
+    trimmedLine === fenceChars[0]!.repeat(trimmedLine.length)
+  ) {
+    return null
+  }
+  return openFence
 }
 
 /** Rewrites every link in a note body, skipping fenced code blocks. */
