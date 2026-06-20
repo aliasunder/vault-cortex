@@ -189,7 +189,7 @@ type LinkEdit = { start: number; end: number; replacement: string }
 const rewriteBodyLine = (
   line: string,
   context: RewriteContext,
-): { line: string; count: number } => {
+): { line: string; linksRewritten: number } => {
   const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
     start: match.index,
     end: match.index + match[0].length,
@@ -198,7 +198,7 @@ const rewriteBodyLine = (
     codeSpans.some((span) => position >= span.start && position < span.end)
 
   const edits = collectLineEdits(line, context, isInsideCode)
-  if (edits.length === 0) return { line, count: 0 }
+  if (edits.length === 0) return { line, linksRewritten: 0 }
 
   const orderedEdits = [...edits].sort(
     (left, right) => left.start - right.start,
@@ -211,7 +211,7 @@ const rewriteBodyLine = (
     result += line.slice(cursor, edit.start) + edit.replacement
     cursor = edit.end
   }
-  return { line: result + line.slice(cursor), count: edits.length }
+  return { line: result + line.slice(cursor), linksRewritten: edits.length }
 }
 
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
@@ -309,7 +309,7 @@ const advanceFence = (
 const rewriteBody = (
   body: string,
   context: RewriteContext,
-): { body: string; count: number } => {
+): { body: string; linksRewritten: number } => {
   // Fence state tracked line-by-line; mutable by necessity.
   let openFence: string | null = null
   let linksRewritten = 0
@@ -326,19 +326,24 @@ const rewriteBody = (
 
     const rewrite = rewriteBodyLine(line, context)
     outputLines.push(rewrite.line)
-    linksRewritten += rewrite.count
+    linksRewritten += rewrite.linksRewritten
   }
 
-  return { body: outputLines.join("\n"), count: linksRewritten }
+  return { body: outputLines.join("\n"), linksRewritten }
 }
 
 // ── Frontmatter rewriting ───────────────────────────────────────
 
-type FrontmatterRewrite = { value: unknown; count: number }
+type FrontmatterRewrite = { value: unknown; linksRewritten: number }
 
-/** Total number of links rewritten across a set of child results. */
-const totalCount = (rewrites: ReadonlyArray<FrontmatterRewrite>): number =>
-  rewrites.reduce((runningTotal, child) => runningTotal + child.count, 0)
+/** Total links rewritten across a set of child results. */
+const totalLinksRewritten = (
+  rewrites: ReadonlyArray<FrontmatterRewrite>,
+): number =>
+  rewrites.reduce(
+    (runningTotal, child) => runningTotal + child.linksRewritten,
+    0,
+  )
 
 /** Rewrites wikilinks inside a frontmatter value, recursing into arrays and
  *  objects. Markdown links are body-only and left untouched. */
@@ -348,14 +353,14 @@ const rewriteFrontmatterValue = (
 ): FrontmatterRewrite => {
   if (typeof value === "string") {
     // Mutable: replaceAll's callback is the only way to tally per-match.
-    let count = 0
+    let linksRewritten = 0
     const rewritten = value.replaceAll(WIKILINK_RE, (linkText) => {
       const replacement = rewriteWikilinkText(linkText, context)
       if (replacement === null) return linkText
-      count += 1
+      linksRewritten += 1
       return replacement
     })
-    return { value: rewritten, count }
+    return { value: rewritten, linksRewritten }
   }
 
   if (Array.isArray(value)) {
@@ -364,7 +369,7 @@ const rewriteFrontmatterValue = (
     )
     return {
       value: rewrittenItems.map((item) => item.value),
-      count: totalCount(rewrittenItems),
+      linksRewritten: totalLinksRewritten(rewrittenItems),
     }
   }
 
@@ -379,11 +384,13 @@ const rewriteFrontmatterValue = (
       value: Object.fromEntries(
         rewrittenEntries.map(({ key, result }) => [key, result.value]),
       ),
-      count: totalCount(rewrittenEntries.map(({ result }) => result)),
+      linksRewritten: totalLinksRewritten(
+        rewrittenEntries.map(({ result }) => result),
+      ),
     }
   }
 
-  return { value, count: 0 }
+  return { value, linksRewritten: 0 }
 }
 
 // ── Whole-note rewriting ────────────────────────────────────────
@@ -393,20 +400,21 @@ const rewriteFrontmatterValue = (
 const rewriteNoteContent = (
   rawContent: string,
   context: RewriteContext,
-): { content: string; count: number } | null => {
+): { content: string; linksRewritten: number } | null => {
   const parsed = parseNote(rawContent)
   const frontmatter = parsed.data as Record<string, unknown>
 
   const bodyResult = rewriteBody(parsed.content, context)
   const frontmatterResult = rewriteFrontmatterValue(frontmatter, context)
-  const count = bodyResult.count + frontmatterResult.count
-  if (count === 0) return null
+  const linksRewritten =
+    bodyResult.linksRewritten + frontmatterResult.linksRewritten
+  if (linksRewritten === 0) return null
 
   const content = stringifyNote(
     bodyResult.body,
     frontmatterResult.value as Record<string, unknown>,
   )
-  return { content, count }
+  return { content, linksRewritten }
 }
 
 // ── Orchestration ───────────────────────────────────────────────
@@ -513,7 +521,7 @@ const moveNote = async (
   // resolve from the new folder. A read failure aborts before any write.
   const planMovedNote = async (): Promise<{
     content: string
-    count: number
+    linksRewritten: number
   }> => {
     try {
       const rawContent = await readFile(oldFullPath, "utf8")
@@ -523,7 +531,7 @@ const moveNote = async (
       )
       return {
         content: rewrite?.content ?? rawContent,
-        count: rewrite?.count ?? 0,
+        linksRewritten: rewrite?.linksRewritten ?? 0,
       }
     } catch (error) {
       logger.error("note move aborted: could not read the note being moved", {
@@ -537,7 +545,8 @@ const moveNote = async (
       )
     }
   }
-  const { content: movedContent, count: movedLinkCount } = await planMovedNote()
+  const { content: movedContent, linksRewritten: movedLinksRewritten } =
+    await planMovedNote()
 
   const plannedRewrites = (
     await mapWithConcurrency({
@@ -557,7 +566,7 @@ const moveNote = async (
                 source,
                 fullPath: sourceFullPath,
                 content: rewrite.content,
-                count: rewrite.count,
+                linksRewritten: rewrite.linksRewritten,
               }
         } catch (error) {
           logger.error(
@@ -618,8 +627,8 @@ const moveNote = async (
     },
   })
   const linksUpdated =
-    movedLinkCount +
-    plannedRewrites.reduce((sum, planned) => sum + planned.count, 0)
+    movedLinksRewritten +
+    plannedRewrites.reduce((sum, planned) => sum + planned.linksRewritten, 0)
 
   // Delete the original last — if this fails, both copies exist but no data is lost.
   try {
