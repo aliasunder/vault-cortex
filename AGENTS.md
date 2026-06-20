@@ -182,12 +182,6 @@ log would produce N lines during a vault rebuild (one per note), it's
   A bit of duplication is acceptable to keep code immutable and clear.
   When `let` is necessary (caching, parser state), add a comment
   justifying why mutation is needed here.
-- Prefer `map`/`filter`/`flatMap` over `reduce` when they express the
-  same transform; reach for `reduce` only for a genuine fold to a single
-  value. A `reduce` whose accumulator is an array you `.push` into is
-  really a `flatMap` (return `[]` to drop an item, `[value]` to keep one)
-  or a `filter`+`map`, and reads far more clearly as one. Never mutate
-  the accumulator.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
   `available`, `searchText` not `needle`, `fileContent` not `raw`).
