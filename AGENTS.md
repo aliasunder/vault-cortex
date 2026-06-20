@@ -63,6 +63,8 @@ src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
+  utils/                               # Cross-cutting helpers (no domain logic)
+    map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -74,6 +76,7 @@ src/
     vault-operations/                  # Vault content read/write/patch
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
+      note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       heading-parser.ts                # Shared H1–H6 section-span parser (read + patch)
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
@@ -129,8 +132,8 @@ root logger (src/logger.ts)
   adding `requestId` + `tool` name from the MCP SDK's
   `RequestHandlerExtra`
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
-  `memory-store`, `search-index`) take the logger as a **required**
-  second argument (two-arg pattern: `(params, logger)`)
+  `note-mover`, `memory-store`, `search-index`) take the logger as a
+  **required** second argument (two-arg pattern: `(params, logger)`)
 - Background callers (file-watcher, startup) use the root logger
   directly — no request context available
 
@@ -174,17 +177,32 @@ log would produce N lines during a vault rebuild (one per note), it's
   mutation (`date.setDate()`). Use `DateTime.now()` for current time,
   `.toISO()` for timestamps, `.toISODate()` for date-only strings,
   `.toUnixInteger()` for epoch seconds.
-- Immutable by default. Avoid `let` — carry state in reduce
-  accumulators, use early returns, or destructure conditional results.
-  A bit of duplication is acceptable to keep code immutable and clear.
-  When `let` is necessary (caching, parser state), add a comment
-  justifying why mutation is needed here.
+- Immutable by default. Avoid `let` — carry state in a reduce that
+  returns a _new_ accumulator each step, use early returns, or
+  destructure conditional results. A bit of duplication is acceptable to
+  keep code immutable and clear. When `let` is necessary (caching, parser
+  state), add a comment justifying why mutation is needed here.
+- Don't disguise mutation as a fold. A `reduce` that mutates its
+  accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
+  the worst of both worlds — it reads as declarative but isn't, so a
+  reader has to mentally run it to see what it builds. Pick one and be
+  honest: a genuine immutable fold (return a new value each step) for a
+  real reduction to a single value, or a plain `for…of` loop with a
+  justifying comment when the state is inherently sequential (a parser
+  threading line-by-line state). A map-plus-sum is not a reduce —
+  `items.map(rewrite)` then a separate, named count sum reads on its own.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
   `available`, `searchText` not `needle`, `fileContent` not `raw`).
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.
+- Lean toward named records over positional tuples, and named locals over
+  inline expressions, where it helps a line read on its own — `{ start, end }`
+  over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
+  `const linkText = match[0]` over an inline `match[0].length`. Judgment,
+  not a hard rule: an inline expression that's obvious in its context is
+  fine. Optimize for readability in context, not mechanical extraction.
 - Function and helper names state what they _do_, specifically — a reader
   should know what a function does without reading its body
   (`collectWikilinksFrom` not `collect`,
@@ -202,7 +220,13 @@ log would produce N lines during a vault rebuild (one per note), it's
   lines in `if (!done) { ... }`.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
-  unnecessary cognitive overload.
+  unnecessary cognitive overload. Working is the floor, not the bar — if
+  "it passes" were enough, code review wouldn't matter. The first
+  structure that compiles is rarely the simplest: before settling, ask
+  whether it can be done with fewer moving parts and in fewer lines, and
+  whether this is the shape that makes the most sense or just the first
+  that came to mind. Each line should say what it does on its own — a
+  reader shouldn't have to simulate the code to follow it.
 - MCP tool descriptions include `Example:`, `When to use:`, and
   `Returns:` sections. Include `Errors:` whenever the tool has
   failure modes (with remediation guidance) or a no-match /

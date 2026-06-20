@@ -29,6 +29,10 @@ cp .env.example .env
 | `MCP_AUTH_TOKEN` | Generate with `openssl rand -hex 32`                              |
 | `VAULT_PATH`     | Absolute path to your vault (e.g. `/Users/you/Documents/MyVault`) |
 
+> **On Windows?** Point `VAULT_PATH` at a path inside the WSL2 filesystem (e.g.
+> `/home/you/vaults/MyVault`), not a `C:\` drive — see
+> [Windows (Docker Desktop)](#windows-docker-desktop) below.
+
 **4. Start the server:**
 
 ```bash
@@ -142,6 +146,22 @@ checking it, so a value copied out of a terminal (where a long token can wrap
 across lines) still works. If you still see this error, double-check you copied
 the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
 usual cause.
+
+## Windows (Docker Desktop)
+
+Keep your vault **inside the WSL2 filesystem**, not on a `C:\` drive. Bind-mounting
+across the Windows ↔ Linux boundary silently breaks live re-indexing (the file
+watcher misses changes) and `vault_move_note` (its atomic hard-link write isn't
+supported there); reading, writing, and searching still work, but those two won't.
+
+```bash
+# inside WSL (e.g. Ubuntu) — vault lives on ext4
+mkdir -p ~/vaults/MyVault
+# then in .env:  VAULT_PATH=/home/you/vaults/MyVault
+```
+
+You can still open and edit that vault in Obsidian on Windows — it shows up in
+File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`.
 
 ## Memory
 

@@ -17,7 +17,11 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
+import {
+  vaultFs,
+  atomicWriteFile,
+  atomicWriteFileExclusive,
+} from "../vault-filesystem.js"
 import { parseNote } from "../frontmatter.js"
 import { logger } from "../../../logger.js"
 
@@ -62,6 +66,39 @@ describe("atomicWriteFile", () => {
     const target = join(vault, "occupied")
     await mkdir(target)
     await expect(atomicWriteFile(target, "body\n")).rejects.toThrow()
+    const entries = await readdir(vault)
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+})
+
+describe("atomicWriteFileExclusive", () => {
+  it("writes the exact content to a new target path", async () => {
+    const target = join(vault, "created.md")
+    await atomicWriteFileExclusive(target, "fresh content\n")
+    expect(await readFile(target, "utf8")).toBe("fresh content\n")
+  })
+
+  it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
+    const target = join(vault, "taken.md")
+    await atomicWriteFile(target, "original\n")
+
+    await expect(
+      atomicWriteFileExclusive(target, "overwrite\n"),
+    ).rejects.toMatchObject({ code: "EEXIST" })
+    // The no-clobber guard must not have modified the existing file.
+    expect(await readFile(target, "utf8")).toBe("original\n")
+  })
+
+  it("leaves no .tmp staging file behind on success", async () => {
+    await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n")
+    const entries = await readdir(vault)
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+
+  it("leaves no .tmp staging file behind when the target already exists", async () => {
+    const target = join(vault, "exists.md")
+    await atomicWriteFile(target, "original\n")
+    await expect(atomicWriteFileExclusive(target, "body\n")).rejects.toThrow()
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })

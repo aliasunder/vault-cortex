@@ -5,6 +5,7 @@ import {
   mkdir,
   unlink,
   rename,
+  link,
   rm,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
@@ -36,6 +37,9 @@ export const resolveSafePath = (
  * truncated — readers (notably the obsidian-sync container) see either the old
  * content or the new content, never a 0-byte or partial write. This is the
  * core defense against the partial-write clobber class of bug.
+ *
+ * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
+ * must not already exist.
  */
 export const atomicWriteFile = async (
   filePath: string,
@@ -54,6 +58,33 @@ export const atomicWriteFile = async (
       // ignore — preserving the root-cause error below matters more
     }
     throw err
+  }
+}
+
+/**
+ * Like {@link atomicWriteFile}, but **exclusive** (no-clobber): fails with
+ * `EEXIST` if the target already exists instead of overwriting it. Stages the
+ * content to a unique temp file, then hard-`link`s it onto the target — `link`
+ * is atomic and fails when the destination exists, which closes the
+ * check-then-write race for a destination that must be new (e.g.
+ * `vault_move_note`'s new path). The content is fully staged before the link, so
+ * the target appears atomically; the temp link is always removed, leaving only
+ * the target on success. Mirrors POSIX `O_EXCL` / Node's `'wx'` flag semantics.
+ */
+export const atomicWriteFileExclusive = async (
+  filePath: string,
+  content: string,
+): Promise<void> => {
+  const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  try {
+    await writeFile(tmpPath, content, "utf8")
+    // Atomic no-clobber create: throws EEXIST if filePath already exists.
+    await link(tmpPath, filePath)
+  } finally {
+    // Always drop the temp link — redundant on success (filePath is the durable
+    // name), and never stranded on failure. Swallow cleanup errors so the
+    // original failure (e.g. EEXIST) is what propagates.
+    await rm(tmpPath, { force: true }).catch(() => {})
   }
 }
 

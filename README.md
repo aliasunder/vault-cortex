@@ -22,7 +22,7 @@
 
 ## What is this?
 
-**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 23 tools and 3 guided prompts over a single Docker container.
+**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 24 tools and 3 guided prompts over a single Docker container.
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
 
@@ -83,7 +83,7 @@ docker compose up
 
 </details>
 
-**[Full local guide →](./deploy/local/)**
+**[Full local guide →](./deploy/local/)** — on Windows, [run it under WSL2](./deploy/local/#windows-docker-desktop).
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
@@ -155,7 +155,7 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
-## Tools (23)
+## Tools (24)
 
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
@@ -165,6 +165,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
 |                 | `vault_delete_note`          | Delete a note (protected paths enforced)                   |
+|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault    |
 | **Search**      | `vault_search`               | Full-text search with tag/folder/property filters          |
 |                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                  |
 |                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                     |
