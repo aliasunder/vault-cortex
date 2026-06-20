@@ -63,7 +63,7 @@ const setupVault = () => {
         newPath,
         protectedPaths: PROTECTED,
         backlinkSources,
-        allPaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
+        allNotePaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
       },
       logger,
     )

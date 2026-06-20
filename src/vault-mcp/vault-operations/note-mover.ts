@@ -59,8 +59,8 @@ type RewriteContext = {
   newSourcePath: string
   oldTargetPath: string
   newTargetPath: string
-  allPaths: string[]
-  allPathsAfter: string[]
+  allNotePaths: string[]
+  allNotePathsAfter: string[]
 }
 
 /** Which of Obsidian's link forms a raw target used to resolve, so the
@@ -109,13 +109,13 @@ const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
   newSourcePath: string
-  allPathsAfter: string[]
+  allNotePathsAfter: string[]
 }): string => {
-  const { form, desiredTarget, newSourcePath, allPathsAfter } = params
+  const { form, desiredTarget, newSourcePath, allNotePathsAfter } = params
   const absoluteForm = withoutExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean =>
-    resolveLink(candidate, allPathsAfter, newSourcePath) === desiredTarget
+    resolveLink(candidate, allNotePathsAfter, newSourcePath) === desiredTarget
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -138,7 +138,7 @@ const rewriteTarget = (
 ): string | null => {
   const resolvedBefore = resolveLink(
     rawTarget,
-    context.allPaths,
+    context.allNotePaths,
     context.oldSourcePath,
   )
   if (resolvedBefore === null) return null
@@ -152,7 +152,7 @@ const rewriteTarget = (
   // Already resolves correctly from the new location — leave it alone.
   const resolvedAfter = resolveLink(
     rawTarget,
-    context.allPathsAfter,
+    context.allNotePathsAfter,
     context.newSourcePath,
   )
   if (resolvedAfter === desiredTarget) return null
@@ -165,7 +165,7 @@ const rewriteTarget = (
     }),
     desiredTarget,
     newSourcePath: context.newSourcePath,
-    allPathsAfter: context.allPathsAfter,
+    allNotePathsAfter: context.allNotePathsAfter,
   })
 }
 
@@ -454,11 +454,12 @@ const moveNote = async (
     newPath: string
     protectedPaths: readonly string[]
     backlinkSources: readonly string[]
-    allPaths: readonly string[]
+    /** Every .md path in the vault — resolveLink checks against this to determine where links point. */
+    allNotePaths: readonly string[]
   },
   logger: Logger,
 ): Promise<MoveResult> => {
-  const { vaultPath, protectedPaths, allPaths } = params
+  const { vaultPath, protectedPaths, allNotePaths } = params
   // Normalize before any guard or comparison — see toVaultRelativePath.
   const oldPath = toVaultRelativePath(params.oldPath)
   const newPath = toVaultRelativePath(params.newPath)
@@ -488,8 +489,8 @@ const moveNote = async (
     throw new Error(`destination exists: "${newPath}"`)
   }
 
-  const allPathsBefore = [...allPaths]
-  const allPathsAfter = allPaths.map((path) =>
+  const allNotePathsBefore = [...allNotePaths]
+  const allNotePathsAfter = allNotePaths.map((path) =>
     path === oldPath ? newPath : path,
   )
 
@@ -502,8 +503,8 @@ const moveNote = async (
     newSourcePath: sourceLocation.after,
     oldTargetPath: oldPath,
     newTargetPath: newPath,
-    allPaths: allPathsBefore,
-    allPathsAfter,
+    allNotePaths: allNotePathsBefore,
+    allNotePathsAfter,
   })
 
   // ── Preflight: read every file and compute its rewrite, mutating nothing. ──

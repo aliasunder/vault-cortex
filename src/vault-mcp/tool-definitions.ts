@@ -625,7 +625,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             { path: normalizedOldPath },
             reqLogger,
           )
-          const allPaths = await vaultFs.listNotes({ vaultPath }, reqLogger)
+          const allNotePaths = await vaultFs.listNotes({ vaultPath }, reqLogger)
           return noteMover.moveNote(
             {
               vaultPath,
@@ -633,7 +633,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               newPath: normalizedNewPath,
               protectedPaths: config.protectedPaths,
               backlinkSources: backlinks.map((backlink) => backlink.path),
-              allPaths,
+              allNotePaths,
             },
             reqLogger,
           )
