@@ -1,6 +1,20 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
  *  mirroring Obsidian's built-in rename. Reuses resolveLink and the link regexes
- *  from search-index.ts so the rewriter and indexer always agree. */
+ *  from search-index.ts so the rewriter and indexer always agree.
+ *
+ *  How it comes together — building blocks first, orchestrator last:
+ *    1. Target classification — decides IF a link needs rewriting and what form
+ *       (basename, absolute, relative) the replacement should take.
+ *    2. Body rewriting — walks each line, skipping code blocks and inline code,
+ *       rewrites wikilinks and markdown links via the target classifier.
+ *    3. Frontmatter rewriting — rewrites wikilinks inside frontmatter values
+ *       (strings, arrays, nested objects). Markdown links are body-only.
+ *    4. Whole-note rewriting — combines body + frontmatter into one call; returns
+ *       null when nothing changed so the caller can skip the write.
+ *    5. Orchestration (moveNote) — two-phase: preflight reads every affected
+ *       note and computes its rewrite (aborting on any failure before touching
+ *       the vault), then commit writes the destination, updates backlink sources,
+ *       and deletes the original last. */
 
 import { readFile, mkdir, unlink, stat } from "node:fs/promises"
 import { dirname, posix } from "node:path"
