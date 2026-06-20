@@ -48,6 +48,23 @@
 
 
 
+
+## [0.20.0] — 2026-06-20
+
+### Features
+
+- **tools:** Add vault_move_note with vault-wide link rewriting (#160)
+
+### Documentation
+
+- **memory:** Document leading callouts, add created + related to templates (#161)
+- Add demo GIFs to README (#159)
+- Update CHANGELOG.md for v0.19.6
+
+### Maintenance
+
+- **deps-dev:** Bump the development group across 1 directory with 5 updates (#158)
+
 ## [0.19.6] — 2026-06-19
 
 ### Documentation
