@@ -312,10 +312,12 @@ const decodeMarkdownLinkPath = (encoded: string): string => {
   }
 }
 
-/** Advances the fenced-code state machine by one line: given the currently open
- *  fence marker (null when none is open), returns the marker after this line.
- *  Mirrors the indexer's fence handling so the two never disagree about where
- *  code blocks begin and end. */
+/** Tracks whether the body walk is currently inside a fenced code block. The
+ *  state is the open fence's delimiter (e.g. ``` or ~~~), or null when no fence
+ *  is open; given that state and the next line, returns the state after it — an
+ *  opening fence sets it, a matching closing fence clears it, any other line
+ *  leaves it unchanged. Mirrors the indexer's fence handling so the two never
+ *  disagree about where code blocks begin and end. */
 const advanceFence = (
   line: string,
   openFence: string | null,
@@ -344,8 +346,8 @@ const rewriteBody = (
   body: string,
   context: RewriteContext,
 ): { body: string; count: number } => {
-  // Mutable parser state: the fence state machine is inherently sequential —
-  // each line's meaning depends on whether a fence is open — so we thread it
+  // Whether we're inside a fenced code block has to be tracked line by line —
+  // each line's meaning depends on what came before it — so we carry that state
   // through an honest loop. (let justified: line-by-line parser state.)
   let openFence: string | null = null
   let linksRewritten = 0
