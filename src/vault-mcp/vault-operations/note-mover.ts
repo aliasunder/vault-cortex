@@ -23,6 +23,7 @@ import {
   resolveSafePath,
   atomicWriteFile,
   atomicWriteFileExclusive,
+  pruneEmptyParents,
 } from "./vault-filesystem.js"
 import {
   resolveLink,
@@ -46,6 +47,9 @@ export type MoveResult = {
   /** Vault-relative paths of the other notes whose link text was rewritten,
    *  sorted. Excludes the moved note itself (conveyed by moved_to). */
   updated_notes: string[]
+  /** Number of now-empty source folders removed after the move. Always 0 unless
+   *  pruneEmptyFolders was set. */
+  pruned_empty_folders: number
 }
 
 /** Context for rewriting links in one note. Two notes are in play, named by
@@ -468,10 +472,12 @@ const moveNote = async (
     backlinkSources: readonly string[]
     /** Every .md path in the vault — resolveLink checks against this to determine where links point. */
     allNotePaths: readonly string[]
+    /** When set, remove any source folders the move leaves empty. */
+    pruneEmptyFolders: boolean
   },
   logger: Logger,
 ): Promise<MoveResult> => {
-  const { vaultPath, protectedPaths, allNotePaths } = params
+  const { vaultPath, protectedPaths, allNotePaths, pruneEmptyFolders } = params
   // Normalize before any guard or comparison — see toVaultRelativePath.
   const oldPath = toVaultRelativePath(params.oldPath)
   const newPath = toVaultRelativePath(params.newPath)
@@ -656,18 +662,26 @@ const moveNote = async (
     )
   }
 
+  // Prune from the OLD note's folder — a same-folder rename or a move into a
+  // subfolder leaves the source non-empty, so nothing is pruned in those cases.
+  const prunedEmptyFolders = pruneEmptyFolders
+    ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger)
+    : 0
+
   logger.info("note move complete", {
     from: oldPath,
     to: newPath,
     links_updated: linksUpdated,
     sources_updated: plannedRewrites.length,
     sources_failed: 0,
+    pruned_empty_folders: prunedEmptyFolders,
   })
 
   return {
     moved_to: newPath,
     links_updated: linksUpdated,
     updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
+    pruned_empty_folders: prunedEmptyFolders,
   }
 }
 

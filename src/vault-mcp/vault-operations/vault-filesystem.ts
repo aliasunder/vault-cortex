@@ -7,6 +7,7 @@ import {
   rename,
   link,
   rm,
+  rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve } from "node:path"
@@ -29,6 +30,46 @@ export const resolveSafePath = (
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
   return resolved
+}
+
+/**
+ * Removes the note's now-empty parent folders, walking up from the note's
+ * directory toward — but never including — the vault root. Only a directory
+ * with zero entries is removed, so a folder still holding any file (including a
+ * hidden one like .DS_Store) is left in place and stops the walk.
+ *
+ * Best-effort cleanup: the delete/move that triggered it has already succeeded,
+ * so a failure to remove a folder (permissions, a race, a vanished dir) is
+ * logged and ends the walk rather than thrown — it never fails the tool call.
+ * Returns the number of folders removed.
+ */
+export const pruneEmptyParents = async (
+  params: { vaultPath: string; path: string },
+  logger: Logger,
+): Promise<number> => {
+  const vaultRoot = resolve(params.vaultPath)
+  const start = dirname(resolveSafePath(params.vaultPath, params.path))
+
+  const pruneFrom = async (dir: string, removed: number): Promise<number> => {
+    // Stop at the vault root (never remove it) and defend against the
+    // filesystem root where dirname stops shrinking.
+    if (dir === vaultRoot || dir === dirname(dir)) return removed
+    try {
+      const entries = await readdir(dir)
+      // A non-empty folder means no ancestor can be empty either — stop here.
+      if (entries.length > 0) return removed
+      await rmdir(dir)
+    } catch (error) {
+      logger.warn("could not remove empty folder", {
+        folder: relative(vaultRoot, dir),
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return removed
+    }
+    return pruneFrom(dirname(dir), removed + 1)
+  }
+
+  return pruneFrom(start, 0)
 }
 
 /**
@@ -293,15 +334,18 @@ const updateProperties = async (
   })
 }
 
-/** Deletes a note. Rejects paths under the configured protected paths. */
+/** Deletes a note. Rejects paths under the configured protected paths. When
+ *  pruneEmptyFolders is set, removes any parent folders the deletion empties.
+ *  Returns the number of folders pruned (0 when the flag is off). */
 const deleteNote = async (
   params: {
     vaultPath: string
     path: string
     protectedPaths: readonly string[]
+    pruneEmptyFolders: boolean
   },
   logger: Logger,
-): Promise<void> => {
+): Promise<number> => {
   const protectedPrefixes = params.protectedPaths.map((folder) =>
     folder.endsWith("/") ? folder : `${folder}/`,
   )
@@ -313,7 +357,17 @@ const deleteNote = async (
 
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   await unlink(fullPath)
-  logger.info("deleted note", { path: params.path })
+  const prunedEmptyFolders = params.pruneEmptyFolders
+    ? await pruneEmptyParents(
+        { vaultPath: params.vaultPath, path: params.path },
+        logger,
+      )
+    : 0
+  logger.info("deleted note", {
+    path: params.path,
+    pruned_empty_folders: prunedEmptyFolders,
+  })
+  return prunedEmptyFolders
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */

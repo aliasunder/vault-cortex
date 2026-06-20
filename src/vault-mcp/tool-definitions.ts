@@ -522,21 +522,31 @@ Returns: JSON array of vault-relative paths.`,
       description: `Permanently delete a markdown note. The note is removed from disk directly (not moved to a trash folder), and this server has no undo — recovery depends on your own backups or sync history. After deletion it no longer appears in search results or backlinks, and links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental loss of memory or daily notes.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
+Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
 When to use: Removing a note you no longer need.
 Prefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.
+
+Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be.
 
 Errors:
 - "cannot delete protected path …" — the path sits under a protected folder; use vault_delete_memory for memory entries
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - note does not exist — verify the path with vault_list_notes before deleting
 
-Returns: Confirmation message.`,
+Returns: Confirmation message, noting how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe("Vault-relative path of the note to delete"),
+        prune_empty_folders: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, remove the note's parent folder(s) if deleting it leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — a folder still holding any file, including a hidden one like .DS_Store, is left alone.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -545,20 +555,28 @@ Returns: Confirmation message.`,
         openWorldHint: false,
       },
     },
-    async ({ path }, extra) => {
+    async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_NOTE,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, pruneEmptyFolders })
       return safeHandler(
         reqLogger,
         () =>
           vaultFs.deleteNote(
-            { vaultPath, path, protectedPaths: config.protectedPaths },
+            {
+              vaultPath,
+              path,
+              protectedPaths: config.protectedPaths,
+              pruneEmptyFolders,
+            },
             reqLogger,
           ),
-        () => `Deleted ${path}`,
+        (prunedEmptyFolders) =>
+          prunedEmptyFolders > 0
+            ? `Deleted ${path} (removed ${prunedEmptyFolders} empty folder${prunedEmptyFolders > 1 ? "s" : ""})`
+            : `Deleted ${path}`,
       )
     },
   )
@@ -571,6 +589,7 @@ Returns: Confirmation message.`,
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder, updating links and the note's own relative links.
+Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
 Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) cannot be moved.
@@ -585,7 +604,7 @@ Errors:
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its .md extension and link text. Only the target path is changed.
 
-Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), and updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to).`,
+Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of source folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
         old_path: z
           .string()
@@ -599,6 +618,13 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .describe(
             'Destination vault-relative path (e.g. "Projects/Spec.md"). Must end in .md and must not already exist; parent folders are created as needed.',
           ),
+        prune_empty_folders: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, remove the source folder(s) if the move leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -607,12 +633,19 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         openWorldHint: false,
       },
     },
-    async ({ old_path: oldPath, new_path: newPath }, extra) => {
+    async (
+      {
+        old_path: oldPath,
+        new_path: newPath,
+        prune_empty_folders: pruneEmptyFolders,
+      },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_MOVE_NOTE,
       })
-      reqLogger.info("tool_call", { oldPath, newPath })
+      reqLogger.info("tool_call", { oldPath, newPath, pruneEmptyFolders })
       return safeHandler(
         reqLogger,
         async () => {
@@ -634,6 +667,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               protectedPaths: config.protectedPaths,
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allNotePaths,
+              pruneEmptyFolders,
             },
             reqLogger,
           )

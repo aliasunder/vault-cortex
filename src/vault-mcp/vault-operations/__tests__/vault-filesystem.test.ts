@@ -14,6 +14,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  stat,
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -21,6 +22,7 @@ import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
+  pruneEmptyParents,
 } from "../vault-filesystem.js"
 import { parseNote } from "../frontmatter.js"
 import { logger } from "../../../logger.js"
@@ -118,7 +120,15 @@ describe("path traversal", () => {
     "deleteNote rejects %s",
     async (path) => {
       await expect(
-        deleteNote({ vaultPath: vault, path, protectedPaths: [] }, logger),
+        deleteNote(
+          {
+            vaultPath: vault,
+            path,
+            protectedPaths: [],
+            pruneEmptyFolders: false,
+          },
+          logger,
+        ),
       ).rejects.toThrow("path traversal blocked")
     },
   )
@@ -265,6 +275,7 @@ describe("deleteNote", () => {
         vaultPath: vault,
         path: "delete-me.md",
         protectedPaths: DEFAULT_PROTECTED,
+        pruneEmptyFolders: false,
       },
       logger,
     )
@@ -276,7 +287,12 @@ describe("deleteNote", () => {
     async (path) => {
       await expect(
         deleteNote(
-          { vaultPath: vault, path, protectedPaths: DEFAULT_PROTECTED },
+          {
+            vaultPath: vault,
+            path,
+            protectedPaths: DEFAULT_PROTECTED,
+            pruneEmptyFolders: false,
+          },
           logger,
         ),
       ).rejects.toThrow("cannot delete protected path")
@@ -290,6 +306,7 @@ describe("deleteNote", () => {
           vaultPath: vault,
           path: "Secrets/keys.md",
           protectedPaths: ["Secrets"],
+          pruneEmptyFolders: false,
         },
         logger,
       ),
@@ -299,7 +316,12 @@ describe("deleteNote", () => {
   it("allows deletion when path is not in protected list", async () => {
     await writeFile(join(vault, "ok.md"), "ok", "utf8")
     await deleteNote(
-      { vaultPath: vault, path: "ok.md", protectedPaths: ["Locked"] },
+      {
+        vaultPath: vault,
+        path: "ok.md",
+        protectedPaths: ["Locked"],
+        pruneEmptyFolders: false,
+      },
       logger,
     )
     await expect(readFile(join(vault, "ok.md"))).rejects.toThrow()
@@ -312,10 +334,127 @@ describe("deleteNote", () => {
           vaultPath: vault,
           path: "ghost.md",
           protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
         },
         logger,
       ),
     ).rejects.toThrow()
+  })
+
+  describe("empty-folder prune", () => {
+    /** True when a folder still exists in the vault — used to assert pruning. */
+    const folderExists = async (path: string): Promise<boolean> => {
+      try {
+        await stat(join(vault, path))
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const deleteWithPrune = (path: string): Promise<number> =>
+      deleteNote(
+        {
+          vaultPath: vault,
+          path,
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: true,
+        },
+        logger,
+      )
+
+    it("leaves the parent folder in place when prune is off (Obsidian default)", async () => {
+      await mkdir(join(vault, "Folder"))
+      await writeFile(join(vault, "Folder/only.md"), "body", "utf8")
+
+      const pruned = await deleteNote(
+        {
+          vaultPath: vault,
+          path: "Folder/only.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+        },
+        logger,
+      )
+
+      expect(await folderExists("Folder")).toBe(true)
+      expect(pruned).toBe(0)
+    })
+
+    it("removes the now-empty parent folder when prune is enabled", async () => {
+      await mkdir(join(vault, "Folder"))
+      await writeFile(join(vault, "Folder/only.md"), "body", "utf8")
+
+      const pruned = await deleteWithPrune("Folder/only.md")
+
+      expect(await folderExists("Folder")).toBe(false)
+      expect(pruned).toBe(1)
+    })
+
+    it("walks up removing multiple empty parents when prune is enabled", async () => {
+      await mkdir(join(vault, "A/B/C"), { recursive: true })
+      await writeFile(join(vault, "A/B/C/note.md"), "body", "utf8")
+
+      const pruned = await deleteWithPrune("A/B/C/note.md")
+
+      expect(await folderExists("A/B/C")).toBe(false)
+      expect(await folderExists("A/B")).toBe(false)
+      expect(await folderExists("A")).toBe(false)
+      expect(pruned).toBe(3)
+    })
+
+    it("stops at the first non-empty parent", async () => {
+      await mkdir(join(vault, "A/B"), { recursive: true })
+      await writeFile(join(vault, "A/keep.md"), "keep", "utf8")
+      await writeFile(join(vault, "A/B/note.md"), "body", "utf8")
+
+      const pruned = await deleteWithPrune("A/B/note.md")
+
+      expect(await folderExists("A/B")).toBe(false)
+      expect(await folderExists("A")).toBe(true)
+      expect(await folderExists("A/keep.md")).toBe(true)
+      expect(pruned).toBe(1)
+    })
+
+    it("never removes the vault root", async () => {
+      await writeFile(join(vault, "root-note.md"), "body", "utf8")
+
+      const pruned = await deleteWithPrune("root-note.md")
+
+      expect(await folderExists("")).toBe(true)
+      expect(pruned).toBe(0)
+    })
+
+    it("leaves a folder that still contains a hidden file", async () => {
+      await mkdir(join(vault, "Folder"))
+      await writeFile(join(vault, "Folder/note.md"), "body", "utf8")
+      await writeFile(join(vault, "Folder/.DS_Store"), "junk", "utf8")
+
+      const pruned = await deleteWithPrune("Folder/note.md")
+
+      expect(await folderExists("Folder")).toBe(true)
+      expect(await folderExists("Folder/.DS_Store")).toBe(true)
+      expect(pruned).toBe(0)
+    })
+
+    it("logs a warning and returns 0 without throwing when a folder cannot be removed", async () => {
+      // A plain file where a parent folder is expected makes readdir throw
+      // ENOTDIR — a real filesystem failure (no mocking), exercising the catch.
+      await writeFile(join(vault, "NotADir"), "i am a file", "utf8")
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+
+      const pruned = await pruneEmptyParents(
+        { vaultPath: vault, path: "NotADir/note.md" },
+        logger,
+      )
+
+      expect(pruned).toBe(0)
+      expect(warnSpy).toHaveBeenCalledWith(
+        "could not remove empty folder",
+        expect.objectContaining({ folder: "NotADir" }),
+      )
+    })
   })
 })
 
