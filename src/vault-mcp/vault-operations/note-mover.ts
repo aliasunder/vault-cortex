@@ -234,11 +234,11 @@ const collectLineEdits = (
     })
 
   return [
-    ...editsForPattern(WIKILINK_RE, (text) =>
-      rewriteWikilinkText(text, context),
+    ...editsForPattern(WIKILINK_RE, (linkText) =>
+      rewriteWikilinkText(linkText, context),
     ),
-    ...editsForPattern(MD_LINK_RE, (text) =>
-      rewriteMarkdownLinkText(text, context),
+    ...editsForPattern(MD_LINK_RE, (linkText) =>
+      rewriteMarkdownLinkText(linkText, context),
     ),
   ]
 }
