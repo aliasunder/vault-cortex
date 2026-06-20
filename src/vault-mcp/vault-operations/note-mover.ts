@@ -222,15 +222,22 @@ const rewriteBodyLine = (
   const orderedEdits = [...edits].sort(
     (left, right) => left.start - right.start,
   )
-  const rebuilt = orderedEdits.reduce(
-    (acc, edit) => ({
-      text: acc.text + line.slice(acc.cursor, edit.start) + edit.replacement,
+
+  // Splice each replacement in over the original line, walking a cursor through
+  // the untouched gaps between edits. spliced.text is the line built so far;
+  // spliced.cursor is the index in the original line up to which we've consumed.
+  const spliced = orderedEdits.reduce(
+    (assembled, edit) => ({
+      text:
+        assembled.text +
+        line.slice(assembled.cursor, edit.start) +
+        edit.replacement,
       cursor: edit.end,
     }),
     { text: "", cursor: 0 },
   )
   return {
-    line: rebuilt.text + line.slice(rebuilt.cursor),
+    line: spliced.text + line.slice(spliced.cursor),
     count: edits.length,
   }
 }
@@ -305,49 +312,63 @@ const decodeMarkdownLinkPath = (encoded: string): string => {
   }
 }
 
-/** Rewrites every link in a note body, skipping fenced code blocks. Tracks the
- *  open fence with the same state machine the indexer uses. */
+/** Advances the fenced-code state machine by one line: given the currently open
+ *  fence marker (null when none is open), returns the marker after this line.
+ *  Mirrors the indexer's fence handling so the two never disagree about where
+ *  code blocks begin and end. */
+const advanceFence = (
+  line: string,
+  openFence: string | null,
+): string | null => {
+  const fenceMatch = FENCE_OPEN.exec(line)
+  if (!fenceMatch) return openFence
+
+  const fenceChars = fenceMatch[1]!
+  // No fence open: this line opens one. Remember its delimiter run (the run of
+  // ``` or ~~~ characters) so the close can be matched against it.
+  if (openFence === null) return fenceChars[0]!.repeat(fenceChars.length)
+
+  // A fence is open: close it only on a line of the same fence character, at
+  // least as long, and nothing but fence characters (a close carries no info
+  // string). Otherwise the fence stays open.
+  const closesOpenFence =
+    fenceChars[0] === openFence[0] &&
+    fenceChars.length >= openFence.length &&
+    line.trim() === fenceChars[0]!.repeat(line.trim().length)
+  return closesOpenFence ? null : openFence
+}
+
+/** Rewrites every link in a note body, passing fenced code blocks through
+ *  untouched. */
 const rewriteBody = (
   body: string,
   context: RewriteContext,
 ): { body: string; count: number } => {
-  const lines = body.split("\n")
+  // Mutable parser state: the fence state machine is inherently sequential —
+  // each line's meaning depends on whether a fence is open — so we thread it
+  // through an honest loop. (let justified: line-by-line parser state.)
+  let openFence: string | null = null
+  let linksRewritten = 0
+  const outputLines: string[] = []
 
-  // Mutable parser state: the active fence opener (null outside any fence). A
-  // line-by-line state machine has no clean immutable form without pairing each
-  // line with its running state — the indexer's extractLinks uses the same shape.
-  let currentFenceOpener: string | null = null
+  for (const line of body.split("\n")) {
+    const fenceBefore = openFence
+    openFence = advanceFence(line, openFence)
 
-  const rewritten = lines.reduce<{ outputLines: string[]; count: number }>(
-    (acc, line) => {
-      const fenceMatch = FENCE_OPEN.exec(line)
-      if (fenceMatch) {
-        const fenceChars = fenceMatch[1]!
-        if (currentFenceOpener === null) {
-          currentFenceOpener = fenceChars[0]!.repeat(fenceChars.length)
-        } else if (
-          fenceChars[0] === currentFenceOpener[0] &&
-          fenceChars.length >= currentFenceOpener.length &&
-          line.trim() === fenceChars[0]!.repeat(line.trim().length)
-        ) {
-          currentFenceOpener = null
-        }
-        acc.outputLines.push(line)
-        return acc
-      }
-      if (currentFenceOpener !== null) {
-        acc.outputLines.push(line)
-        return acc
-      }
-      const result = rewriteBodyLine(line, context)
-      acc.outputLines.push(result.line)
-      acc.count += result.count
-      return acc
-    },
-    { outputLines: [], count: 0 },
-  )
+    // A line belongs to a code block if a fence was open before it or is open
+    // after it — covering the opening delimiter, the body, and the close. Those
+    // pass through untouched; only true prose lines get their links rewritten.
+    if (fenceBefore !== null || openFence !== null) {
+      outputLines.push(line)
+      continue
+    }
 
-  return { body: rewritten.outputLines.join("\n"), count: rewritten.count }
+    const rewrite = rewriteBodyLine(line, context)
+    outputLines.push(rewrite.line)
+    linksRewritten += rewrite.count
+  }
+
+  return { body: outputLines.join("\n"), count: linksRewritten }
 }
 
 // ── Frontmatter rewriting ───────────────────────────────────────
@@ -396,14 +417,14 @@ const rewriteFrontmatterValue = (
     const rewrittenEntries = Object.entries(value).map(
       ([key, nestedValue]) => ({
         key,
-        rewritten: rewriteFrontmatterValue(nestedValue, context),
+        ...rewriteFrontmatterValue(nestedValue, context),
       }),
     )
     return {
       value: Object.fromEntries(
-        rewrittenEntries.map(({ key, rewritten }) => [key, rewritten.value]),
+        rewrittenEntries.map((entry) => [entry.key, entry.value]),
       ),
-      count: totalCount(rewrittenEntries.map(({ rewritten }) => rewritten)),
+      count: totalCount(rewrittenEntries),
     }
   }
 
@@ -691,8 +712,8 @@ const moveNote = async (
     )
   }
 
-  // Completion summary: counts of what was rewritten. Atomic move, so failures is
-  // always 0 here — a failure would have thrown above (logged with its source).
+  // Completion summary: counts of what was rewritten. Any failure throws above
+  // (logged with its source), so sources_failed is always 0 once we reach here.
   logger.info("note move complete", {
     from: oldPath,
     to: newPath,
