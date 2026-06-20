@@ -522,11 +522,13 @@ describe("moveNote — failure safety", () => {
 
 describe("moveNote — empty-folder prune", () => {
   it("leaves the source folder in place when prune is off (Obsidian default)", async () => {
-    const { writeFixture, moveNote, folderExists } = setupVault()
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
     await writeFixture("Inbox/draft.md", "body\n")
 
     const result = await moveNote("Inbox/draft.md", "Projects/draft.md")
 
+    expect(await noteExists("Inbox/draft.md")).toBe(false)
+    expect(await noteExists("Projects/draft.md")).toBe(true)
     expect(await folderExists("Inbox")).toBe(true)
     expect(result.pruned_empty_folders).toBe(0)
   })

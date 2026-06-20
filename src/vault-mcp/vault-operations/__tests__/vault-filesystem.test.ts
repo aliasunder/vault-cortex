@@ -378,6 +378,7 @@ describe("deleteNote", () => {
       )
 
       expect(await folderExists("Folder")).toBe(true)
+      expect(await folderExists("Folder/only.md")).toBe(false)
       expect(pruned).toBe(0)
     })
 
@@ -421,6 +422,7 @@ describe("deleteNote", () => {
 
       const pruned = await deleteWithPrune("root-note.md")
 
+      expect(await folderExists("root-note.md")).toBe(false)
       expect(await folderExists("")).toBe(true)
       expect(pruned).toBe(0)
     })
