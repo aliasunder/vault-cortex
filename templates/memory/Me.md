@@ -1,9 +1,14 @@
 ---
 title: Me
+created: 2025-01-01T00:00:00-05:00 # replace with your current timestamp
 type: profile
 tags:
   - memory
   - identity
+related:
+  - "[[About Me/Opinions]]"
+  - "[[About Me/Principles]]"
+  - "[[About Me/Routines]]"
 ---
 
 # Me

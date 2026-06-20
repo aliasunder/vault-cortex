@@ -206,92 +206,116 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   const memoryFilePath = (vaultPath: string, file: string): string =>
     join(vaultPath, memoryDir, `${file}.md`)
 
-  const MEMORY_TEMPLATES: ReadonlyArray<{
+  type MemoryTemplateSpec = {
     fileName: string
-    content: string
-  }> = [
+    title: string
+    tag: string
+    related: string[]
+    scope: string
+    sections: string[]
+  }
+
+  const MEMORY_TEMPLATE_SPECS: readonly MemoryTemplateSpec[] = [
     {
       fileName: "Me",
-      content: [
-        "---",
-        "title: Me",
-        "type: profile",
-        "tags:",
-        "  - memory",
-        "  - identity",
-        "---",
-        "",
-        "# Me",
-        "",
+      title: "Me",
+      tag: "identity",
+      related: ["Opinions", "Principles", "Routines"],
+      scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Identity, interests, and durable context about the user — who they are, what they're into, situational facts.",
         "> **Does NOT contain:** Opinions or preferences (→ Opinions), guiding principles (→ Principles), recurring routines (→ Routines).",
         '> **Section structure:** H2 sections grouped by theme, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
-        "",
-        "## Identity (newest first)",
-        "",
-        "## Interests (newest first)",
-        "",
-        "## Context (newest first)",
-        "",
       ].join("\n"),
+      sections: [
+        "Identity (newest first)",
+        "Interests (newest first)",
+        "Context (newest first)",
+      ],
     },
     {
       fileName: "Opinions",
-      content: [
-        "---",
-        "title: Opinions",
-        "type: profile",
-        "tags:",
-        "  - memory",
-        "  - opinions",
-        "---",
-        "",
-        "# Opinions",
-        "",
+      title: "Opinions",
+      tag: "opinions",
+      related: ["Principles", "Me"],
+      scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Evolving views on tools, patterns, methods, and processes — stances that may shift over time.",
         "> **Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me).",
         '> **Section structure:** H2 sections by topic, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
-        "",
-        "## Tools and workflows (newest first)",
-        "",
-        "## Code patterns (newest first)",
-        "",
-        "## Communication preferences (newest first)",
-        "",
       ].join("\n"),
+      sections: [
+        "Tools and workflows (newest first)",
+        "Code patterns (newest first)",
+        "Communication preferences (newest first)",
+      ],
     },
     {
       fileName: "Principles",
-      content: [
-        "---",
-        "title: Principles",
-        "type: profile",
-        "tags:",
-        "  - memory",
-        "  - principles",
-        "---",
-        "",
-        "# Principles",
-        "",
+      title: "Principles",
+      tag: "principles",
+      related: ["Opinions", "Me"],
+      scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Stable values, decision heuristics, and non-negotiables — how the user thinks and what they hold firm.",
         "> **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me).",
         '> **Section structure:** H2 sections by theme, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
-        "",
-        "## Decision heuristics (newest first)",
-        "",
-        "## Working style (newest first)",
-        "",
-        "## Non-negotiables (newest first)",
-        "",
       ].join("\n"),
+      sections: [
+        "Decision heuristics (newest first)",
+        "Working style (newest first)",
+        "Non-negotiables (newest first)",
+      ],
+    },
+    {
+      fileName: "Routines",
+      title: "Routines",
+      tag: "routines",
+      related: ["Me"],
+      scope: [
+        "> [!info] Scope of this file",
+        "> **Contains:** Recurring routines, cadences, and practiced habits — what the user actually does on a regular rhythm.",
+        "> **Does NOT contain:** One-off events or plans, identity facts (→ Me), principles (→ Principles).",
+        '> **Section structure:** H2 sections by cadence, each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+      ].join("\n"),
+      sections: [
+        "Daily (newest first)",
+        "Weekly (newest first)",
+        "Commitments (newest first)",
+      ],
     },
   ]
+
+  /** Renders a memory template with the current timestamp so bootstrapped files
+   *  carry a `created` property from the moment the server first seeds them. */
+  const renderMemoryTemplate = (
+    spec: MemoryTemplateSpec,
+    created: string,
+  ): { fileName: string; content: string } => ({
+    fileName: spec.fileName,
+    content: [
+      "---",
+      `title: ${spec.title}`,
+      `created: ${created}`,
+      "type: profile",
+      "tags:",
+      "  - memory",
+      `  - ${spec.tag}`,
+      "related:",
+      ...spec.related.map((sibling) => `  - "[[${memoryDir}/${sibling}]]"`),
+      "---",
+      "",
+      `# ${spec.title}`,
+      "",
+      spec.scope,
+      "",
+      ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
+    ].join("\n"),
+  })
 
   const readMemoryFile = async (
     vaultPath: string,
@@ -696,8 +720,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
     }
     await mkdir(dirPath, { recursive: true })
+    const created = DateTime.now().toISO()!
+    const templates = MEMORY_TEMPLATE_SPECS.map((spec) =>
+      renderMemoryTemplate(spec, created),
+    )
     await Promise.all(
-      MEMORY_TEMPLATES.map((template) =>
+      templates.map((template) =>
         atomicWriteFile(
           join(dirPath, `${template.fileName}.md`),
           template.content,
@@ -706,7 +734,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     )
     logger.info("bootstrapped memory directory", {
       memoryDir,
-      fileCount: MEMORY_TEMPLATES.length,
+      fileCount: templates.length,
     })
   }
 
