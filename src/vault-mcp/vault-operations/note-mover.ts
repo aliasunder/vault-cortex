@@ -42,16 +42,25 @@ export type MoveResult = {
 }
 
 /** Everything a single link occurrence needs to decide whether — and how — to
- *  rewrite its target. Captured once per note being processed. */
+ *  rewrite its target. Captured once per note being processed.
+ *
+ *  Two notes are in play, named by link-graph direction (a link points
+ *  source → target): the **source** is the note that *holds* the link (whose body
+ *  is being rewritten, and that relative links resolve from); the **target** is
+ *  the note being *moved* (fixed for the whole operation). They're the same note
+ *  only when rewriting the moved note's own links — which is why the source has an
+ *  old/new pair too: it changes location only for the moved note, and that shift
+ *  is what re-resolves the moved note's own relative links from the new folder. */
 type RewriteContext = {
-  /** Path the note is resolved-from before the move (its current location). */
+  /** Path the source note (the one holding the link) is resolved-from before the
+   *  move — i.e. its current location. */
   oldSourcePath: string
-  /** Path the note is resolved-from after the move (its destination). Equal to
-   *  oldSourcePath for every note except the moved note itself. */
+  /** Path the source note is resolved-from after the move. Equal to oldSourcePath
+   *  for every note except the moved note itself (the only source that relocates). */
   newSourcePath: string
-  /** The moved note's path before the move (with .md). */
+  /** The moved (target) note's path before the move (with .md). */
   oldTargetPath: string
-  /** The moved note's path after the move (with .md). */
+  /** The moved (target) note's path after the move (with .md). */
   newTargetPath: string
   /** All note paths before the move (includes oldTargetPath). */
   allPaths: string[]
