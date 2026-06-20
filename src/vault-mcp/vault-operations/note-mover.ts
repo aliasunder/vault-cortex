@@ -352,13 +352,19 @@ const rewriteBody = (
 
 // ── Frontmatter rewriting ───────────────────────────────────────
 
+type FrontmatterRewrite = { value: unknown; count: number }
+
+/** Total number of links rewritten across a set of child results. */
+const totalCount = (rewrites: ReadonlyArray<FrontmatterRewrite>): number =>
+  rewrites.reduce((runningTotal, child) => runningTotal + child.count, 0)
+
 /** Rewrites the wikilinks inside one frontmatter value (string, array, or
  *  nested object), recursing into containers. Markdown links are a body
  *  convention and are intentionally left untouched, matching the indexer. */
 const rewriteFrontmatterValue = (
   value: unknown,
   context: RewriteContext,
-): { value: unknown; count: number } => {
+): FrontmatterRewrite => {
   if (typeof value === "string") {
     // Mutable counter: replaceAll's callback is the only place a per-match tally
     // can be kept without scanning the string a second time.
@@ -372,33 +378,36 @@ const rewriteFrontmatterValue = (
     return { value: rewritten, count }
   }
 
+  // Arrays: rewrite each element, then rebuild from the rewritten values and
+  // sum how many links changed across all of them.
   if (Array.isArray(value)) {
-    return value.reduce<{ value: unknown[]; count: number }>(
-      (acc, item) => {
-        const result = rewriteFrontmatterValue(item, context)
-        acc.value.push(result.value)
-        acc.count += result.count
-        return acc
-      },
-      { value: [], count: 0 },
+    const rewrittenItems = value.map((item) =>
+      rewriteFrontmatterValue(item, context),
     )
+    return {
+      value: rewrittenItems.map((item) => item.value),
+      count: totalCount(rewrittenItems),
+    }
   }
 
+  // Objects: rewrite each property's value while keeping its key, then rebuild
+  // the object and sum the counts the same way as arrays.
   if (value !== null && typeof value === "object") {
-    return Object.entries(value).reduce<{
-      value: Record<string, unknown>
-      count: number
-    }>(
-      (acc, [key, nestedValue]) => {
-        const result = rewriteFrontmatterValue(nestedValue, context)
-        acc.value[key] = result.value
-        acc.count += result.count
-        return acc
-      },
-      { value: {}, count: 0 },
+    const rewrittenEntries = Object.entries(value).map(
+      ([key, nestedValue]) => ({
+        key,
+        rewritten: rewriteFrontmatterValue(nestedValue, context),
+      }),
     )
+    return {
+      value: Object.fromEntries(
+        rewrittenEntries.map(({ key, rewritten }) => [key, rewritten.value]),
+      ),
+      count: totalCount(rewrittenEntries.map(({ rewritten }) => rewritten)),
+    }
   }
 
+  // Numbers, booleans, null: no string to scan, nothing to rewrite.
   return { value, count: 0 }
 }
 

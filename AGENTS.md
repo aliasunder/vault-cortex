@@ -188,13 +188,12 @@ log would produce N lines during a vault rebuild (one per note), it's
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.
-- Named records over positional tuples, and named locals over inline
-  expressions — so each line reads on its own. `{ start, end }` accessed
-  as `span.start`/`span.end` beats `[start, end] as const` destructured
-  as `[spanStart, spanEnd]`; `const linkText = match[0]` makes
-  `start + linkText.length` self-explanatory where `match[0].length` is
-  not. A reader shouldn't have to decode index positions or cryptic
-  accessors to follow a line.
+- Lean toward named records over positional tuples, and named locals over
+  inline expressions, where it helps a line read on its own — `{ start, end }`
+  over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
+  `const linkText = match[0]` over an inline `match[0].length`. Judgment,
+  not a hard rule: an inline expression that's obvious in its context is
+  fine. Optimize for readability in context, not mechanical extraction.
 - Function and helper names state what they _do_, specifically — a reader
   should know what a function does without reading its body
   (`collectWikilinksFrom` not `collect`,
