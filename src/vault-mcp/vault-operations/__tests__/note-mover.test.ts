@@ -1,71 +1,79 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
+import { describe, it, expect, vi, onTestFinished } from "vitest"
+import { rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
+import { mkdtempSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { noteMover } from "../note-mover.js"
 import { vaultFs } from "../vault-filesystem.js"
-import { logger } from "../../../logger.js"
+import type { Logger } from "../../../logger.js"
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
 
-// Reassigned per test in beforeEach (each test gets its own fresh temp vault),
-// so this binding must be mutable.
-let vault: string
-
-beforeEach(async () => {
-  vault = await mkdtemp(join(tmpdir(), "note-mover-test-"))
-})
-
-afterEach(async () => {
-  await rm(vault, { recursive: true })
-})
-
-const writeFixture = async (path: string, content: string): Promise<void> => {
-  const fullPath = join(vault, path)
-  await mkdir(dirname(fullPath), { recursive: true })
-  await writeFile(fullPath, content, "utf8")
-}
-
-const readNote = (path: string): Promise<string> =>
-  readFile(join(vault, path), "utf8")
-
-const noteExists = async (path: string): Promise<boolean> => {
-  try {
-    await stat(join(vault, path))
-    return true
-  } catch {
-    return false
+/** A Logger whose methods are spies, so a test can assert on its log calls
+ *  (vi.mocked(logger.info)…) without touching the shared logger singleton.
+ *  child() returns the same mock so any childed logger is asserted on too. */
+const createLoggerMock = (): Logger => {
+  const mock: Logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
   }
+  vi.mocked(mock.child).mockReturnValue(mock)
+  return mock
 }
 
-/** Moves a note, snapshotting the pre-move path list the way the tool does. */
-const moveNote = async (
-  oldPath: string,
-  newPath: string,
-  backlinkSources: string[] = [],
-) =>
-  noteMover.moveNote(
-    {
-      vaultPath: vault,
-      oldPath,
-      newPath,
-      protectedPaths: PROTECTED,
-      backlinkSources,
-      allPaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
-    },
-    logger,
-  )
+/** Creates an isolated temp vault for a single test — removed automatically when
+ *  the test finishes — plus a per-test logger mock and helpers bound to them. Each
+ *  test calls this for its own vault, so there is no shared mutable state. */
+const setupVault = () => {
+  const vault = mkdtempSync(join(tmpdir(), "note-mover-test-"))
+  onTestFinished(() => rm(vault, { recursive: true, force: true }))
+  const logger = createLoggerMock()
+
+  const writeFixture = async (path: string, content: string): Promise<void> => {
+    const fullPath = join(vault, path)
+    await mkdir(dirname(fullPath), { recursive: true })
+    await writeFile(fullPath, content, "utf8")
+  }
+
+  const readNote = (path: string): Promise<string> =>
+    readFile(join(vault, path), "utf8")
+
+  const noteExists = async (path: string): Promise<boolean> => {
+    try {
+      await stat(join(vault, path))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Moves a note, snapshotting the pre-move path list the way the tool does. */
+  const moveNote = async (
+    oldPath: string,
+    newPath: string,
+    backlinkSources: string[] = [],
+  ) =>
+    noteMover.moveNote(
+      {
+        vaultPath: vault,
+        oldPath,
+        newPath,
+        protectedPaths: PROTECTED,
+        backlinkSources,
+        allPaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
+      },
+      logger,
+    )
+
+  return { vault, logger, writeFixture, readNote, noteExists, moveNote }
+}
 
 describe("moveNote — file relocation", () => {
   it("writes the note at the new path and removes the old one", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Inbox/Draft.md", "Just a body.\n")
 
     await moveNote("Inbox/Draft.md", "Inbox/Spec.md")
@@ -75,6 +83,7 @@ describe("moveNote — file relocation", () => {
   })
 
   it("creates destination parent folders that do not yet exist", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Inbox/Draft.md", "Body.\n")
 
     await moveNote("Inbox/Draft.md", "Projects/Specs/Draft.md")
@@ -83,6 +92,7 @@ describe("moveNote — file relocation", () => {
   })
 
   it("returns the full move summary for a move with no backlinks", async () => {
+    const { writeFixture, moveNote } = setupVault()
     await writeFixture("Inbox/Draft.md", "Body.\n")
 
     const result = await moveNote("Inbox/Draft.md", "Done/Draft.md")
@@ -97,6 +107,7 @@ describe("moveNote — file relocation", () => {
 
 describe("moveNote — link rewriting forms", () => {
   it("rewrites a bare wikilink on rename", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "See [[Foo]] for details.\n")
 
@@ -111,6 +122,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("leaves a bare wikilink untouched on a folder move when the short name stays unambiguous", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "See [[Foo]] for details.\n")
 
@@ -125,6 +137,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("rewrites a full vault-path wikilink to the new path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Projects/Foo.md", "content\n")
     await writeFixture("Hub.md", "See [[Projects/Foo]] here.\n")
 
@@ -134,6 +147,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("preserves an alias when rewriting a wikilink", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "See [[Foo|the foo note]].\n")
 
@@ -143,6 +157,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("preserves a heading anchor when rewriting a wikilink", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Jump to [[Foo#Setup]].\n")
 
@@ -152,6 +167,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("preserves the embed marker when rewriting an embed", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "![[Foo]]\n")
 
@@ -161,6 +177,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("rewrites a markdown link, preserving its text and re-encoding spaces", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Old Note.md", "content\n")
     await writeFixture("Hub.md", "Read the [summary](Old%20Note.md) now.\n")
 
@@ -172,6 +189,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("percent-encodes reserved characters in a rewritten markdown link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Old.md", "content\n")
     await writeFixture("Hub.md", "Read the [summary](Old.md) now.\n")
 
@@ -185,6 +203,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("rewrites a wikilink stored in a frontmatter property", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", '---\nrelated:\n  - "[[Foo]]"\n---\nBody\n')
 
@@ -197,6 +216,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("rewrites a source-relative wikilink in another folder", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("B/Target.md", "content\n")
     await writeFixture("A/Note.md", "Up and over to [[../B/Target]].\n")
 
@@ -208,6 +228,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("rewrites the moved note's own relative link so it still resolves from the new folder", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("A/Sibling.md", "sibling\n")
     await writeFixture("B/Target.md", "Points to [[../A/Sibling]].\n")
 
@@ -225,6 +246,7 @@ describe("moveNote — link rewriting forms", () => {
   })
 
   it("upgrades a bare wikilink to a full path when the new basename is no longer unique", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Common.md", "the other common\n")
     await writeFixture("Inbox/Special.md", "content\n")
     await writeFixture("Hub.md", "See [[Special]].\n")
@@ -239,6 +261,7 @@ describe("moveNote — link rewriting forms", () => {
 
 describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   it("rewrites only the link to the moved note, leaving unrelated links intact", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Keep.md", "keep\n")
     await writeFixture("Hub.md", "Both [[Foo]] and [[Keep]] matter.\n")
@@ -250,6 +273,7 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   })
 
   it("does not rewrite a link inside a fenced code block", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     const body = "Real link [[Foo]].\n\n```\nExample: [[Foo]] in code\n```\n"
     await writeFixture("Hub.md", body)
@@ -263,6 +287,7 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   })
 
   it("does not rewrite a link inside an inline code span", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Use `[[Foo]]` syntax to link [[Foo]].\n")
 
@@ -274,6 +299,7 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   })
 
   it("does not rewrite a same-named link that resolves to a different note, even when passed as a candidate", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Deep/Foo.md", "the moved note\n")
     await writeFixture("Near/Foo.md", "a different foo\n")
     // [[Foo]] here resolves to Near/Foo.md (same folder), not the moved Deep/Foo.md.
@@ -294,6 +320,7 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
 
 describe("moveNote — counts and summary", () => {
   it("counts every rewritten occurrence and lists changed notes sorted", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Beta.md", "[[Foo]] and again [[Foo|alias]].\n")
     await writeFixture("Alpha.md", "Single [[Foo]].\n")
@@ -310,6 +337,7 @@ describe("moveNote — counts and summary", () => {
   })
 
   it("rewrites every source when there are more than one batch of them", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     // 25 sources spans three batches of 10 — exercises the batch-boundary logic.
     const sources = Array.from({ length: 25 }, (_unused, index) => {
@@ -338,6 +366,7 @@ describe("moveNote — counts and summary", () => {
 
 describe("moveNote — guards", () => {
   it("throws when the destination already exists", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Bar.md", "occupied\n")
 
@@ -350,12 +379,14 @@ describe("moveNote — guards", () => {
   })
 
   it("throws when the source note does not exist", async () => {
+    const { moveNote } = setupVault()
     await expect(moveNote("Missing.md", "Bar.md")).rejects.toThrow(
       'note not found: "Missing.md"',
     )
   })
 
   it("throws when the source is under a protected path", async () => {
+    const { writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("About Me/Me.md", "memory\n")
 
     await expect(moveNote("About Me/Me.md", "Bar.md")).rejects.toThrow(
@@ -365,6 +396,7 @@ describe("moveNote — guards", () => {
   })
 
   it("throws when the destination is under a protected path", async () => {
+    const { writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "About Me/Foo.md")).rejects.toThrow(
@@ -374,6 +406,7 @@ describe("moveNote — guards", () => {
   })
 
   it("refuses a destination that reaches a protected path through .. segments", async () => {
+    const { writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     // Normalizes to "Daily Notes/Foo.md", which must not slip past the guard.
@@ -385,6 +418,7 @@ describe("moveNote — guards", () => {
   })
 
   it("throws when source and destination are identical", async () => {
+    const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "Foo.md")).rejects.toThrow(
@@ -393,6 +427,7 @@ describe("moveNote — guards", () => {
   })
 
   it("throws when a path does not end in .md", async () => {
+    const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "Bar.txt")).rejects.toThrow(
@@ -401,6 +436,7 @@ describe("moveNote — guards", () => {
   })
 
   it("throws when a path escapes the vault root", async () => {
+    const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "../escape.md")).rejects.toThrow(
@@ -411,6 +447,7 @@ describe("moveNote — guards", () => {
 
 describe("moveNote — failure safety", () => {
   it("aborts without writing anything when a backlink source cannot be read", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
 
@@ -427,16 +464,15 @@ describe("moveNote — failure safety", () => {
   })
 
   it("logs the offending source and destination when a rewrite aborts the move", async () => {
+    const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
-    const errorLog = vi.spyOn(logger, "error")
-    onTestFinished(() => errorLog.mockRestore())
 
     await expect(
       moveNote("Foo.md", "Bar.md", ["Hub.md", "Ghost.md"]),
     ).rejects.toThrow()
 
-    expect(errorLog).toHaveBeenCalledWith(
+    expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not read/plan a backlink source",
       expect.objectContaining({
         source: "Ghost.md",
@@ -447,14 +483,13 @@ describe("moveNote — failure safety", () => {
   })
 
   it("logs a completion summary with the success and failure counts", async () => {
+    const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
-    const infoLog = vi.spyOn(logger, "info")
-    onTestFinished(() => infoLog.mockRestore())
 
     await moveNote("Foo.md", "Bar.md", ["Hub.md"])
 
-    expect(infoLog).toHaveBeenCalledWith("note move complete", {
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
       from: "Foo.md",
       to: "Bar.md",
       links_updated: 1,
