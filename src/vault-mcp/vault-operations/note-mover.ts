@@ -184,11 +184,15 @@ const encodeMarkdownLinkPath = (path: string): string =>
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
+/** Takes a raw link target string and returns its replacement, or null to
+ *  leave the link unchanged. Created by binding rewriteTarget to a context. */
+type RewriteLink = (rawTarget: string) => string | null
+
 /** Rewrites link targets in a single body line, skipping links inside
  *  inline-code spans. */
 const rewriteBodyLine = (
   line: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
   const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
     start: match.index,
@@ -197,7 +201,7 @@ const rewriteBodyLine = (
   const isInsideCode = (position: number): boolean =>
     codeSpans.some((span) => position >= span.start && position < span.end)
 
-  const edits = collectLineEdits(line, context, isInsideCode)
+  const edits = collectLineEdits(line, rewriteLink, isInsideCode)
   if (edits.length === 0) return { line, linksRewritten: 0 }
 
   const orderedEdits = [...edits].sort(
@@ -217,7 +221,7 @@ const rewriteBodyLine = (
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
 const collectLineEdits = (
   line: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
   isInsideCode: (position: number) => boolean,
 ): LinkEdit[] => {
   const editsForPattern = (
@@ -235,10 +239,10 @@ const collectLineEdits = (
 
   return [
     ...editsForPattern(WIKILINK_RE, (linkText) =>
-      rewriteWikilinkText(linkText, context),
+      rewriteWikilinkText(linkText, rewriteLink),
     ),
     ...editsForPattern(MD_LINK_RE, (linkText) =>
-      rewriteMarkdownLinkText(linkText, context),
+      rewriteMarkdownLinkText(linkText, rewriteLink),
     ),
   ]
 }
@@ -247,12 +251,12 @@ const collectLineEdits = (
  *  alias; null when the target needs no change. */
 const rewriteWikilinkText = (
   linkText: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): string | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
   if (!parts) return null
   const [, embedMarker, target, heading = "", alias = ""] = parts
-  const newTarget = rewriteTarget(target!.trim(), context)
+  const newTarget = rewriteLink(target!.trim())
   if (newTarget === null) return null
   return `${embedMarker}[[${newTarget}${heading}${alias}]]`
 }
@@ -261,13 +265,13 @@ const rewriteWikilinkText = (
  *  null when the target needs no change. */
 const rewriteMarkdownLinkText = (
   linkText: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): string | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
   if (!parts) return null
   const [, prefix, encodedPath, heading = "", closeParen] = parts
   const decodedTarget = decodeMarkdownLinkPath(encodedPath!)
-  const newTarget = rewriteTarget(decodedTarget, context)
+  const newTarget = rewriteLink(decodedTarget)
   if (newTarget === null) return null
   return `${prefix}${encodeMarkdownLinkPath(newTarget)}.md${heading}${closeParen}`
 }
@@ -308,7 +312,7 @@ const advanceFence = (
 /** Rewrites every link in a note body, skipping fenced code blocks. */
 const rewriteBody = (
   body: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): { body: string; linksRewritten: number } => {
   // Fence state tracked line-by-line; mutable by necessity.
   let openFence: string | null = null
@@ -324,7 +328,7 @@ const rewriteBody = (
       continue
     }
 
-    const rewrite = rewriteBodyLine(line, context)
+    const rewrite = rewriteBodyLine(line, rewriteLink)
     outputLines.push(rewrite.line)
     linksRewritten += rewrite.linksRewritten
   }
@@ -349,13 +353,13 @@ const totalLinksRewritten = (
  *  objects. Markdown links are body-only and left untouched. */
 const rewriteFrontmatterValue = (
   value: unknown,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): FrontmatterRewrite => {
   if (typeof value === "string") {
     // Mutable: replaceAll's callback is the only way to tally per-match.
     let linksRewritten = 0
     const rewritten = value.replaceAll(WIKILINK_RE, (linkText) => {
-      const replacement = rewriteWikilinkText(linkText, context)
+      const replacement = rewriteWikilinkText(linkText, rewriteLink)
       if (replacement === null) return linkText
       linksRewritten += 1
       return replacement
@@ -365,7 +369,7 @@ const rewriteFrontmatterValue = (
 
   if (Array.isArray(value)) {
     const rewrittenItems = value.map((item) =>
-      rewriteFrontmatterValue(item, context),
+      rewriteFrontmatterValue(item, rewriteLink),
     )
     return {
       value: rewrittenItems.map((item) => item.value),
@@ -377,7 +381,7 @@ const rewriteFrontmatterValue = (
     const rewrittenEntries = Object.entries(value).map(
       ([key, nestedValue]) => ({
         key,
-        result: rewriteFrontmatterValue(nestedValue, context),
+        result: rewriteFrontmatterValue(nestedValue, rewriteLink),
       }),
     )
     return {
@@ -399,13 +403,13 @@ const rewriteFrontmatterValue = (
  *  serialized note only when something changed, so callers can skip no-op writes. */
 const rewriteNoteContent = (
   rawContent: string,
-  context: RewriteContext,
+  rewriteLink: RewriteLink,
 ): { content: string; linksRewritten: number } | null => {
   const parsed = parseNote(rawContent)
   const frontmatter = parsed.data as Record<string, unknown>
 
-  const bodyResult = rewriteBody(parsed.content, context)
-  const frontmatterResult = rewriteFrontmatterValue(frontmatter, context)
+  const bodyResult = rewriteBody(parsed.content, rewriteLink)
+  const frontmatterResult = rewriteFrontmatterValue(frontmatter, rewriteLink)
   const linksRewritten =
     bodyResult.linksRewritten + frontmatterResult.linksRewritten
   if (linksRewritten === 0) return null
@@ -502,18 +506,23 @@ const moveNote = async (
     path === oldPath ? newPath : path,
   )
 
-  // Backlink sources stay put (before === after); the moved note shifts old → new.
-  const rewriteContextForSource = (sourceLocation: {
+  // Bind rewriteTarget to a context for one source note, producing a simple
+  // callback. Backlink sources stay put (before === after); the moved note
+  // shifts old → new.
+  const rewriteLinkForSource = (sourceLocation: {
     before: string
     after: string
-  }): RewriteContext => ({
-    oldSourcePath: sourceLocation.before,
-    newSourcePath: sourceLocation.after,
-    oldTargetPath: oldPath,
-    newTargetPath: newPath,
-    allNotePaths: allNotePathsBefore,
-    allNotePathsAfter,
-  })
+  }): RewriteLink => {
+    const context: RewriteContext = {
+      oldSourcePath: sourceLocation.before,
+      newSourcePath: sourceLocation.after,
+      oldTargetPath: oldPath,
+      newTargetPath: newPath,
+      allNotePaths: allNotePathsBefore,
+      allNotePathsAfter,
+    }
+    return (rawTarget) => rewriteTarget(rawTarget, context)
+  }
 
   // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
 
@@ -527,7 +536,7 @@ const moveNote = async (
       const rawContent = await readFile(oldFullPath, "utf8")
       const rewrite = rewriteNoteContent(
         rawContent,
-        rewriteContextForSource({ before: oldPath, after: newPath }),
+        rewriteLinkForSource({ before: oldPath, after: newPath }),
       )
       return {
         content: rewrite?.content ?? rawContent,
@@ -558,7 +567,7 @@ const moveNote = async (
           const rawContent = await readFile(sourceFullPath, "utf8")
           const rewrite = rewriteNoteContent(
             rawContent,
-            rewriteContextForSource({ before: source, after: source }),
+            rewriteLinkForSource({ before: source, after: source }),
           )
           return rewrite === null
             ? null
