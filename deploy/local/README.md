@@ -29,6 +29,10 @@ cp .env.example .env
 | `MCP_AUTH_TOKEN` | Generate with `openssl rand -hex 32`                              |
 | `VAULT_PATH`     | Absolute path to your vault (e.g. `/Users/you/Documents/MyVault`) |
 
+> **On Windows?** Point `VAULT_PATH` at a path inside the WSL2 filesystem (e.g.
+> `/home/you/vaults/MyVault`), not a `C:\` drive — see
+> [Windows (Docker Desktop)](#windows-docker-desktop) below.
+
 **4. Start the server:**
 
 ```bash
@@ -37,36 +41,6 @@ docker compose up
 
 Add `-d` to run in the background. First start pulls the image (~150MB) and
 builds the search index — this takes a few seconds depending on vault size.
-
-## Windows (Docker Desktop)
-
-Vault Cortex runs in a Linux container, so it works on Windows through Docker
-Desktop — but **where your vault folder lives matters.** Docker Desktop runs on
-WSL2, and bind-mounting a folder from a Windows drive (e.g. `C:\Users\you\Vault`)
-crosses the Windows ↔ Linux filesystem boundary, where two things quietly break:
-
-- **Live re-indexing stops.** Changes to the vault don't reach the file watcher,
-  so `vault_search` results go stale until you restart the server.
-- **`vault_move_note` fails.** Moving or renaming a note uses an atomic hard-link
-  write, which bind mounts from a Windows drive don't support.
-
-Reading, writing, and searching still work from a `C:` folder — only live
-re-indexing and note moves are affected.
-
-**Recommended: keep your vault in WSL2.** Store the vault inside the WSL2 Linux
-filesystem (ext4) and point `VAULT_PATH` at the Linux path, then run
-`docker compose up` from inside your WSL distro:
-
-```bash
-# inside WSL (e.g. Ubuntu)
-mkdir -p ~/vaults/MyVault          # vault lives here, on ext4
-# then in .env:  VAULT_PATH=/home/you/vaults/MyVault
-```
-
-You can still open and edit that vault in Obsidian on Windows — it shows up in
-File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`. With the vault on the
-Linux filesystem the container sees native files, so live re-indexing,
-`vault_move_note`, and atomic writes all work.
 
 ## Connect your MCP client
 
@@ -172,6 +146,22 @@ checking it, so a value copied out of a terminal (where a long token can wrap
 across lines) still works. If you still see this error, double-check you copied
 the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
 usual cause.
+
+## Windows (Docker Desktop)
+
+Keep your vault **inside the WSL2 filesystem**, not on a `C:\` drive. Bind-mounting
+across the Windows ↔ Linux boundary silently breaks live re-indexing (the file
+watcher misses changes) and `vault_move_note` (its atomic hard-link write isn't
+supported there); reading, writing, and searching still work, but those two won't.
+
+```bash
+# inside WSL (e.g. Ubuntu) — vault lives on ext4
+mkdir -p ~/vaults/MyVault
+# then in .env:  VAULT_PATH=/home/you/vaults/MyVault
+```
+
+You can still open and edit that vault in Obsidian on Windows — it shows up in
+File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`.
 
 ## Memory
 
