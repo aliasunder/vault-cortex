@@ -1,11 +1,26 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, unlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { watch } from "chokidar"
 import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
 import { logger } from "../../../logger.js"
+
+// Auto-spy chokidar: spy: true keeps the real implementation, so the
+// integration tests below watch real temp dirs, while the "watch options" suite
+// overrides watch() per-test to inspect the options object passed to chokidar —
+// without starting a real watcher — then restores the real one.
+vi.mock("chokidar", { spy: true })
 
 let vault: string
 let index: SearchIndex
@@ -152,5 +167,57 @@ describe("file-watcher", () => {
     const results = index.fullTextSearch({ query: "polled" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("polled.md")
+  })
+})
+
+describe("startFileWatcher — chokidar watch options", () => {
+  type FakeWatcher = {
+    on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher
+  }
+
+  /** Chainable watcher stub that fires "ready" so startFileWatcher resolves. */
+  const createFakeWatcher = (): FakeWatcher => {
+    const watcher: FakeWatcher = {
+      on(event, handler) {
+        if (event === "ready") queueMicrotask(() => handler())
+        return watcher
+      },
+    }
+    return watcher
+  }
+
+  /** Overrides chokidar.watch with the stub for one test and returns the options
+   *  object it was called with. mockRestore (via onTestFinished) hands the real,
+   *  spied watch back to the integration tests. */
+  const watchOptionsFor = async (
+    options?: Parameters<typeof startFileWatcher>[2],
+  ): Promise<Record<string, unknown>> => {
+    const watchMock = vi.mocked(watch)
+    watchMock.mockReset()
+    watchMock.mockImplementation(
+      () => createFakeWatcher() as unknown as ReturnType<typeof watch>,
+    )
+    onTestFinished(() => watchMock.mockRestore())
+    await startFileWatcher("/vault", index, options)
+    expect(watchMock).toHaveBeenCalledTimes(1)
+    return watchMock.mock.calls[0][1] as Record<string, unknown>
+  }
+
+  it("defaults to native events (usePolling false) with no interval when unset", async () => {
+    const options = await watchOptionsFor()
+    expect(options.usePolling).toBe(false)
+    expect("interval" in options).toBe(false)
+  })
+
+  it("omits interval when usePolling is false", async () => {
+    const options = await watchOptionsFor({ usePolling: false })
+    expect(options.usePolling).toBe(false)
+    expect("interval" in options).toBe(false)
+  })
+
+  it("passes interval (300ms) only when usePolling is true", async () => {
+    const options = await watchOptionsFor({ usePolling: true })
+    expect(options.usePolling).toBe(true)
+    expect(options.interval).toBe(300)
   })
 })
