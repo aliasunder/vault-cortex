@@ -186,11 +186,12 @@ describe("startFileWatcher — chokidar watch options", () => {
     return watcher
   }
 
-  /** Overrides chokidar.watch with the stub for one test and returns the options
-   *  object it was called with. mockRestore (via onTestFinished) hands the real,
-   *  spied watch back to the integration tests. */
-  const watchOptionsFor = async (
-    options?: Parameters<typeof startFileWatcher>[2],
+  /** Starts the watcher with the given FileWatcherOptions (chokidar.watch stubbed
+   *  for this one test) and returns the options object chokidar.watch was called
+   *  with. mockRestore (via onTestFinished) hands the real, spied watch back to
+   *  the integration tests. */
+  const chokidarOptionsFrom = async (
+    watcherOptions?: Parameters<typeof startFileWatcher>[2],
   ): Promise<Record<string, unknown>> => {
     const watchMock = vi.mocked(watch)
     watchMock.mockReset()
@@ -198,26 +199,26 @@ describe("startFileWatcher — chokidar watch options", () => {
       () => createFakeWatcher() as unknown as ReturnType<typeof watch>,
     )
     onTestFinished(() => watchMock.mockRestore())
-    await startFileWatcher("/vault", index, options)
+    await startFileWatcher("/vault", index, watcherOptions)
     expect(watchMock).toHaveBeenCalledTimes(1)
     return watchMock.mock.calls[0][1] as Record<string, unknown>
   }
 
   it("defaults to native events (usePolling false) with no interval when unset", async () => {
-    const options = await watchOptionsFor()
-    expect(options.usePolling).toBe(false)
-    expect("interval" in options).toBe(false)
+    const chokidarOptions = await chokidarOptionsFrom()
+    expect(chokidarOptions.usePolling).toBe(false)
+    expect("interval" in chokidarOptions).toBe(false)
   })
 
   it("omits interval when usePolling is false", async () => {
-    const options = await watchOptionsFor({ usePolling: false })
-    expect(options.usePolling).toBe(false)
-    expect("interval" in options).toBe(false)
+    const chokidarOptions = await chokidarOptionsFrom({ usePolling: false })
+    expect(chokidarOptions.usePolling).toBe(false)
+    expect("interval" in chokidarOptions).toBe(false)
   })
 
   it("passes interval (300ms) only when usePolling is true", async () => {
-    const options = await watchOptionsFor({ usePolling: true })
-    expect(options.usePolling).toBe(true)
-    expect(options.interval).toBe(300)
+    const chokidarOptions = await chokidarOptionsFrom({ usePolling: true })
+    expect(chokidarOptions.usePolling).toBe(true)
+    expect(chokidarOptions.interval).toBe(300)
   })
 })
