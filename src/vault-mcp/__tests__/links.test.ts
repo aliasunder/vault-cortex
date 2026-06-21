@@ -202,13 +202,21 @@ describe("splitMarkdownLink", () => {
   })
 
   it("decodes a percent-encoded path", () => {
-    expect(links.splitMarkdownLink("[t](My%20Note.md)")?.path).toBe("My Note")
+    expect(links.splitMarkdownLink("[t](My%20Note.md)")).toEqual({
+      prefix: "[t](",
+      path: "My Note",
+      heading: "",
+      closeParen: ")",
+    })
   })
 
   it("falls back to the raw path when percent-encoding is malformed", () => {
-    expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")?.path).toBe(
-      "100%zzcomplete",
-    )
+    expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")).toEqual({
+      prefix: "[t](",
+      path: "100%zzcomplete",
+      heading: "",
+      closeParen: ")",
+    })
   })
 
   it("returns null for an external link", () => {
@@ -225,8 +233,7 @@ describe("splitMarkdownLink", () => {
 describe("extractFromBody", () => {
   it("extracts basic wikilinks", () => {
     const targets = links.extractFromBody("See [[Note A]] and [[Note B]].")
-    expect(targets).toContain("Note A")
-    expect(targets).toContain("Note B")
+    expect(targets).toEqual(["Note A", "Note B"])
   })
 
   it("extracts wikilinks with display text", () => {
@@ -256,7 +263,7 @@ describe("extractFromBody", () => {
 
   it("extracts markdown internal links", () => {
     const targets = links.extractFromBody("[click here](Projects/plan.md)")
-    expect(targets).toContain("Projects/plan")
+    expect(targets).toEqual(["Projects/plan"])
   })
 
   it("excludes external URLs", () => {
@@ -268,12 +275,12 @@ describe("extractFromBody", () => {
 
   it("excludes mailto links", () => {
     const targets = links.extractFromBody("[email](mailto:test@example.com)")
-    expect(targets).toHaveLength(0)
+    expect(targets).toEqual([])
   })
 
   it("excludes same-page anchors", () => {
     const targets = links.extractFromBody("[section](#heading)")
-    expect(targets).toHaveLength(0)
+    expect(targets).toEqual([])
   })
 
   it("deduplicates repeated targets", () => {
@@ -290,15 +297,13 @@ describe("extractFromBody", () => {
       "after [[Another Real Link]]",
     ].join("\n")
     const targets = links.extractFromBody(content)
-    expect(targets).toContain("Real Link")
-    expect(targets).toContain("Another Real Link")
-    expect(targets).not.toContain("Fake Link")
+    expect(targets).toEqual(["Real Link", "Another Real Link"])
   })
 
   it("skips links inside tilde fenced blocks", () => {
     const content = ["~~~", "[[Fake]]", "~~~"].join("\n")
     const targets = links.extractFromBody(content)
-    expect(targets).not.toContain("Fake")
+    expect(targets).toEqual([])
   })
 
   it("handles nested fences correctly", () => {
@@ -311,8 +316,7 @@ describe("extractFromBody", () => {
       "[[Outside]]",
     ].join("\n")
     const targets = links.extractFromBody(content)
-    expect(targets).not.toContain("Inside Nested")
-    expect(targets).toContain("Outside")
+    expect(targets).toEqual(["Outside"])
   })
 
   it("returns empty for content with no links", () => {
@@ -323,12 +327,12 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody(
       "Use the `[[Note Name]]` syntax to link.",
     )
-    expect(targets).not.toContain("Note Name")
+    expect(targets).toEqual([])
   })
 
   it("skips markdown links inside inline code spans", () => {
     const targets = links.extractFromBody("Pattern `[text](file.md)` does X.")
-    expect(targets).not.toContain("file")
+    expect(targets).toEqual([])
   })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
@@ -348,12 +352,12 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody(
       "![photo](pics/photo.png) and [doc](papers/report.pdf)",
     )
-    expect(targets).toHaveLength(0)
+    expect(targets).toEqual([])
   })
 
   it("falls back to raw target when percent-encoding is malformed", () => {
     const targets = links.extractFromBody("[done](100%zzcomplete.md)")
-    expect(targets).toContain("100%zzcomplete")
+    expect(targets).toEqual(["100%zzcomplete"])
   })
 })
 
