@@ -1,11 +1,26 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, unlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { watch } from "chokidar"
 import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
 import { logger } from "../../../logger.js"
+
+// Auto-spy chokidar: spy: true keeps the real implementation, so the
+// integration tests below watch real temp dirs, while the "watch options" suite
+// overrides watch() per-test to inspect the options object passed to chokidar —
+// without starting a real watcher — then restores the real one.
+vi.mock("chokidar", { spy: true })
 
 let vault: string
 let index: SearchIndex
@@ -132,5 +147,78 @@ describe("file-watcher", () => {
 
     const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hiddenResults).toHaveLength(0)
+  })
+
+  // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔
+  // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
+  // option is wired through and indexing still happens under polling.
+  it("indexes a new .md file when polling", { timeout: 15000 }, async () => {
+    await startFileWatcher(vault, index, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+      usePolling: true,
+    })
+
+    await writeFile(join(vault, "polled.md"), "polled content\n", "utf8")
+
+    await waitFor(
+      () => index.fullTextSearch({ query: "polled" }, logger).length > 0,
+    )
+    const results = index.fullTextSearch({ query: "polled" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("polled.md")
+  })
+})
+
+describe("startFileWatcher — chokidar watch options", () => {
+  type FakeWatcher = {
+    on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher
+  }
+
+  /** Chainable watcher stub that fires "ready" so startFileWatcher resolves. */
+  const createFakeWatcher = (): FakeWatcher => {
+    const watcher: FakeWatcher = {
+      on(event, handler) {
+        if (event === "ready") queueMicrotask(() => handler())
+        return watcher
+      },
+    }
+    return watcher
+  }
+
+  /** Starts the watcher with the given FileWatcherOptions (chokidar.watch stubbed
+   *  for this one test) and returns the options object chokidar.watch was called
+   *  with. mockRestore (via onTestFinished) hands the real, spied watch back to
+   *  the integration tests. */
+  const chokidarOptionsFrom = async (
+    watcherOptions?: Parameters<typeof startFileWatcher>[2],
+  ): Promise<Record<string, unknown>> => {
+    const watchMock = vi.mocked(watch)
+    watchMock.mockReset()
+    watchMock.mockImplementation(
+      () => createFakeWatcher() as unknown as ReturnType<typeof watch>,
+    )
+    onTestFinished(() => watchMock.mockRestore())
+    await startFileWatcher("/vault", index, watcherOptions)
+    expect(watchMock).toHaveBeenCalledTimes(1)
+    return watchMock.mock.calls[0][1] as Record<string, unknown>
+  }
+
+  it("defaults to native events (usePolling false) with no interval when unset", async () => {
+    const chokidarOptions = await chokidarOptionsFrom()
+    expect(chokidarOptions.usePolling).toBe(false)
+    expect("interval" in chokidarOptions).toBe(false)
+  })
+
+  it("omits interval when usePolling is false", async () => {
+    const chokidarOptions = await chokidarOptionsFrom({ usePolling: false })
+    expect(chokidarOptions.usePolling).toBe(false)
+    expect("interval" in chokidarOptions).toBe(false)
+  })
+
+  it("passes interval (300ms) only when usePolling is true", async () => {
+    const chokidarOptions = await chokidarOptionsFrom({ usePolling: true })
+    expect(chokidarOptions.usePolling).toBe(true)
+    expect(chokidarOptions.interval).toBe(300)
   })
 })

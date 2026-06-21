@@ -50,6 +50,22 @@
 
 
 
+
+## [0.20.2] — 2026-06-21
+
+### Features
+
+- **patch:** Reject content that duplicates the target heading (#167)
+- Add WINDOWS_MODE for a vault on a Windows C: drive (#164)
+
+### Refactoring
+
+- **links:** Extract Obsidian link domain into shared module (#165)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.20.1
+
 ## [0.20.1] — 2026-06-21
 
 ### Features

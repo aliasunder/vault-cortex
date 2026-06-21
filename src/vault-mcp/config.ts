@@ -1,6 +1,7 @@
 /** Centralized config — reads env vars once, validates, exports typed config. */
 
 import { z } from "zod"
+import envVar from "env-var"
 
 // ── Validation ─────────────────────────────────────────────────
 
@@ -38,6 +39,12 @@ export type VaultConfig = Readonly<{
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
+  /** "Windows mode": the vault is bind-mounted from a Windows drive into Docker
+   *  Desktop, so it crosses the Docker Desktop ↔ WSL2 bridge. Enables filesystem
+   *  polling for the watcher (inotify doesn't cross the bridge) and a
+   *  rename-based exclusive write for moves (hard links aren't supported there).
+   *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
+  windowsBindMount: boolean
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -69,10 +76,18 @@ export const loadConfig = (
     ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())
     : "https://github.com/aliasunder/vault-cortex"
 
+  // env-var's .asBool() parses true/false/1/0 and fails fast on anything else.
+  const windowsBindMount = envVar
+    .from(env)
+    .get("WINDOWS_MODE")
+    .default("false")
+    .asBool()
+
   return Object.freeze({
     memoryDir,
     protectedPaths,
     orphanExcludeFolders,
     serviceDocumentationUrl,
+    windowsBindMount,
   })
 }
