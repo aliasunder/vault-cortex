@@ -99,9 +99,12 @@ describe("matchLinksInLine", () => {
     expect(links.matchLinksInLine("just plain text")).toEqual([])
   })
 
-  it("does not match external, mailto, or anchor links", () => {
+  it("does not match scheme-prefixed or anchor targets even when they end in .md", () => {
+    // .md targets so the scheme/anchor guard — not the .md filter — excludes them.
     expect(
-      links.matchLinksInLine("[g](https://x.com) [m](mailto:a@b.c) [a](#h)"),
+      links.matchLinksInLine(
+        "[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)",
+      ),
     ).toEqual([])
   })
 })
@@ -219,8 +222,8 @@ describe("splitMarkdownLink", () => {
     })
   })
 
-  it("returns null for an external link", () => {
-    expect(links.splitMarkdownLink("[t](https://x.com)")).toBeNull()
+  it("returns null for malformed link text (missing closing paren)", () => {
+    expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
   })
 
   it("returns null for a non-.md link", () => {
@@ -266,21 +269,28 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Projects/plan"])
   })
 
-  it("excludes external URLs", () => {
+  it("excludes a scheme-prefixed URL even when it ends in .md", () => {
+    // .md target so the https:// guard — not the .md filter — is what excludes it;
+    // the [[Internal]] link proves extraction still happens.
     const targets = links.extractFromBody(
-      "[Google](https://google.com) and [[Internal]]",
+      "[Google](https://google.com/page.md) and [[Internal]]",
     )
     expect(targets).toEqual(["Internal"])
   })
 
-  it("excludes mailto links", () => {
-    const targets = links.extractFromBody("[email](mailto:test@example.com)")
-    expect(targets).toEqual([])
+  it("excludes a mailto target even when it ends in .md", () => {
+    // .md target so the mailto: guard — not the .md filter — is what excludes it.
+    const targets = links.extractFromBody(
+      "[email](mailto:hi@example.md) and [[Reach Out]]",
+    )
+    expect(targets).toEqual(["Reach Out"])
   })
 
   it("excludes same-page anchors", () => {
-    const targets = links.extractFromBody("[section](#heading)")
-    expect(targets).toEqual([])
+    const targets = links.extractFromBody(
+      "[section](#heading) — see [[Details]]",
+    )
+    expect(targets).toEqual(["Details"])
   })
 
   it("deduplicates repeated targets", () => {
@@ -301,9 +311,11 @@ describe("extractFromBody", () => {
   })
 
   it("skips links inside tilde fenced blocks", () => {
-    const content = ["~~~", "[[Fake]]", "~~~"].join("\n")
+    const content = ["[[Before]]", "~~~", "[[Fake]]", "~~~", "[[After]]"].join(
+      "\n",
+    )
     const targets = links.extractFromBody(content)
-    expect(targets).toEqual([])
+    expect(targets).toEqual(["Before", "After"])
   })
 
   it("handles nested fences correctly", () => {
@@ -325,14 +337,16 @@ describe("extractFromBody", () => {
 
   it("skips wikilinks inside inline code spans", () => {
     const targets = links.extractFromBody(
-      "Use the `[[Note Name]]` syntax to link.",
+      "See [[Live Note]] but not the `[[Code Note]]` example.",
     )
-    expect(targets).toEqual([])
+    expect(targets).toEqual(["Live Note"])
   })
 
   it("skips markdown links inside inline code spans", () => {
-    const targets = links.extractFromBody("Pattern `[text](file.md)` does X.")
-    expect(targets).toEqual([])
+    const targets = links.extractFromBody(
+      "Real [link](real.md) but `[code](code.md)` is inert.",
+    )
+    expect(targets).toEqual(["real"])
   })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
@@ -349,9 +363,9 @@ describe("extractFromBody", () => {
 
   it("excludes non-.md assets (images, PDFs)", () => {
     const targets = links.extractFromBody(
-      "![photo](pics/photo.png) and [doc](papers/report.pdf)",
+      "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",
     )
-    expect(targets).toEqual([])
+    expect(targets).toEqual(["Caption"])
   })
 
   it("falls back to raw target when percent-encoding is malformed", () => {
