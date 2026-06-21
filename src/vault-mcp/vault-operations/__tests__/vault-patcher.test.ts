@@ -1985,7 +1985,13 @@ title: Sessions
       logger,
     )
     const updated = await readTestNote("sessions.md")
-    expect(result).toContain("Deleted 1 line from sessions.md")
+    const expectedPreview =
+      (
+        "| 2026-05-02 | " +
+        "[[sessions/b|Second]] ".repeat(40) +
+        "see https://example.com/x?y=1&z=2 |"
+      ).slice(0, 80) + "…"
+    expect(result).toBe(`Deleted 1 line from sessions.md: "${expectedPreview}"`)
     // Whole-file assertion: the long middle row is gone and both neighbours
     // survive verbatim, with no stray blank line or duplication left behind.
     expect(updated).toBe(`---
@@ -2024,7 +2030,12 @@ After paragraph.
       logger,
     )
     const updated = await readTestNote("plan.md")
-    expect(result).toContain("Deleted 4 lines from plan.md")
+    expect(result).toBe(
+      `Deleted 4 lines from plan.md: "> [!warning] Stale
+> line two
+> line three
+> remove after launch"`,
+    )
     // All four callout lines gone (including the last — guards an exclusive-end
     // bug), surrounding paragraphs intact, blank run collapsed.
     expect(updated).toBe(`---
@@ -2057,7 +2068,7 @@ keep after
       logger,
     )
     const updated = await readTestNote("single.md")
-    expect(result).toContain("Deleted 1 line from single.md")
+    expect(result).toBe('Deleted 1 line from single.md: "alpha middle omega"')
     expect(updated).toBe(`---
 title: Single
 ---
@@ -2381,7 +2392,10 @@ only line two
       logger,
     )
     const updated = await readTestNote("whole.md")
-    expect(result).toContain("Deleted 2 lines from whole.md")
+    expect(result).toBe(
+      `Deleted 2 lines from whole.md: "only line one
+only line two"`,
+    )
     // Frontmatter survives; the entire body collapses to a single blank line.
     expect(updated).toBe(`---
 title: WholeBody
