@@ -44,7 +44,7 @@ ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/
 # set in deploy.yml — keep that description and the one here in sync.
 LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex" \
       org.opencontainers.image.title="vault-cortex" \
-      org.opencontainers.image.description="MCP server for Obsidian vaults — search, memory, link graph, 24 tools, OAuth-protected." \
+      org.opencontainers.image.description="MCP server for Obsidian vaults — search, memory, link graph, 25 tools, OAuth-protected." \
       org.opencontainers.image.source="https://github.com/aliasunder/vault-cortex" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=deps  /app/node_modules ./node_modules
