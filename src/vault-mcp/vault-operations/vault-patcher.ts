@@ -108,16 +108,37 @@ const truncateForMessage = (text: string): string =>
 const collapseBlankRuns = (body: string): string =>
   body.replace(/\n{3,}/g, "\n\n")
 
-/** Indices of lines (at or after `fromLine`) whose text contains `anchor`. */
-const lineIndicesContaining = (
-  lines: readonly string[],
-  anchor: string,
-  fromLine: number,
-): number[] =>
-  lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line, index }) => index >= fromLine && line.includes(anchor))
-    .map(({ index }) => index)
+/** Resolves an anchor substring to the single body line that contains it,
+ *  searching at or after `fromLine`. The match must be unique by default:
+ *  throws a not-found error on no match, or an ambiguous error on more than
+ *  one — unless `firstMatch` allows taking the first. `role` labels the error
+ *  messages ("start"/"end") and notes the end anchor's restricted search. */
+const resolveAnchorLine = (params: {
+  lines: readonly string[]
+  anchor: string
+  fromLine: number
+  firstMatch: boolean | undefined
+  path: string
+  role: "start" | "end"
+}): number => {
+  const { lines, anchor, fromLine, firstMatch, path, role } = params
+  const matchingLineIndices = lines.flatMap((line, index) =>
+    index >= fromLine && line.includes(anchor) ? [index] : [],
+  )
+  // The end anchor is searched only at or after the start line; its errors say so.
+  const regionSuffix = role === "end" ? " at or after the start anchor" : ""
+  if (matchingLineIndices.length === 0) {
+    throw new Error(
+      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+    )
+  }
+  if (matchingLineIndices.length > 1 && !firstMatch) {
+    throw new Error(
+      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}. Use a longer, unique anchor, or set first_match: true.`,
+    )
+  }
+  return matchingLineIndices[0]
+}
 
 // ── Exported functions ──────────────────────────────────────────
 
@@ -236,8 +257,8 @@ const replaceInNote = async (
 }
 
 /** Deletes a contiguous block of whole lines from a note's body, identified by
- *  short anchor substrings rather than the block's full text — so an agent can
- *  remove a large or URL-bearing block without echoing it back.
+ *  short anchor substrings rather than the block's full text — so a large block
+ *  can be removed without reproducing it.
  *
  *  `startAnchor` resolves to the single line containing it (unique unless
  *  `firstMatch`). `endAnchor`, when given, resolves to the single line containing
@@ -267,38 +288,27 @@ const deleteSpan = async (
     path,
   )
 
-  // Resolve the start anchor to one line — unique unless firstMatch is set.
-  const startLineMatches = lineIndicesContaining(lines, startAnchor, 0)
-  if (startLineMatches.length === 0) {
-    throw new Error(
-      `start anchor not found in "${path}": "${truncateForMessage(startAnchor)}"`,
-    )
-  }
-  if (startLineMatches.length > 1 && !firstMatch) {
-    throw new Error(
-      `ambiguous start anchor in "${path}": "${truncateForMessage(startAnchor)}" matches ${startLineMatches.length} lines. Use a longer, unique anchor, or set first_match: true.`,
-    )
-  }
-  const startLine = startLineMatches[0]
-
-  // Resolve the end line: the end anchor's line at/after the start, or — when no
-  // end anchor is given — the start line itself (a single-line span).
-  const resolveEndLine = (): number => {
-    if (endAnchor === undefined) return startLine
-    const endLineMatches = lineIndicesContaining(lines, endAnchor, startLine)
-    if (endLineMatches.length === 0) {
-      throw new Error(
-        `end anchor not found in "${path}" at or after the start anchor: "${truncateForMessage(endAnchor)}"`,
-      )
-    }
-    if (endLineMatches.length > 1 && !firstMatch) {
-      throw new Error(
-        `ambiguous end anchor in "${path}": "${truncateForMessage(endAnchor)}" matches ${endLineMatches.length} lines at or after the start anchor. Use a longer, unique anchor, or set first_match: true.`,
-      )
-    }
-    return endLineMatches[0]
-  }
-  const endLine = resolveEndLine()
+  const startLine = resolveAnchorLine({
+    lines,
+    anchor: startAnchor,
+    fromLine: 0,
+    firstMatch,
+    path,
+    role: "start",
+  })
+  // Omitting end_anchor deletes just the start line; otherwise the span runs
+  // through the end anchor's line, searched at or after the start.
+  const endLine =
+    endAnchor === undefined
+      ? startLine
+      : resolveAnchorLine({
+          lines,
+          anchor: endAnchor,
+          fromLine: startLine,
+          firstMatch,
+          path,
+          role: "end",
+        })
 
   const removedLines = lines.slice(startLine, endLine + 1)
   const remainingLines = [
