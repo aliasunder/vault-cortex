@@ -1985,13 +1985,18 @@ title: Sessions
       logger,
     )
     const updated = await readTestNote("sessions.md")
-    // The trigger fired: exactly the middle row is gone.
     expect(result).toContain("Deleted 1 line from sessions.md")
-    expect(updated).not.toContain("2026-05-02")
-    expect(updated).not.toContain("https://example.com/x?y=1&z=2")
-    // The neighbours survive verbatim (guards against an over-wide span).
-    expect(updated).toContain("| 2026-05-01 | [[sessions/a|First]] short row |")
-    expect(updated).toContain("| 2026-05-03 | [[sessions/c|Third]] short row |")
+    // Whole-file assertion: the long middle row is gone and both neighbours
+    // survive verbatim, with no stray blank line or duplication left behind.
+    expect(updated).toBe(`---
+title: Sessions
+---
+
+## History
+
+| 2026-05-01 | [[sessions/a|First]] short row |
+| 2026-05-03 | [[sessions/c|Third]] short row |
+`)
   })
 
   it("deletes a multi-line block from the start line through the end line, inclusive", async () => {
@@ -2020,14 +2025,16 @@ After paragraph.
     )
     const updated = await readTestNote("plan.md")
     expect(result).toContain("Deleted 4 lines from plan.md")
-    // Every callout line gone — including the last (guards exclusive-end bug).
-    expect(updated).not.toContain("[!warning] Stale")
-    expect(updated).not.toContain("line two")
-    expect(updated).not.toContain("line three")
-    expect(updated).not.toContain("remove after launch")
-    // Surrounding paragraphs intact.
-    expect(updated).toContain("Before paragraph.")
-    expect(updated).toContain("After paragraph.")
+    // All four callout lines gone (including the last — guards an exclusive-end
+    // bug), surrounding paragraphs intact, blank run collapsed.
+    expect(updated).toBe(`---
+title: Plan
+---
+
+Before paragraph.
+
+After paragraph.
+`)
   })
 
   it("treats start and end anchors on the same line as a single-line span", async () => {
@@ -2051,8 +2058,13 @@ keep after
     )
     const updated = await readTestNote("single.md")
     expect(result).toContain("Deleted 1 line from single.md")
-    expect(updated).not.toContain("alpha middle omega")
-    expect(updated).toContain("keep before\nkeep after")
+    expect(updated).toBe(`---
+title: Single
+---
+
+keep before
+keep after
+`)
   })
 
   it("searches the end anchor only at or after the start line", async () => {
@@ -2077,12 +2089,16 @@ tail line
       logger,
     )
     const updated = await readTestNote("order.md")
-    // The earlier MARK line is left alone; the span runs to the later MARK.
-    expect(updated).toContain("MARK appears before.")
-    expect(updated).not.toContain("START of block")
-    expect(updated).not.toContain("middle line")
-    expect(updated).not.toContain("MARK appears again.")
-    expect(updated).toContain("tail line")
+    // The earlier MARK line is left alone; the span runs from the start line to
+    // the later MARK line (inclusive). Whole-file assertion guards a from-zero
+    // end search that would have cut the wrong span.
+    expect(updated).toBe(`---
+title: Order
+---
+
+MARK appears before.
+tail line
+`)
   })
 
   it("collapses blank-line runs left behind by the deletion", async () => {
@@ -2102,21 +2118,40 @@ B
       logger,
     )
     const updated = await readTestNote("spaced.md")
-    expect(updated).not.toMatch(/\n{3,}/)
-    expect(updated).toContain("A\n\nB")
+    expect(updated).toBe(`---
+title: Spaced
+---
+
+A
+
+B
+`)
   })
 
   it("preserves frontmatter when deleting a body line", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const content = `---
+title: Kept
+type: note
+---
+
+- [ ] Task A
+- [ ] Task B
+`
+    await writeTestNote("note.md", content)
     await deleteSpan(
       { vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" },
       logger,
     )
     const updated = await readTestNote("note.md")
-    expect(updated).toContain("title: Test Note")
-    expect(updated).toContain("tags:")
-    expect(updated).not.toContain("- [ ] Task A")
-    expect(updated).toContain("- [ ] Task B")
+    // Whole-file assertion: both frontmatter keys survive untouched and only
+    // the targeted body line is removed.
+    expect(updated).toBe(`---
+title: Kept
+type: note
+---
+
+- [ ] Task B
+`)
   })
 
   it("does not disturb a trailing kanban:settings block", async () => {
@@ -2126,9 +2161,24 @@ B
       logger,
     )
     const updated = await readTestNote("board.md")
-    expect(updated).not.toContain("- [ ] Task A")
-    expect(updated).toContain("%% kanban:settings")
-    expect(updated).toContain('{"kanban-plugin":"board"}')
+    // Whole-file assertion: the Active card is gone, but the fenced
+    // kanban:settings block at EOF survives byte-for-byte.
+    expect(updated).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+## Done
+
+- [x] Task D
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
   })
 
   it("deletes the last line of a file with no trailing newline without stranding a blank", async () => {
@@ -2144,9 +2194,12 @@ last line`
       logger,
     )
     const updated = await readTestNote("tail.md")
-    expect(updated).toContain("first line")
-    expect(updated).not.toContain("last line")
-    expect(updated).not.toMatch(/\n{3,}/)
+    expect(updated).toBe(`---
+title: Tail
+---
+
+first line
+`)
   })
 
   it("matches an anchor containing wikilink/pipe characters literally, not as regex", async () => {
@@ -2167,8 +2220,14 @@ title: Links
       logger,
     )
     const updated = await readTestNote("links.md")
-    expect(updated).not.toContain("[[Notes/Other|Alias]]")
-    expect(updated).toContain("| 1 | [[Notes/Page|Alias]] keep |")
+    // The "drop" row is matched literally (the [[ and | are not regex) and
+    // removed; the sibling row with the same alias survives.
+    expect(updated).toBe(`---
+title: Links
+---
+
+| 1 | [[Notes/Page|Alias]] keep |
+`)
   })
 
   it("reports the line count and a preview of the removed text", async () => {
@@ -2210,7 +2269,7 @@ keep me
     expect(result).toMatch(/z{80}…/)
   })
 
-  it("deletes the first match of a duplicate line only when first_match is set", async () => {
+  it("deletes the first matching line when first_match is set on the start anchor", async () => {
     const content = `---
 title: Dups
 ---
@@ -2232,11 +2291,80 @@ bottom line
       logger,
     )
     const updated = await readTestNote("dups.md")
-    // First duplicate removed: top now sits directly above middle.
-    expect(updated).toContain("top line\nmiddle line")
-    // Second duplicate survives.
-    expect(updated).toContain("- [ ] dup\nbottom line")
-    expect(updated.split("- [ ] dup").length - 1).toBe(1)
+    // Only the first duplicate is removed (top now sits above middle); the
+    // second identical line survives.
+    expect(updated).toBe(`---
+title: Dups
+---
+
+top line
+middle line
+- [ ] dup
+bottom line
+`)
+  })
+
+  it("resolves an ambiguous end anchor to its first match when first_match is set", async () => {
+    const content = `---
+title: EndFirst
+---
+
+START unique
+inside one
+- end candidate
+inside two
+- end candidate
+tail line
+`
+    await writeTestNote("endfirst.md", content)
+    await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "endfirst.md",
+        startAnchor: "START unique",
+        endAnchor: "- end candidate",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("endfirst.md")
+    // Span ends at the FIRST end-candidate line; everything after it survives.
+    expect(updated).toBe(`---
+title: EndFirst
+---
+
+inside two
+- end candidate
+tail line
+`)
+  })
+
+  it("empties the body when the span covers every body line", async () => {
+    const content = `---
+title: WholeBody
+---
+
+only line one
+only line two
+`
+    await writeTestNote("whole.md", content)
+    const result = await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "whole.md",
+        startAnchor: "only line one",
+        endAnchor: "only line two",
+      },
+      logger,
+    )
+    const updated = await readTestNote("whole.md")
+    expect(result).toContain("Deleted 2 lines from whole.md")
+    // Frontmatter survives; the entire body collapses to a single blank line.
+    expect(updated).toBe(`---
+title: WholeBody
+---
+
+`)
   })
 
   it("errors on empty start_anchor", async () => {
