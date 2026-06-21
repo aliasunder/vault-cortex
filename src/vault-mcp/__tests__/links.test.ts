@@ -344,8 +344,7 @@ describe("extractFromBody", () => {
       "[[Real Link]]",
     ].join("\n")
     const targets = links.extractFromBody(content)
-    expect(targets).not.toContain("Fake Link")
-    expect(targets).toContain("Real Link")
+    expect(targets).toEqual(["Real Link"])
   })
 
   it("excludes non-.md assets (images, PDFs)", () => {
