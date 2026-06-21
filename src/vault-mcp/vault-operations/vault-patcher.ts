@@ -148,11 +148,11 @@ const patchNote = async (
   const leadingContentHeading = parseHeadings(contentLines).find(
     (contentHeading) => contentHeading.startLine === firstContentLineIndex,
   )
-  if (
-    leadingContentHeading &&
+  const contentRepeatsTargetHeading =
+    leadingContentHeading !== undefined &&
     leadingContentHeading.level === target.level &&
     leadingContentHeading.text === target.text
-  ) {
+  if (contentRepeatsTargetHeading) {
     throw new Error(
       `content begins with the heading "${targetDesc}", which would duplicate it — ` +
         `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
