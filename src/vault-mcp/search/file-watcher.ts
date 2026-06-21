@@ -70,9 +70,11 @@ export const startFileWatcher = (
     persistent: true,
     ignoreInitial: true,
     // Poll across the Docker Desktop ↔ WSL2 bridge, where inotify is dropped.
-    // interval is consulted by chokidar only when polling, so it's harmless off.
     usePolling: options?.usePolling ?? false,
-    interval: POLLING_INTERVAL_MS,
+    // interval only drives chokidar's polling backend. Pass it only when
+    // polling, so we never depend on how chokidar treats an interval set
+    // without usePolling (today it's ignored — a future release needn't be).
+    ...(options?.usePolling ? { interval: POLLING_INTERVAL_MS } : {}),
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {
