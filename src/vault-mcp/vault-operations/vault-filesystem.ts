@@ -341,8 +341,7 @@ const updateProperties = async (
   })
 }
 
-/** Outcome of a delete. */
-export type DeleteResult = {
+export type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
   prunedEmptyFolders: number
@@ -358,7 +357,7 @@ const deleteNote = async (
     pruneEmptyFolders: boolean
   },
   logger: Logger,
-): Promise<DeleteResult> => {
+): Promise<DeleteNoteResult> => {
   // Normalize before the protected-path check so a traversal path like
   // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
   // into a protected folder.
