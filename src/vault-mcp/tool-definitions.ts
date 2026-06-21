@@ -335,7 +335,7 @@ Operations:
 - replace: replace section body (heading preserved; requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops write content as the section body and keep the matched heading — don't repeat the heading in content (a content that begins with the target heading is rejected to avoid duplicating it).
+Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
@@ -346,7 +346,7 @@ Errors:
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation requires a heading target" — replace and insert_before need a heading
-- "content duplicates the target heading" — content begins with the targeted heading; pass the section body only (the heading is kept automatically)
+- "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 
 Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, watch for: #word (no space) = tag, [[ = wikilink, %% = comment block. Escape with \\# or \\[[ when unintentional.
 Structural note: inserting heading-level content (e.g. ## New Section) changes the note's section structure — future patch calls targeting headings may resolve differently.

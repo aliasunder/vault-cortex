@@ -1623,9 +1623,31 @@ describe("patchNote — duplicate-heading guard", () => {
       },
       logger,
     )
-    expect(await readTestNote("note.md")).toContain(
-      "## Up Next\n## Other Heading\nbody",
-    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+## Other Heading
+body
+
+## Done
+- [x] Task D
+`)
   })
 
   it("allows a same-text heading at a different level (not a duplicate)", async () => {
@@ -1640,9 +1662,31 @@ describe("patchNote — duplicate-heading guard", () => {
       },
       logger,
     )
-    expect(await readTestNote("note.md")).toContain(
-      "## Up Next\n### Up Next\nsub",
-    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+### Up Next
+sub
+
+## Done
+- [x] Task D
+`)
   })
 })
 

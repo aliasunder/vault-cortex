@@ -155,8 +155,7 @@ const patchNote = async (
   ) {
     throw new Error(
       `content begins with the heading "${targetDesc}", which would duplicate it — ` +
-        `a heading-targeted ${operation} writes content as the section body and keeps ` +
-        `the matched heading. Pass the section body only (omit the heading line).`,
+        `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
     )
   }
 
