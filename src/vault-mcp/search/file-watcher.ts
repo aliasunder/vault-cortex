@@ -6,12 +6,22 @@ import { relative } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
 
+/** ms between filesystem polls when usePolling is on. chokidar's raw default is
+ *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
+ *  re-index latency is already governed by the 2000ms awaitWriteFinish window, so
+ *  the perceived cost is negligible. */
+const POLLING_INTERVAL_MS = 300
+
 export type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
    *  Prevents reading partial writes from Obsidian Sync. */
   stabilityThreshold?: number
   /** ms between file-size checks during the stability window (default 100). */
   pollInterval?: number
+  /** Poll the filesystem instead of using native fs events (inotify). Needed
+   *  when the vault is bind-mounted across the Docker Desktop ↔ WSL2 bridge,
+   *  where inotify events don't propagate. CPU-heavier; default off. */
+  usePolling?: boolean
 }>
 
 export const startFileWatcher = (
@@ -59,6 +69,10 @@ export const startFileWatcher = (
     },
     persistent: true,
     ignoreInitial: true,
+    // Poll across the Docker Desktop ↔ WSL2 bridge, where inotify is dropped.
+    // interval is consulted by chokidar only when polling, so it's harmless off.
+    usePolling: options?.usePolling ?? false,
+    interval: POLLING_INTERVAL_MS,
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {

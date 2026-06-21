@@ -8,6 +8,7 @@ import {
   link,
   rm,
   rmdir,
+  stat,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
@@ -37,6 +38,17 @@ export const resolveSafePath = (
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
   return resolved
+}
+
+/** Resolves true if a file exists at the resolved vault path. */
+export const fileExists = async (fullPath: string): Promise<boolean> => {
+  try {
+    await stat(fullPath)
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw err
+  }
 }
 
 /**
@@ -118,16 +130,36 @@ export const atomicWriteFile = async (
  * `vault_move_note`'s new path). The content is fully staged before the link, so
  * the target appears atomically; the temp link is always removed, leaving only
  * the target on success. Mirrors POSIX `O_EXCL` / Node's `'wx'` flag semantics.
+ *
+ * When `hardLinksUnsupported` is set (a Windows-drive Docker bind mount, where
+ * `link` isn't available), it degrades to check-then-`rename`: a non-atomic
+ * no-clobber that still lands the content atomically and preserves the `EEXIST`
+ * contract — only the existence guard loses its race-freedom.
  */
 export const atomicWriteFileExclusive = async (
   filePath: string,
   content: string,
+  options?: { hardLinksUnsupported?: boolean },
 ): Promise<void> => {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
   try {
     await writeFile(tmpPath, content, "utf8")
-    // Atomic no-clobber create: throws EEXIST if filePath already exists.
-    await link(tmpPath, filePath)
+    if (options?.hardLinksUnsupported) {
+      // No hard links on this filesystem: check-then-rename. The window between
+      // the check and the rename is a small TOCTOU gap, acceptable because the
+      // alternative is the move failing outright. Synthesize EEXIST so callers
+      // that match on err.code see the same no-clobber signal as the link path.
+      if (await fileExists(filePath)) {
+        throw Object.assign(
+          new Error(`EEXIST: file already exists, '${filePath}'`),
+          { code: "EEXIST" },
+        )
+      }
+      await rename(tmpPath, filePath)
+    } else {
+      // Atomic no-clobber create: throws EEXIST if filePath already exists.
+      await link(tmpPath, filePath)
+    }
   } finally {
     // Always drop the temp link — redundant on success (filePath is the durable
     // name), and never stranded on failure. Swallow cleanup errors so the

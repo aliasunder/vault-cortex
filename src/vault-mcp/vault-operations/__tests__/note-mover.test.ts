@@ -59,6 +59,7 @@ const setupVault = () => {
     newPath: string,
     backlinkSources: string[] = [],
     pruneEmptyFolders = false,
+    windowsBindMount = false,
   ) =>
     noteMover.moveNote(
       {
@@ -69,6 +70,7 @@ const setupVault = () => {
         backlinkSources,
         allNotePaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
         pruneEmptyFolders,
+        windowsBindMount,
       },
       logger,
     )
@@ -605,5 +607,38 @@ describe("moveNote — empty-folder prune", () => {
     expect(await folderExists("Parent")).toBe(true)
     expect(await noteExists("Parent/Sub/note.md")).toBe(true)
     expect(result.pruned_empty_folders).toBe(0)
+  })
+})
+
+// windowsBindMount routes the destination write through rename instead of a
+// hard link (unsupported on a Windows-drive Docker bind mount). Behavior — the
+// move itself and the no-clobber guard — must be identical to the link path.
+describe("moveNote — Windows mode (rename-based exclusive write)", () => {
+  it("moves the note and rewrites backlinks via the rename path", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"], false, true)
+
+    // Assert the move actually happened — not a silent no-op — on both ends.
+    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await readNote("Bar.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("See [[Bar]] for details.\n")
+    expect(result.moved_to).toBe("Bar.md")
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("still refuses an existing destination (preserves no-clobber)", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Bar.md", "occupied\n")
+
+    await expect(moveNote("Foo.md", "Bar.md", [], false, true)).rejects.toThrow(
+      'destination exists: "Bar.md"',
+    )
+    // Both notes untouched — the failed move wrote nothing.
+    expect(await readNote("Bar.md")).toBe("occupied\n")
+    expect(await readNote("Foo.md")).toBe("content\n")
   })
 })

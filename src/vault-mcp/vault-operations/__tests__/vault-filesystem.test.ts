@@ -22,6 +22,7 @@ import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
+  fileExists,
   pruneEmptyParents,
 } from "../vault-filesystem.js"
 import { parseNote } from "../frontmatter.js"
@@ -103,6 +104,51 @@ describe("atomicWriteFileExclusive", () => {
     await expect(atomicWriteFileExclusive(target, "body\n")).rejects.toThrow()
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+
+  // The rename fallback path taken on filesystems without hard-link support
+  // (e.g. a Windows-drive Docker bind mount).
+  describe("hardLinksUnsupported (rename strategy)", () => {
+    it("writes the exact content to a new target path via rename", async () => {
+      const target = join(vault, "created.md")
+      await atomicWriteFileExclusive(target, "fresh content\n", {
+        hardLinksUnsupported: true,
+      })
+      expect(await readFile(target, "utf8")).toBe("fresh content\n")
+    })
+
+    it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
+      const target = join(vault, "taken.md")
+      await atomicWriteFile(target, "original\n")
+
+      await expect(
+        atomicWriteFileExclusive(target, "overwrite\n", {
+          hardLinksUnsupported: true,
+        }),
+      ).rejects.toMatchObject({ code: "EEXIST" })
+      // The no-clobber guard must not have modified the existing file.
+      expect(await readFile(target, "utf8")).toBe("original\n")
+    })
+
+    it("leaves no .tmp staging file behind on success", async () => {
+      await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n", {
+        hardLinksUnsupported: true,
+      })
+      const entries = await readdir(vault)
+      expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    })
+  })
+})
+
+describe("fileExists", () => {
+  it("resolves true for an existing file", async () => {
+    const target = join(vault, "here.md")
+    await atomicWriteFile(target, "body\n")
+    expect(await fileExists(target)).toBe(true)
+  })
+
+  it("resolves false for a missing file", async () => {
+    expect(await fileExists(join(vault, "nope.md"))).toBe(false)
   })
 })
 

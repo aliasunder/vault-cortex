@@ -133,4 +133,24 @@ describe("file-watcher", () => {
     const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hiddenResults).toHaveLength(0)
   })
+
+  // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔
+  // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
+  // option is wired through and indexing still happens under polling.
+  it("indexes a new .md file when polling", { timeout: 15000 }, async () => {
+    await startFileWatcher(vault, index, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+      usePolling: true,
+    })
+
+    await writeFile(join(vault, "polled.md"), "polled content\n", "utf8")
+
+    await waitFor(
+      () => index.fullTextSearch({ query: "polled" }, logger).length > 0,
+    )
+    const results = index.fullTextSearch({ query: "polled" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("polled.md")
+  })
 })

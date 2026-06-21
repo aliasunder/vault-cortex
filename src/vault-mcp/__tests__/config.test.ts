@@ -17,6 +17,7 @@ describe("loadConfig", () => {
       expect(config.serviceDocumentationUrl).toBe(
         "https://github.com/aliasunder/vault-cortex",
       )
+      expect(config.windowsBindMount).toBe(false)
     })
 
     it("returns a frozen (immutable) config object", () => {
@@ -167,6 +168,27 @@ describe("loadConfig", () => {
       expect(() =>
         loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" }),
       ).toThrow()
+    })
+  })
+
+  describe("WINDOWS_MODE", () => {
+    it("defaults to false when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.windowsBindMount).toBe(false)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ WINDOWS_MODE: "true" })
+      expect(config.windowsBindMount).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ WINDOWS_MODE: "false" })
+      expect(config.windowsBindMount).toBe(false)
+    })
+
+    it("rejects a non-boolean value (fails fast at startup)", () => {
+      expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow()
     })
   })
 })

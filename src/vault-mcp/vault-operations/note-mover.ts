@@ -16,13 +16,14 @@
  *       the vault), then commit writes the destination, updates backlink sources,
  *       and deletes the original last. */
 
-import { readFile, mkdir, unlink, stat } from "node:fs/promises"
+import { readFile, mkdir, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
 import {
   resolveSafePath,
   atomicWriteFile,
   atomicWriteFileExclusive,
+  fileExists,
   pruneEmptyParents,
   toVaultRelativePath,
 } from "./vault-filesystem.js"
@@ -437,17 +438,6 @@ const isProtected = (
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
 
-/** Resolves true if a file exists at the resolved vault path. */
-const fileExists = async (fullPath: string): Promise<boolean> => {
-  try {
-    await stat(fullPath)
-    return true
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw err
-  }
-}
-
 /** Caps concurrent file handles during rewriting. */
 const REWRITE_CONCURRENCY = 10
 
@@ -470,6 +460,9 @@ const moveNote = async (
     allNotePaths: readonly string[]
     /** When set, remove any source folders the move leaves empty. */
     pruneEmptyFolders: boolean
+    /** Windows-drive bind mount — write the destination via rename, not a hard
+     *  link (unsupported across the Docker Desktop ↔ WSL2 bridge). */
+    windowsBindMount: boolean
   },
   logger: Logger,
 ): Promise<MoveResult> => {
@@ -597,7 +590,9 @@ const moveNote = async (
 
   await mkdir(dirname(newFullPath), { recursive: true })
   try {
-    await atomicWriteFileExclusive(newFullPath, movedContent)
+    await atomicWriteFileExclusive(newFullPath, movedContent, {
+      hardLinksUnsupported: params.windowsBindMount,
+    })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new Error(`destination exists: "${newPath}"`, { cause: error })

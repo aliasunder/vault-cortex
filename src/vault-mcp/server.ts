@@ -75,7 +75,15 @@ const startServer = async (): Promise<void> => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 
-  await startFileWatcher(vaultPath, search)
+  if (config.windowsBindMount) {
+    logger.info("windows bind-mount mode enabled", {
+      watcher: "polling",
+      exclusiveWrite: "rename",
+    })
+  }
+  await startFileWatcher(vaultPath, search, {
+    usePolling: config.windowsBindMount,
+  })
 
   const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
