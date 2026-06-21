@@ -364,6 +364,28 @@ describe("deleteNote", () => {
     )
   })
 
+  it("rejects a backslash-separated path that resolves into a protected folder", async () => {
+    // A Windows-style separator must not evade the protected-path check — the
+    // guard normalizes "\\" to "/" before the prefix comparison.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "About Me\\Principles.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow("cannot delete protected path")
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
   describe("empty-folder prune", () => {
     /** True when a folder still exists in the vault — used to assert pruning. */
     const folderExists = async (path: string): Promise<boolean> => {
@@ -375,7 +397,7 @@ describe("deleteNote", () => {
       }
     }
 
-    const deleteWithPrune = (path: string): Promise<number> =>
+    const deleteWithPrune = (path: string) =>
       deleteNote(
         {
           vaultPath: vault,
@@ -402,7 +424,7 @@ describe("deleteNote", () => {
 
       expect(await folderExists("Folder")).toBe(true)
       expect(await folderExists("Folder/only.md")).toBe(false)
-      expect(pruned).toBe(0)
+      expect(pruned.prunedEmptyFolders).toBe(0)
     })
 
     it("removes the now-empty parent folder when prune is enabled", async () => {
@@ -412,7 +434,7 @@ describe("deleteNote", () => {
       const pruned = await deleteWithPrune("Folder/only.md")
 
       expect(await folderExists("Folder")).toBe(false)
-      expect(pruned).toBe(1)
+      expect(pruned.prunedEmptyFolders).toBe(1)
     })
 
     it("walks up removing multiple empty parents when prune is enabled", async () => {
@@ -424,7 +446,7 @@ describe("deleteNote", () => {
       expect(await folderExists("A/B/C")).toBe(false)
       expect(await folderExists("A/B")).toBe(false)
       expect(await folderExists("A")).toBe(false)
-      expect(pruned).toBe(3)
+      expect(pruned.prunedEmptyFolders).toBe(3)
     })
 
     it("stops at the first non-empty parent", async () => {
@@ -437,7 +459,7 @@ describe("deleteNote", () => {
       expect(await folderExists("A/B")).toBe(false)
       expect(await folderExists("A")).toBe(true)
       expect(await folderExists("A/keep.md")).toBe(true)
-      expect(pruned).toBe(1)
+      expect(pruned.prunedEmptyFolders).toBe(1)
     })
 
     it("never removes the vault root", async () => {
@@ -447,7 +469,7 @@ describe("deleteNote", () => {
 
       expect(await folderExists("root-note.md")).toBe(false)
       expect(await folderExists("")).toBe(true)
-      expect(pruned).toBe(0)
+      expect(pruned.prunedEmptyFolders).toBe(0)
     })
 
     it("leaves a folder that still contains a hidden file", async () => {
@@ -462,7 +484,7 @@ describe("deleteNote", () => {
       expect(await folderExists("Folder/note.md")).toBe(false)
       expect(await folderExists("Folder")).toBe(true)
       expect(await folderExists("Folder/.DS_Store")).toBe(true)
-      expect(pruned).toBe(0)
+      expect(pruned.prunedEmptyFolders).toBe(0)
     })
 
     it("logs a warning and returns 0 without throwing when a folder cannot be removed", async () => {

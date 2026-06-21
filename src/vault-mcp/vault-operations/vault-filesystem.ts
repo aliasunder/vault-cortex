@@ -19,10 +19,12 @@ import { parseLeadingCallout } from "./callout-parser.js"
 import type { LeadingCallout } from "./callout-parser.js"
 import type { Logger } from "../../logger.js"
 
-/** Collapses "./" and "../" so traversal paths can't evade the protected-path
- *  prefix check. Absolute or vault-escaping paths are left for resolveSafePath. */
+/** Canonicalizes a path for the protected-path prefix check: converts Windows
+ *  backslashes to forward slashes, then collapses "./" and "../" so a separator
+ *  or traversal variant can't evade the check. Absolute or vault-escaping paths
+ *  are left for resolveSafePath. */
 export const toVaultRelativePath = (input: string): string =>
-  posix.normalize(input)
+  posix.normalize(input.replace(/\\/g, "/"))
 
 /** Resolves a note path within the vault, throwing on traversal attempts. */
 export const resolveSafePath = (
@@ -339,9 +341,15 @@ const updateProperties = async (
   })
 }
 
+/** Outcome of a delete. */
+export type DeleteResult = {
+  /** Number of now-empty parent folders removed. Always 0 unless
+   *  pruneEmptyFolders was set. */
+  prunedEmptyFolders: number
+}
+
 /** Deletes a note. Rejects paths under the configured protected paths. When
- *  pruneEmptyFolders is set, removes any parent folders the deletion empties.
- *  Returns the number of folders pruned (0 when the flag is off). */
+ *  pruneEmptyFolders is set, removes any parent folders the deletion empties. */
 const deleteNote = async (
   params: {
     vaultPath: string
@@ -350,7 +358,7 @@ const deleteNote = async (
     pruneEmptyFolders: boolean
   },
   logger: Logger,
-): Promise<number> => {
+): Promise<DeleteResult> => {
   // Normalize before the protected-path check so a traversal path like
   // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
   // into a protected folder.
@@ -374,7 +382,7 @@ const deleteNote = async (
     path,
     pruned_empty_folders: prunedEmptyFolders,
   })
-  return prunedEmptyFolders
+  return { prunedEmptyFolders }
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */

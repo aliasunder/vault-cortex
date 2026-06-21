@@ -573,7 +573,7 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
             },
             reqLogger,
           ),
-        (prunedEmptyFolders) =>
+        ({ prunedEmptyFolders }) =>
           prunedEmptyFolders > 0
             ? `Deleted ${path} (removed ${prunedEmptyFolders} empty folder${prunedEmptyFolders > 1 ? "s" : ""})`
             : `Deleted ${path}`,
