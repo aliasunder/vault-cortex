@@ -19,6 +19,7 @@ export const TOOL_NAMES = {
   VAULT_WRITE_NOTE: "vault_write_note",
   VAULT_PATCH_NOTE: "vault_patch_note",
   VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
+  VAULT_DELETE_SPAN: "vault_delete_span",
   VAULT_LIST_NOTES: "vault_list_notes",
   VAULT_DELETE_NOTE: "vault_delete_note",
   VAULT_MOVE_NOTE: "vault_move_note",
@@ -323,7 +324,7 @@ Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Act
 
 Cross-section move (e.g. completing a task on a board):
 1. vault_read_note to get current content and verify exact text
-2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source
+2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large or URL-bearing block, prefer vault_delete_span)
 3. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
 
 When to use: Modifying part of an existing note without overwriting the entire body.
@@ -412,7 +413,8 @@ Returns: Confirmation message.`,
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
-When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a specific line (new_text=""). Replaces text in place; does not move content across sections.
+When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
+To delete a large or URL-bearing block (e.g. a long session-history row) without re-quoting it, prefer vault_delete_span — it references the block by short anchors instead of echoing the full old_text.
 To relocate content between headings, use vault_replace_in_note to remove from the source (new_text=""), then vault_patch_note to append at the target. Read the note first with vault_read_note to confirm exact text.
 
 Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
@@ -462,6 +464,82 @@ Returns: Confirmation message with replacement count.`,
               oldText: old_text,
               newText: new_text,
               replaceAllOccurrences: replace_all_occurrences,
+            },
+            reqLogger,
+          ),
+        (msg) => msg,
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_DELETE_SPAN,
+    {
+      title: "Delete Span",
+      description: `Delete a contiguous block of whole lines from a note's body by naming it with short anchor substrings — without sending the block's text. Cheaper and more reliable than reproducing a large block as old_text for vault_replace_in_note: no byte-exact re-quoting, and a short anchor avoids the request-size and embedded-URL patterns that some hosted proxies block. Matches exact text (case-sensitive). Properties are preserved; operates on the body only.
+
+Example: vault_delete_span({ path: "Logs/Sessions.md", start_anchor: "| 2026-05-01 | session-a2d5" }) — deletes the one table row whose line contains that fragment.
+Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes the multi-line block from the line containing the start anchor through the line containing the end anchor.
+
+When to use: Removing a block you have already read — especially a long line (e.g. rotating the oldest row out of a session-history table) or a multi-line block where echoing it back as old_text would be large (~2KB+) or contain URLs with query parameters. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
+Prefer vault_replace_in_note for small in-place edits or renames where sending old_text is fine, and for replacing text (this tool only deletes). To replace a block, delete it here, then vault_patch_note (append/prepend by heading) to add the new content.
+
+Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. end_anchor is searched at or after the start line, so the span can never run backward. By default each anchor must match exactly one line; on a tie, pass first_match to take the first. After deletion, runs of blank lines are collapsed so no gap is left. A trailing %% comment block (e.g. kanban:settings) is affected only if your anchors point into it.
+
+Errors:
+- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "start anchor not found" / "end anchor not found ... at or after the start anchor" — the fragment is not on any (qualifying) line; verify exact text with vault_read_note
+- "ambiguous start anchor ... matches N lines" / "ambiguous end anchor ..." — the fragment is on more than one line; use a longer, unique fragment or set first_match: true
+- "start_anchor cannot be empty" / "end_anchor cannot be empty"
+
+Obsidian syntax: Anchors are matched as literal text against the Obsidian Flavored Markdown source, never as regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear in the note (verify with vault_read_note). This tool only removes content; it inserts none.
+
+Returns: Confirmation message with the number of lines removed and a truncated preview of the deleted text.`,
+      inputSchema: {
+        path: z.string().min(1).describe("Vault-relative path to the note"),
+        start_anchor: z
+          .string()
+          .min(1)
+          .describe(
+            "Short, unique substring on the first line of the block to delete (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+          ),
+        end_anchor: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Short, unique substring on the LAST line of the block, searched at or after the start_anchor line. Omit to delete just the single line containing start_anchor.",
+          ),
+        first_match: z
+          .boolean()
+          .optional()
+          .describe(
+            "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ path, start_anchor, end_anchor, first_match }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_DELETE_SPAN,
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        () =>
+          vaultPatcher.deleteSpan(
+            {
+              vaultPath,
+              path,
+              startAnchor: start_anchor,
+              endAnchor: end_anchor,
+              firstMatch: first_match,
             },
             reqLogger,
           ),

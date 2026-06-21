@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
-  "description": "MCP server for Obsidian vaults — search, memory, links, 24 tools + 3 prompts, OAuth-protected.",
+  "description": "MCP server for Obsidian vaults — search, memory, links, 25 tools + 3 prompts, OAuth-protected.",
   "version": "0.20.1",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {

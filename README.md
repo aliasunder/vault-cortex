@@ -22,7 +22,7 @@
 
 ## What is this?
 
-**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 24 tools and 3 guided prompts over a single Docker container.
+**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 25 tools and 3 guided prompts over a single Docker container.
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
 
@@ -155,7 +155,7 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
-## Tools (24)
+## Tools (25)
 
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
@@ -163,6 +163,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_write_note`           | Create or overwrite a note with properties                 |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)   |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
+|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
 |                 | `vault_delete_note`          | Delete a note (protected paths enforced)                   |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault    |
