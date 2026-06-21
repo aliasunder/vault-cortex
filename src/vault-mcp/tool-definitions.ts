@@ -324,7 +324,7 @@ Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Act
 
 Cross-section move (e.g. completing a task on a board):
 1. vault_read_note to get current content and verify exact text
-2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large or URL-bearing block, prefer vault_delete_span)
+2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span)
 3. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
 
 When to use: Modifying part of an existing note without overwriting the entire body.
@@ -414,7 +414,7 @@ Returns: Confirmation message.`,
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large or URL-bearing block (e.g. a long session-history row) without re-quoting it, prefer vault_delete_span — it references the block by short anchors instead of echoing the full old_text.
+To delete a large multi-line block without re-quoting it, prefer vault_delete_span — it references the block by short anchors instead of echoing the full old_text.
 To relocate content between headings, use vault_replace_in_note to remove from the source (new_text=""), then vault_patch_note to append at the target. Read the note first with vault_read_note to confirm exact text.
 
 Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
@@ -476,12 +476,12 @@ Returns: Confirmation message with replacement count.`,
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by naming it with short anchor substrings — without sending the block's text. Cheaper and more reliable than reproducing a large block as old_text for vault_replace_in_note: no byte-exact re-quoting, and a short anchor avoids the request-size and embedded-URL patterns that some hosted proxies block. Matches exact text (case-sensitive). Properties are preserved; operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by naming it with short anchor substrings — without reproducing the block's text. More reliable than passing a large block as old_text to vault_replace_in_note: a short, unique fragment can't drift from the original the way a re-quoted multi-line block can, and you don't regenerate the whole block. Matches exact text (case-sensitive). Properties are preserved; operates on the body only.
 
-Example: vault_delete_span({ path: "Logs/Sessions.md", start_anchor: "| 2026-05-01 | session-a2d5" }) — deletes the one table row whose line contains that fragment.
+Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes the multi-line block from the line containing the start anchor through the line containing the end anchor.
 
-When to use: Removing a block you have already read — especially a long line (e.g. rotating the oldest row out of a session-history table) or a multi-line block where echoing it back as old_text would be large (~2KB+) or contain URLs with query parameters. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
+When to use: Removing a block you have already read — a single long line (e.g. a wide table row) or a multi-line block (a callout, a run of list items) — where reproducing it exactly as old_text would be error-prone or wasteful. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
 Prefer vault_replace_in_note for small in-place edits or renames where sending old_text is fine, and for replacing text (this tool only deletes). To replace a block, delete it here, then vault_patch_note (append/prepend by heading) to add the new content.
 
 Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. An anchor only locates a line; the entire line is removed regardless of where in it the anchor matches — it never cuts mid-line (prefer vault_replace_in_note for character-precise, in-place edits).
