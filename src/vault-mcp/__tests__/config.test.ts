@@ -188,7 +188,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-boolean value (fails fast at startup)", () => {
-      expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow()
+      expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow(/WINDOWS_MODE/)
     })
   })
 })
