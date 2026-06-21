@@ -138,6 +138,28 @@ const patchNote = async (
   const headings = parseHeadings(lines)
   const target = findHeading(headings, heading, headingLevel)
   const targetDesc = `${"#".repeat(target.level)} ${target.text}`
+
+  // Heading-targeted ops keep the matched heading and write content as the
+  // section body, so a content that begins with that same heading would
+  // duplicate it. Reject with remediation rather than silently doubling it.
+  const firstContentLineIndex = contentLines.findIndex(
+    (line) => line.trim() !== "",
+  )
+  const leadingContentHeading = parseHeadings(contentLines).find(
+    (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+  )
+  if (
+    leadingContentHeading &&
+    leadingContentHeading.level === target.level &&
+    leadingContentHeading.text === target.text
+  ) {
+    throw new Error(
+      `content begins with the heading "${targetDesc}", which would duplicate it — ` +
+        `a heading-targeted ${operation} writes content as the section body and keeps ` +
+        `the matched heading. Pass the section body only (omit the heading line).`,
+    )
+  }
+
   const updatedLines = applySectionOperation(
     lines,
     contentLines,

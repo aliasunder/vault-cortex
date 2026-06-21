@@ -1589,6 +1589,63 @@ describe("patchNote errors", () => {
   })
 })
 
+describe("patchNote — duplicate-heading guard", () => {
+  it.each(["replace", "prepend", "append", "insert_before"] as const)(
+    "rejects %s when content begins with the target heading, leaving the note untouched",
+    async (operation) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await expect(
+        patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation,
+            content: "## Up Next\n- [ ] New task\n",
+            heading: "Up Next",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('content begins with the heading "## Up Next"')
+      // Rejected before any write — the file is byte-for-byte unchanged.
+      expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
+    },
+  )
+
+  it("allows content whose leading heading differs from the target", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "## Other Heading\nbody\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    expect(await readTestNote("note.md")).toContain(
+      "## Up Next\n## Other Heading\nbody",
+    )
+  })
+
+  it("allows a same-text heading at a different level (not a duplicate)", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "### Up Next\nsub\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    expect(await readTestNote("note.md")).toContain(
+      "## Up Next\n### Up Next\nsub",
+    )
+  })
+})
+
 // ── Edge cases ──────────────────────────────────────────────────
 
 describe("patchNote edge cases", () => {
