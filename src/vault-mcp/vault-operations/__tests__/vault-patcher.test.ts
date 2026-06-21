@@ -2266,7 +2266,8 @@ keep me
       { vaultPath: vault, path: "long.md", startAnchor: longLine },
       logger,
     )
-    expect(result).toMatch(/z{80}…/)
+    // Deterministic message: 80-char truncation + ellipsis of the removed line.
+    expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`)
   })
 
   it("deletes the first matching line when first_match is set on the start anchor", async () => {
