@@ -70,7 +70,13 @@ const readNoteForPatch = async (
     return {
       fullPath,
       data: parsed.data as Record<string, unknown>,
-      lines: parsed.content.split("\n"),
+      // Strip a trailing CR so CRLF-authored (Windows) notes split into
+      // LF-only lines — keeps body matching and blank-run collapse
+      // (collapseBlankRuns) consistent, and normalizes the note to LF on
+      // write. Mirrors the same handling in callout-parser.
+      lines: parsed.content
+        .split("\n")
+        .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
       beforeBytes: Buffer.byteLength(fileContent, "utf8"),
     }
   } catch (err) {

@@ -2128,6 +2128,28 @@ B
 `)
   })
 
+  it("collapses blank-line runs in a CRLF-authored note and writes LF-only output", async () => {
+    // CRLF body: split("\n") leaves a trailing "\r" on each line, which would
+    // defeat the LF-only blank-run collapse unless the reader strips it.
+    const content =
+      "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n"
+    await writeTestNote("crlf.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" },
+      logger,
+    )
+    const updated = await readTestNote("crlf.md")
+    expect(updated).not.toContain("\r")
+    expect(updated).toBe(`---
+title: Crlf
+---
+
+A
+
+B
+`)
+  })
+
   it("preserves frontmatter when deleting a body line", async () => {
     const content = `---
 title: Kept
