@@ -550,11 +550,13 @@ describe("moveNote — empty-folder prune", () => {
   })
 
   it("walks up removing nested empty source parents", async () => {
-    const { writeFixture, moveNote, folderExists } = setupVault()
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
     await writeFixture("A/B/note.md", "body\n")
 
     const result = await moveNote("A/B/note.md", "Dest/note.md", [], true)
 
+    expect(await noteExists("A/B/note.md")).toBe(false)
+    expect(await noteExists("Dest/note.md")).toBe(true)
     expect(await folderExists("A/B")).toBe(false)
     expect(await folderExists("A")).toBe(false)
     expect(result.pruned_empty_folders).toBe(2)
@@ -582,6 +584,7 @@ describe("moveNote — empty-folder prune", () => {
 
     const result = await moveNote("Notes/old.md", "Notes/new.md", [], true)
 
+    expect(await noteExists("Notes/old.md")).toBe(false)
     expect(await folderExists("Notes")).toBe(true)
     expect(await noteExists("Notes/new.md")).toBe(true)
     expect(result.pruned_empty_folders).toBe(0)
@@ -598,6 +601,7 @@ describe("moveNote — empty-folder prune", () => {
       true,
     )
 
+    expect(await noteExists("Parent/note.md")).toBe(false)
     expect(await folderExists("Parent")).toBe(true)
     expect(await noteExists("Parent/Sub/note.md")).toBe(true)
     expect(result.pruned_empty_folders).toBe(0)
