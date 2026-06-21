@@ -51,15 +51,15 @@ const safeDecodeURIComponent = (encoded: string): string => {
   }
 }
 
-// ── Public types ────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────
 
 /** One body line tagged with whether it sits in a fenced code block (a fence
  *  delimiter line counts as code — it never bears links). */
-export type ClassifiedLine = { text: string; inCode: boolean }
+type ClassifiedLine = { text: string; inCode: boolean }
 
 /** A link found in a single line, with the character offsets needed to splice a
  *  replacement around it. */
-export type LinkMatch = {
+type LinkMatch = {
   text: string
   start: number
   end: number
@@ -67,12 +67,12 @@ export type LinkMatch = {
 }
 
 /** The half-open character range [start, end) of an inline code span in a line. */
-export type CodeSpan = { start: number; end: number }
+type CodeSpan = { start: number; end: number }
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
  *  keep their leading `#` / `|` so reconstruction is plain concatenation; target
  *  is not trimmed (the caller trims). */
-export type WikilinkParts = {
+type WikilinkParts = {
   embed: string
   target: string
   heading: string
@@ -82,7 +82,7 @@ export type WikilinkParts = {
 /** The structural parts of a markdown link [text](path.md#heading). path is the
  *  DECODED target without the .md extension; prefix/closeParen/heading are
  *  verbatim literals for lossless reconstruction. */
-export type MarkdownLinkParts = {
+type MarkdownLinkParts = {
   prefix: string
   path: string
   heading: string
