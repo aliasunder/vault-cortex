@@ -14,9 +14,13 @@ const { createSearchIndex } = await import("../search-index.js")
 
 /** A minimal chokidar watcher stand-in: chainable `.on()`, and fires "ready" so
  *  startFileWatcher's promise resolves. It emits no fs events. */
-const createFakeWatcher = (): { on: (event: string) => unknown } => {
-  const watcher = {
-    on(event: string, handler: (...args: unknown[]) => void) {
+type FakeWatcher = {
+  on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher
+}
+
+const createFakeWatcher = (): FakeWatcher => {
+  const watcher: FakeWatcher = {
+    on(event, handler) {
       if (event === "ready") queueMicrotask(() => handler())
       return watcher
     },
