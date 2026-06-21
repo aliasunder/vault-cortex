@@ -8,7 +8,6 @@ import {
   link,
   rm,
   rmdir,
-  stat,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
@@ -38,17 +37,6 @@ export const resolveSafePath = (
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
   return resolved
-}
-
-/** Resolves true if a file exists at the resolved vault path. */
-export const fileExists = async (fullPath: string): Promise<boolean> => {
-  try {
-    await stat(fullPath)
-    return true
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw err
-  }
 }
 
 /**
@@ -132,9 +120,13 @@ export const atomicWriteFile = async (
  * the target on success. Mirrors POSIX `O_EXCL` / Node's `'wx'` flag semantics.
  *
  * When `hardLinksUnsupported` is set (a Windows-drive Docker bind mount, where
- * `link` isn't available), it degrades to check-then-`rename`: a non-atomic
- * no-clobber that still lands the content atomically and preserves the `EEXIST`
- * contract — only the existence guard loses its race-freedom.
+ * `link` isn't available), it instead reserves the target with an `O_EXCL`
+ * create (the `'wx'` flag) — atomic and race-free, throwing `EEXIST` if the
+ * target exists — then renames the staged temp over that empty placeholder so
+ * the content still lands atomically. The placeholder is visible for only the
+ * instant between the reservation and the rename. This preserves the same
+ * no-clobber contract as the link path; `'wx'` create is far more portable
+ * than `link`, so it works where hard links don't.
  */
 export const atomicWriteFileExclusive = async (
   filePath: string,
@@ -145,25 +137,26 @@ export const atomicWriteFileExclusive = async (
   try {
     await writeFile(tmpPath, content, "utf8")
     if (options?.hardLinksUnsupported) {
-      // No hard links on this filesystem: check-then-rename. The window between
-      // the check and the rename is a small TOCTOU gap, acceptable because the
-      // alternative is the move failing outright. Synthesize EEXIST so callers
-      // that match on err.code see the same no-clobber signal as the link path.
-      if (await fileExists(filePath)) {
-        throw Object.assign(
-          new Error(`EEXIST: file already exists, '${filePath}'`),
-          { code: "EEXIST" },
-        )
+      // Reserve the target atomically (O_EXCL): throws EEXIST if it already
+      // exists, with no separate check — so there's no TOCTOU window in which a
+      // concurrent writer's file could be clobbered.
+      await writeFile(filePath, "", { flag: "wx" })
+      try {
+        // Swap the fully-staged content over the empty placeholder.
+        await rename(tmpPath, filePath)
+      } catch (renameError) {
+        // The reservation took but the swap failed — drop the placeholder so a
+        // failed write never strands a 0-byte note at the destination.
+        await rm(filePath, { force: true }).catch(() => {})
+        throw renameError
       }
-      await rename(tmpPath, filePath)
     } else {
       // Atomic no-clobber create: throws EEXIST if filePath already exists.
       await link(tmpPath, filePath)
     }
   } finally {
-    // Always drop the temp link — redundant on success (filePath is the durable
-    // name), and never stranded on failure. Swallow cleanup errors so the
-    // original failure (e.g. EEXIST) is what propagates.
+    // Always drop the temp file — renamed away on success, redundant otherwise.
+    // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
     await rm(tmpPath, { force: true }).catch(() => {})
   }
 }

@@ -22,7 +22,6 @@ import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
-  fileExists,
   pruneEmptyParents,
 } from "../vault-filesystem.js"
 import { parseNote } from "../frontmatter.js"
@@ -137,18 +136,6 @@ describe("atomicWriteFileExclusive", () => {
       const entries = await readdir(vault)
       expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
     })
-  })
-})
-
-describe("fileExists", () => {
-  it("resolves true for an existing file", async () => {
-    const target = join(vault, "here.md")
-    await atomicWriteFile(target, "body\n")
-    expect(await fileExists(target)).toBe(true)
-  })
-
-  it("resolves false for a missing file", async () => {
-    expect(await fileExists(join(vault, "nope.md"))).toBe(false)
   })
 })
 

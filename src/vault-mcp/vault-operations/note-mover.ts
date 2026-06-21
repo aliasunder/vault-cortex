@@ -16,14 +16,13 @@
  *       the vault), then commit writes the destination, updates backlink sources,
  *       and deletes the original last. */
 
-import { readFile, mkdir, unlink } from "node:fs/promises"
+import { readFile, mkdir, unlink, stat } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "./frontmatter.js"
 import {
   resolveSafePath,
   atomicWriteFile,
   atomicWriteFileExclusive,
-  fileExists,
   pruneEmptyParents,
   toVaultRelativePath,
 } from "./vault-filesystem.js"
@@ -437,6 +436,17 @@ const isProtected = (
   protectedPaths
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
+
+/** Resolves true if a file exists at the resolved vault path. */
+const fileExists = async (fullPath: string): Promise<boolean> => {
+  try {
+    await stat(fullPath)
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw err
+  }
+}
 
 /** Caps concurrent file handles during rewriting. */
 const REWRITE_CONCURRENCY = 10
