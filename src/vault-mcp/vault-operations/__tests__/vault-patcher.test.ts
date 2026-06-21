@@ -1589,6 +1589,107 @@ describe("patchNote errors", () => {
   })
 })
 
+describe("patchNote — duplicate-heading guard", () => {
+  it.each(["replace", "prepend", "append", "insert_before"] as const)(
+    "rejects %s when content begins with the target heading, leaving the note untouched",
+    async (operation) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await expect(
+        patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation,
+            content: "## Up Next\n- [ ] New task\n",
+            heading: "Up Next",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('content begins with the heading "## Up Next"')
+      // Rejected before any write — the file is byte-for-byte unchanged.
+      expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
+    },
+  )
+
+  it("allows content whose leading heading differs from the target", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "## Other Heading\nbody\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+## Other Heading
+body
+
+## Done
+- [x] Task D
+`)
+  })
+
+  it("allows a same-text heading at a different level (not a duplicate)", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "### Up Next\nsub\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+### Up Next
+sub
+
+## Done
+- [x] Task D
+`)
+  })
+})
+
 // ── Edge cases ──────────────────────────────────────────────────
 
 describe("patchNote edge cases", () => {
