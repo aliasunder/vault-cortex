@@ -1,6 +1,6 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
- *  mirroring Obsidian's built-in rename. Reuses resolveLink and the link regexes
- *  from search-index.ts so the rewriter and indexer always agree.
+ *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing, and
+ *  resolution from ../links.ts so the rewriter and indexer always agree.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form
@@ -26,13 +26,7 @@ import {
   pruneEmptyParents,
   toVaultRelativePath,
 } from "./vault-filesystem.js"
-import {
-  resolveLink,
-  WIKILINK_RE,
-  MD_LINK_RE,
-  FENCE_OPEN,
-  INLINE_CODE_RE,
-} from "../search/search-index.js"
+import { links } from "../links.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import type { Logger } from "../../logger.js"
 
@@ -71,14 +65,6 @@ type RewriteContext = {
 /** Which of Obsidian's link forms a raw target used to resolve, so the
  *  replacement can be written back in the same style. */
 type LinkForm = "basename" | "absolute" | "relative"
-
-// ── Link-text parsers (reconstruction) ──────────────────────────
-
-/** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`]. */
-const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
-
-/** Splits a matched markdown link into [, `[text](`, path-without-ext, `#heading`, `)`]. */
-const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)\.md(#[^)\s]*)?(\))$/
 
 // ── Target classification + construction ────────────────────────
 
@@ -120,7 +106,7 @@ const buildReplacementTarget = (params: {
   const absoluteForm = withoutExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean =>
-    resolveLink(candidate, allNotePathsAfter, newSourcePath) === desiredTarget
+    links.resolve(candidate, allNotePathsAfter, newSourcePath) === desiredTarget
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -141,7 +127,7 @@ const rewriteTarget = (
   rawTarget: string,
   context: RewriteContext,
 ): string | null => {
-  const resolvedBefore = resolveLink(
+  const resolvedBefore = links.resolve(
     rawTarget,
     context.allNotePaths,
     context.oldSourcePath,
@@ -155,7 +141,7 @@ const rewriteTarget = (
       : resolvedBefore
 
   // Already resolves correctly from the new location — leave it alone.
-  const resolvedAfter = resolveLink(
+  const resolvedAfter = links.resolve(
     rawTarget,
     context.allNotePathsAfter,
     context.newSourcePath,
@@ -193,34 +179,36 @@ type LinkEdit = { start: number; end: number; replacement: string }
  *  leave the link unchanged. Created by binding rewriteTarget to a context. */
 type RewriteLink = (rawTarget: string) => string | null
 
+/** Splices link replacements into text in start order. Shared by body-line and
+ *  frontmatter-string rewriting. */
+const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
+  if (edits.length === 0) return text
+  const orderedEdits = [...edits].sort(
+    (left, right) => left.start - right.start,
+  )
+
+  // Splice replacements left-to-right; sequential cursor state, so a plain loop.
+  let result = ""
+  let cursor = 0
+  for (const edit of orderedEdits) {
+    result += text.slice(cursor, edit.start) + edit.replacement
+    cursor = edit.end
+  }
+  return result + text.slice(cursor)
+}
+
 /** Rewrites link targets in a single body line, skipping links inside
  *  inline-code spans. */
 const rewriteBodyLine = (
   line: string,
   rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
-  const codeSpans = [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }))
+  const codeSpans = links.inlineCodeSpans(line)
   const isInsideCode = (position: number): boolean =>
     codeSpans.some((span) => position >= span.start && position < span.end)
 
   const edits = collectLineEdits(line, rewriteLink, isInsideCode)
-  if (edits.length === 0) return { line, linksRewritten: 0 }
-
-  const orderedEdits = [...edits].sort(
-    (left, right) => left.start - right.start,
-  )
-
-  // Splice replacements left-to-right; sequential cursor state.
-  let result = ""
-  let cursor = 0
-  for (const edit of orderedEdits) {
-    result += line.slice(cursor, edit.start) + edit.replacement
-    cursor = edit.end
-  }
-  return { line: result + line.slice(cursor), linksRewritten: edits.length }
+  return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
 }
 
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
@@ -228,29 +216,16 @@ const collectLineEdits = (
   line: string,
   rewriteLink: RewriteLink,
   isInsideCode: (position: number) => boolean,
-): LinkEdit[] => {
-  const editsForPattern = (
-    linkPattern: RegExp,
-    rewriteLinkText: (linkText: string) => string | null,
-  ): LinkEdit[] =>
-    [...line.matchAll(linkPattern)].flatMap((linkMatch) => {
-      const linkText = linkMatch[0]
-      const start = linkMatch.index
-      if (isInsideCode(start)) return []
-      const replacement = rewriteLinkText(linkText)
-      if (replacement === null) return []
-      return [{ start, end: start + linkText.length, replacement }]
-    })
-
-  return [
-    ...editsForPattern(WIKILINK_RE, (linkText) =>
-      rewriteWikilinkText(linkText, rewriteLink),
-    ),
-    ...editsForPattern(MD_LINK_RE, (linkText) =>
-      rewriteMarkdownLinkText(linkText, rewriteLink),
-    ),
-  ]
-}
+): LinkEdit[] =>
+  links.matchLinksInLine(line).flatMap((linkMatch) => {
+    if (isInsideCode(linkMatch.start)) return []
+    const replacement =
+      linkMatch.kind === "wikilink"
+        ? rewriteWikilinkText(linkMatch.text, rewriteLink)
+        : rewriteMarkdownLinkText(linkMatch.text, rewriteLink)
+    if (replacement === null) return []
+    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+  })
 
 /** Rewrites one matched wikilink, preserving the embed marker, heading, and
  *  alias; null when the target needs no change. */
@@ -258,12 +233,11 @@ const rewriteWikilinkText = (
   linkText: string,
   rewriteLink: RewriteLink,
 ): string | null => {
-  const parts = WIKILINK_PARTS.exec(linkText)
+  const parts = links.splitWikilink(linkText)
   if (!parts) return null
-  const [, embedMarker, target, heading = "", alias = ""] = parts
-  const newTarget = rewriteLink(target!.trim())
+  const newTarget = rewriteLink(parts.target.trim())
   if (newTarget === null) return null
-  return `${embedMarker}[[${newTarget}${heading}${alias}]]`
+  return `${parts.embed}[[${newTarget}${parts.heading}${parts.alias}]]`
 }
 
 /** Rewrites one matched markdown link, preserving the link text and heading;
@@ -272,46 +246,11 @@ const rewriteMarkdownLinkText = (
   linkText: string,
   rewriteLink: RewriteLink,
 ): string | null => {
-  const parts = MD_LINK_PARTS.exec(linkText)
+  const parts = links.splitMarkdownLink(linkText)
   if (!parts) return null
-  const [, prefix, encodedPath, heading = "", closeParen] = parts
-  const decodedTarget = decodeMarkdownLinkPath(encodedPath!)
-  const newTarget = rewriteLink(decodedTarget)
+  const newTarget = rewriteLink(parts.path)
   if (newTarget === null) return null
-  return `${prefix}${encodeMarkdownLinkPath(newTarget)}.md${heading}${closeParen}`
-}
-
-/** Decodes a markdown link path, tolerating malformed percent-encoding. */
-const decodeMarkdownLinkPath = (encoded: string): string => {
-  try {
-    return decodeURIComponent(encoded)
-  } catch {
-    return encoded
-  }
-}
-
-/** Returns the fence delimiter when inside a code block, null otherwise.
- *  Mirrors the indexer's fence handling. */
-const advanceFence = (
-  line: string,
-  openFence: string | null,
-): string | null => {
-  const fenceMatch = FENCE_OPEN.exec(line)
-  if (!fenceMatch) return openFence
-
-  const fenceChars = fenceMatch[1]!
-  if (openFence === null) return fenceChars[0]!.repeat(fenceChars.length)
-
-  // Close only on the same fence character, at least as long, with no info string.
-  const trimmedLine = line.trim()
-  if (
-    fenceChars[0] === openFence[0] &&
-    fenceChars.length >= openFence.length &&
-    trimmedLine === fenceChars[0]!.repeat(trimmedLine.length)
-  ) {
-    return null
-  }
-  return openFence
+  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}.md${parts.heading}${parts.closeParen}`
 }
 
 /** Rewrites every link in a note body, skipping fenced code blocks. */
@@ -319,21 +258,18 @@ const rewriteBody = (
   body: string,
   rewriteLink: RewriteLink,
 ): { body: string; linksRewritten: number } => {
-  // Fence state tracked line-by-line; mutable by necessity.
-  let openFence: string | null = null
+  // Code lines (fence delimiters and fenced content) pass through verbatim;
+  // links.classifyLines owns the fence state machine. A running tally over a
+  // sequential line walk, so a plain loop with mutable counters.
   let linksRewritten = 0
   const outputLines: string[] = []
 
-  for (const line of body.split("\n")) {
-    const fenceBefore = openFence
-    openFence = advanceFence(line, openFence)
-
-    if (fenceBefore !== null || openFence !== null) {
-      outputLines.push(line)
+  for (const { text, inCode } of links.classifyLines(body)) {
+    if (inCode) {
+      outputLines.push(text)
       continue
     }
-
-    const rewrite = rewriteBodyLine(line, rewriteLink)
+    const rewrite = rewriteBodyLine(text, rewriteLink)
     outputLines.push(rewrite.line)
     linksRewritten += rewrite.linksRewritten
   }
@@ -361,15 +297,15 @@ const rewriteFrontmatterValue = (
   rewriteLink: RewriteLink,
 ): FrontmatterRewrite => {
   if (typeof value === "string") {
-    // Mutable: replaceAll's callback is the only way to tally per-match.
-    let linksRewritten = 0
-    const rewritten = value.replaceAll(WIKILINK_RE, (linkText) => {
-      const replacement = rewriteWikilinkText(linkText, rewriteLink)
-      if (replacement === null) return linkText
-      linksRewritten += 1
-      return replacement
+    // Frontmatter has no code fences/spans, so every wikilink match is live.
+    // Markdown links are body-only, so non-wikilink matches are skipped.
+    const edits = links.matchLinksInLine(value).flatMap((linkMatch) => {
+      if (linkMatch.kind !== "wikilink") return []
+      const replacement = rewriteWikilinkText(linkMatch.text, rewriteLink)
+      if (replacement === null) return []
+      return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
     })
-    return { value: rewritten, linksRewritten }
+    return { value: applyLinkEdits(value, edits), linksRewritten: edits.length }
   }
 
   if (Array.isArray(value)) {
@@ -466,7 +402,7 @@ const moveNote = async (
     newPath: string
     protectedPaths: readonly string[]
     backlinkSources: readonly string[]
-    /** Every .md path in the vault — resolveLink checks against this to determine where links point. */
+    /** Every .md path in the vault — links.resolve checks against this to determine where links point. */
     allNotePaths: readonly string[]
     /** When set, remove any source folders the move leaves empty. */
     pruneEmptyFolders: boolean

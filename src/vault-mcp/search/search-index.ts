@@ -1,11 +1,12 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
-import { join, basename, relative, resolve, posix } from "node:path"
+import { join, basename, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../vault-operations/frontmatter.js"
 import { parseLeadingCallout } from "../vault-operations/callout-parser.js"
 import type { LeadingCallout } from "../vault-operations/callout-parser.js"
+import { links } from "../links.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -177,13 +178,15 @@ type OutgoingLinkEntry = {
 //
 // Links between notes are tracked in a `links` table (source → target)
 // to power backlink queries, outgoing link lookups, and orphan detection.
+// The link grammar — recognizing, parsing, and resolving links — lives in
+// ../links.ts; this section only composes it for indexing.
 //
 // Indexing flow:
-//   1. extractLinks() parses wikilinks ([[target]]) and markdown links
-//      ([text](path.md)) from the note body (skipping fenced code blocks
-//      and inline code spans); extractFrontmatterLinks() adds [[wikilinks]]
-//      from frontmatter property values (e.g. related:).
-//   2. resolveLink() maps each raw target to a vault-relative path by trying
+//   1. links.extractFromBody() parses wikilinks ([[target]]) and markdown
+//      links ([text](path.md)) from the note body (skipping fenced code
+//      blocks and inline code spans); links.extractFromFrontmatter() adds
+//      [[wikilinks]] from frontmatter property values (e.g. related:).
+//   2. links.resolve() maps each raw target to a vault-relative path by trying
 //      exact match → relative-to-source match → basename/shortest-path heuristic.
 //   3. upsertNote stores resolved links in the `links` table. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
@@ -194,129 +197,6 @@ type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes (CommonMark §4.5).
- *  Exported so link rewriters skip code blocks the same way indexing does. */
-export const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
-
-/** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
- *  [[target#heading|text]], and embeds ![[target]]. Captures the
- *  target path/name (group 1) before any # or |. Exported as the single
- *  source of truth for wikilink syntax, so rewriters parse it identically. */
-export const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
-
-/** Matches markdown internal links to .md files: [text](path.md) or
- *  [text](path.md#heading). Excludes external URLs and non-.md assets
- *  (images, PDFs). Captures the path without extension (group 1). Exported
- *  as the single source of truth for markdown-link syntax, so rewriters parse it identically. */
-export const MD_LINK_RE =
-  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
-
-/** Safely decodes a URI component, falling back to the raw string
- *  if the percent-encoding is malformed (e.g. "100%complete"). */
-const safeDecodeURIComponent = (encoded: string): string => {
-  try {
-    return decodeURIComponent(encoded)
-  } catch {
-    return encoded
-  }
-}
-
-/** Strips inline code spans from a line so links inside backticks
- *  (e.g. `[[Note]]`) are not extracted as real links. Exported so link
- *  rewriters leave links inside code spans untouched the same way. */
-export const INLINE_CODE_RE = /`+[^`\n]*`+/g
-
-/** Extracts link targets from markdown content, skipping fenced code
- *  blocks and inline code spans. Returns deduplicated raw targets
- *  (pre-resolution). */
-export const extractLinks = (content: string): string[] => {
-  const lines = content.split("\n")
-  const targets = new Set<string>()
-
-  // Mutable state: tracks whether we're inside a fenced code block.
-  // A state machine needs mutable state — no immutable alternative
-  // without restructuring into a reduce over line-state pairs.
-  let currentFenceOpener: string | null = null
-
-  for (const line of lines) {
-    const fenceMatch = FENCE_OPEN.exec(line)
-    if (fenceMatch) {
-      const fenceChars = fenceMatch[1]!
-      if (currentFenceOpener === null) {
-        currentFenceOpener = fenceChars[0]!.repeat(fenceChars.length)
-      } else if (
-        // Closer must use the same character as the opener (backtick vs tilde),
-        // be at least as long, and contain only fence characters (no trailing content)
-        fenceChars[0] === currentFenceOpener[0] &&
-        fenceChars.length >= currentFenceOpener.length &&
-        line.trim() === fenceChars[0]!.repeat(line.trim().length)
-      ) {
-        currentFenceOpener = null
-      }
-      continue
-    }
-    if (currentFenceOpener !== null) continue
-
-    // Replace inline code spans with spaces so links inside backticks are ignored
-    const withoutInlineCode = line.replace(INLINE_CODE_RE, (match) =>
-      " ".repeat(match.length),
-    )
-
-    for (const match of withoutInlineCode.matchAll(WIKILINK_RE)) {
-      const target = match[1]!.trim()
-      if (target.length > 0) targets.add(target)
-    }
-    for (const match of withoutInlineCode.matchAll(MD_LINK_RE)) {
-      const target = safeDecodeURIComponent(match[1]!.trim())
-      if (target.length > 0) targets.add(target)
-    }
-  }
-  return [...targets]
-}
-
-/** Extracts [[wikilink]] targets from frontmatter property values. Obsidian
- *  resolves wikilinks in any frontmatter property (e.g. `related:`), so they
- *  are real graph edges — body-only extraction silently drops them. Recursively
- *  walks strings, arrays, and nested objects, applying WIKILINK_RE to every
- *  string. Frontmatter is YAML (no code fences or inline-code spans), so the
- *  body extractor's fence handling doesn't apply. Markdown [text](path.md)
- *  links are a body convention and are intentionally not scanned here. Returns
- *  deduplicated raw targets (pre-resolution), matching extractLinks' contract. */
-export const extractFrontmatterLinks = (
-  data: Record<string, unknown>,
-): string[] => {
-  const targets = new Set<string>()
-
-  // Walks one frontmatter value, adding every [[wikilink]] target it finds to
-  // `targets`. A value is one of three shapes, so it recurses through the two
-  // container shapes down to the string leaves.
-  const collectWikilinksFrom = (frontmatterValue: unknown): void => {
-    // Leaf: a string may hold one or more wikilinks — pull out each target.
-    if (typeof frontmatterValue === "string") {
-      for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
-        const target = match[1]!.trim()
-        if (target.length > 0) targets.add(target)
-      }
-      return
-    }
-    // Array (e.g. a multi-value `related:`): recurse into every element.
-    if (Array.isArray(frontmatterValue)) {
-      for (const item of frontmatterValue) collectWikilinksFrom(item)
-      return
-    }
-    // Nested object: recurse into every value. The null guard is required —
-    // `typeof null === "object"`, and Object.values(null) would throw.
-    if (frontmatterValue !== null && typeof frontmatterValue === "object") {
-      for (const nestedValue of Object.values(frontmatterValue)) {
-        collectWikilinksFrom(nestedValue)
-      }
-    }
-  }
-
-  collectWikilinksFrom(data)
-  return [...targets]
-}
-
 /** A note's complete link set — body links unioned with frontmatter wikilinks,
  *  deduplicated. Single source of truth for "what does this note link to",
  *  shared by incremental upsert and full rebuild so the two can't diverge. */
@@ -324,52 +204,11 @@ const extractAllLinks = (
   content: string,
   data: Record<string, unknown>,
 ): string[] => [
-  ...new Set([...extractLinks(content), ...extractFrontmatterLinks(data)]),
+  ...new Set([
+    ...links.extractFromBody(content),
+    ...links.extractFromFrontmatter(data),
+  ]),
 ]
-
-/** Resolves a link target to a vault-relative path using all known paths,
- *  covering Obsidian's three "New link format" modes: path from vault folder
- *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
- *  is supplied — path from current file, including upward "../" segments.
- *  Returns null if unresolvable. */
-export const resolveLink = (
-  target: string,
-  allPaths: string[],
-  sourcePath?: string,
-): string | null => {
-  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
-
-  // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
-  if (allPaths.includes(targetWithExtension)) return targetWithExtension
-
-  // Relative-to-source match ("path from current file"): resolve the target
-  // against the linking note's directory so "../C/target" and "sub/target"
-  // land on the right note. posix.join collapses ".."/"."; a target that
-  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
-  if (sourcePath) {
-    const targetRelativeToSource = posix.join(
-      posix.dirname(sourcePath),
-      targetWithExtension,
-    )
-    if (allPaths.includes(targetRelativeToSource)) return targetRelativeToSource
-  }
-
-  // Basename match: find all paths that end with the target filename
-  const basenameMatches = allPaths.filter(
-    (candidatePath) =>
-      candidatePath === targetWithExtension ||
-      candidatePath.endsWith(`/${targetWithExtension}`),
-  )
-  if (basenameMatches.length === 1) return basenameMatches[0]!
-  // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
-  if (basenameMatches.length > 1) {
-    return basenameMatches.reduce((shortest, candidatePath) =>
-      candidatePath.length < shortest.length ? candidatePath : shortest,
-    )
-  }
-
-  return null
-}
 
 // ── Factory ─────────────────────────────────────────────────────
 
@@ -560,7 +399,7 @@ export const createSearchIndex = (dbPath: string) => {
 
     deleteLinksStmt.run(note.path)
     for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
-      const resolved = resolveLink(rawTarget, pathList, note.path)
+      const resolved = links.resolve(rawTarget, pathList, note.path)
       insertLinkStmt.run(note.path, resolved ?? rawTarget)
     }
 
@@ -573,7 +412,7 @@ export const createSearchIndex = (dbPath: string) => {
       target: string
     }>
     for (const link of unresolvedLinks) {
-      const resolved = resolveLink(link.target, pathList, link.source)
+      const resolved = links.resolve(link.target, pathList, link.source)
       if (resolved !== null) {
         updateLinkTargetStmt.run({
           resolved,
@@ -659,7 +498,7 @@ export const createSearchIndex = (dbPath: string) => {
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
         for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
-          const resolved = resolveLink(rawTarget, pathList, note.relativePath)
+          const resolved = links.resolve(rawTarget, pathList, note.relativePath)
           insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
         }
       }
