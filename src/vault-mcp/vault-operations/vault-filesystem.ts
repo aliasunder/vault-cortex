@@ -119,7 +119,7 @@ export const atomicWriteFile = async (
  * the target appears atomically; the temp link is always removed, leaving only
  * the target on success. Mirrors POSIX `O_EXCL` / Node's `'wx'` flag semantics.
  *
- * When `hardLinksUnsupported` is set (a Windows-drive Docker bind mount, where
+ * When `hardLinksSupported` is `false` (a Windows-drive Docker bind mount, where
  * `link` isn't available), it instead reserves the target with an `O_EXCL`
  * create (the `'wx'` flag) — atomic and race-free, throwing `EEXIST` if the
  * target exists — then renames the staged temp over that empty placeholder so
@@ -131,28 +131,29 @@ export const atomicWriteFile = async (
 export const atomicWriteFileExclusive = async (
   filePath: string,
   content: string,
-  options?: { hardLinksUnsupported?: boolean },
+  options?: { hardLinksSupported?: boolean },
 ): Promise<void> => {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  const hardLinksSupported = options?.hardLinksSupported ?? true
   try {
     await writeFile(tmpPath, content, "utf8")
-    if (options?.hardLinksUnsupported) {
-      // Reserve the target atomically (O_EXCL): throws EEXIST if it already
-      // exists, with no separate check — so there's no TOCTOU window in which a
-      // concurrent writer's file could be clobbered.
-      await writeFile(filePath, "", { flag: "wx" })
-      try {
-        // Swap the fully-staged content over the empty placeholder.
-        await rename(tmpPath, filePath)
-      } catch (renameError) {
-        // The reservation took but the swap failed — drop the placeholder so a
-        // failed write never strands a 0-byte note at the destination.
-        await rm(filePath, { force: true }).catch(() => {})
-        throw renameError
-      }
-    } else {
+    if (hardLinksSupported) {
       // Atomic no-clobber create: throws EEXIST if filePath already exists.
       await link(tmpPath, filePath)
+      return
+    }
+    // No hard links on this filesystem. Reserve the target atomically (O_EXCL):
+    // throws EEXIST if it already exists, with no separate check — so there's no
+    // TOCTOU window in which a concurrent writer's file could be clobbered.
+    await writeFile(filePath, "", { flag: "wx" })
+    try {
+      // Swap the fully-staged content over the empty placeholder.
+      await rename(tmpPath, filePath)
+    } catch (renameError) {
+      // The reservation took but the swap failed — drop the placeholder so a
+      // failed write never strands a 0-byte note at the destination.
+      await rm(filePath, { force: true }).catch(() => {})
+      throw renameError
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.

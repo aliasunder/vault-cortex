@@ -107,11 +107,11 @@ describe("atomicWriteFileExclusive", () => {
 
   // The rename fallback path taken on filesystems without hard-link support
   // (e.g. a Windows-drive Docker bind mount).
-  describe("hardLinksUnsupported (rename strategy)", () => {
+  describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
       const target = join(vault, "created.md")
       await atomicWriteFileExclusive(target, "fresh content\n", {
-        hardLinksUnsupported: true,
+        hardLinksSupported: false,
       })
       expect(await readFile(target, "utf8")).toBe("fresh content\n")
     })
@@ -122,7 +122,7 @@ describe("atomicWriteFileExclusive", () => {
 
       await expect(
         atomicWriteFileExclusive(target, "overwrite\n", {
-          hardLinksUnsupported: true,
+          hardLinksSupported: false,
         }),
       ).rejects.toMatchObject({ code: "EEXIST" })
       // The no-clobber guard must not have modified the existing file.
@@ -131,7 +131,7 @@ describe("atomicWriteFileExclusive", () => {
 
     it("leaves no .tmp staging file behind on success", async () => {
       await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n", {
-        hardLinksUnsupported: true,
+        hardLinksSupported: false,
       })
       const entries = await readdir(vault)
       expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])

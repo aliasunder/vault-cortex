@@ -601,7 +601,7 @@ const moveNote = async (
   await mkdir(dirname(newFullPath), { recursive: true })
   try {
     await atomicWriteFileExclusive(newFullPath, movedContent, {
-      hardLinksUnsupported: params.windowsBindMount,
+      hardLinksSupported: !params.windowsBindMount,
     })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
