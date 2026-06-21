@@ -49,6 +49,21 @@
 
 
 
+
+## [0.20.1] — 2026-06-21
+
+### Features
+
+- **vault:** Opt-in empty-folder pruning for delete and move (#163)
+
+### Bug Fixes
+
+- **assets:** Inline icon vector and embed font in social preview (#162)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.20.0
+
 ## [0.20.0] — 2026-06-20
 
 ### Features
