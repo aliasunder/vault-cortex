@@ -139,9 +139,9 @@ const patchNote = async (
   const target = findHeading(headings, heading, headingLevel)
   const targetDesc = `${"#".repeat(target.level)} ${target.text}`
 
-  // Heading-targeted ops keep the matched heading and write content as the
-  // section body, so a content that begins with that same heading would
-  // duplicate it. Reject with remediation rather than silently doubling it.
+  // Heading-targeted ops keep the matched heading, so a content that begins
+  // with that same heading would duplicate it. Reject with remediation rather
+  // than silently doubling it.
   const firstContentLineIndex = contentLines.findIndex(
     (line) => line.trim() !== "",
   )
