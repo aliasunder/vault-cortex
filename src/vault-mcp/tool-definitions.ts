@@ -668,6 +668,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allNotePaths,
               pruneEmptyFolders,
+              windowsBindMount: config.windowsBindMount,
             },
             reqLogger,
           )

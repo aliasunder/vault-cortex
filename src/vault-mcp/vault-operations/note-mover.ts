@@ -406,6 +406,9 @@ const moveNote = async (
     allNotePaths: readonly string[]
     /** When set, remove any source folders the move leaves empty. */
     pruneEmptyFolders: boolean
+    /** Windows-drive bind mount — write the destination via rename, not a hard
+     *  link (unsupported across the Docker Desktop ↔ WSL2 bridge). */
+    windowsBindMount: boolean
   },
   logger: Logger,
 ): Promise<MoveResult> => {
@@ -533,7 +536,9 @@ const moveNote = async (
 
   await mkdir(dirname(newFullPath), { recursive: true })
   try {
-    await atomicWriteFileExclusive(newFullPath, movedContent)
+    await atomicWriteFileExclusive(newFullPath, movedContent, {
+      hardLinksSupported: !params.windowsBindMount,
+    })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new Error(`destination exists: "${newPath}"`, { cause: error })

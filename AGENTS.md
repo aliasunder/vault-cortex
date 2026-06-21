@@ -218,6 +218,13 @@ log would produce N lines during a vault rebuild (one per note), it's
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`.
+- Name booleans (params, flags, locals) for the affirmative state, and
+  let the value carry the negation: `hardLinksSupported: false` reads
+  clearer than `hardLinksUnsupported: true`, and a double negative like
+  `if (!notReady)` is a smell. A positively-named flag also keeps the
+  guard's condition positive (`if (hardLinksSupported) { … return }`),
+  so it pairs naturally with the early-return rule above — the common
+  path returns, the fallback flows beneath it, no `else`.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
