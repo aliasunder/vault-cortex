@@ -287,6 +287,31 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 - Tests must fail when the verified behavior breaks. If a test
   claims "body is unchanged", it must assert the full body — not
   a substring that would still match if the body were modified.
+- A test must pass **only** for the intended reason — not for an
+  unintended or coincidental one. These are two separate bars, and
+  both must hold: (1) the test fails when the behavior is wrong
+  (above), and (2) it passes _because the intended behavior
+  occurred_, not because of a no-op or a different code path that
+  happens to leave the asserted state. Guard against the second:
+  - **Silent no-op.** A test asserting "the folder is retained /
+    state X is preserved" passes even if the triggering operation
+    never ran. Also assert the trigger happened — that the note was
+    actually deleted / actually moved — so retention can't be
+    satisfied by doing nothing.
+  - **Wrong-error pass.** `rejects.toThrow()` with no argument
+    matches _any_ error, so a test meant to verify "rejected for
+    reason A" can pass on an unrelated failure (e.g. a missing
+    fixture throwing ENOENT). Assert the specific message, and set
+    up the fixture so the intended rejection is the only one
+    possible.
+  - **Early-return pass.** A returned `0`/empty/`false` can come
+    from the guard you're testing _or_ from the function bailing out
+    before reaching it. Assert a side effect that only the intended
+    path produces (e.g. the expected `warn` was logged) so the
+    happy-accident return can't pass.
+    When in doubt, mutate the code (break the specific behavior) and
+    confirm the test fails for _that_ reason — not a compile error or
+    an unrelated assertion.
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.

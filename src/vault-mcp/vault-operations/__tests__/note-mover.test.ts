@@ -50,11 +50,15 @@ const setupVault = () => {
     }
   }
 
+  /** True when a folder still exists in the vault — used to assert pruning. */
+  const folderExists = (path: string): Promise<boolean> => noteExists(path)
+
   /** Moves a note, snapshotting the pre-move path list the way the tool does. */
   const moveNote = async (
     oldPath: string,
     newPath: string,
     backlinkSources: string[] = [],
+    pruneEmptyFolders = false,
   ) =>
     noteMover.moveNote(
       {
@@ -64,11 +68,20 @@ const setupVault = () => {
         protectedPaths: PROTECTED,
         backlinkSources,
         allNotePaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
+        pruneEmptyFolders,
       },
       logger,
     )
 
-  return { vault, logger, writeFixture, readNote, noteExists, moveNote }
+  return {
+    vault,
+    logger,
+    writeFixture,
+    readNote,
+    noteExists,
+    folderExists,
+    moveNote,
+  }
 }
 
 describe("moveNote — file relocation", () => {
@@ -101,6 +114,7 @@ describe("moveNote — file relocation", () => {
       moved_to: "Done/Draft.md",
       links_updated: 0,
       updated_notes: [],
+      pruned_empty_folders: 0,
     })
   })
 })
@@ -118,6 +132,7 @@ describe("moveNote — link rewriting forms", () => {
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
     })
   })
 
@@ -133,6 +148,7 @@ describe("moveNote — link rewriting forms", () => {
       moved_to: "Archive/Foo.md",
       links_updated: 0,
       updated_notes: [],
+      pruned_empty_folders: 0,
     })
   })
 
@@ -242,6 +258,7 @@ describe("moveNote — link rewriting forms", () => {
       moved_to: "C/Deep/Target.md",
       links_updated: 1,
       updated_notes: [],
+      pruned_empty_folders: 0,
     })
   })
 
@@ -314,6 +331,7 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
       moved_to: "Deep/Bar.md",
       links_updated: 0,
       updated_notes: [],
+      pruned_empty_folders: 0,
     })
   })
 })
@@ -333,6 +351,7 @@ describe("moveNote — counts and summary", () => {
       moved_to: "Bar.md",
       links_updated: 3,
       updated_notes: ["Alpha.md", "Beta.md"],
+      pruned_empty_folders: 0,
     })
   })
 
@@ -360,6 +379,7 @@ describe("moveNote — counts and summary", () => {
       moved_to: "Bar.md",
       links_updated: 25,
       updated_notes: [...sources].sort(),
+      pruned_empty_folders: 0,
     })
   })
 })
@@ -495,6 +515,95 @@ describe("moveNote — failure safety", () => {
       links_updated: 1,
       sources_updated: 1,
       sources_failed: 0,
+      pruned_empty_folders: 0,
     })
+  })
+})
+
+describe("moveNote — empty-folder prune", () => {
+  it("leaves the source folder in place when prune is off (Obsidian default)", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("Inbox/draft.md", "body\n")
+
+    const result = await moveNote("Inbox/draft.md", "Projects/draft.md")
+
+    expect(await noteExists("Inbox/draft.md")).toBe(false)
+    expect(await noteExists("Projects/draft.md")).toBe(true)
+    expect(await folderExists("Inbox")).toBe(true)
+    expect(result.pruned_empty_folders).toBe(0)
+  })
+
+  it("removes the source folder when its last note is moved out and prune is on", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("Inbox/draft.md", "body\n")
+
+    const result = await moveNote(
+      "Inbox/draft.md",
+      "Projects/draft.md",
+      [],
+      true,
+    )
+
+    expect(await folderExists("Inbox")).toBe(false)
+    expect(await noteExists("Projects/draft.md")).toBe(true)
+    expect(result.pruned_empty_folders).toBe(1)
+  })
+
+  it("walks up removing nested empty source parents", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("A/B/note.md", "body\n")
+
+    const result = await moveNote("A/B/note.md", "Dest/note.md", [], true)
+
+    expect(await noteExists("A/B/note.md")).toBe(false)
+    expect(await noteExists("Dest/note.md")).toBe(true)
+    expect(await folderExists("A/B")).toBe(false)
+    expect(await folderExists("A")).toBe(false)
+    expect(result.pruned_empty_folders).toBe(2)
+  })
+
+  it("leaves the source folder when another note remains", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("Inbox/keep.md", "keep\n")
+    await writeFixture("Inbox/move.md", "move\n")
+
+    const result = await moveNote("Inbox/move.md", "Projects/move.md", [], true)
+
+    // The move must actually happen, so Inbox survives only because keep.md
+    // remains — not because the move silently no-op'd.
+    expect(await noteExists("Inbox/move.md")).toBe(false)
+    expect(await noteExists("Projects/move.md")).toBe(true)
+    expect(await folderExists("Inbox")).toBe(true)
+    expect(await noteExists("Inbox/keep.md")).toBe(true)
+    expect(result.pruned_empty_folders).toBe(0)
+  })
+
+  it("does not prune on an in-place rename within the same folder", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("Notes/old.md", "body\n")
+
+    const result = await moveNote("Notes/old.md", "Notes/new.md", [], true)
+
+    expect(await noteExists("Notes/old.md")).toBe(false)
+    expect(await folderExists("Notes")).toBe(true)
+    expect(await noteExists("Notes/new.md")).toBe(true)
+    expect(result.pruned_empty_folders).toBe(0)
+  })
+
+  it("does not prune when moving into a subfolder of the source", async () => {
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
+    await writeFixture("Parent/note.md", "body\n")
+
+    const result = await moveNote(
+      "Parent/note.md",
+      "Parent/Sub/note.md",
+      [],
+      true,
+    )
+
+    expect(await noteExists("Parent/note.md")).toBe(false)
+    expect(await folderExists("Parent")).toBe(true)
+    expect(await noteExists("Parent/Sub/note.md")).toBe(true)
+    expect(result.pruned_empty_folders).toBe(0)
   })
 })
