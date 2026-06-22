@@ -904,11 +904,14 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
       })
-      reqLogger.info("tool_call", { query })
+      reqLogger.info("tool_call", { query, ...(filters ? { filters } : {}) })
       return safeHandler(
         reqLogger,
         async () => search.fullTextSearch({ query, filters }, reqLogger),
-        (results) => JSON.stringify({ results, total: results.length }),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify({ results, total: results.length })
+        },
       )
     },
   )
@@ -955,7 +958,10 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
       return safeHandler(
         reqLogger,
         async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
-        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
+        },
       )
     },
   )
@@ -1029,7 +1035,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       return safeHandler(
         reqLogger,
         async () => search.recentNotes({ sort_by, limit }, reqLogger),
-        (notes) => JSON.stringify(notes.map(formatNoteMetadata)),
+        (notes) => {
+          reqLogger.info("tool_result", { resultCount: notes.length })
+          return JSON.stringify(notes.map(formatNoteMetadata))
+        },
       )
     },
   )
@@ -1081,7 +1090,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         reqLogger,
         async () =>
           search.searchByFolder({ folder, recursive, limit }, reqLogger),
-        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
+        },
       )
     },
   )
@@ -1482,7 +1494,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         reqLogger,
         async () =>
           search.searchByProperty({ key, value, folder, limit }, reqLogger),
-        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
+        },
       )
     },
   )
@@ -1531,8 +1546,10 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
       return safeHandler(
         reqLogger,
         async () => search.getBacklinks({ path }, reqLogger),
-        (backlinks) =>
-          JSON.stringify({ path, backlinks, count: backlinks.length }),
+        (backlinks) => {
+          reqLogger.info("tool_result", { resultCount: backlinks.length })
+          return JSON.stringify({ path, backlinks, count: backlinks.length })
+        },
       )
     },
   )
@@ -1574,12 +1591,14 @@ Returns: JSON with path (the queried note), outgoing_links (array of { path, tit
       return safeHandler(
         reqLogger,
         async () => search.getOutgoingLinks({ path }, reqLogger),
-        (outgoingLinks) =>
-          JSON.stringify({
+        (outgoingLinks) => {
+          reqLogger.info("tool_result", { resultCount: outgoingLinks.length })
+          return JSON.stringify({
             path,
             outgoing_links: outgoingLinks,
             count: outgoingLinks.length,
-          }),
+          })
+        },
       )
     },
   )
@@ -1637,7 +1656,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             },
             reqLogger,
           ),
-        (results) => JSON.stringify(results.map(formatNoteMetadata)),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
+        },
       )
     },
   )
