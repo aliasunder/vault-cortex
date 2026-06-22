@@ -65,30 +65,120 @@ src/
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   utils/                               # Cross-cutting helpers (no domain logic)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
+    describe-error.ts                  # describeError — message from an unknown throw
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
     server.ts                          # Entry point — config, mount routes, listen
     config.ts                          # Env-var loader + ServerConfig type (loadConfig)
-    mcp-router.ts                      # /mcp session routes + transport lifecycle
-    tool-definitions.ts                # MCP tool registrations + Zod schemas
-    prompt-definitions.ts              # MCP prompt registrations + Zod arg schemas
-    vault-operations/                  # Vault content read/write/patch
+    obsidian-markdown/                 # Pure Obsidian/Markdown parsers + transforms (no I/O)
+      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines
+      frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
+      callouts.ts                      # Leading-callout parser (> [!type] blocks)
+      headings.ts                      # Shared H1–H6 section-span parser (read + patch)
+      links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+    vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
-      heading-parser.ts                # Shared H1–H6 section-span parser (read + patch)
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
+    mcp-core/                          # MCP protocol surface
+      mcp-router.ts                    # /mcp session routes + transport lifecycle
+      tool-definitions.ts              # MCP tool registrations + Zod schemas
+      prompt-definitions.ts            # MCP prompt registrations + Zod arg schemas
     search/                            # SQLite FTS5 indexing + file watching
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
                                        # Phase 2: gains a semantic-ingestion hook
-    auth/                              # OAuth 2.1
+    oauth/                             # OAuth 2.1 (provider, routes, consent)
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization
 ```
+
+### Module layering
+
+The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
+use-cases → protocol → wiring. A module's folder is decided by **what it depends
+on**, not just its topic:
+
+- **`obsidian-markdown/`** — pure parsers/transforms over Obsidian-flavored
+  Markdown (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
+  no MCP**; they take strings/lines and return data or transformed strings, so
+  they're trivially unit-testable. `lines.ts` is the single home of the
+  CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
+  threads it, so they can't disagree about where a fence opens.
+- **`vault-operations/`** — everything that reads/writes the vault.
+  `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
+  read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
+  `daily-notes` are use-cases composing it with the parsers. The line between
+  `vault-filesystem.ts` and `utils/fs.ts` is **policy vs. adapter**: `utils/fs.ts`
+  holds only policy-free `node:fs` wrappers (`readFileOrNull`, `readdirOrNull`,
+  `fileExists`), while anything that encodes _how the vault is written or guarded_
+  — the atomic-write strategy, vault-root path-safety, the `vaultFs` data API —
+  stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
+  any file) isn't enough to demote something to `utils/` if it's load-bearing
+  vault-I/O policy.
+- **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
+  `prompt-definitions`).
+- **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
+  server (distinct from the shared `src/auth.ts` token utilities).
+- **`utils/`** (at `src/`) — generic cross-cutting helpers.
+
+Two rules keep this honest:
+
+- **Dependency direction.** `obsidian-markdown/` and `utils/` depend on nothing
+  internal (leaf layers); `vault-operations/` and `search/` depend on those;
+  `mcp-core/` and the top-level wiring depend on everything. A _search_ module
+  importing a _parser_ should read as "uses the shared parser," never as reaching
+  sideways into `vault-operations/`.
+- **Top level is wiring only.** Folders are domains; the only loose files at
+  `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
+
+**`utils/` admission:** a helper belongs here only if it is **generic with zero
+domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
+bars:
+
+- **(1) It removes real duplication** — already called from more than one place
+  (`describeError`, `readFileOrNull`).
+- **(2) It's a complete, standalone primitive** — you could name, describe, and
+  test it without mentioning any caller or the vault, and it would look at home in
+  a standard library (`mapWithConcurrency` — a bounded-concurrency async map). This
+  bar admits a single-caller helper; bar (1) does not.
+
+Premature-abstraction guard: if the only way to explain the helper is "the part of
+`someFunction` that does X," it fails bar (2) — it's a _fragment_, not a primitive,
+so keep it private until a second caller appears. Markdown logic is domain — it
+goes in `obsidian-markdown/`, never `utils/`.
+
+**Export style** depends on what kind of module it is:
+
+- **Service / data-layer modules** — those that wrap a cohesive set of operations
+  over a resource (the vault, the index) — export a **single namespace object**
+  so call sites self-document which module an operation belongs to:
+  `vaultFs.readNote(…)`, `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`.
+  Stateful ones use a **factory-closure** returning that object
+  (`createSearchIndex`, `createMemoryStore`), so prepared statements / caches
+  live in the closure.
+- **Parser and small-helper modules** — the `obsidian-markdown/` parsers
+  (`frontmatter`, `headings`, `callouts`, `lines`), `utils/`, and `daily-notes` —
+  export **named functions**. The shape tracks whether a module is a _cohesive
+  service surface_ (→ namespace) or just a loose set of functions (→ named),
+  **not** whether it does I/O: the parsers are pure, while `daily-notes` does
+  light I/O (reads and caches daily-note config), yet both use named exports
+  because neither is a grouped service API.
+- **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
+  exports a single `links` namespace, _not_ for the service-grouping reason above
+  but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
+  position-safe methods.
+
+`vault-filesystem.ts` illustrates the nuance within one module: its high-level
+data API is grouped under `vaultFs`, but its low-level shared primitives
+(`resolveSafePath`, `atomicWriteFile`, `pruneEmptyParents`, …) are **named
+exports** — infrastructure consumed à la carte by other modules, not part of the
+vault data API.
 
 ## Logging
 
@@ -218,6 +308,13 @@ log would produce N lines during a vault rebuild (one per note), it's
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`.
+- Name booleans (params, flags, locals) for the affirmative state, and
+  let the value carry the negation: `hardLinksSupported: false` reads
+  clearer than `hardLinksUnsupported: true`, and a double negative like
+  `if (!notReady)` is a smell. A positively-named flag also keeps the
+  guard's condition positive (`if (hardLinksSupported) { … return }`),
+  so it pairs naturally with the early-return rule above — the common
+  path returns, the fallback flows beneath it, no `else`.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

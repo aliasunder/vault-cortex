@@ -78,7 +78,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toContain("deploy/remote/.env.example")
     expect(env).toContain("# DEVICE_NAME=vault-cortex")
-    expect(env).toContain("# CONFLICT_STRATEGY=conflict")
+    expect(env).toContain("# CONFLICT_STRATEGY=merge")
     expect(env).toContain("# SYNC_MODE=bidirectional")
     expect(env).toContain("# PUID=1000")
   })

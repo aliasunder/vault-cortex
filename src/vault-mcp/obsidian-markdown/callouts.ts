@@ -7,7 +7,7 @@
  * other body content, allowing a single optional H1 title line above it. This
  * covers both "callout immediately after frontmatter" and "callout right after
  * the H1" (the About Me/ memory-file pattern). Frontmatter is assumed already
- * stripped by the caller (parseNote), matching heading-parser.ts.
+ * stripped by the caller (parseNote), matching headings.ts.
  */
 
 // ── Types ───────────────────────────────────────────────────────

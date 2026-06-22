@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseHeadings, findHeading } from "../heading-parser.js"
+import { parseHeadings, findHeading } from "../headings.js"
 
 describe("parseHeadings", () => {
   it("parses H1–H6 with each section spanning to the next same-or-higher heading", () => {
@@ -43,6 +43,23 @@ describe("parseHeadings", () => {
   it("ignores ATX headings inside fenced code blocks", () => {
     const lines = ["# Real", "```", "# Not a heading", "```", "## Also real"]
     expect(parseHeadings(lines).map((h) => h.text)).toEqual([
+      "Real",
+      "Also real",
+    ])
+  })
+
+  it("ignores ATX headings inside an indented fenced code block (CommonMark §4.5)", () => {
+    // The fence is indented 3 spaces — recognized via the shared lines.ts fence
+    // grammar. The previous heading-local matcher required column 0, so it would
+    // have mis-parsed "# Not a heading" here as a real heading.
+    const lines = [
+      "# Real",
+      "   ```",
+      "# Not a heading",
+      "   ```",
+      "## Also real",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
       "Real",
       "Also real",
     ])

@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
+import { describeError } from "../../utils/describe-error.js"
 
 // ── Moment.js → Luxon format conversion ────────────────────────
 
@@ -157,7 +158,7 @@ export const getDailyNote = async (
     )
     return { path, content, exists: true }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMessage = describeError(err)
     if (errorMessage.startsWith("note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }

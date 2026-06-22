@@ -12,8 +12,8 @@ import { randomUUID } from "node:crypto"
 import type { Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
-import { loadConfig } from "../config.js"
-import type { SearchIndex } from "../search/search-index.js"
+import { loadConfig } from "../../config.js"
+import type { SearchIndex } from "../../search/search-index.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -21,7 +21,7 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { registerTools } from "../tool-definitions.js"
 import { registerPrompts } from "../prompt-definitions.js"
-import { logger } from "../../logger.js"
+import { logger } from "../../../logger.js"
 
 // `logger` is a real exported object; its methods become spies inside
 // beforeEach (vi.spyOn). vi.mocked is a type-only cast that gives us

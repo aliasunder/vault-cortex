@@ -5,6 +5,8 @@
  * parser: "read section X" and "edit section X" resolve to the exact same span.
  */
 
+import { advanceFence, type OpenFence } from "./lines.js"
+
 // ── Types ───────────────────────────────────────────────────────
 
 export type HeadingInfo = Readonly<{
@@ -15,15 +17,10 @@ export type HeadingInfo = Readonly<{
   bodyEndLine: number
 }>
 
-type FenceState = Readonly<{ char: string; length: number }> | null
-
 // ── Internal helpers ────────────────────────────────────────────
 
 /** Matches markdown headings H1–H6: captures the `#` prefix and heading text. */
 const HEADING_REGEX = /^(#{1,6}) (.+)$/
-
-/** Matches fenced code block openers: 3+ backticks or 3+ tildes (CommonMark §4.5). */
-const FENCE_OPEN_REGEX = /^(`{3,}|~{3,})/
 
 /** Obsidian comment delimiter — toggles comment state when it occurs at a
  * line boundary (start or end of trimmed line). Mid-line `%%` (e.g. `100%%`
@@ -62,37 +59,30 @@ export const findTrailingCommentBlockStart = (
 ): number => {
   // `let` carries fence + comment parser state across lines — a per-line
   // reduce can't express the per-`%%` toggle cleanly.
-  let fence: FenceState = null
+  let openFence: OpenFence = null
   let comment: { openLine: number } | null = null
   let lastClosedBlock: { startLine: number; endLine: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-    const fenceMatch = FENCE_OPEN_REGEX.exec(line)
 
-    // Inside a fenced code block (outside comments): only a matching close
-    // fence matters — `%%` is code and ignored.
-    if (fence && !comment) {
-      const fenceChars = fenceMatch?.[1]
-      const isFenceClose =
-        fenceChars &&
-        fenceChars[0] === fence.char &&
-        fenceChars.length >= fence.length &&
-        line.trim() === fenceChars
-      if (isFenceClose) fence = null
-      continue
+    // Fence state advances only outside comments: inside a `%%` comment, `%%`
+    // takes precedence and fence delimiters are just comment text (matching
+    // Obsidian's parser). A fence-delimiter line never toggles comment state.
+    if (!comment) {
+      const { openFence: nextFence, isFenceDelimiter } = advanceFence(
+        line,
+        openFence,
+      )
+      if (openFence !== null || isFenceDelimiter) {
+        openFence = nextFence
+        continue
+      }
     }
 
-    if (fenceMatch && !comment) {
-      const fenceChars = fenceMatch[1]
-      fence = { char: fenceChars[0], length: fenceChars.length }
-      continue
-    }
-
-    // Outside fences (or inside a comment where `%%` takes precedence over
-    // fences, matching Obsidian's parser): `%%` at the start or end of the
-    // trimmed line toggles comment state. Mid-line `%%` (e.g. `100%%` in
-    // card text) is not a delimiter and is ignored.
+    // Outside fences (or inside a comment): `%%` at the start or end of the
+    // trimmed line toggles comment state. Mid-line `%%` (e.g. `100%%` in card
+    // text) is not a delimiter and is ignored.
     const toggleCount = countCommentToggles(line)
     for (let occurrence = 0; occurrence < toggleCount; occurrence++) {
       if (comment) {
@@ -145,34 +135,22 @@ export const findTrailingCommentBlockStart = (
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
  */
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
-  // Phase 1: collect headings, skipping content inside fenced code blocks.
-  // Fence state is carried in the accumulator to avoid mutable external state.
+  // Phase 1: collect headings, skipping content inside fenced code blocks. Fence
+  // state is threaded through advanceFence in the accumulator (no mutable
+  // external state).
   const { headings: collectedHeadings } = lines.reduce<{
     headings: Array<{ text: string; level: number; startLine: number }>
-    fence: FenceState
+    openFence: OpenFence
   }>(
     (state, line, i) => {
-      const fenceMatch = FENCE_OPEN_REGEX.exec(line)
+      const { openFence, isFenceDelimiter } = advanceFence(
+        line,
+        state.openFence,
+      )
 
-      if (state.fence) {
-        // Inside a fenced block — only exit when we see a closing fence of the
-        // same character with length >= the opener, and nothing else on the line
-        const fenceChars = fenceMatch?.[1]
-        const isFenceClose =
-          fenceChars &&
-          fenceChars[0] === state.fence.char &&
-          fenceChars.length >= state.fence.length &&
-          line.trim() === fenceChars
-        return isFenceClose ? { headings: state.headings, fence: null } : state
-      }
-
-      // Opening a new fenced code block
-      if (fenceMatch) {
-        const fenceChars = fenceMatch[1]
-        return {
-          headings: state.headings,
-          fence: { char: fenceChars[0], length: fenceChars.length },
-        }
+      // A fence delimiter, or any line while a fence is open, is never a heading.
+      if (isFenceDelimiter || state.openFence !== null) {
+        return { headings: state.headings, openFence }
       }
 
       const match = HEADING_REGEX.exec(line)
@@ -187,13 +165,13 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
               startLine: i,
             },
           ],
-          fence: null,
+          openFence,
         }
       }
 
-      return state
+      return { headings: state.headings, openFence }
     },
-    { headings: [], fence: null },
+    { headings: [], openFence: null },
   )
 
   // Phase 2: compute body ranges — each section's body ends where the next

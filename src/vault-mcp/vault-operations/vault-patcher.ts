@@ -1,14 +1,15 @@
 /** Surgical note editing — heading-targeted patches and find-and-replace. */
 
 import { readFile } from "node:fs/promises"
-import { parseNote, stringifyNote } from "./frontmatter.js"
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import {
   parseHeadings,
   findHeading,
   findTrailingCommentBlockStart,
   type HeadingInfo,
-} from "./heading-parser.js"
+} from "../obsidian-markdown/headings.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -70,7 +71,10 @@ const readNoteForPatch = async (
     return {
       fullPath,
       data: parsed.data as Record<string, unknown>,
-      lines: parsed.content.split("\n"),
+      // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
+      // so body matching and blank-run collapse (collapseBlankRuns) stay
+      // consistent, and the note is rewritten as LF.
+      lines: splitIntoLines(parsed.content),
       beforeBytes: Buffer.byteLength(fileContent, "utf8"),
     }
   } catch (err) {
@@ -91,6 +95,47 @@ const writePatchedNote = async (
   const serialized = stringifyNote(lines.join("\n"), data)
   await atomicWriteFile(fullPath, serialized)
   return Buffer.byteLength(serialized, "utf8")
+}
+
+/** Truncates anchor/preview text to keep error messages and confirmations short. */
+const truncateForMessage = (text: string): string =>
+  text.length > 80 ? text.slice(0, 80) + "…" : text
+
+/** Collapses runs of 3+ newlines down to one blank line, so removing content
+ *  doesn't leave a visible multi-line gap. */
+const collapseBlankRuns = (body: string): string =>
+  body.replace(/\n{3,}/g, "\n\n")
+
+/** Resolves an anchor substring to the single body line that contains it,
+ *  searching at or after `fromLine`. The match must be unique by default:
+ *  throws a not-found error on no match, or an ambiguous error on more than
+ *  one — unless `firstMatch` allows taking the first. `role` labels the error
+ *  messages ("start"/"end") and notes the end anchor's restricted search. */
+const resolveAnchorLine = (params: {
+  lines: readonly string[]
+  anchor: string
+  fromLine: number
+  firstMatch: boolean | undefined
+  path: string
+  role: "start" | "end"
+}): number => {
+  const { lines, anchor, fromLine, firstMatch, path, role } = params
+  const matchingLineIndices = lines.flatMap((line, index) =>
+    index >= fromLine && line.includes(anchor) ? [index] : [],
+  )
+  // The end anchor is searched only at or after the start line; its errors say so.
+  const regionSuffix = role === "end" ? " at or after the start anchor" : ""
+  if (matchingLineIndices.length === 0) {
+    throw new Error(
+      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+    )
+  }
+  if (matchingLineIndices.length > 1 && !firstMatch) {
+    throw new Error(
+      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}. Use a longer, unique anchor, or set first_match: true.`,
+    )
+  }
+  return matchingLineIndices[0]
 }
 
 // ── Exported functions ──────────────────────────────────────────
@@ -138,6 +183,27 @@ const patchNote = async (
   const headings = parseHeadings(lines)
   const target = findHeading(headings, heading, headingLevel)
   const targetDesc = `${"#".repeat(target.level)} ${target.text}`
+
+  // Heading-targeted ops keep the matched heading, so a content that begins
+  // with that same heading would duplicate it. Reject with remediation rather
+  // than silently doubling it.
+  const firstContentLineIndex = contentLines.findIndex(
+    (line) => line.trim() !== "",
+  )
+  const leadingContentHeading = parseHeadings(contentLines).find(
+    (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+  )
+  const contentRepeatsTargetHeading =
+    leadingContentHeading !== undefined &&
+    leadingContentHeading.level === target.level &&
+    leadingContentHeading.text === target.text
+  if (contentRepeatsTargetHeading) {
+    throw new Error(
+      `content begins with the heading "${targetDesc}", which would duplicate it — ` +
+        `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
+    )
+  }
+
   const updatedLines = applySectionOperation(
     lines,
     contentLines,
@@ -181,9 +247,9 @@ const replaceInNote = async (
   const body = lines.join("\n")
 
   if (!body.includes(oldText)) {
-    const truncatedOldText =
-      oldText.length > 80 ? oldText.slice(0, 80) + "…" : oldText
-    throw new Error(`text not found in "${path}": "${truncatedOldText}"`)
+    throw new Error(
+      `text not found in "${path}": "${truncateForMessage(oldText)}"`,
+    )
   }
 
   const idx = body.indexOf(oldText)
@@ -201,7 +267,7 @@ const replaceInNote = async (
   // When deleting text (newText is empty), collapse runs of 3+ blank
   // lines down to 1 blank line so removals don't leave visible gaps.
   const normalizedBody =
-    newText.length === 0 ? updatedBody.replace(/\n{3,}/g, "\n\n") : updatedBody
+    newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
 
   const updatedLines = normalizedBody.split("\n")
   const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
@@ -209,8 +275,85 @@ const replaceInNote = async (
   return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
 }
 
+/** Deletes a contiguous block of whole lines from a note's body, identified by
+ *  short anchor substrings rather than the block's full text — so a large block
+ *  can be removed without reproducing it.
+ *
+ *  `startAnchor` resolves to the single line containing it (unique unless
+ *  `firstMatch`). `endAnchor`, when given, resolves to the single line containing
+ *  it at or after the start line; omitted, the span is just the start line. The
+ *  span covers whole lines, inclusive, and the removed block is reported back. */
+const deleteSpan = async (
+  params: {
+    vaultPath: string
+    path: string
+    startAnchor: string
+    endAnchor?: string
+    firstMatch?: boolean
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { path, startAnchor, endAnchor, firstMatch } = params
+
+  if (startAnchor.length === 0) {
+    throw new Error("start_anchor cannot be empty")
+  }
+  if (endAnchor !== undefined && endAnchor.length === 0) {
+    throw new Error("end_anchor cannot be empty")
+  }
+
+  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+    params.vaultPath,
+    path,
+  )
+
+  const startLine = resolveAnchorLine({
+    lines,
+    anchor: startAnchor,
+    fromLine: 0,
+    firstMatch,
+    path,
+    role: "start",
+  })
+  // Omitting end_anchor deletes just the start line; otherwise the span runs
+  // through the end anchor's line, searched at or after the start.
+  const endLine =
+    endAnchor === undefined
+      ? startLine
+      : resolveAnchorLine({
+          lines,
+          anchor: endAnchor,
+          fromLine: startLine,
+          firstMatch,
+          path,
+          role: "end",
+        })
+
+  const removedLines = lines.slice(startLine, endLine + 1)
+  const remainingLines = [
+    ...lines.slice(0, startLine),
+    ...lines.slice(endLine + 1),
+  ]
+  const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
+  const afterBytes = await writePatchedNote(
+    fullPath,
+    data,
+    normalizedBody.split("\n"),
+  )
+
+  logger.info("deleted span", {
+    path,
+    removedLines: removedLines.length,
+    beforeBytes,
+    afterBytes,
+  })
+  const lineWord = removedLines.length === 1 ? "line" : "lines"
+  return `Deleted ${removedLines.length} ${lineWord} from ${path}: "${truncateForMessage(removedLines.join("\n"))}"`
+}
+
 export const vaultPatcher = {
   patchNote,
   replaceInNote,
+  deleteSpan,
   findTrailingCommentBlockStart,
 }

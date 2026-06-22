@@ -5,20 +5,22 @@ import { z } from "zod"
 import {
   vaultFs,
   toVaultRelativePath,
-} from "./vault-operations/vault-filesystem.js"
-import { noteMover } from "./vault-operations/note-mover.js"
-import { vaultPatcher } from "./vault-operations/vault-patcher.js"
-import { createMemoryStore } from "./vault-operations/memory-store.js"
-import { getDailyNote } from "./vault-operations/daily-notes.js"
-import type { SearchIndex } from "./search/search-index.js"
-import type { VaultConfig } from "./config.js"
-import type { Logger } from "../logger.js"
+} from "../vault-operations/vault-filesystem.js"
+import { noteMover } from "../vault-operations/note-mover.js"
+import { vaultPatcher } from "../vault-operations/vault-patcher.js"
+import { createMemoryStore } from "../vault-operations/memory-store.js"
+import { getDailyNote } from "../vault-operations/daily-notes.js"
+import type { SearchIndex } from "../search/search-index.js"
+import type { VaultConfig } from "../config.js"
+import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
 export const TOOL_NAMES = {
   VAULT_READ_NOTE: "vault_read_note",
   VAULT_WRITE_NOTE: "vault_write_note",
   VAULT_PATCH_NOTE: "vault_patch_note",
   VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
+  VAULT_DELETE_SPAN: "vault_delete_span",
   VAULT_LIST_NOTES: "vault_list_notes",
   VAULT_DELETE_NOTE: "vault_delete_note",
   VAULT_MOVE_NOTE: "vault_move_note",
@@ -87,7 +89,7 @@ const safeHandler = async <T>(
       content: [{ type: "text" as const, text: format(result) }],
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = describeError(err)
     logger.warn("tool_error", { error: message })
     return {
       content: [{ type: "text" as const, text: message }],
@@ -323,7 +325,7 @@ Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Act
 
 Cross-section move (e.g. completing a task on a board):
 1. vault_read_note to get current content and verify exact text
-2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source
+2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span)
 3. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
 
 When to use: Modifying part of an existing note without overwriting the entire body.
@@ -335,6 +337,8 @@ Operations:
 - replace: replace section body (heading preserved; requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
+Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).
+
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
 Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).
@@ -344,6 +348,7 @@ Errors:
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation requires a heading target" — replace and insert_before need a heading
+- "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 
 Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, watch for: #word (no space) = tag, [[ = wikilink, %% = comment block. Escape with \\# or \\[[ when unintentional.
 Structural note: inserting heading-level content (e.g. ## New Section) changes the note's section structure — future patch calls targeting headings may resolve differently.
@@ -412,7 +417,8 @@ Returns: Confirmation message.`,
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
-When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a specific line (new_text=""). Replaces text in place; does not move content across sections.
+When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
+To delete a large multi-line block without re-quoting it, prefer vault_delete_span — it references the block by short anchors instead of echoing the full old_text.
 To relocate content between headings, use vault_replace_in_note to remove from the source (new_text=""), then vault_patch_note to append at the target. Read the note first with vault_read_note to confirm exact text.
 
 Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
@@ -462,6 +468,83 @@ Returns: Confirmation message with replacement count.`,
               oldText: old_text,
               newText: new_text,
               replaceAllOccurrences: replace_all_occurrences,
+            },
+            reqLogger,
+          ),
+        (msg) => msg,
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_DELETE_SPAN,
+    {
+      title: "Delete Span",
+      description: `Delete a contiguous block of whole lines from a note's body by naming it with short anchor substrings — without reproducing the block's text. More reliable than passing a large block as old_text to vault_replace_in_note: a short, unique fragment can't drift from the original the way a re-quoted multi-line block can, and you don't regenerate the whole block. Matches exact text (case-sensitive). Properties are preserved; operates on the body only.
+
+Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
+Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes the multi-line block from the line containing the start anchor through the line containing the end anchor.
+
+When to use: Removing a block you have already read — a single long line (e.g. a wide table row) or a multi-line block (a callout, a run of list items) — where reproducing it exactly as old_text would be error-prone or wasteful. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
+Prefer vault_replace_in_note for small in-place edits or renames where sending old_text is fine, and for replacing text (this tool only deletes). To replace a block, delete it here, then vault_patch_note (append/prepend by heading) to add the new content.
+
+Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. An anchor only locates a line; the entire line is removed regardless of where in it the anchor matches — it never cuts mid-line (prefer vault_replace_in_note for character-precise, in-place edits).
+Matching: end_anchor is searched at or after the start line, so the span can never run backward. By default each anchor must match exactly one line; on a tie, pass first_match to take the first. After deletion, runs of blank lines are collapsed so no gap is left. A trailing %% comment block (e.g. kanban:settings) is affected only if your anchors point into it.
+
+Errors:
+- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "start anchor not found" / "end anchor not found ... at or after the start anchor" — the fragment is not on any (qualifying) line; verify exact text with vault_read_note
+- "ambiguous start anchor ... matches N lines" / "ambiguous end anchor ..." — the fragment is on more than one line; use a longer, unique fragment or set first_match: true
+- "start_anchor cannot be empty" / "end_anchor cannot be empty"
+
+Obsidian syntax: Anchors are matched as literal text against the Obsidian Flavored Markdown source, never as regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear in the note (verify with vault_read_note). This tool only removes content; it inserts none.
+
+Returns: Confirmation message with the number of lines removed and a truncated preview of the deleted text.`,
+      inputSchema: {
+        path: z.string().min(1).describe("Vault-relative path to the note"),
+        start_anchor: z
+          .string()
+          .min(1)
+          .describe(
+            "Short, unique substring on the first line of the block to delete (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+          ),
+        end_anchor: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Short, unique substring on the LAST line of the block, searched at or after the start_anchor line. Omit to delete just the single line containing start_anchor.",
+          ),
+        first_match: z
+          .boolean()
+          .optional()
+          .describe(
+            "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ path, start_anchor, end_anchor, first_match }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_DELETE_SPAN,
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandler(
+        reqLogger,
+        () =>
+          vaultPatcher.deleteSpan(
+            {
+              vaultPath,
+              path,
+              startAnchor: start_anchor,
+              endAnchor: end_anchor,
+              firstMatch: first_match,
             },
             reqLogger,
           ),
@@ -668,6 +751,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allNotePaths,
               pruneEmptyFolders,
+              windowsBindMount: config.windowsBindMount,
             },
             reqLogger,
           )

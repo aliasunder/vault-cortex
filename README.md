@@ -11,6 +11,7 @@
 [![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex?v=1&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aliasunder/vault-cortex)
 
 </div>
 
@@ -22,7 +23,7 @@
 
 ## What is this?
 
-**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 24 tools and 3 guided prompts over a single Docker container.
+**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 25 tools and 3 guided prompts over a single Docker container.
 
 The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
 
@@ -83,7 +84,7 @@ docker compose up
 
 </details>
 
-**[Full local guide →](./deploy/local/)** — on Windows, [run it under WSL2](./deploy/local/#windows-docker-desktop).
+**[Full local guide →](./deploy/local/)** — on Windows, [set `WINDOWS_MODE=true`](./deploy/local/#windows-docker-desktop) to run against a `C:` drive.
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
@@ -155,7 +156,7 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
-## Tools (24)
+## Tools (25)
 
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
@@ -163,6 +164,7 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 |                 | `vault_write_note`           | Create or overwrite a note with properties                 |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)   |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                            |
+|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
 |                 | `vault_delete_note`          | Delete a note (protected paths enforced)                   |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault    |
@@ -220,19 +222,20 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 All settings are environment variables with sensible defaults.
 
-| Variable                    | Required?   | Default                              | Description                                                             |
-| --------------------------- | ----------- | ------------------------------------ | ----------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)              |
-| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume) |
-| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                 |
-| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                |
-| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                       |
-| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                  |
-| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                  |
-| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                |
-| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                     |
-| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.    |
-| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup              |
+| Variable                    | Required?   | Default                              | Description                                                                                                                                                                                                                       |
+| --------------------------- | ----------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                        |
+| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                           |
+| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                           |
+| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                          |
+| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                 |
+| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                                                                                                                                                                            |
+| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                            |
+| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                                                                                                                          |
+| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                               |
+| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.                                                                                                                                                              |
+| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
+| `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list.
 

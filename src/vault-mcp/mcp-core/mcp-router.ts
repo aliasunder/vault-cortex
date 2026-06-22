@@ -8,11 +8,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
-import type { SearchIndex } from "./search/search-index.js"
-import type { VaultConfig } from "./config.js"
+import type { SearchIndex } from "../search/search-index.js"
+import type { VaultConfig } from "../config.js"
 import { registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
-import { logger } from "../logger.js"
+import { logger } from "../../logger.js"
 
 export type McpRouterOptions = {
   vaultPath: string

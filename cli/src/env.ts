@@ -73,8 +73,8 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # Device name shown in Obsidian Sync settings.
 # DEVICE_NAME=vault-cortex
 
-# Obsidian Sync conflict resolution: merge | conflict (default: conflict).
-# CONFLICT_STRATEGY=conflict
+# Obsidian Sync conflict resolution: merge | conflict (default: merge).
+# CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 # SYNC_MODE=bidirectional

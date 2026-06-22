@@ -136,7 +136,7 @@ jobs:
           # page). Mirror the server.json / Dockerfile description here.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
-            index:org.opencontainers.image.description=MCP server for Obsidian vaults — search, memory, link graph, 24 tools, OAuth-protected.
+            index:org.opencontainers.image.description=MCP server for Obsidian vaults — search, memory, link graph, 25 tools, OAuth-protected.
             index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
             index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha
@@ -199,9 +199,10 @@ jobs:
           PUID=1000
           PGID=1000
           DEVICE_NAME=vault-cortex-lightsail
-          CONFLICT_STRATEGY=conflict
+          CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
+          LOG_RETENTION_DAYS=365
           TZ=${TZ:-UTC}
           EOF
 

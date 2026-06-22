@@ -7,11 +7,12 @@ import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { startFileWatcher } from "./search/file-watcher.js"
-import { createOAuthProvider } from "./auth/oauth-provider.js"
-import { createOAuthRoutes } from "./auth/oauth-routes.js"
-import { createMcpRouter } from "./mcp-router.js"
+import { createOAuthProvider } from "./oauth/oauth-provider.js"
+import { createOAuthRoutes } from "./oauth/oauth-routes.js"
+import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { loadConfig } from "./config.js"
 import { logger } from "../logger.js"
+import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
 export const createErrorMiddleware =
@@ -75,7 +76,15 @@ const startServer = async (): Promise<void> => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 
-  await startFileWatcher(vaultPath, search)
+  if (config.windowsBindMount) {
+    logger.info("windows bind-mount mode enabled", {
+      watcher: "polling",
+      exclusiveWrite: "rename",
+    })
+  }
+  await startFileWatcher(vaultPath, search, {
+    usePolling: config.windowsBindMount,
+  })
 
   const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
@@ -127,7 +136,7 @@ const isEntryPoint =
 if (isEntryPoint) {
   startServer().catch((err) => {
     logger.error("failed to start server", {
-      error: err instanceof Error ? err.message : String(err),
+      error: describeError(err),
     })
     process.exit(1)
   })
