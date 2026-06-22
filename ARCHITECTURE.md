@@ -16,7 +16,7 @@ Vault Cortex replaces it:
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
 - **MCP spec-compliant** — streamable-http transport, OAuth 2.1
 
-See the [README](./README.md#what-is-this) for the full value proposition.
+See the [README](./README.md) for the full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but Vault Cortex runs anywhere Docker does.
