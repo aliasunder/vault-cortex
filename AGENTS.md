@@ -231,8 +231,9 @@ root logger (src/logger.ts)
 - `server.ts` creates a **session logger** when a new MCP session
   initializes, adding `sessionId` + `clientIp`
 - Each tool group module (`mcp-core/tools/*.ts`) creates a **request
-  logger** per tool call, adding `requestId` + `tool` name from the
-  MCP SDK's `RequestHandlerExtra`
+  logger** per tool call, adding `requestId` (from the MCP SDK's
+  `RequestHandlerExtra`) + `tool` name (from the module's own
+  `TOOL_NAMES` constant)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
