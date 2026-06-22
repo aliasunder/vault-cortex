@@ -1,0 +1,28 @@
+name: GHCR Cleanup
+
+on:
+  schedule:
+    # Weekly on Sunday at 03:00 UTC — after any weekend releases settle.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log what would be deleted without actually deleting"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete untagged GHCR images
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          package: vault-mcp
+          owner: ${{ github.repository_owner }}
+          delete-untagged: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
