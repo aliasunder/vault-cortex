@@ -5,6 +5,7 @@
 <div align="center">
 
 [![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-898%2B-brightgreen?logo=vitest&logoColor=white)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
 [![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
 [![Trivy](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/trivy.yml?branch=main&logo=github&label=Trivy&cacheSeconds=43200&v=1)](https://github.com/aliasunder/vault-cortex/actions/workflows/trivy.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex?cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/releases)
@@ -21,18 +22,33 @@
 
 </div>
 
-## What is this?
+**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads `.md` files directly. No Obsidian plugins, no running Obsidian, no separate bridge. One Docker container gives any MCP client 25 tools and 3 guided prompts for search, memory, link graph, properties, and daily notes.
 
-**Vault Cortex** gives any MCP client — Claude Desktop, Claude Code, Cursor, OpenCode — full access to your [Obsidian](https://obsidian.md) vault. Search notes, read and write content, query the link graph, manage structured memory, and resolve daily notes — all through 25 tools and 3 guided prompts over a single Docker container.
+Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client. Protected by OAuth 2.1 with defense-in-depth authentication.
 
-The typical Obsidian + MCP setup requires three moving parts running simultaneously: Obsidian open → Local REST API plugin → a separate MCP server wrapping the REST API. **Vault Cortex** replaces all of that with Docker and your vault folder.
+```mermaid
+graph LR
+    subgraph before ["Typical Obsidian MCP setup"]
+        direction LR
+        O["Obsidian<br/>(running)"] --> P["REST API<br/>plugin"] --> M1["MCP server"]
+    end
+    subgraph after ["Vault Cortex"]
+        direction LR
+        D["Docker container"] -->|"read/write"| V[("/vault<br/>.md files")]
+        D -->|"query"| S[("SQLite FTS5")]
+    end
 
-- **Plugin-free** — Obsidian doesn't need to be running; headless sync keeps the vault current, and the server works directly with `.md` files on disk
-- **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1
+    style before fill:#2d2d2d,stroke:#666,color:#ccc
+    style after fill:#1a3a1a,stroke:#4a4,color:#ccc
+```
+
+- **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
+- **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
 - **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
+- **Link graph** — backlinks, outgoing links, and orphan detection across the vault
 - **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **Guided workflows** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work — assembled from live vault content each time you run them
+- **Guided workflows** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work. Assembled from live vault content each time you run them.
 
 <table align="center">
   <tr>
@@ -47,12 +63,30 @@ The typical Obsidian + MCP setup requires three moving parts running simultaneou
   </tr>
 </table>
 
+<p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
+
 ### Roadmap
 
 | Phase | What                                                         | Status   |
 | ----- | ------------------------------------------------------------ | -------- |
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
 | **2** | Semantic search + knowledge graph                            | Planned  |
+
+## Why Vault Cortex?
+
+Most Obsidian MCP servers follow one of two patterns. Vault Cortex takes a different approach.
+
+|                       | REST API plugin                 | Direct filesystem | Vault Cortex                                                              |
+| --------------------- | ------------------------------- | ----------------- | ------------------------------------------------------------------------- |
+| **Obsidian required** | Yes, with plugin installed      | No                | No                                                                        |
+| **Remote access**     | Localhost only                  | Localhost only    | Any device via OAuth 2.1                                                  |
+| **Search**            | Delegates to Obsidian or plugin | Basic or none     | SQLite FTS5 with BM25 scoring, stemming, and structured filters           |
+| **Structured memory** | No                              | No                | Dated entries, section targeting, auto-initialization                     |
+| **Link graph**        | Limited or none                 | No                | Backlinks, outgoing links, orphan detection                               |
+| **Guided prompts**    | No                              | No                | 3 prompts assembled from live vault content                               |
+| **Authentication**    | Varies                          | None              | OAuth 2.1 (PKCE, refresh rotation) + static bearer, dual-layer validation |
+
+Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ## Quick Start
 
@@ -244,7 +278,9 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 ## Authentication
 
-Two methods, both validated at two layers (Lambda authorizer + Express middleware):
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification with defense-in-depth: every request is validated at two independent layers (Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+
+Two methods:
 
 | Method            | Used by                                                  | Token format         |
 | ----------------- | -------------------------------------------------------- | -------------------- |
