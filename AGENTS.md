@@ -138,15 +138,20 @@ Two rules keep this honest:
   `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
-domain knowledge**, and clears one of two bars: **(1) it consolidates real
-duplication** — used by more than one consumer (`describeError`,
-`readFileOrNull`); or **(2) it is a self-contained, general-purpose primitive** —
-a complete, library-grade abstraction with an independent contract that
-encapsulates an orthogonal concern, even at a single current caller
-(`mapWithConcurrency` — a bounded-concurrency async map). Markdown logic is domain
-— it goes in `obsidian-markdown/`, never `utils/`. The guard against premature
-abstraction: a _fragment_ of one function's logic, pulled out anticipating reuse,
-is not a primitive — it stays private until a second caller appears.
+domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
+bars:
+
+- **(1) It removes real duplication** — already called from more than one place
+  (`describeError`, `readFileOrNull`).
+- **(2) It's a complete, standalone primitive** — you could name, describe, and
+  test it without mentioning any caller or the vault, and it would look at home in
+  a standard library (`mapWithConcurrency` — a bounded-concurrency async map). This
+  bar admits a single-caller helper; bar (1) does not.
+
+Premature-abstraction guard: if the only way to explain the helper is "the part of
+`someFunction` that does X," it fails bar (2) — it's a _fragment_, not a primitive,
+so keep it private until a second caller appears. Markdown logic is domain — it
+goes in `obsidian-markdown/`, never `utils/`.
 
 **Export style** depends on what kind of module it is:
 
