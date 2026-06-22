@@ -820,11 +820,14 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
       })
-      reqLogger.info("tool_call", { query })
+      reqLogger.info("tool_call", { query, ...(filters ? { filters } : {}) })
       return safeHandler(
         reqLogger,
         async () => search.fullTextSearch({ query, filters }, reqLogger),
-        (results) => JSON.stringify({ results, total: results.length }),
+        (results) => {
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify({ results, total: results.length })
+        },
       )
     },
   )
