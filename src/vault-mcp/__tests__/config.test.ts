@@ -18,6 +18,7 @@ describe("loadConfig", () => {
         "https://github.com/aliasunder/vault-cortex",
       )
       expect(config.windowsBindMount).toBe(false)
+      expect(config.memoryEnabled).toBe(true)
     })
 
     it("returns a frozen (immutable) config object", () => {
@@ -189,6 +190,43 @@ describe("loadConfig", () => {
 
     it("rejects a non-boolean value (fails fast at startup)", () => {
       expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow(/WINDOWS_MODE/)
+    })
+  })
+
+  describe("MEMORY_ENABLED", () => {
+    it("defaults to true when unset", () => {
+      const config = loadConfig({})
+      expect(config.memoryEnabled).toBe(true)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ MEMORY_ENABLED: "true" })
+      expect(config.memoryEnabled).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ MEMORY_ENABLED: "false" })
+      expect(config.memoryEnabled).toBe(false)
+    })
+
+    it("rejects a non-boolean value", () => {
+      expect(() => loadConfig({ MEMORY_ENABLED: "yes" })).toThrow(
+        /MEMORY_ENABLED/,
+      )
+    })
+
+    it("still parses MEMORY_DIR when disabled", () => {
+      const config = loadConfig({
+        MEMORY_ENABLED: "false",
+        MEMORY_DIR: "Profile",
+      })
+      expect(config.memoryEnabled).toBe(false)
+      expect(config.memoryDir).toBe("Profile")
+    })
+
+    it("still includes memoryDir in default protectedPaths when disabled", () => {
+      const config = loadConfig({ MEMORY_ENABLED: "false" })
+      expect(config.protectedPaths).toContain("About Me")
     })
   })
 })

@@ -323,3 +323,53 @@ describe("error handling", () => {
     expect(result.content[0].text).toBe("heading_level requires a heading")
   })
 })
+
+describe("MEMORY_ENABLED=false", () => {
+  const MEMORY_TOOLS = [
+    TOOL_NAMES.VAULT_GET_MEMORY,
+    TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
+  ] as const
+
+  const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
+
+  let disabledCalls: RegisterToolCall[]
+
+  beforeEach(() => {
+    const disabledServer = { registerTool: vi.fn() }
+    registerTools({
+      server: disabledServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({ MEMORY_ENABLED: "false" }),
+    })
+    disabledCalls = disabledServer.registerTool.mock.calls as RegisterToolCall[]
+  })
+
+  it("does not register memory tools", () => {
+    const registeredNames = disabledCalls.map((c) => c[0])
+    for (const memoryTool of MEMORY_TOOLS) {
+      expect(registeredNames).not.toContain(memoryTool)
+    }
+  })
+
+  it(`registers all ${NON_MEMORY_TOOL_COUNT} non-memory tools`, () => {
+    expect(disabledCalls).toHaveLength(NON_MEMORY_TOOL_COUNT)
+  })
+
+  it("non-memory tool descriptions do not reference memory tools", () => {
+    const memoryToolReferences = [
+      TOOL_NAMES.VAULT_GET_MEMORY,
+      TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      TOOL_NAMES.VAULT_DELETE_MEMORY,
+    ]
+    for (const call of disabledCalls) {
+      const description = call[1].description!
+      for (const ref of memoryToolReferences) {
+        expect(description).not.toContain(ref)
+      }
+    }
+  })
+})
