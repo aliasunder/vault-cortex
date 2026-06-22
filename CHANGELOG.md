@@ -1,6 +1,18 @@
 # Changelog
 
 
+
+## [0.22.0] — 2026-06-22
+
+### Features
+
+- **tools:** Modular tool registration + memory layer opt-out (#185)
+
+### Documentation
+
+- Restructure README opening, add Why section, GIF context, and security positioning (#184)
+- Update CHANGELOG.md for v0.21.1
+
 ## [0.21.1] — 2026-06-22
 
 ### Features
