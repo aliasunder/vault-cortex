@@ -98,6 +98,68 @@ src/
       consent-page.ts                  # HTML consent page for OAuth authorization
 ```
 
+### Module layering
+
+The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
+use-cases → protocol → wiring. A module's folder is decided by **what it depends
+on**, not just its topic:
+
+- **`obsidian-markdown/`** — pure parsers/transforms over Obsidian-flavored
+  Markdown (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
+  no MCP**; they take strings/lines and return data or transformed strings, so
+  they're trivially unit-testable. `lines.ts` is the single home of the
+  CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
+  threads it, so they can't disagree about where a fence opens.
+- **`vault-operations/`** — everything that reads/writes the vault.
+  `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
+  read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
+  `daily-notes` are use-cases composing it with the parsers.
+- **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
+  `prompt-definitions`).
+- **`search/`** — SQLite FTS5 index + file watcher. **`auth/`** — OAuth 2.1.
+- **`utils/`** (at `src/`) — generic cross-cutting helpers.
+
+Two rules keep this honest:
+
+- **Dependency direction.** `obsidian-markdown/` and `utils/` depend on nothing
+  internal (leaf layers); `vault-operations/` and `search/` depend on those;
+  `mcp-core/` and the top-level wiring depend on everything. A _search_ module
+  importing a _parser_ should read as "uses the shared parser," never as reaching
+  sideways into `vault-operations/`.
+- **Top level is wiring only.** Folders are domains; the only loose files at
+  `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
+
+**`utils/` admission:** a helper belongs here only if it is generic, has **zero
+domain knowledge, and has more than one consumer** (`describeError`,
+`readFileOrNull`, `mapWithConcurrency`). Markdown logic is domain — it goes in
+`obsidian-markdown/`, never `utils/`. A generic but single-consumer helper stays
+private until a second caller appears.
+
+**Export style** depends on what kind of module it is:
+
+- **Service / data-layer modules** — those that wrap a cohesive set of operations
+  over a resource (the vault, the index) — export a **single namespace object**
+  so call sites self-document which module an operation belongs to:
+  `vaultFs.readNote(…)`, `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`.
+  Stateful ones use a **factory-closure** returning that object
+  (`createSearchIndex`, `createMemoryStore`), so prepared statements / caches
+  live in the closure.
+- **Pure parser / helper modules** — the `obsidian-markdown/` parsers
+  (`frontmatter`, `headings`, `callouts`, `lines`), `utils/`, and `daily-notes` —
+  export **named functions**. They're collections of pure functions, not a
+  service surface, so named exports keep imports precise and carry their types
+  directly.
+- **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
+  exports a single `links` namespace, _not_ for the service-grouping reason above
+  but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
+  position-safe methods.
+
+`vault-filesystem.ts` illustrates the nuance within one module: its high-level
+data API is grouped under `vaultFs`, but its low-level shared primitives
+(`resolveSafePath`, `atomicWriteFile`, `pruneEmptyParents`, …) are **named
+exports** — infrastructure consumed à la carte by other modules, not part of the
+vault data API.
+
 ## Logging
 
 Root logger at `src/logger.ts`. Structured JSON to stdout/stderr.
