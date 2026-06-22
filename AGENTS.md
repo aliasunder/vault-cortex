@@ -113,7 +113,14 @@ on**, not just its topic:
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
-  `daily-notes` are use-cases composing it with the parsers.
+  `daily-notes` are use-cases composing it with the parsers. The line between
+  `vault-filesystem.ts` and `utils/fs.ts` is **policy vs. adapter**: `utils/fs.ts`
+  holds only policy-free `node:fs` wrappers (`readFileOrNull`, `readdirOrNull`,
+  `fileExists`), while anything that encodes _how the vault is written or guarded_
+  — the atomic-write strategy, vault-root path-safety, the `vaultFs` data API —
+  stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
+  any file) isn't enough to demote something to `utils/` if it's load-bearing
+  vault-I/O policy.
 - **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
   `prompt-definitions`).
 - **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
@@ -130,11 +137,16 @@ Two rules keep this honest:
 - **Top level is wiring only.** Folders are domains; the only loose files at
   `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
 
-**`utils/` admission:** a helper belongs here only if it is generic, has **zero
-domain knowledge, and has more than one consumer** (`describeError`,
-`readFileOrNull`). Markdown logic is domain — it goes in
-`obsidian-markdown/`, never `utils/`. A generic but single-consumer helper stays
-private until a second caller appears.
+**`utils/` admission:** a helper belongs here only if it is **generic with zero
+domain knowledge**, and clears one of two bars: **(1) it consolidates real
+duplication** — used by more than one consumer (`describeError`,
+`readFileOrNull`); or **(2) it is a self-contained, general-purpose primitive** —
+a complete, library-grade abstraction with an independent contract that
+encapsulates an orthogonal concern, even at a single current caller
+(`mapWithConcurrency` — a bounded-concurrency async map). Markdown logic is domain
+— it goes in `obsidian-markdown/`, never `utils/`. The guard against premature
+abstraction: a _fragment_ of one function's logic, pulled out anticipating reuse,
+is not a primitive — it stays private until a second caller appears.
 
 **Export style** depends on what kind of module it is:
 
