@@ -343,6 +343,8 @@ const deleteSpan = async (
 
   logger.info("deleted span", {
     path,
+    startAnchor: truncateForMessage(startAnchor),
+    endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
     removedLines: removedLines.length,
     beforeBytes,
     afterBytes,
