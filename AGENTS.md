@@ -92,7 +92,7 @@ src/
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
                                        # Phase 2: gains a semantic-ingestion hook
-    auth/                              # OAuth 2.1
+    oauth/                             # OAuth 2.1 (provider, routes, consent)
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization
@@ -116,7 +116,8 @@ on**, not just its topic:
   `daily-notes` are use-cases composing it with the parsers.
 - **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
   `prompt-definitions`).
-- **`search/`** — SQLite FTS5 index + file watcher. **`auth/`** — OAuth 2.1.
+- **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
+  server (distinct from the shared `src/auth.ts` token utilities).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
