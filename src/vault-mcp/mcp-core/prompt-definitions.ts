@@ -109,7 +109,9 @@ export const registerPrompts = (params: {
   config: VaultConfig
 }): void => {
   const { server, vaultPath, search, logger: sessionLogger, config } = params
-  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  const memoryStore = config.memoryEnabled
+    ? createMemoryStore({ memoryDir: config.memoryDir })
+    : undefined
 
   // ── vault-orientation ───────────────────────────────────────
   // Zero-arg: omit argsSchema entirely so the SDK calls back as (extra) =>.
@@ -118,7 +120,9 @@ export const registerPrompts = (params: {
     PROMPT_NAMES.VAULT_ORIENTATION,
     {
       title: "Orient to this vault",
-      description: `Survey this vault's actual conventions — folders, tags, property keys, recent notes, and the ${config.memoryDir}/ memory layer — so you can work with its structure instead of assuming generic markdown.`,
+      description: config.memoryEnabled
+        ? `Survey this vault's actual conventions — folders, tags, property keys, recent notes, and the ${config.memoryDir}/ memory layer — so you can work with its structure instead of assuming generic markdown.`
+        : `Survey this vault's actual conventions — folders, tags, property keys, and recent notes — so you can work with its structure instead of assuming generic markdown.`,
     },
     async (extra) => {
       const reqLogger = sessionLogger.child({
@@ -136,10 +140,11 @@ export const registerPrompts = (params: {
           { sort_by: "modified", limit: ORIENTATION_RECENT_LIMIT },
           reqLogger,
         )
-        const [paths, memoryFiles] = await Promise.all([
-          vaultFs.listNotes({ vaultPath }, reqLogger),
-          memoryStore.listMemoryFiles({ vaultPath }, reqLogger),
-        ])
+        const paths = await vaultFs.listNotes({ vaultPath }, reqLogger)
+        const memoryFiles =
+          config.memoryEnabled && memoryStore
+            ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
+            : []
 
         const folders = deriveFolders(paths)
         const foldersSection =
@@ -175,7 +180,7 @@ export const registerPrompts = (params: {
             ? formatMemoryOutline(memoryFiles)
             : `No memory files yet — the ${config.memoryDir}/ layer is empty. Use vault_update_memory to start it.`
 
-        const text = [
+        const sections = [
           "# Vault orientation",
           "",
           "This vault is a structured, convention-driven Obsidian system. Survey its actual conventions below, then use the `vault_*` tools to go deeper.",
@@ -191,13 +196,18 @@ export const registerPrompts = (params: {
           "",
           "## Recently modified",
           recentSection,
-          "",
-          `## Memory (${config.memoryDir}/)`,
-          memorySection,
+        ]
+        if (config.memoryEnabled) {
+          sections.push("", `## Memory (${config.memoryDir}/)`, memorySection)
+        }
+        sections.push(
           "",
           "---",
-          "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`.",
-        ].join("\n")
+          config.memoryEnabled
+            ? "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`."
+            : "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, and `vault_read_note`.",
+        )
+        const text = sections.join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",
           chars: text.length,
@@ -208,7 +218,9 @@ export const registerPrompts = (params: {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
         return textResult(
-          `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_list_memory_files.`,
+          config.memoryEnabled
+            ? `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_list_memory_files.`
+            : `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags and vault_list_property_keys.`,
         )
       }
     },
@@ -219,141 +231,143 @@ export const registerPrompts = (params: {
   // "newest supersedes older" record. This prompt narrates the trajectory and
   // proposes append-only changes; it deliberately does not hunt for "stale"
   // entries to prune or frame evolving beliefs as contradictions to reconcile.
-  server.registerPrompt(
-    PROMPT_NAMES.MEMORY_REVIEW,
-    {
-      title: "Reflect on memory (read as an evolution)",
-      description: `Reflect on the ${config.memoryDir}/ memory layer — read its dated entries as a timeline, surface scope-fit and backfill ideas, and propose append-only updates. Never prunes entries for being old.`,
-      argsSchema: {
-        file: completable(
-          z
+  if (config.memoryEnabled && memoryStore) {
+    server.registerPrompt(
+      PROMPT_NAMES.MEMORY_REVIEW,
+      {
+        title: "Reflect on memory (read as an evolution)",
+        description: `Reflect on the ${config.memoryDir}/ memory layer — read its dated entries as a timeline, surface scope-fit and backfill ideas, and propose append-only updates. Never prunes entries for being old.`,
+        argsSchema: {
+          file: completable(
+            z
+              .string()
+              .optional()
+              .describe(
+                `Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`,
+              ),
+            // Autocomplete from the live set of memory file names (prefix match).
+            // Uses the name-only lister (readdir, no parsing) because completion
+            // fires per keystroke. No request context here, so use the session
+            // logger; degrade to [] so completion never hard-fails.
+            async (value) => {
+              try {
+                const names = await memoryStore.listMemoryFileNames(
+                  { vaultPath },
+                  sessionLogger,
+                )
+                const loweredValue = (value ?? "").toLowerCase()
+                return names.filter((name) =>
+                  name.toLowerCase().startsWith(loweredValue),
+                )
+              } catch (err) {
+                // Recoverable and high-frequency (fires per keystroke), so warn
+                // rather than error — but never swallow it silently.
+                sessionLogger.warn("prompt_completion_failed", {
+                  prompt: PROMPT_NAMES.MEMORY_REVIEW,
+                  error: describeError(err),
+                })
+                return []
+              }
+            },
+          ),
+          max_chars: z
             .string()
+            .regex(POSITIVE_INT_REGEX, "must be a positive integer")
             .optional()
-            .describe(
-              `Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`,
-            ),
-          // Autocomplete from the live set of memory file names (prefix match).
-          // Uses the name-only lister (readdir, no parsing) because completion
-          // fires per keystroke. No request context here, so use the session
-          // logger; degrade to [] so completion never hard-fails.
-          async (value) => {
-            try {
-              const names = await memoryStore.listMemoryFileNames(
-                { vaultPath },
-                sessionLogger,
-              )
-              const loweredValue = (value ?? "").toLowerCase()
-              return names.filter((name) =>
-                name.toLowerCase().startsWith(loweredValue),
-              )
-            } catch (err) {
-              // Recoverable and high-frequency (fires per keystroke), so warn
-              // rather than error — but never swallow it silently.
-              sessionLogger.warn("prompt_completion_failed", {
-                prompt: PROMPT_NAMES.MEMORY_REVIEW,
-                error: describeError(err),
-              })
-              return []
-            }
-          },
-        ),
-        max_chars: z
-          .string()
-          .regex(POSITIVE_INT_REGEX, "must be a positive integer")
-          .optional()
-          .describe(MAX_CHARS_DESCRIPTION),
+            .describe(MAX_CHARS_DESCRIPTION),
+        },
       },
-    },
-    async (args, extra) => {
-      const reqLogger = sessionLogger.child({
-        requestId: extra.requestId,
-        prompt: PROMPT_NAMES.MEMORY_REVIEW,
-      })
-      reqLogger.info("prompt_call", {
-        file: args.file,
-        maxChars: args.max_chars,
-      })
-      const maxChars = args.max_chars ? Number(args.max_chars) : undefined
-
-      try {
-        const outlines = await memoryStore.listMemoryFiles(
-          { vaultPath },
-          reqLogger,
-        )
-
-        // Empty memory is not an error — explain how the layer gets started.
-        if (outlines.length === 0) {
-          reqLogger.info("prompt_result", { outcome: "empty_memory" })
-          return textResult(
-            `The ${config.memoryDir}/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.`,
-          )
-        }
-
-        // A bad file name degrades to a friendly "valid names" message rather
-        // than throwing through to the client. Bad client input → warn.
-        if (
-          args.file &&
-          !outlines.some((outline) => outline.file === args.file)
-        ) {
-          reqLogger.warn("prompt_bad_argument", {
-            argument: "file",
-            value: args.file,
-          })
-          return textResult(
-            `No memory file named "${args.file}" in ${config.memoryDir}/. Available files: ${outlines
-              .map((outline) => outline.file)
-              .join(", ")}.`,
-          )
-        }
-
-        const memory = await memoryStore.getMemory(
-          { vaultPath, file: args.file },
-          reqLogger,
-        )
-        const trimmedMemory = memory.trim()
-        const truncated =
-          maxChars !== undefined && trimmedMemory.length > maxChars
-        const scope = args.file
-          ? `the ${config.memoryDir}/${args.file} memory file`
-          : `the ${config.memoryDir}/ memory layer`
-
-        const text = [
-          `# Memory review — ${args.file ?? "all files"}`,
-          "",
-          `Below is the current content of ${scope}. It is an **append-with-dates, newest-first** record: each dated entry was true when it was written, and the timeline read top-to-bottom *is* the meaning.`,
-          "",
-          "## Current memory",
-          "",
-          trimmedMemory.length > 0
-            ? capContent(trimmedMemory, maxChars, "vault_get_memory")
-            : "_(the selected memory is empty)_",
-          "",
-          "## How to reflect",
-          "",
-          '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
-          "2. **Scope-fit.** Note any entry that seems to belong in a different file or section, based on each file's declared scope (respect a scope header if the file states one; don't assume one otherwise).",
-          "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
-          `4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.`,
-          "",
-          "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
-        ].join("\n")
-        reqLogger.info("prompt_result", {
-          outcome: "ok",
-          file: args.file ?? null,
-          files: outlines.length,
-          chars: text.length,
-          truncated,
+      async (args, extra) => {
+        const reqLogger = sessionLogger.child({
+          requestId: extra.requestId,
+          prompt: PROMPT_NAMES.MEMORY_REVIEW,
         })
-        return textResult(text)
-      } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
-        return textResult(
-          `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
-        )
-      }
-    },
-  )
+        reqLogger.info("prompt_call", {
+          file: args.file,
+          maxChars: args.max_chars,
+        })
+        const maxChars = args.max_chars ? Number(args.max_chars) : undefined
+
+        try {
+          const outlines = await memoryStore.listMemoryFiles(
+            { vaultPath },
+            reqLogger,
+          )
+
+          // Empty memory is not an error — explain how the layer gets started.
+          if (outlines.length === 0) {
+            reqLogger.info("prompt_result", { outcome: "empty_memory" })
+            return textResult(
+              `The ${config.memoryDir}/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.`,
+            )
+          }
+
+          // A bad file name degrades to a friendly "valid names" message rather
+          // than throwing through to the client. Bad client input → warn.
+          if (
+            args.file &&
+            !outlines.some((outline) => outline.file === args.file)
+          ) {
+            reqLogger.warn("prompt_bad_argument", {
+              argument: "file",
+              value: args.file,
+            })
+            return textResult(
+              `No memory file named "${args.file}" in ${config.memoryDir}/. Available files: ${outlines
+                .map((outline) => outline.file)
+                .join(", ")}.`,
+            )
+          }
+
+          const memory = await memoryStore.getMemory(
+            { vaultPath, file: args.file },
+            reqLogger,
+          )
+          const trimmedMemory = memory.trim()
+          const truncated =
+            maxChars !== undefined && trimmedMemory.length > maxChars
+          const scope = args.file
+            ? `the ${config.memoryDir}/${args.file} memory file`
+            : `the ${config.memoryDir}/ memory layer`
+
+          const text = [
+            `# Memory review — ${args.file ?? "all files"}`,
+            "",
+            `Below is the current content of ${scope}. It is an **append-with-dates, newest-first** record: each dated entry was true when it was written, and the timeline read top-to-bottom *is* the meaning.`,
+            "",
+            "## Current memory",
+            "",
+            trimmedMemory.length > 0
+              ? capContent(trimmedMemory, maxChars, "vault_get_memory")
+              : "_(the selected memory is empty)_",
+            "",
+            "## How to reflect",
+            "",
+            '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
+            "2. **Scope-fit.** Note any entry that seems to belong in a different file or section, based on each file's declared scope (respect a scope header if the file states one; don't assume one otherwise).",
+            "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
+            `4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.`,
+            "",
+            "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
+          ].join("\n")
+          reqLogger.info("prompt_result", {
+            outcome: "ok",
+            file: args.file ?? null,
+            files: outlines.length,
+            chars: text.length,
+            truncated,
+          })
+          return textResult(text)
+        } catch (err) {
+          const message = describeError(err)
+          reqLogger.error("prompt_error", { error: message })
+          return textResult(
+            `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
+          )
+        }
+      },
+    )
+  } // end memory-review guard
 
   // ── daily-review ────────────────────────────────────────────
   // Daily notes are the journaling surface of the daily rhythm and they feed
@@ -363,7 +377,9 @@ export const registerPrompts = (params: {
     PROMPT_NAMES.DAILY_REVIEW,
     {
       title: "Daily review & reconciliation",
-      description: `Review a day's daily note against recent activity — reconcile what happened, capture follow-ups, and surface durable facts worth saving to ${config.memoryDir}/ memory.`,
+      description: config.memoryEnabled
+        ? `Review a day's daily note against recent activity — reconcile what happened, capture follow-ups, and surface durable facts worth saving to ${config.memoryDir}/ memory.`
+        : `Review a day's daily note against recent activity — reconcile what happened and capture follow-ups.`,
       argsSchema: {
         date: z
           .string()
@@ -432,7 +448,11 @@ export const registerPrompts = (params: {
           "",
           "1. **Reconcile the day** — what got done, what's still open, what changed — cross-referencing the recent notes above.",
           "2. **Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
-          `3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`,
+          ...(config.memoryEnabled
+            ? [
+                `3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`,
+              ]
+            : []),
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: daily.exists ? "ok" : "no_note",
@@ -450,7 +470,7 @@ export const registerPrompts = (params: {
     },
   )
 
-  sessionLogger.info("registered prompts", {
-    count: Object.keys(PROMPT_NAMES).length,
-  })
+  const promptCount =
+    Object.keys(PROMPT_NAMES).length - (config.memoryEnabled ? 0 : 1)
+  sessionLogger.info("registered prompts", { count: promptCount })
 }
