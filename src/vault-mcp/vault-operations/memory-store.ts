@@ -3,10 +3,10 @@
 import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
-import { parseNote, stringifyNote } from "./frontmatter.js"
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
-import { parseLeadingCallout } from "./callout-parser.js"
-import type { LeadingCallout } from "./callout-parser.js"
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 

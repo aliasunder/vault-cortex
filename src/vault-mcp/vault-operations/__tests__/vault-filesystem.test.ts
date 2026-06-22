@@ -24,7 +24,7 @@ import {
   atomicWriteFileExclusive,
   pruneEmptyParents,
 } from "../vault-filesystem.js"
-import { parseNote } from "../frontmatter.js"
+import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {

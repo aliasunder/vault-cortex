@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseHeadings, findHeading } from "../heading-parser.js"
+import { parseHeadings, findHeading } from "../headings.js"
 
 describe("parseHeadings", () => {
   it("parses H1–H6 with each section spanning to the next same-or-higher heading", () => {

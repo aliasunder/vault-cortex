@@ -1,14 +1,14 @@
 /** Surgical note editing — heading-targeted patches and find-and-replace. */
 
 import { readFile } from "node:fs/promises"
-import { parseNote, stringifyNote } from "./frontmatter.js"
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import {
   parseHeadings,
   findHeading,
   findTrailingCommentBlockStart,
   type HeadingInfo,
-} from "./heading-parser.js"
+} from "../obsidian-markdown/headings.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ const readNoteForPatch = async (
       // Strip a trailing CR so CRLF-authored (Windows) notes split into
       // LF-only lines — keeps body matching and blank-run collapse
       // (collapseBlankRuns) consistent, and normalizes the note to LF on
-      // write. Mirrors the same handling in callout-parser.
+      // write. Mirrors the same handling in callouts.ts.
       lines: parsed.content
         .split("\n")
         .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),

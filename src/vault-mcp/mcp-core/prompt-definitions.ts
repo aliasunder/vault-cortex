@@ -11,15 +11,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { GetPromptResult } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
-import { vaultFs } from "./vault-operations/vault-filesystem.js"
+import { vaultFs } from "../vault-operations/vault-filesystem.js"
 import {
   createMemoryStore,
   type MemoryFileOutline,
-} from "./vault-operations/memory-store.js"
-import { getDailyNote } from "./vault-operations/daily-notes.js"
-import type { SearchIndex } from "./search/search-index.js"
-import type { VaultConfig } from "./config.js"
-import type { Logger } from "../logger.js"
+} from "../vault-operations/memory-store.js"
+import { getDailyNote } from "../vault-operations/daily-notes.js"
+import type { SearchIndex } from "../search/search-index.js"
+import type { VaultConfig } from "../config.js"
+import type { Logger } from "../../logger.js"
 
 export const PROMPT_NAMES = {
   VAULT_ORIENTATION: "vault-orientation",

@@ -5,14 +5,14 @@ import { z } from "zod"
 import {
   vaultFs,
   toVaultRelativePath,
-} from "./vault-operations/vault-filesystem.js"
-import { noteMover } from "./vault-operations/note-mover.js"
-import { vaultPatcher } from "./vault-operations/vault-patcher.js"
-import { createMemoryStore } from "./vault-operations/memory-store.js"
-import { getDailyNote } from "./vault-operations/daily-notes.js"
-import type { SearchIndex } from "./search/search-index.js"
-import type { VaultConfig } from "./config.js"
-import type { Logger } from "../logger.js"
+} from "../vault-operations/vault-filesystem.js"
+import { noteMover } from "../vault-operations/note-mover.js"
+import { vaultPatcher } from "../vault-operations/vault-patcher.js"
+import { createMemoryStore } from "../vault-operations/memory-store.js"
+import { getDailyNote } from "../vault-operations/daily-notes.js"
+import type { SearchIndex } from "../search/search-index.js"
+import type { VaultConfig } from "../config.js"
+import type { Logger } from "../../logger.js"
 
 export const TOOL_NAMES = {
   VAULT_READ_NOTE: "vault_read_note",

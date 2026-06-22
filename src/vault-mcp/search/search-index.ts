@@ -3,10 +3,10 @@ import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
-import { parseNote } from "../vault-operations/frontmatter.js"
-import { parseLeadingCallout } from "../vault-operations/callout-parser.js"
-import type { LeadingCallout } from "../vault-operations/callout-parser.js"
-import { links } from "../links.js"
+import { parseNote } from "../obsidian-markdown/frontmatter.js"
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import { links } from "../obsidian-markdown/links.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
