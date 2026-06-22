@@ -1,5 +1,43 @@
 # Changelog
 
+
+## [0.21.1] — 2026-06-22
+
+### Features
+
+- **search:** Log filters and result count for vault_search (#174)
+
+### Bug Fixes
+
+- **ci:** Scope GHCR cleanup token to job-level packages:write (#181)
+- **logging:** Include anchors in vault_delete_span log output (#180)
+
+### Refactoring
+
+- **utils:** Extract describeError + ENOENT fs helpers into src/utils (#171)
+- **parsing:** Consolidate the fence state machine into lines.ts; memory sections via the shared parser (#169)
+- **structure:** Split pure parsers into obsidian-markdown/ and MCP wiring into mcp-core/ (#168)
+
+### Documentation
+
+- **wiki:** Surface OAuth, TDQS, security toolchain, and awesome-mcp-servers listing (#183)
+- Fix v0.21.0 changelog entry and delete orphan v0.20.3 tag (#182)
+- Add .devin/wiki.json to steer DeepWiki page generation (#179)
+- **jwt:** Clarify intentional avoidance of Luxon (#177)
+- **agents:** Document module layering, dependency direction, and export conventions (#172)
+- Add DeepWiki badge for auto-reindexing (#170)
+- Update CHANGELOG.md for v0.21.0
+
+### CI / Infrastructure
+
+- Add scheduled GHCR cleanup for untagged image digests (#178)
+
+### Maintenance
+
+- Gitignore .DS_Store
+- Revert CONFLICT_STRATEGY default from conflict to merge (#175)
+- **deploy:** Set LOG_RETENTION_DAYS=365 for production (#173)
+
 ## [0.21.0] — 2026-06-21
 
 ### Features
