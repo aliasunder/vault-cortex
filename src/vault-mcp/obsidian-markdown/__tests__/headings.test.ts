@@ -59,7 +59,7 @@ describe("parseHeadings", () => {
       "   ```",
       "## Also real",
     ]
-    expect(parseHeadings(lines).map((h) => h.text)).toEqual([
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
       "Real",
       "Also real",
     ])

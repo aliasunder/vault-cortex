@@ -124,15 +124,31 @@ type ParsedSection = Readonly<{
 
 // ── Internal helpers ────────────────────────────────────────────
 
+/** Counts dated bullet entries within a section's body span [start, end). A plain
+ *  loop — a sequential count with no slice/filter allocations over what can be a
+ *  large memory file. */
+const countDatedEntries = (
+  lines: readonly string[],
+  start: number,
+  end: number,
+): number => {
+  let count = 0
+  for (let lineIndex = start; lineIndex < end; lineIndex++) {
+    if (ENTRY_PATTERN.test(lines[lineIndex])) count += 1
+  }
+  return count
+}
+
 /**
- * Parses a memory file's H1/H2 sections, each with a count of its dated bullets.
+ * Parses a memory file's H1/H2 sections, with a dated-bullet count per H2.
  *
  * Section spans come from the shared heading parser (headings.ts), so memory
  * files resolve sections exactly the way vault_read_note and vault_patch_note do
  * — including its fence-awareness, so a "## ..."-looking line inside a code block
  * is not mistaken for a section. Memory headings are only ever H1 (title) or H2,
- * so deeper headings are filtered out; the entry count is a separate pass over
- * each section's body span.
+ * so deeper headings are filtered out. Only H2 sections expose an entry count (the
+ * sole consumer, listMemoryFiles, discards the H1's), so the H1 — whose span runs
+ * to EOF — is not scanned.
  */
 const parseSections = (lines: readonly string[]): ParsedSection[] =>
   parseHeadings(lines)
@@ -143,9 +159,10 @@ const parseSections = (lines: readonly string[]): ParsedSection[] =>
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
-      entryCount: lines
-        .slice(heading.bodyStartLine, heading.bodyEndLine)
-        .filter((bodyLine) => ENTRY_PATTERN.test(bodyLine)).length,
+      entryCount:
+        heading.level === 2
+          ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine)
+          : 0,
     }))
 
 /** Case-insensitive section lookup by heading text. */

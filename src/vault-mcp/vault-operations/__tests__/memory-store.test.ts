@@ -805,7 +805,7 @@ describe("listMemoryFiles", () => {
       "utf8",
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const fenced = outlines.find((o) => o.file === "Fenced")!
+    const fenced = outlines.find((outline) => outline.file === "Fenced")!
     expect(fenced.headings.map((heading) => heading.text)).toEqual([
       "Fenced",
       "Real (newest first)",
