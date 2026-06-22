@@ -92,11 +92,93 @@ src/
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
                                        # Phase 2: gains a semantic-ingestion hook
-    auth/                              # OAuth 2.1
+    oauth/                             # OAuth 2.1 (provider, routes, consent)
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization
 ```
+
+### Module layering
+
+The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
+use-cases → protocol → wiring. A module's folder is decided by **what it depends
+on**, not just its topic:
+
+- **`obsidian-markdown/`** — pure parsers/transforms over Obsidian-flavored
+  Markdown (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
+  no MCP**; they take strings/lines and return data or transformed strings, so
+  they're trivially unit-testable. `lines.ts` is the single home of the
+  CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
+  threads it, so they can't disagree about where a fence opens.
+- **`vault-operations/`** — everything that reads/writes the vault.
+  `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
+  read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
+  `daily-notes` are use-cases composing it with the parsers. The line between
+  `vault-filesystem.ts` and `utils/fs.ts` is **policy vs. adapter**: `utils/fs.ts`
+  holds only policy-free `node:fs` wrappers (`readFileOrNull`, `readdirOrNull`,
+  `fileExists`), while anything that encodes _how the vault is written or guarded_
+  — the atomic-write strategy, vault-root path-safety, the `vaultFs` data API —
+  stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
+  any file) isn't enough to demote something to `utils/` if it's load-bearing
+  vault-I/O policy.
+- **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
+  `prompt-definitions`).
+- **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
+  server (distinct from the shared `src/auth.ts` token utilities).
+- **`utils/`** (at `src/`) — generic cross-cutting helpers.
+
+Two rules keep this honest:
+
+- **Dependency direction.** `obsidian-markdown/` and `utils/` depend on nothing
+  internal (leaf layers); `vault-operations/` and `search/` depend on those;
+  `mcp-core/` and the top-level wiring depend on everything. A _search_ module
+  importing a _parser_ should read as "uses the shared parser," never as reaching
+  sideways into `vault-operations/`.
+- **Top level is wiring only.** Folders are domains; the only loose files at
+  `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
+
+**`utils/` admission:** a helper belongs here only if it is **generic with zero
+domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
+bars:
+
+- **(1) It removes real duplication** — already called from more than one place
+  (`describeError`, `readFileOrNull`).
+- **(2) It's a complete, standalone primitive** — you could name, describe, and
+  test it without mentioning any caller or the vault, and it would look at home in
+  a standard library (`mapWithConcurrency` — a bounded-concurrency async map). This
+  bar admits a single-caller helper; bar (1) does not.
+
+Premature-abstraction guard: if the only way to explain the helper is "the part of
+`someFunction` that does X," it fails bar (2) — it's a _fragment_, not a primitive,
+so keep it private until a second caller appears. Markdown logic is domain — it
+goes in `obsidian-markdown/`, never `utils/`.
+
+**Export style** depends on what kind of module it is:
+
+- **Service / data-layer modules** — those that wrap a cohesive set of operations
+  over a resource (the vault, the index) — export a **single namespace object**
+  so call sites self-document which module an operation belongs to:
+  `vaultFs.readNote(…)`, `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`.
+  Stateful ones use a **factory-closure** returning that object
+  (`createSearchIndex`, `createMemoryStore`), so prepared statements / caches
+  live in the closure.
+- **Parser and small-helper modules** — the `obsidian-markdown/` parsers
+  (`frontmatter`, `headings`, `callouts`, `lines`), `utils/`, and `daily-notes` —
+  export **named functions**. The shape tracks whether a module is a _cohesive
+  service surface_ (→ namespace) or just a loose set of functions (→ named),
+  **not** whether it does I/O: the parsers are pure, while `daily-notes` does
+  light I/O (reads and caches daily-note config), yet both use named exports
+  because neither is a grouped service API.
+- **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
+  exports a single `links` namespace, _not_ for the service-grouping reason above
+  but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
+  position-safe methods.
+
+`vault-filesystem.ts` illustrates the nuance within one module: its high-level
+data API is grouped under `vaultFs`, but its low-level shared primitives
+(`resolveSafePath`, `atomicWriteFile`, `pruneEmptyParents`, …) are **named
+exports** — infrastructure consumed à la carte by other modules, not part of the
+vault data API.
 
 ## Logging
 
