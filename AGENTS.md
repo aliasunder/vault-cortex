@@ -474,6 +474,8 @@ changed:
 | `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields)                                                                                             |
 | `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits                                                                               |
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
+| `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
+| `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
 
