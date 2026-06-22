@@ -12,12 +12,15 @@ on:
         default: true
         type: boolean
 
+# Top-level token is read-only; the job declares its writes.
 permissions:
-  packages: write
+  contents: read
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     steps:
       - name: Delete untagged GHCR images
         uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
