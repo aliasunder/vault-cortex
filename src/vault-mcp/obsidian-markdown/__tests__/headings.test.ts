@@ -48,6 +48,23 @@ describe("parseHeadings", () => {
     ])
   })
 
+  it("ignores ATX headings inside an indented fenced code block (CommonMark §4.5)", () => {
+    // The fence is indented 3 spaces — recognized via the shared lines.ts fence
+    // grammar. The previous heading-local matcher required column 0, so it would
+    // have mis-parsed "# Not a heading" here as a real heading.
+    const lines = [
+      "# Real",
+      "   ```",
+      "# Not a heading",
+      "   ```",
+      "## Also real",
+    ]
+    expect(parseHeadings(lines).map((h) => h.text)).toEqual([
+      "Real",
+      "Also real",
+    ])
+  })
+
   it("strips trailing closing hashes from heading text", () => {
     expect(parseHeadings(["## Title ##"]).map((h) => h.text)).toEqual(["Title"])
   })

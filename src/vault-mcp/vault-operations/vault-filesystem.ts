@@ -21,6 +21,7 @@ import {
 import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 /** Canonicalizes a path for the protected-path prefix check: converts Windows
@@ -252,7 +253,7 @@ const readNoteOutline = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = parseNote(content).content.split("\n")
+  const lines = splitIntoLines(parseNote(content).content)
   const leadingCallout = parseLeadingCallout(lines)
   const headings = parseHeadings(lines)
   const outline = headings.map((heading) => {
@@ -299,7 +300,7 @@ const readNoteSection = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = parseNote(content).content.split("\n")
+  const lines = splitIntoLines(parseNote(content).content)
   const headings = parseHeadings(lines)
   const target = findHeading(headings, params.heading, params.headingLevel)
   logger.info("read note section", {

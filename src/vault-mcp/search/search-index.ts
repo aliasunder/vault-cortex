@@ -7,6 +7,7 @@ import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -350,7 +351,7 @@ export const createSearchIndex = (dbPath: string) => {
     // Store the leading callout (a top-of-file `> [!type]` block — info,
     // warning, etc.) as JSON so discovery tools can return it structured;
     // null when the note has none.
-    const leadingCallout = parseLeadingCallout(parsed.content.split("\n"))
+    const leadingCallout = parseLeadingCallout(splitIntoLines(parsed.content))
 
     const note = {
       path: filePath,

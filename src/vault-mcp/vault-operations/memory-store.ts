@@ -7,6 +7,8 @@ import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import { parseHeadings } from "../obsidian-markdown/headings.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -123,61 +125,28 @@ type ParsedSection = Readonly<{
 // ── Internal helpers ────────────────────────────────────────────
 
 /**
- * Single-pass section parser. Walks lines to identify H1/H2 headings and
- * count dated bullets within each section.
+ * Parses a memory file's H1/H2 sections, each with a count of its dated bullets.
  *
- * Two-phase approach: the reduce collects heading metadata (startLine, entryCount),
- * then the .map() computes bodyEndLine for each section — this requires the *next*
- * section's startLine, which isn't available during the reduce pass.
+ * Section spans come from the shared heading parser (headings.ts), so memory
+ * files resolve sections exactly the way vault_read_note and vault_patch_note do
+ * — including its fence-awareness, so a "## ..."-looking line inside a code block
+ * is not mistaken for a section. Memory headings are only ever H1 (title) or H2,
+ * so deeper headings are filtered out; the entry count is a separate pass over
+ * each section's body span.
  */
-const parseSections = (lines: readonly string[]): ParsedSection[] => {
-  // Phase 1: collect headings and count entries under each
-  const raw = lines.reduce<
-    Array<{
-      heading: string
-      level: 1 | 2
-      startLine: number
-      entryCount: number
-    }>
-  >((acc, line, lineIndex) => {
-    const h1 = /^# (.+)$/.exec(line)
-    if (h1) {
-      acc.push({
-        heading: h1[1].trim(),
-        level: 1,
-        startLine: lineIndex,
-        entryCount: 0,
-      })
-      return acc
-    }
-    const h2 = /^## (.+)$/.exec(line)
-    if (h2) {
-      acc.push({
-        heading: h2[1].trim(),
-        level: 2,
-        startLine: lineIndex,
-        entryCount: 0,
-      })
-      return acc
-    }
-    // Count dated bullets under the most recently seen heading
-    if (acc.length > 0 && ENTRY_PATTERN.test(line)) {
-      acc[acc.length - 1].entryCount++
-    }
-    return acc
-  }, [])
-
-  // Phase 2: compute body ranges — each section's body ends where the next heading starts
-  return raw.map((section, index) => ({
-    heading: section.heading,
-    level: section.level,
-    startLine: section.startLine,
-    bodyStartLine: section.startLine + 1,
-    bodyEndLine:
-      index + 1 < raw.length ? raw[index + 1].startLine : lines.length,
-    entryCount: section.entryCount,
-  }))
-}
+const parseSections = (lines: readonly string[]): ParsedSection[] =>
+  parseHeadings(lines)
+    .filter((heading) => heading.level <= 2)
+    .map((heading) => ({
+      heading: heading.text,
+      level: heading.level as 1 | 2,
+      startLine: heading.startLine,
+      bodyStartLine: heading.bodyStartLine,
+      bodyEndLine: heading.bodyEndLine,
+      entryCount: lines
+        .slice(heading.bodyStartLine, heading.bodyEndLine)
+        .filter((bodyLine) => ENTRY_PATTERN.test(bodyLine)).length,
+    }))
 
 /** Case-insensitive section lookup by heading text. */
 const findSection = (
@@ -416,7 +385,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return parsed.content.trim()
     }
 
-    const lines = parsed.content.split("\n")
+    const lines = splitIntoLines(parsed.content)
     const sections = parseSections(lines)
     const match = findSection(sections, params.section, 2)
     if (!match) {
@@ -484,7 +453,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       }
 
       const parsed = parseNote(existingContent)
-      const contentLines = parsed.content.split("\n")
+      const contentLines = splitIntoLines(parsed.content)
       const sections = parseSections(contentLines)
       const match = findSection(sections, params.section, 2)
 
@@ -590,7 +559,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
-        const lines = parsed.content.split("\n")
+        const lines = splitIntoLines(parsed.content)
         const leadingCallout = parseLeadingCallout(lines)
         const sections = parseSections(lines)
 
@@ -650,7 +619,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const raw = await readMemoryFile(params.vaultPath, params.file)
       const parsed = parseNote(raw)
-      const lines = parsed.content.split("\n")
+      const lines = splitIntoLines(parsed.content)
       const sections = parseSections(lines)
       const match = findSection(sections, params.section, 2)
       if (!match) {

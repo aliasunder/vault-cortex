@@ -27,6 +27,7 @@ import {
   toVaultRelativePath,
 } from "./vault-filesystem.js"
 import { links } from "../obsidian-markdown/links.js"
+import { classifyLines } from "../obsidian-markdown/lines.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import type { Logger } from "../../logger.js"
 
@@ -264,7 +265,7 @@ const rewriteBody = (
   let linksRewritten = 0
   const outputLines: string[] = []
 
-  for (const { text, inCode } of links.classifyLines(body)) {
+  for (const { text, inCode } of classifyLines(body)) {
     if (inCode) {
       outputLines.push(text)
       continue
