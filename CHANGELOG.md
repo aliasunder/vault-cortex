@@ -1,60 +1,10 @@
 # Changelog
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## [0.21.0] — 2026-06-21
 
-No notable changes.
+### Features
+
+- Add vault_delete_span for anchor-based block deletion (#166)
 
 ## [0.20.2] — 2026-06-21
 
