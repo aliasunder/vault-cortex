@@ -272,6 +272,7 @@ Errors:
 
 Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, watch for: #word (no space) = tag, [[ = wikilink, %% = comment block. Escape with \\# or \\[[ when unintentional.
 Structural note: inserting heading-level content (e.g. ## New Section) changes the note's section structure — future patch calls targeting headings may resolve differently.
+Table note: when prepending/appending a row to an existing markdown table, send only the data row (e.g. "| cell1 | cell2 |") — do not include the table header or separator row, which already exist. A duplicated header splits the table in two.
 
 Returns: Confirmation message.`,
       inputSchema: {
