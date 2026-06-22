@@ -1,5 +1,4 @@
 import {
-  readFile,
   writeFile,
   readdir,
   mkdir,
@@ -11,12 +10,18 @@ import {
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
-import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
-import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
-import { parseHeadings, findHeading } from "./heading-parser.js"
-import { parseLeadingCallout } from "./callout-parser.js"
-import type { LeadingCallout } from "./callout-parser.js"
+import { describeError } from "../../utils/describe-error.js"
+import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
+import {
+  parseNote,
+  stringifyNote,
+  mergeFrontmatter,
+} from "../obsidian-markdown/frontmatter.js"
+import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 /** Canonicalizes a path for the protected-path prefix check: converts Windows
@@ -69,7 +74,7 @@ export const pruneEmptyParents = async (
     } catch (error) {
       logger.warn("could not remove empty folder", {
         folder: relative(vaultRoot, dir),
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
       return removed
     }
@@ -118,41 +123,47 @@ export const atomicWriteFile = async (
  * `vault_move_note`'s new path). The content is fully staged before the link, so
  * the target appears atomically; the temp link is always removed, leaving only
  * the target on success. Mirrors POSIX `O_EXCL` / Node's `'wx'` flag semantics.
+ *
+ * When `hardLinksSupported` is `false` (a Windows-drive Docker bind mount, where
+ * `link` isn't available), it instead reserves the target with an `O_EXCL`
+ * create (the `'wx'` flag) — atomic and race-free, throwing `EEXIST` if the
+ * target exists — then renames the staged temp over that empty placeholder so
+ * the content still lands atomically. The placeholder is visible for only the
+ * instant between the reservation and the rename. This preserves the same
+ * no-clobber contract as the link path; `'wx'` create is far more portable
+ * than `link`, so it works where hard links don't.
  */
 export const atomicWriteFileExclusive = async (
   filePath: string,
   content: string,
+  options?: { hardLinksSupported?: boolean },
 ): Promise<void> => {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  const hardLinksSupported = options?.hardLinksSupported ?? true
   try {
     await writeFile(tmpPath, content, "utf8")
-    // Atomic no-clobber create: throws EEXIST if filePath already exists.
-    await link(tmpPath, filePath)
+    if (hardLinksSupported) {
+      // Atomic no-clobber create: throws EEXIST if filePath already exists.
+      await link(tmpPath, filePath)
+      return
+    }
+    // No hard links on this filesystem. Reserve the target atomically (O_EXCL):
+    // throws EEXIST if it already exists, with no separate check — so there's no
+    // TOCTOU window in which a concurrent writer's file could be clobbered.
+    await writeFile(filePath, "", { flag: "wx" })
+    try {
+      // Swap the fully-staged content over the empty placeholder.
+      await rename(tmpPath, filePath)
+    } catch (renameError) {
+      // The reservation took but the swap failed — drop the placeholder so a
+      // failed write never strands a 0-byte note at the destination.
+      await rm(filePath, { force: true }).catch(() => {})
+      throw renameError
+    }
   } finally {
-    // Always drop the temp link — redundant on success (filePath is the durable
-    // name), and never stranded on failure. Swallow cleanup errors so the
-    // original failure (e.g. EEXIST) is what propagates.
+    // Always drop the temp file — renamed away on success, redundant otherwise.
+    // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
     await rm(tmpPath, { force: true }).catch(() => {})
-  }
-}
-
-/** Reads a file, returning null instead of throwing on ENOENT. */
-const readFileOrNull = async (path: string): Promise<string | null> => {
-  try {
-    return await readFile(path, "utf8")
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
-    throw err
-  }
-}
-
-/** Reads a directory recursively, returning null instead of throwing on ENOENT. */
-const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
-  try {
-    return await readdir(path, { recursive: true, withFileTypes: true })
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
-    throw err
   }
 }
 
@@ -222,7 +233,7 @@ const readNoteOutline = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = parseNote(content).content.split("\n")
+  const lines = splitIntoLines(parseNote(content).content)
   const leadingCallout = parseLeadingCallout(lines)
   const headings = parseHeadings(lines)
   const outline = headings.map((heading) => {
@@ -269,7 +280,7 @@ const readNoteSection = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = parseNote(content).content.split("\n")
+  const lines = splitIntoLines(parseNote(content).content)
   const headings = parseHeadings(lines)
   const target = findHeading(headings, params.heading, params.headingLevel)
   logger.info("read note section", {

@@ -4,11 +4,14 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { registerPrompts, PROMPT_NAMES } from "../prompt-definitions.js"
-import { loadConfig } from "../config.js"
-import { createSearchIndex, type SearchIndex } from "../search/search-index.js"
+import { loadConfig } from "../../config.js"
+import {
+  createSearchIndex,
+  type SearchIndex,
+} from "../../search/search-index.js"
 import { getCompleter } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { logger, type Logger } from "../../logger.js"
+import { logger, type Logger } from "../../../logger.js"
 
 const ALL_PROMPT_NAMES = Object.values(PROMPT_NAMES)
 

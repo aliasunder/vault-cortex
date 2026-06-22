@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseLeadingCallout } from "../callout-parser.js"
+import { parseLeadingCallout } from "../callouts.js"
 
 describe("parseLeadingCallout", () => {
   it("parses a callout that is the first body line (before any heading)", () => {

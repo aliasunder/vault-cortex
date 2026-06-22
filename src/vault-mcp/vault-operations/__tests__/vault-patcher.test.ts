@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
 import { logger } from "../../../logger.js"
 
-const { patchNote, replaceInNote, findTrailingCommentBlockStart } = vaultPatcher
+const { patchNote, replaceInNote, deleteSpan, findTrailingCommentBlockStart } =
+  vaultPatcher
 
 let vault: string
 
@@ -1589,6 +1590,107 @@ describe("patchNote errors", () => {
   })
 })
 
+describe("patchNote — duplicate-heading guard", () => {
+  it.each(["replace", "prepend", "append", "insert_before"] as const)(
+    "rejects %s when content begins with the target heading, leaving the note untouched",
+    async (operation) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await expect(
+        patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation,
+            content: "## Up Next\n- [ ] New task\n",
+            heading: "Up Next",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('content begins with the heading "## Up Next"')
+      // Rejected before any write — the file is byte-for-byte unchanged.
+      expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
+    },
+  )
+
+  it("allows content whose leading heading differs from the target", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "## Other Heading\nbody\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+## Other Heading
+body
+
+## Done
+- [x] Task D
+`)
+  })
+
+  it("allows a same-text heading at a different level (not a duplicate)", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "### Up Next\nsub\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    // Exact whole-file result — frontmatter is normalized to block style on write.
+    expect(await readTestNote("note.md")).toBe(`---
+title: Test Note
+tags:
+  - test
+---
+
+# Main Title
+
+Intro paragraph.
+
+## Active
+- [ ] Task A
+- [ ] Task B
+
+### Subtasks
+- [ ] Sub-task 1
+
+## Up Next
+### Up Next
+sub
+
+## Done
+- [x] Task D
+`)
+  })
+})
+
 // ── Edge cases ──────────────────────────────────────────────────
 
 describe("patchNote edge cases", () => {
@@ -1960,5 +2062,572 @@ Line two
     )
     const updated = await readTestNote("spaced.md")
     expect(updated).toContain("Line replaced\n\n\nLine two")
+  })
+})
+
+describe("deleteSpan", () => {
+  // A long, URL- and wikilink-bearing middle row — the kind of payload that a
+  // full-text old_text would have to echo back. Anchored deletion avoids that.
+  const SESSIONS_TABLE = `---
+title: Sessions
+---
+
+## History
+
+| 2026-05-01 | [[sessions/a|First]] short row |
+| 2026-05-02 | ${"[[sessions/b|Second]] ".repeat(40)}see https://example.com/x?y=1&z=2 |
+| 2026-05-03 | [[sessions/c|Third]] short row |
+`
+
+  it("deletes a single long row by a short start anchor with no end anchor", async () => {
+    await writeTestNote("sessions.md", SESSIONS_TABLE)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "sessions.md", startAnchor: "| 2026-05-02 |" },
+      logger,
+    )
+    const updated = await readTestNote("sessions.md")
+    const expectedPreview =
+      (
+        "| 2026-05-02 | " +
+        "[[sessions/b|Second]] ".repeat(40) +
+        "see https://example.com/x?y=1&z=2 |"
+      ).slice(0, 80) + "…"
+    expect(result).toBe(`Deleted 1 line from sessions.md: "${expectedPreview}"`)
+    // Whole-file assertion: the long middle row is gone and both neighbours
+    // survive verbatim, with no stray blank line or duplication left behind.
+    expect(updated).toBe(`---
+title: Sessions
+---
+
+## History
+
+| 2026-05-01 | [[sessions/a|First]] short row |
+| 2026-05-03 | [[sessions/c|Third]] short row |
+`)
+  })
+
+  it("deletes a multi-line block from the start line through the end line, inclusive", async () => {
+    const content = `---
+title: Plan
+---
+
+Before paragraph.
+
+> [!warning] Stale
+> line two
+> line three
+> remove after launch
+
+After paragraph.
+`
+    await writeTestNote("plan.md", content)
+    const result = await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "plan.md",
+        startAnchor: "> [!warning] Stale",
+        endAnchor: "remove after launch",
+      },
+      logger,
+    )
+    const updated = await readTestNote("plan.md")
+    expect(result).toBe(
+      `Deleted 4 lines from plan.md: "> [!warning] Stale
+> line two
+> line three
+> remove after launch"`,
+    )
+    // All four callout lines gone (including the last — guards an exclusive-end
+    // bug), surrounding paragraphs intact, blank run collapsed.
+    expect(updated).toBe(`---
+title: Plan
+---
+
+Before paragraph.
+
+After paragraph.
+`)
+  })
+
+  it("treats start and end anchors on the same line as a single-line span", async () => {
+    const content = `---
+title: Single
+---
+
+keep before
+alpha middle omega
+keep after
+`
+    await writeTestNote("single.md", content)
+    const result = await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "single.md",
+        startAnchor: "alpha",
+        endAnchor: "omega",
+      },
+      logger,
+    )
+    const updated = await readTestNote("single.md")
+    expect(result).toBe('Deleted 1 line from single.md: "alpha middle omega"')
+    expect(updated).toBe(`---
+title: Single
+---
+
+keep before
+keep after
+`)
+  })
+
+  it("searches the end anchor only at or after the start line", async () => {
+    const content = `---
+title: Order
+---
+
+MARK appears before.
+START of block
+middle line
+MARK appears again.
+tail line
+`
+    await writeTestNote("order.md", content)
+    await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "order.md",
+        startAnchor: "START of block",
+        endAnchor: "MARK",
+      },
+      logger,
+    )
+    const updated = await readTestNote("order.md")
+    // The earlier MARK line is left alone; the span runs from the start line to
+    // the later MARK line (inclusive). Whole-file assertion guards a from-zero
+    // end search that would have cut the wrong span.
+    expect(updated).toBe(`---
+title: Order
+---
+
+MARK appears before.
+tail line
+`)
+  })
+
+  it("collapses blank-line runs left behind by the deletion", async () => {
+    const content = `---
+title: Spaced
+---
+
+A
+
+LINE TO DELETE
+
+B
+`
+    await writeTestNote("spaced.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "spaced.md", startAnchor: "LINE TO DELETE" },
+      logger,
+    )
+    const updated = await readTestNote("spaced.md")
+    expect(updated).toBe(`---
+title: Spaced
+---
+
+A
+
+B
+`)
+  })
+
+  it("collapses blank-line runs in a CRLF-authored note and writes LF-only output", async () => {
+    // CRLF body: split("\n") leaves a trailing "\r" on each line, which would
+    // defeat the LF-only blank-run collapse unless the reader strips it.
+    const content =
+      "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n"
+    await writeTestNote("crlf.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" },
+      logger,
+    )
+    const updated = await readTestNote("crlf.md")
+    expect(updated).not.toContain("\r")
+    expect(updated).toBe(`---
+title: Crlf
+---
+
+A
+
+B
+`)
+  })
+
+  it("preserves frontmatter when deleting a body line", async () => {
+    const content = `---
+title: Kept
+type: note
+---
+
+- [ ] Task A
+- [ ] Task B
+`
+    await writeTestNote("note.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" },
+      logger,
+    )
+    const updated = await readTestNote("note.md")
+    // Whole-file assertion: both frontmatter keys survive untouched and only
+    // the targeted body line is removed.
+    expect(updated).toBe(`---
+title: Kept
+type: note
+---
+
+- [ ] Task B
+`)
+  })
+
+  it("does not disturb a trailing kanban:settings block", async () => {
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await deleteSpan(
+      { vaultPath: vault, path: "board.md", startAnchor: "- [ ] Task A" },
+      logger,
+    )
+    const updated = await readTestNote("board.md")
+    // Whole-file assertion: the Active card is gone, but the fenced
+    // kanban:settings block at EOF survives byte-for-byte.
+    expect(updated).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+## Done
+
+- [x] Task D
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+  })
+
+  it("deletes the last line of a file with no trailing newline without stranding a blank", async () => {
+    const content = `---
+title: Tail
+---
+
+first line
+last line`
+    await writeTestNote("tail.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "tail.md", startAnchor: "last line" },
+      logger,
+    )
+    const updated = await readTestNote("tail.md")
+    expect(updated).toBe(`---
+title: Tail
+---
+
+first line
+`)
+  })
+
+  it("matches an anchor containing wikilink/pipe characters literally, not as regex", async () => {
+    const content = `---
+title: Links
+---
+
+| 1 | [[Notes/Page|Alias]] keep |
+| 2 | [[Notes/Other|Alias]] drop |
+`
+    await writeTestNote("links.md", content)
+    await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "links.md",
+        startAnchor: "[[Notes/Other|Alias]]",
+      },
+      logger,
+    )
+    const updated = await readTestNote("links.md")
+    // The "drop" row is matched literally (the [[ and | are not regex) and
+    // removed; the sibling row with the same alias survives.
+    expect(updated).toBe(`---
+title: Links
+---
+
+| 1 | [[Notes/Page|Alias]] keep |
+`)
+  })
+
+  it("reports the line count and a preview of the removed text", async () => {
+    const content = `---
+title: Preview
+---
+
+unique line to remove
+other line
+`
+    await writeTestNote("preview.md", content)
+    const result = await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "preview.md",
+        startAnchor: "unique line to remove",
+      },
+      logger,
+    )
+    expect(result).toBe(
+      'Deleted 1 line from preview.md: "unique line to remove"',
+    )
+  })
+
+  it("truncates a long removed line in the confirmation preview", async () => {
+    const longLine = "z".repeat(100)
+    const content = `---
+title: Long
+---
+
+${longLine}
+keep me
+`
+    await writeTestNote("long.md", content)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "long.md", startAnchor: longLine },
+      logger,
+    )
+    // Deterministic message: 80-char truncation + ellipsis of the removed line.
+    expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`)
+  })
+
+  it("deletes the first matching line when first_match is set on the start anchor", async () => {
+    const content = `---
+title: Dups
+---
+
+top line
+- [ ] dup
+middle line
+- [ ] dup
+bottom line
+`
+    await writeTestNote("dups.md", content)
+    await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "dups.md",
+        startAnchor: "- [ ] dup",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("dups.md")
+    // Only the first duplicate is removed (top now sits above middle); the
+    // second identical line survives.
+    expect(updated).toBe(`---
+title: Dups
+---
+
+top line
+middle line
+- [ ] dup
+bottom line
+`)
+  })
+
+  it("resolves an ambiguous end anchor to its first match when first_match is set", async () => {
+    const content = `---
+title: EndFirst
+---
+
+START unique
+inside one
+- end candidate
+inside two
+- end candidate
+tail line
+`
+    await writeTestNote("endfirst.md", content)
+    await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "endfirst.md",
+        startAnchor: "START unique",
+        endAnchor: "- end candidate",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("endfirst.md")
+    // Span ends at the FIRST end-candidate line; everything after it survives.
+    expect(updated).toBe(`---
+title: EndFirst
+---
+
+inside two
+- end candidate
+tail line
+`)
+  })
+
+  it("empties the body when the span covers every body line", async () => {
+    const content = `---
+title: WholeBody
+---
+
+only line one
+only line two
+`
+    await writeTestNote("whole.md", content)
+    const result = await deleteSpan(
+      {
+        vaultPath: vault,
+        path: "whole.md",
+        startAnchor: "only line one",
+        endAnchor: "only line two",
+      },
+      logger,
+    )
+    const updated = await readTestNote("whole.md")
+    expect(result).toBe(
+      `Deleted 2 lines from whole.md: "only line one
+only line two"`,
+    )
+    // Frontmatter survives; the entire body collapses to a single blank line.
+    expect(updated).toBe(`---
+title: WholeBody
+---
+
+`)
+  })
+
+  it("errors on empty start_anchor", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "" },
+        logger,
+      ),
+    ).rejects.toThrow("start_anchor cannot be empty")
+  })
+
+  it("errors on empty end_anchor", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      deleteSpan(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          startAnchor: "- [ ] Task A",
+          endAnchor: "",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("end_anchor cannot be empty")
+  })
+
+  it("errors when the start anchor is not found, leaving the file unchanged", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "no such line" },
+        logger,
+      ),
+    ).rejects.toThrow('start anchor not found in "note.md"')
+    expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
+  })
+
+  it("errors when the end anchor exists only before the start line", async () => {
+    const content = `---
+title: EndBefore
+---
+
+EARLY marker
+START here
+later content
+`
+    await writeTestNote("endbefore.md", content)
+    await expect(
+      deleteSpan(
+        {
+          vaultPath: vault,
+          path: "endbefore.md",
+          startAnchor: "START here",
+          endAnchor: "EARLY marker",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'end anchor not found in "endbefore.md" at or after the start anchor',
+    )
+    expect(await readTestNote("endbefore.md")).toBe(content)
+  })
+
+  it("errors on an ambiguous start anchor by default, leaving the file unchanged", async () => {
+    const content = `---
+title: Ambig
+---
+
+- [ ] dup
+- [ ] dup
+`
+    await writeTestNote("ambig.md", content)
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines',
+    )
+    expect(await readTestNote("ambig.md")).toBe(content)
+  })
+
+  it("errors on an ambiguous end anchor by default, leaving the file unchanged", async () => {
+    const content = `---
+title: AmbigEnd
+---
+
+START unique
+- end candidate
+- end candidate
+`
+    await writeTestNote("ambigend.md", content)
+    await expect(
+      deleteSpan(
+        {
+          vaultPath: vault,
+          path: "ambigend.md",
+          startAnchor: "START unique",
+          endAnchor: "- end candidate",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'ambiguous end anchor in "ambigend.md": "- end candidate" matches 2 lines at or after the start anchor',
+    )
+    expect(await readTestNote("ambigend.md")).toBe(content)
+  })
+
+  it("errors on file not found", async () => {
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "missing.md", startAnchor: "x" },
+        logger,
+      ),
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
+
+  it("errors on path traversal", async () => {
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "../escape.md", startAnchor: "x" },
+        logger,
+      ),
+    ).rejects.toThrow("path traversal blocked")
   })
 })

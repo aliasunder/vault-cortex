@@ -65,21 +65,29 @@ src/
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   utils/                               # Cross-cutting helpers (no domain logic)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
+    describe-error.ts                  # describeError — message from an unknown throw
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
     server.ts                          # Entry point — config, mount routes, listen
     config.ts                          # Env-var loader + ServerConfig type (loadConfig)
-    mcp-router.ts                      # /mcp session routes + transport lifecycle
-    tool-definitions.ts                # MCP tool registrations + Zod schemas
-    prompt-definitions.ts              # MCP prompt registrations + Zod arg schemas
-    vault-operations/                  # Vault content read/write/patch
+    obsidian-markdown/                 # Pure Obsidian/Markdown parsers + transforms (no I/O)
+      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines
+      frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
+      callouts.ts                      # Leading-callout parser (> [!type] blocks)
+      headings.ts                      # Shared H1–H6 section-span parser (read + patch)
+      links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+    vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
-      heading-parser.ts                # Shared H1–H6 section-span parser (read + patch)
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
+    mcp-core/                          # MCP protocol surface
+      mcp-router.ts                    # /mcp session routes + transport lifecycle
+      tool-definitions.ts              # MCP tool registrations + Zod schemas
+      prompt-definitions.ts            # MCP prompt registrations + Zod arg schemas
     search/                            # SQLite FTS5 indexing + file watching
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
@@ -218,6 +226,13 @@ log would produce N lines during a vault rebuild (one per note), it's
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`.
+- Name booleans (params, flags, locals) for the affirmative state, and
+  let the value carry the negation: `hardLinksSupported: false` reads
+  clearer than `hardLinksUnsupported: true`, and a double negative like
+  `if (!notReady)` is a smell. A positively-named flag also keeps the
+  guard's condition positive (`if (hardLinksSupported) { … return }`),
+  so it pairs naturally with the early-return rule above — the common
+  path returns, the fallback flows beneath it, no `else`.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

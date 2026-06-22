@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
-import { loadConfig } from "../config.js"
+import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { SearchIndex } from "../search/search-index.js"
-import { logger } from "../../logger.js"
+import type { SearchIndex } from "../../search/search-index.js"
+import { logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
@@ -29,6 +29,7 @@ const READ_ONLY_TOOLS = [
 const DESTRUCTIVE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
   TOOL_NAMES.VAULT_DELETE_NOTE,
+  TOOL_NAMES.VAULT_DELETE_SPAN,
   TOOL_NAMES.VAULT_MOVE_NOTE,
   TOOL_NAMES.VAULT_DELETE_MEMORY,
   TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
@@ -42,6 +43,7 @@ const WRITE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
   TOOL_NAMES.VAULT_PATCH_NOTE,
   TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+  TOOL_NAMES.VAULT_DELETE_SPAN,
   TOOL_NAMES.VAULT_MOVE_NOTE,
   TOOL_NAMES.VAULT_UPDATE_MEMORY,
   TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
