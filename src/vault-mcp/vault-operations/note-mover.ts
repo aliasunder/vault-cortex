@@ -16,7 +16,7 @@
  *       the vault), then commit writes the destination, updates backlink sources,
  *       and deletes the original last. */
 
-import { readFile, mkdir, unlink, stat } from "node:fs/promises"
+import { readFile, mkdir, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import {
@@ -29,6 +29,8 @@ import {
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
+import { describeError } from "../../utils/describe-error.js"
+import { fileExists } from "../../utils/fs.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -374,23 +376,8 @@ const isProtected = (
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
     .some((prefix) => path.startsWith(prefix))
 
-/** Resolves true if a file exists at the resolved vault path. */
-const fileExists = async (fullPath: string): Promise<boolean> => {
-  try {
-    await stat(fullPath)
-    return true
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false
-    throw err
-  }
-}
-
 /** Caps concurrent file handles during rewriting. */
 const REWRITE_CONCURRENCY = 10
-
-/** Human-readable message from an unknown thrown value, for structured logs. */
-const describeError = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
 
 /** Moves a note and rewrites every link across the vault that resolves to it.
  *  Two phases: preflight reads all files and computes rewrites (aborting on any

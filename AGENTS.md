@@ -65,6 +65,8 @@ src/
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   utils/                               # Cross-cutting helpers (no domain logic)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
+    describe-error.ts                  # describeError — message from an unknown throw
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/

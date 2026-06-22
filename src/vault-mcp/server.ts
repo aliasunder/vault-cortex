@@ -12,6 +12,7 @@ import { createOAuthRoutes } from "./auth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { loadConfig } from "./config.js"
 import { logger } from "../logger.js"
+import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
 export const createErrorMiddleware =
@@ -135,7 +136,7 @@ const isEntryPoint =
 if (isEntryPoint) {
   startServer().catch((err) => {
     logger.error("failed to start server", {
-      error: err instanceof Error ? err.message : String(err),
+      error: describeError(err),
     })
     process.exit(1)
   })

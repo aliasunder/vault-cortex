@@ -5,6 +5,7 @@ import { constants } from "node:fs"
 import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
+import { readFileOrNull } from "../../utils/fs.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -320,17 +321,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   /** Like readMemoryFile, but returns null when the file does not exist. */
-  const readMemoryFileOrNull = async (
+  const readMemoryFileOrNull = (
     vaultPath: string,
     file: string,
-  ): Promise<string | null> => {
-    try {
-      return await readFile(memoryFilePath(vaultPath, file), "utf8")
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
-      throw err
-    }
-  }
+  ): Promise<string | null> => readFileOrNull(memoryFilePath(vaultPath, file))
 
   /** Builds a new memory file with frontmatter, H1 title, H2 section, and initial entry. */
   const buildNewMemoryFile = (params: {
