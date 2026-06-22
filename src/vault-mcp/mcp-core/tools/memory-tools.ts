@@ -168,6 +168,9 @@ Example: vault_list_memory_files() returns file outlines with headings like "Dec
 
 When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
 
+Errors:
+- An empty or nonexistent memory folder returns an empty array, not an error.
+
 Returns: JSON array of file outlines, each { file, title, leading_callout, headings } — leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
       annotations: {

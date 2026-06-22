@@ -190,6 +190,9 @@ Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "p
 When to use: Discovering what tags exist in the vault before searching by tag. Good first step for vault orientation.
 Prefer vault_search_by_tag once you know which tag to query.
 
+Errors:
+- A vault with no tagged notes returns an empty array, not an error.
+
 Returns: JSON array of { tag, count } objects.`,
       inputSchema: {},
       annotations: {
