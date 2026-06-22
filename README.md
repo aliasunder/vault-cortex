@@ -25,19 +25,11 @@
 
 The typical Obsidian MCP setup requires three moving parts: Obsidian open, a REST API plugin installed, and a separate MCP server wrapping the plugin. Vault Cortex replaces all of that with one Docker container and your vault folder. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client.
 
-- **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
-- **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **Ranked search** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
-- **Structured memory** — dated entries, section targeting, auto-initialization for AI personalization
-- **Link graph** — backlinks, outgoing links, and orphan detection across the vault
-- **Obsidian-native** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **Guided workflows** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work. Assembled from live vault content each time you run them.
-
 <table align="center">
   <tr>
-    <td align="center"><strong>Remember</strong></td>
-    <td align="center"><strong>Reason</strong></td>
-    <td align="center"><strong>Save</strong></td>
+    <td align="center"><strong>Search the vault</strong></td>
+    <td align="center"><strong>Reason over notes</strong></td>
+    <td align="center"><strong>Write back to Obsidian</strong></td>
   </tr>
   <tr>
     <td><img src="./assets/demo-remember.gif" width="240" alt="Ask Claude about a past trip — it searches the vault and recalls the route, cities, and highlights"></td>
@@ -47,6 +39,14 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 </table>
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
+
+- **[Remote access](#authentication)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
+- **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
+- **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
+- **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
+- **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
+- **[Guided workflows](#prompts-3)** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work. Assembled from live vault content each time you run them.
 
 ### Roadmap
 
