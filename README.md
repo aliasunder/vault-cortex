@@ -12,12 +12,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aliasunder/vault-cortex)
-
-</div>
-
-<div align="center">
-
-[![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/card.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
+[![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
 </div>
 
