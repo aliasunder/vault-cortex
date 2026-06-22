@@ -226,7 +226,7 @@ describe("loadConfig", () => {
 
     it("still includes memoryDir in default protectedPaths when disabled", () => {
       const config = loadConfig({ MEMORY_ENABLED: "false" })
-      expect(config.protectedPaths).toContain("About Me")
+      expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
     })
   })
 })

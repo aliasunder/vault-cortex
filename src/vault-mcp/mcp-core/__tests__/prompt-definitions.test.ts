@@ -822,6 +822,7 @@ describe("MEMORY_ENABLED=false", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
+    expect(text).toContain("Could not fully survey the vault")
     expect(text).not.toContain("vault_list_memory_files")
   })
 

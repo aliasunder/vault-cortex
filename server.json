@@ -82,7 +82,7 @@
         },
         {
           "name": "MEMORY_DIR",
-          "description": "Vault folder for structured memory files (About Me-style notes). Ignored when MEMORY_ENABLED is false.",
+          "description": "Vault folder for structured memory files (About Me-style notes). Memory tools are hidden when MEMORY_ENABLED is false, but this value still feeds the defaults for PROTECTED_PATHS and ORPHAN_EXCLUDE_FOLDERS.",
           "default": "About Me"
         },
         {
