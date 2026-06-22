@@ -175,12 +175,13 @@ export const registerPrompts = (params: {
           recent.length > 0
             ? recent.map(formatNoteLine).join("\n")
             : "No notes yet."
-        const memorySection =
-          memoryFiles.length > 0
+        const memorySection = config.memoryEnabled
+          ? memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)
             : `No memory files yet — the ${config.memoryDir}/ layer is empty. Use vault_update_memory to start it.`
+          : ""
 
-        const sections = [
+        const text = [
           "# Vault orientation",
           "",
           "This vault is a structured, convention-driven Obsidian system. Survey its actual conventions below, then use the `vault_*` tools to go deeper.",
@@ -196,18 +197,15 @@ export const registerPrompts = (params: {
           "",
           "## Recently modified",
           recentSection,
-        ]
-        if (config.memoryEnabled) {
-          sections.push("", `## Memory (${config.memoryDir}/)`, memorySection)
-        }
-        sections.push(
+          ...(config.memoryEnabled
+            ? ["", `## Memory (${config.memoryDir}/)`, memorySection]
+            : []),
           "",
           "---",
           config.memoryEnabled
             ? "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`."
             : "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, and `vault_read_note`.",
-        )
-        const text = sections.join("\n")
+        ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",
           chars: text.length,
