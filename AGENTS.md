@@ -460,3 +460,26 @@ description (primary: it carries the descriptive line and is read from the
 merged PR via the API, so it survives even when the squash body is dropped).
 A `breaking-change` PR label or a `!` type marker (`feat(scope)!:`) also work
 as flags.
+
+### Files that track feature surface
+
+Several files outside `src/` reflect the project's feature surface and
+need updating alongside code changes. What to check depends on what
+changed:
+
+| File                                 | Update when…                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`                          | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
+| `ARCHITECTURE.md`                    | New component, requirement, or design decision; component diagram changes                                                                                |
+| `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields)                                                                                             |
+| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits                                                                               |
+| `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
+| `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
+| `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
+| `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
+| `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
+
+Not every PR touches these — a new tool in an existing category needs
+a `server.json` + `README.md` count bump but nothing else. A module
+rename needs `.devin/wiki.json` + `ARCHITECTURE.md`. Use the table as
+a checklist, not a mandate to touch every file.
