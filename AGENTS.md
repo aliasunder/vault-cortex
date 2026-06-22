@@ -131,7 +131,7 @@ Two rules keep this honest:
 
 **`utils/` admission:** a helper belongs here only if it is generic, has **zero
 domain knowledge, and has more than one consumer** (`describeError`,
-`readFileOrNull`, `mapWithConcurrency`). Markdown logic is domain — it goes in
+`readFileOrNull`). Markdown logic is domain — it goes in
 `obsidian-markdown/`, never `utils/`. A generic but single-consumer helper stays
 private until a second caller appears.
 
@@ -144,11 +144,13 @@ private until a second caller appears.
   Stateful ones use a **factory-closure** returning that object
   (`createSearchIndex`, `createMemoryStore`), so prepared statements / caches
   live in the closure.
-- **Pure parser / helper modules** — the `obsidian-markdown/` parsers
+- **Parser and small-helper modules** — the `obsidian-markdown/` parsers
   (`frontmatter`, `headings`, `callouts`, `lines`), `utils/`, and `daily-notes` —
-  export **named functions**. They're collections of pure functions, not a
-  service surface, so named exports keep imports precise and carry their types
-  directly.
+  export **named functions**. The shape tracks whether a module is a _cohesive
+  service surface_ (→ namespace) or just a loose set of functions (→ named),
+  **not** whether it does I/O: the parsers are pure, while `daily-notes` does
+  light I/O (reads and caches daily-note config), yet both use named exports
+  because neither is a grouped service API.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
   exports a single `links` namespace, _not_ for the service-grouping reason above
   but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
