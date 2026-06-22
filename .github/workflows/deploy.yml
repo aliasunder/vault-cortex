@@ -202,6 +202,7 @@ jobs:
           CONFLICT_STRATEGY=conflict
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
+          LOG_RETENTION_DAYS=365
           TZ=${TZ:-UTC}
           EOF
 
