@@ -69,6 +69,12 @@ const startServer = async (): Promise<void> => {
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
 
+  logger.info("config loaded", {
+    memoryEnabled: config.memoryEnabled,
+    memoryDir: config.memoryDir,
+    windowsBindMount: config.windowsBindMount,
+  })
+
   const search = createSearchIndex(searchDbPath)
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
@@ -76,15 +82,6 @@ const startServer = async (): Promise<void> => {
   if (config.memoryEnabled) {
     const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
     await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
-  } else {
-    logger.info("memory layer disabled")
-  }
-
-  if (config.windowsBindMount) {
-    logger.info("windows bind-mount mode enabled", {
-      watcher: "polling",
-      exclusiveWrite: "rename",
-    })
   }
   await startFileWatcher(vaultPath, search, {
     usePolling: config.windowsBindMount,
