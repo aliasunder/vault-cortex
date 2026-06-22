@@ -199,7 +199,7 @@ jobs:
           PUID=1000
           PGID=1000
           DEVICE_NAME=vault-cortex-lightsail
-          CONFLICT_STRATEGY=conflict
+          CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
           LOG_LEVEL=info
           LOG_RETENTION_DAYS=365
