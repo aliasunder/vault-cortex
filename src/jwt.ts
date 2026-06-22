@@ -6,6 +6,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { DateTime } from "luxon"
 
 export type JwtPayload = {
   sub: string
@@ -46,7 +47,10 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
       Buffer.from(payload, "base64url").toString(),
     ) as JwtPayload
     // Reject expired tokens (exp is Unix seconds)
-    if (typeof decoded.exp === "number" && decoded.exp < Date.now() / 1000) {
+    if (
+      typeof decoded.exp === "number" &&
+      decoded.exp < DateTime.now().toUnixInteger()
+    ) {
       return null
     }
     return decoded
