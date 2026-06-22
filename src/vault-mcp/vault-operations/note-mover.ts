@@ -18,7 +18,7 @@
 
 import { readFile, mkdir, unlink, stat } from "node:fs/promises"
 import { dirname, posix } from "node:path"
-import { parseNote, stringifyNote } from "./frontmatter.js"
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
   atomicWriteFile,
@@ -26,7 +26,7 @@ import {
   pruneEmptyParents,
   toVaultRelativePath,
 } from "./vault-filesystem.js"
-import { links } from "../links.js"
+import { links } from "../obsidian-markdown/links.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import type { Logger } from "../../logger.js"
 

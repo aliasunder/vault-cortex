@@ -13,10 +13,14 @@ import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
 import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
-import { parseNote, stringifyNote, mergeFrontmatter } from "./frontmatter.js"
-import { parseHeadings, findHeading } from "./heading-parser.js"
-import { parseLeadingCallout } from "./callout-parser.js"
-import type { LeadingCallout } from "./callout-parser.js"
+import {
+  parseNote,
+  stringifyNote,
+  mergeFrontmatter,
+} from "../obsidian-markdown/frontmatter.js"
+import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { Logger } from "../../logger.js"
 
 /** Canonicalizes a path for the protected-path prefix check: converts Windows
