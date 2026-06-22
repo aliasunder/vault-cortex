@@ -86,8 +86,14 @@ src/
       daily-notes.ts                   # Daily note config reader + path resolver
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
-      tool-definitions.ts              # MCP tool registrations + Zod schemas
+      tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
       prompt-definitions.ts            # MCP prompt registrations + Zod arg schemas
+      tools/                           # Tool group modules (one per data-layer domain)
+        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
+        vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
+        search-tools.ts                # 11 tools: search, tags, properties, graph queries
+        memory-tools.ts                # 4 tools: get/update/list/delete memory
+        daily-note-tools.ts            # 1 tool: get daily note
     search/                            # SQLite FTS5 indexing + file watching
       search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
       file-watcher.ts                  # chokidar -> keeps index current
@@ -121,8 +127,14 @@ on**, not just its topic:
   stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
   any file) isn't enough to demote something to `utils/` if it's load-bearing
   vault-I/O policy.
-- **`mcp-core/`** — the MCP protocol surface (`mcp-router`, `tool-definitions`,
-  `prompt-definitions`).
+- **`mcp-core/`** — the MCP protocol surface. `tool-definitions.ts` is the
+  orchestrator that composes `TOOL_NAMES` from four domain group modules under
+  `mcp-core/tools/` (vault-crud, search, memory, daily-note) and calls each
+  register function — conditionally skipping memory tools when `MEMORY_ENABLED`
+  is `false`. Each group module is self-contained: its own tool name constants,
+  register function, and data-layer imports. Shared helpers (`safeHandler`,
+  `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
+  `prompt-definitions.ts` registers the MCP prompts (not yet split into groups).
 - **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
   server (distinct from the shared `src/auth.ts` token utilities).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
@@ -218,9 +230,10 @@ root logger (src/logger.ts)
 
 - `server.ts` creates a **session logger** when a new MCP session
   initializes, adding `sessionId` + `clientIp`
-- `tool-definitions.ts` creates a **request logger** per tool call,
-  adding `requestId` + `tool` name from the MCP SDK's
-  `RequestHandlerExtra`
+- Each tool group module (`mcp-core/tools/*.ts`) creates a **request
+  logger** per tool call, adding `requestId` (from the MCP SDK's
+  `RequestHandlerExtra`) + `tool` name (from the module's own
+  `TOOL_NAMES` constant)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
@@ -363,8 +376,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 - **Internal TypeScript** uses `camelCase` — function params,
   local variables, internal types that never reach the wire.
   Examples: `oldText`, `headingLevel`, `snippetTokens`.
-- The mapping happens in `tool-definitions.ts` handlers:
-  `replaceAllOccurrences: replace_all_occurrences`.
+- The mapping happens in each tool group module's handlers
+  (`mcp-core/tools/*.ts`): `replaceAllOccurrences: replace_all_occurrences`.
 - Types that ARE the JSON response shape (`PropertyKeyInfo`,
   `SearchResult`, `NoteMetadata`) use `snake_case` for any
   multi-word fields to match the wire format. Single-word fields

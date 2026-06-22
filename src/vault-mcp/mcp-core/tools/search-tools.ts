@@ -227,13 +227,21 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 When to use: Catching up on vault changes or finding recent work.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
+Errors:
+- An empty vault returns an empty array, not an error.
+
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by chosen timestamp. bytes is the on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
           .optional()
-          .describe('Sort field: "created" or "modified" (default "modified")'),
-        limit: z.number().optional().describe("Max results (default 20)"),
+          .describe(
+            'Sort by "created" (frontmatter created timestamp) or "modified" (filesystem mtime). Default "modified". Notes without a created property are excluded from created-sorted results.',
+          ),
+        limit: z
+          .number()
+          .optional()
+          .describe("Max results to return (default 20)"),
       },
       annotations: {
         readOnlyHint: true,
