@@ -71,6 +71,7 @@ src/
     server.ts                          # Entry point — config, mount routes, listen
     config.ts                          # Env-var loader + ServerConfig type (loadConfig)
     obsidian-markdown/                 # Pure Obsidian/Markdown parsers + transforms (no I/O)
+      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines
       frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)

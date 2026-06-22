@@ -781,6 +781,37 @@ describe("listMemoryFiles", () => {
     expect(noTitle?.title).toBe("NoTitle")
   })
 
+  it("does not treat a heading-looking line inside a code fence as a section", async () => {
+    // The shared heading parser is fence-aware, so a "## ..."-looking line inside
+    // a code block is not surfaced as a section. The prior memory-local parser was
+    // not fence-aware and would have added "Fake Section" as a real H2.
+    await writeFile(
+      join(vault, "About Me/Fenced.md"),
+      [
+        "---",
+        "title: Fenced",
+        "type: profile",
+        "---",
+        "",
+        "# Fenced",
+        "",
+        "## Real (newest first)",
+        "- **2026-06-22**: a real entry",
+        "",
+        "```md",
+        "## Fake Section",
+        "```",
+      ].join("\n"),
+      "utf8",
+    )
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const fenced = outlines.find((outline) => outline.file === "Fenced")!
+    expect(fenced.headings.map((heading) => heading.text)).toEqual([
+      "Fenced",
+      "Real (newest first)",
+    ])
+  })
+
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((o) => o.file === "Principles")!

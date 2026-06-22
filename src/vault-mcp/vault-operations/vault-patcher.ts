@@ -9,6 +9,7 @@ import {
   findTrailingCommentBlockStart,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -70,13 +71,10 @@ const readNoteForPatch = async (
     return {
       fullPath,
       data: parsed.data as Record<string, unknown>,
-      // Strip a trailing CR so CRLF-authored (Windows) notes split into
-      // LF-only lines — keeps body matching and blank-run collapse
-      // (collapseBlankRuns) consistent, and normalizes the note to LF on
-      // write. Mirrors the same handling in callouts.ts.
-      lines: parsed.content
-        .split("\n")
-        .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
+      // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
+      // so body matching and blank-run collapse (collapseBlankRuns) stay
+      // consistent, and the note is rewritten as LF.
+      lines: splitIntoLines(parsed.content),
       beforeBytes: Buffer.byteLength(fileContent, "utf8"),
     }
   } catch (err) {

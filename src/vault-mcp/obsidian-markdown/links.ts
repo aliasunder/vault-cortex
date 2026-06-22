@@ -7,16 +7,13 @@
  *  The raw `/g` grammar regexes are module-private: a shared global regex carries
  *  `lastIndex` between calls, which corrupts iteration the moment a caller reaches
  *  for `.exec()`-in-a-loop or `.test()`. Callers instead use the position-safe
- *  methods on `links` (matchLinksInLine, inlineCodeSpans, classifyLines), which
- *  drive the regexes only via matchAll/replaceAll internally. */
+ *  methods on `links` (matchLinksInLine, inlineCodeSpans), which drive the
+ *  regexes only via matchAll/replaceAll internally. */
 
 import { posix } from "node:path"
+import { classifyLines } from "./lines.js"
 
 // ── Grammar (private) ───────────────────────────────────────────
-
-/** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes
- *  (CommonMark §4.5). */
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 
 /** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
  *  [[target#heading|text]], and embeds ![[target]]. Captures the target
@@ -53,10 +50,6 @@ const safeDecodeURIComponent = (encoded: string): string => {
 
 // ── Types ───────────────────────────────────────────────────────
 
-/** One body line tagged with whether it sits in a fenced code block (a fence
- *  delimiter line counts as code — it never bears links). */
-type ClassifiedLine = { text: string; inCode: boolean }
-
 /** A link found in a single line, with the character offsets needed to splice a
  *  replacement around it. */
 type LinkMatch = {
@@ -87,40 +80,6 @@ type MarkdownLinkParts = {
   path: string
   heading: string
   closeParen: string
-}
-
-// ── Traversal ───────────────────────────────────────────────────
-
-/** Walks markdown content line by line, threading CommonMark §4.5 fence state and
- *  tagging each line as code or not. The single home of the fence state machine,
- *  used by both link extraction (skips code lines) and link rewriting (passes code
- *  lines through unchanged). */
-const classifyLines = function* (content: string): Generator<ClassifiedLine> {
-  // A fenced-code scan is inherently sequential, so this generator threads one
-  // mutable fence opener across the loop rather than folding line-state pairs.
-  let openFence: string | null = null
-
-  for (const text of content.split("\n")) {
-    const fenceMatch = FENCE_OPEN.exec(text)
-    if (fenceMatch) {
-      const fenceChars = fenceMatch[1]!
-      if (openFence === null) {
-        openFence = fenceChars[0]!.repeat(fenceChars.length)
-      } else if (
-        // Closer must use the opener's character (backtick vs tilde), be at least
-        // as long, and hold only fence characters (no trailing info string).
-        fenceChars[0] === openFence[0] &&
-        fenceChars.length >= openFence.length &&
-        text.trim() === fenceChars[0]!.repeat(text.trim().length)
-      ) {
-        openFence = null
-      }
-      // A fence delimiter line is itself code — never link-bearing.
-      yield { text, inCode: true }
-      continue
-    }
-    yield { text, inCode: openFence !== null }
-  }
 }
 
 // ── Line scanning ───────────────────────────────────────────────
@@ -294,7 +253,6 @@ const resolve = (
 /** The link domain — grammar recognition, traversal, parsing, extraction, and
  *  resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
-  classifyLines,
   matchLinksInLine,
   inlineCodeSpans,
   splitWikilink,
