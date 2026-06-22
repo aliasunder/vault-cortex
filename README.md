@@ -52,17 +52,7 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 
 ## Why Vault Cortex?
 
-Most Obsidian MCP servers follow one of two patterns. Vault Cortex takes a different approach.
-
-|                       | REST API plugin                 | Direct filesystem | Vault Cortex                                                              |
-| --------------------- | ------------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| **Obsidian required** | Yes, with plugin installed      | No                | No                                                                        |
-| **Remote access**     | Localhost only                  | Localhost only    | Any device via OAuth 2.1                                                  |
-| **Search**            | Delegates to Obsidian or plugin | Basic or none     | SQLite FTS5 with BM25 scoring, stemming, and structured filters           |
-| **Structured memory** | No                              | No                | Dated entries, section targeting, auto-initialization                     |
-| **Link graph**        | Limited or none                 | No                | Backlinks, outgoing links, orphan detection                               |
-| **Guided prompts**    | No                              | No                | 3 prompts assembled from live vault content                               |
-| **Authentication**    | Varies                          | None              | OAuth 2.1 (PKCE, refresh rotation) + static bearer, dual-layer validation |
+Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It works directly with `.md` files on disk, runs its own SQLite FTS5 search index, and includes a structured memory system for AI personalization. Deploy on a VPS with Obsidian Sync and the same vault is accessible from any device, protected by OAuth 2.1 with PKCE.
 
 Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
