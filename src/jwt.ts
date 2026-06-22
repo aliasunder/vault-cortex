@@ -3,6 +3,9 @@
  * Custom instead of a library (e.g. jose): ~50 lines using only node:crypto,
  * keeps the Lambda esbuild bundle small, and avoids adding a dependency to
  * two deployment targets. HS256-only — the only algorithm we need.
+ *
+ * Intentionally avoids Luxon (and any other runtime dep). The Lambda
+ * authorizer imports verifyJwt — every dependency here enlarges that bundle.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto"
