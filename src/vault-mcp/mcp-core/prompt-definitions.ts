@@ -20,6 +20,7 @@ import { getDailyNote } from "../vault-operations/daily-notes.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
 export const PROMPT_NAMES = {
   VAULT_ORIENTATION: "vault-orientation",
@@ -204,7 +205,7 @@ export const registerPrompts = (params: {
         })
         return textResult(text)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_list_memory_files.`,
@@ -250,7 +251,7 @@ export const registerPrompts = (params: {
               // rather than error — but never swallow it silently.
               sessionLogger.warn("prompt_completion_failed", {
                 prompt: PROMPT_NAMES.MEMORY_REVIEW,
-                error: err instanceof Error ? err.message : String(err),
+                error: describeError(err),
               })
               return []
             }
@@ -345,7 +346,7 @@ export const registerPrompts = (params: {
         })
         return textResult(text)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
@@ -440,7 +441,7 @@ export const registerPrompts = (params: {
         })
         return textResult(text)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
         return textResult(
           `Could not load the daily note (${message}). Try vault_get_daily_note to fetch it directly.`,

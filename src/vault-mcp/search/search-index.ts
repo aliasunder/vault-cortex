@@ -8,6 +8,7 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { describeError } from "../../utils/describe-error.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -629,7 +630,7 @@ export const createSearchIndex = (dbPath: string) => {
     } catch (error) {
       logger.warn("full text search failed", {
         query: params.query,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
       return []
     }

@@ -5,6 +5,7 @@ import { readFile, stat } from "node:fs/promises"
 import { relative } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
@@ -48,7 +49,7 @@ export const startFileWatcher = (
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
-        error: err instanceof Error ? err.message : String(err),
+        error: describeError(err),
       })
     }
   }
@@ -89,7 +90,7 @@ export const startFileWatcher = (
     .on("unlink", handleDelete)
     .on("error", (err) => {
       logger.error("watcher error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: describeError(err),
       })
     })
 

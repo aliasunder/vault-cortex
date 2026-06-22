@@ -13,6 +13,7 @@ import { getDailyNote } from "../vault-operations/daily-notes.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
 export const TOOL_NAMES = {
   VAULT_READ_NOTE: "vault_read_note",
@@ -88,7 +89,7 @@ const safeHandler = async <T>(
       content: [{ type: "text" as const, text: format(result) }],
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = describeError(err)
     logger.warn("tool_error", { error: message })
     return {
       content: [{ type: "text" as const, text: message }],

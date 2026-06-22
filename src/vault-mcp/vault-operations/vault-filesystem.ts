@@ -1,5 +1,4 @@
 import {
-  readFile,
   writeFile,
   readdir,
   mkdir,
@@ -11,8 +10,9 @@ import {
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
-import type { Dirent } from "node:fs"
 import picomatch from "picomatch"
+import { describeError } from "../../utils/describe-error.js"
+import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
 import {
   parseNote,
   stringifyNote,
@@ -74,7 +74,7 @@ export const pruneEmptyParents = async (
     } catch (error) {
       logger.warn("could not remove empty folder", {
         folder: relative(vaultRoot, dir),
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
       return removed
     }
@@ -164,26 +164,6 @@ export const atomicWriteFileExclusive = async (
     // Always drop the temp file — renamed away on success, redundant otherwise.
     // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
     await rm(tmpPath, { force: true }).catch(() => {})
-  }
-}
-
-/** Reads a file, returning null instead of throwing on ENOENT. */
-const readFileOrNull = async (path: string): Promise<string | null> => {
-  try {
-    return await readFile(path, "utf8")
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
-    throw err
-  }
-}
-
-/** Reads a directory recursively, returning null instead of throwing on ENOENT. */
-const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
-  try {
-    return await readdir(path, { recursive: true, withFileTypes: true })
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null
-    throw err
   }
 }
 
