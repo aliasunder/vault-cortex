@@ -280,6 +280,20 @@ describe("error handling", () => {
     expect(result.content[0].text).not.toContain("node:internal")
   })
 
+  it("vault_get_memory rejects section without file", async () => {
+    const call = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    const handler = call[2]
+    const result = (await handler(
+      { file: undefined, section: "Decision heuristics" },
+      mockExtra,
+    )) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe("section requires a file")
+  })
+
   it("vault_get_memory handler returns isError on failure", async () => {
     const call = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
     const handler = call[2]

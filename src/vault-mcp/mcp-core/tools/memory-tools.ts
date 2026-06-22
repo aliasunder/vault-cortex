@@ -33,6 +33,10 @@ Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (n
 When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names.
 Prefer vault_read_note for reading non-memory notes.
 
+Errors:
+- "section requires a file" — section was provided without file; pass both or just file
+- "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
+
 Returns: Raw markdown text.`,
       inputSchema: {
         file: z
@@ -61,6 +65,17 @@ Returns: Raw markdown text.`,
         tool: TOOL_NAMES.VAULT_GET_MEMORY,
       })
       reqLogger.info("tool_call", { file, section })
+
+      if (section !== undefined && file === undefined) {
+        reqLogger.warn("tool_error", {
+          error: "section requires a file",
+        })
+        return {
+          content: [{ type: "text" as const, text: "section requires a file" }],
+          isError: true as const,
+        }
+      }
+
       return safeHandler(
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
