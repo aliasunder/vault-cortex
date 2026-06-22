@@ -334,32 +334,33 @@ describe("MEMORY_ENABLED=false", () => {
 
   const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
 
-  let disabledCalls: RegisterToolCall[]
-
-  beforeEach(() => {
-    const disabledServer = { registerTool: vi.fn() }
+  const registerWithDisabledMemory = (): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
     registerTools({
-      server: disabledServer as unknown as McpServer,
+      server: server as unknown as McpServer,
       vaultPath: "/test-vault",
       search: {} as SearchIndex,
       logger,
       config: loadConfig({ MEMORY_ENABLED: "false" }),
     })
-    disabledCalls = disabledServer.registerTool.mock.calls as RegisterToolCall[]
-  })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
 
   it("does not register memory tools", () => {
-    const registeredNames = disabledCalls.map((c) => c[0])
+    const disabledCalls = registerWithDisabledMemory()
+    const registeredNames = disabledCalls.map((call) => call[0])
     for (const memoryTool of MEMORY_TOOLS) {
       expect(registeredNames).not.toContain(memoryTool)
     }
   })
 
   it(`registers all ${NON_MEMORY_TOOL_COUNT} non-memory tools`, () => {
+    const disabledCalls = registerWithDisabledMemory()
     expect(disabledCalls).toHaveLength(NON_MEMORY_TOOL_COUNT)
   })
 
   it("non-memory tool descriptions do not reference memory tools", () => {
+    const disabledCalls = registerWithDisabledMemory()
     const memoryToolReferences = [
       TOOL_NAMES.VAULT_GET_MEMORY,
       TOOL_NAMES.VAULT_UPDATE_MEMORY,
