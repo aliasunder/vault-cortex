@@ -195,7 +195,7 @@ describe("loadConfig", () => {
 
   describe("MEMORY_ENABLED", () => {
     it("defaults to true when unset", () => {
-      const config = loadConfig({})
+      const config = loadConfig(EMPTY_ENV)
       expect(config.memoryEnabled).toBe(true)
     })
 

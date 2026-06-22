@@ -791,6 +791,7 @@ describe("MEMORY_ENABLED=false", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
+    expect(text).toContain("## Folders")
     expect(text).not.toContain("## Memory")
     expect(text).not.toContain("vault_get_memory")
   })
@@ -829,6 +830,7 @@ describe("MEMORY_ENABLED=false", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
 
+    expect(text).toContain("## How to review")
     expect(text).not.toContain("vault_update_memory")
     expect(text).not.toContain("Surface durable facts")
   })

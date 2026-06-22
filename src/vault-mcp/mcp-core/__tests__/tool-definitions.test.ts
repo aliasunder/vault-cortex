@@ -367,8 +367,8 @@ describe("MEMORY_ENABLED=false", () => {
     ]
     for (const call of disabledCalls) {
       const description = call[1].description!
-      for (const ref of memoryToolReferences) {
-        expect(description).not.toContain(ref)
+      for (const memoryToolName of memoryToolReferences) {
+        expect(description).not.toContain(memoryToolName)
       }
     }
   })
