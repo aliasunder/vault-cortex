@@ -73,13 +73,11 @@ const startServer = async (): Promise<void> => {
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
 
-  if (!config.memoryEnabled) {
-    logger.info("memory layer disabled")
-  }
-
   if (config.memoryEnabled) {
     const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
     await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
+  } else {
+    logger.info("memory layer disabled")
   }
 
   if (config.windowsBindMount) {
