@@ -76,8 +76,13 @@
           "default": "http://localhost:8000"
         },
         {
+          "name": "MEMORY_ENABLED",
+          "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
+          "default": "true"
+        },
+        {
           "name": "MEMORY_DIR",
-          "description": "Vault folder for structured memory files (About Me-style notes).",
+          "description": "Vault folder for structured memory files (About Me-style notes). Memory tools are hidden when MEMORY_ENABLED is false, but this value still feeds the defaults for PROTECTED_PATHS and ORPHAN_EXCLUDE_FOLDERS.",
           "default": "About Me"
         },
         {

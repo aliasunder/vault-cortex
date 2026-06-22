@@ -190,11 +190,11 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger: run one to instantly ground a session in your vault's structure, reflect on how your preferences have evolved, or reconcile a day's work into follow-ups and memory. Each prompt assembles live vault content when you invoke it, so the context is always current.
 
-| Prompt              | Arguments             | What it does                                                                                                                           |
-| ------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys your folders, tags, property keys, recent notes, and memory layer — grounds a new session in your vault's real conventions     |
-| `memory-review`     | `file?`, `max_chars?` | Reads your memory as a dated timeline (an evolution, not "latest wins"), surfaces scope-fit issues, and proposes append-only updates   |
-| `daily-review`      | `date?`, `max_chars?` | Cross-references a day's daily note with recent vault activity, captures follow-ups, and surfaces durable facts worth saving to memory |
+| Prompt              | Arguments             | What it does                                                                                                                                                              |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys your folders, tags, property keys, recent notes, and memory layer — grounds a new session in your vault's real conventions                                        |
+| `memory-review`     | `file?`, `max_chars?` | Reads your memory as a dated timeline (an evolution, not "latest wins"), surfaces scope-fit issues, and proposes append-only updates. Hidden when `MEMORY_ENABLED=false`. |
+| `daily-review`      | `date?`, `max_chars?` | Cross-references a day's daily note with recent vault activity, captures follow-ups, and surfaces durable facts worth saving to memory                                    |
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
@@ -227,6 +227,7 @@ All settings are environment variables with sensible defaults.
 | `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                        |
 | `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                           |
 | `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                           |
+| `MEMORY_ENABLED`            | —           | `true`                               | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                     |
 | `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                          |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                 |
 | `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                                                                                                                                                                            |
@@ -237,7 +238,7 @@ All settings are environment variables with sensible defaults.
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 
-**Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list.
+**Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list. When `MEMORY_ENABLED` is `false`, the memory layer is fully disabled — memory tools are hidden and the memory folder is not auto-created.
 
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
 

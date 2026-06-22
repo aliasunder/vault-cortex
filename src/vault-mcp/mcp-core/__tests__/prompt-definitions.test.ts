@@ -775,3 +775,64 @@ describe("full prompt output", () => {
     )
   })
 })
+
+// ── MEMORY_ENABLED=false ────────────────────────────────────────
+
+describe("MEMORY_ENABLED=false", () => {
+  const disabledConfig = loadConfig({ MEMORY_ENABLED: "false" })
+
+  it("registers 2 prompts instead of 3", () => {
+    const calls = captureRegistration(disabledConfig)
+    expect(calls).toHaveLength(2)
+  })
+
+  it("vault-orientation omits the Memory section", async () => {
+    const { calls } = await setupVault({ config: disabledConfig })
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("## Folders")
+    expect(text).not.toContain("## Memory")
+    expect(text).not.toContain("vault_get_memory")
+  })
+
+  it("vault-orientation error fallback omits vault_list_memory_files", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-mem-disabled-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const throwingSearch = {
+      listAllTags: () => {
+        throw new Error("index unavailable")
+      },
+    } as unknown as SearchIndex
+    const calls: RegisterPromptCall[] = []
+    const server = {
+      registerPrompt: vi.fn((...args: unknown[]) =>
+        calls.push(args as RegisterPromptCall),
+      ),
+    }
+    registerPrompts({
+      server: server as unknown as McpServer,
+      vaultPath: vault,
+      search: throwingSearch,
+      logger,
+      config: disabledConfig,
+    })
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("Could not fully survey the vault")
+    expect(text).not.toContain("vault_list_memory_files")
+  })
+
+  it("daily-review omits the memory surface step", async () => {
+    const { calls } = await setupVault({ config: disabledConfig })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
+
+    expect(text).toContain("## How to review")
+    expect(text).not.toContain("vault_update_memory")
+    expect(text).not.toContain("Surface durable facts")
+  })
+})

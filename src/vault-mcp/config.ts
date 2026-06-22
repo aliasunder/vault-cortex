@@ -35,6 +35,9 @@ const splitCommaSeparatedFolders = (raw: string): string[] =>
 // ── Config type ────────────────────────────────────────────────
 
 export type VaultConfig = Readonly<{
+  /** When false, the memory layer is fully disabled — bootstrap is skipped,
+   *  memory tools are hidden, and server metadata omits memory references. */
+  memoryEnabled: boolean
   memoryDir: string
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
@@ -77,6 +80,12 @@ export const loadConfig = (
     : "https://github.com/aliasunder/vault-cortex"
 
   // env-var's .asBool() parses true/false/1/0 and fails fast on anything else.
+  const memoryEnabled = envVar
+    .from(env)
+    .get("MEMORY_ENABLED")
+    .default("true")
+    .asBool()
+
   const windowsBindMount = envVar
     .from(env)
     .get("WINDOWS_MODE")
@@ -84,6 +93,7 @@ export const loadConfig = (
     .asBool()
 
   return Object.freeze({
+    memoryEnabled,
     memoryDir,
     protectedPaths,
     orphanExcludeFolders,

@@ -234,6 +234,8 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 **Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
 
+**Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. The vault CRUD and search layers continue to work normally.
+
 ### Phase 1: Link Queries
 
 | Tool                       | Input                      | Annotation   |
@@ -371,8 +373,8 @@ Two services run in order via `depends_on`:
 2. **`vault-mcp`** — MCP server. Runs as the `node` user (UID 1000),
    matching obsidian-sync's `PUID` so both containers can read/write the
    shared `/vault` volume. On startup: builds the FTS5 search index,
-   bootstraps memory templates if the memory folder doesn't exist, then
-   starts the file watcher.
+   bootstraps memory templates if the memory folder doesn't exist and
+   `MEMORY_ENABLED` is not `false`, then starts the file watcher.
 
 `depends_on` uses `condition: service_healthy`, so vault-mcp waits for
 obsidian-sync's healthcheck to pass before starting — not merely for the
