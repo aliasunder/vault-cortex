@@ -23,23 +23,7 @@
 
 **Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads `.md` files directly. No Obsidian plugins, no running Obsidian, no separate bridge. One Docker container gives any MCP client 25 tools and 3 guided prompts for search, memory, link graph, properties, and daily notes.
 
-Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client. Protected by OAuth 2.1 with defense-in-depth authentication.
-
-```mermaid
-graph LR
-    subgraph before ["Typical Obsidian MCP setup"]
-        direction LR
-        O["Obsidian<br/>(running)"] --> P["REST API<br/>plugin"] --> M1["MCP server"]
-    end
-    subgraph after ["Vault Cortex"]
-        direction LR
-        D["Docker container"] -->|"read/write"| V[("/vault<br/>.md files")]
-        D -->|"query"| S[("SQLite FTS5")]
-    end
-
-    style before fill:#2d2d2d,stroke:#666,color:#ccc
-    style after fill:#1a3a1a,stroke:#4a4,color:#ccc
-```
+The typical Obsidian MCP setup requires three moving parts: Obsidian open, a REST API plugin installed, and a separate MCP server wrapping the plugin. Vault Cortex replaces all of that with one Docker container and your vault folder. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client.
 
 - **Remote access** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
