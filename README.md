@@ -16,7 +16,7 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI assistant a way into your [Obsidian](https://obsidian.md) vault: search it, reason across it, and write back to it, without Obsidian running and without your notes leaving a server you control. It indexes every note for ranked full-text search, remembers what matters about you across sessions, and guards every connection with OAuth 2.1, [still rare among MCP servers](#authentication). It all runs in one Docker container, reachable from your laptop or your phone.
+**Vault Cortex** is a standalone MCP server that gives any AI assistant a way into your [Obsidian](https://obsidian.md) vault: search it, reason across it, and write back to it, without Obsidian running and without your notes leaving a server you control. It indexes every note for ranked full-text search, remembers what matters about you across sessions, and guards every connection with [OAuth 2.1](#authentication), the emerging standard for secure MCP access. It all runs in one Docker container, reachable from your laptop or your phone.
 
 **Contents** — [Why Vault Cortex?](#why-vault-cortex) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
 
