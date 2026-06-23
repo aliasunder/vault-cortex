@@ -16,9 +16,11 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads `.md` files directly. No Obsidian plugins, no running Obsidian, no separate bridge. One Docker container gives any MCP client 25 tools and 3 guided prompts for search, memory, link graph, properties, and daily notes.
+**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. Most Obsidian MCP servers wrap the Obsidian REST API plugin, which means they only work while the desktop app is open. Vault Cortex takes the opposite approach: it reads your `.md` files directly and owns the whole stack, with its own SQLite search index, a heading-aware memory layer for AI personalization, and OAuth 2.1 authentication that few MCP servers implement. One Docker container gives any MCP client 25 tools and 3 guided prompts, from your phone to claude.ai.
 
-The typical Obsidian MCP setup requires three moving parts: Obsidian open, a REST API plugin installed, and a separate MCP server wrapping the plugin. Vault Cortex replaces all of that with one Docker container and your vault folder. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client.
+**Contents** — [Why Vault Cortex?](#why-vault-cortex) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
+
+## Why Vault Cortex?
 
 <table align="center">
   <tr>
@@ -51,8 +53,6 @@ Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 
 | ----- | ------------------------------------------------------------ | -------- |
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
 | **2** | Semantic search + knowledge graph                            | Planned  |
-
-**Contents** — [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
 
 ## Quick Start
 
