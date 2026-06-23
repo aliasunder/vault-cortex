@@ -82,12 +82,7 @@ Returns: Raw markdown text.`,
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
-          const mode =
-            file === undefined
-              ? "all"
-              : section === undefined
-                ? "file"
-                : "section"
+          const mode = !file ? "all" : !section ? "file" : "section"
           reqLogger.info("tool_result", { mode })
           return text
         },

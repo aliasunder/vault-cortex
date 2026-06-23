@@ -245,7 +245,7 @@ Returns: Confirmation message.`,
       })
       reqLogger.info("tool_call", {
         path,
-        hasProperties: properties !== undefined,
+        hasProperties: Boolean(properties),
       })
       return safeHandler(
         reqLogger,
@@ -497,7 +497,7 @@ Returns: Confirmation message with the number of lines removed and a truncated p
       })
       reqLogger.info("tool_call", {
         path,
-        hasEndAnchor: end_anchor !== undefined,
+        hasEndAnchor: Boolean(end_anchor),
         first_match,
       })
       return safeHandler(
