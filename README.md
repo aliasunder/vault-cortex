@@ -35,6 +35,8 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
+Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+
 - **[Remote access](#authentication)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
@@ -50,13 +52,7 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
 | **2** | Semantic search + knowledge graph                            | Planned  |
 
-**Contents** — [Why Vault Cortex?](#why-vault-cortex) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
-
-## Why Vault Cortex?
-
-Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. Servers built on Obsidian's REST API route every read, write, and search through a running Obsidian; Vault Cortex reads `.md` files directly and owns its own search index, so it runs fully headless — and adds a structured memory layer plus prompts that fuse search, links, and memory in one pass.
-
-Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+**Contents** — [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
 
 ## Quick Start
 
