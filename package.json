@@ -2,7 +2,7 @@
   "name": "vault-cortex",
   "version": "0.22.0",
   "private": true,
-  "description": "Remote MCP server that exposes an Obsidian vault over HTTPS via the Model Context Protocol",
+  "description": "Standalone MCP server for Obsidian vaults — plugin-free search, memory, link graph, and daily notes over Streamable HTTP",
   "license": "MIT",
   "repository": {
     "type": "git",
