@@ -186,8 +186,9 @@ describe("runInit --yes (non-interactive local)", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toHaveLength(1)
-    expect(scripted.errors[0]).toContain("does not exist")
+    expect(scripted.errors).toEqual([
+      `Path does not exist: ${join(tmpdir(), "vault-cli-no-such-vault")}`,
+    ])
   })
 
   it("exits 1 on a differing existing .env and leaves it untouched", async () => {
@@ -488,8 +489,7 @@ describe("runInit interactive local flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.errors).toHaveLength(1)
-    expect(scripted.errors[0]).toContain("does not exist")
+    expect(scripted.errors).toEqual([`Path does not exist: ${missingPath}`])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
       `VAULT_PATH=${vaultDir}\n`,
     )
@@ -709,9 +709,9 @@ describe("runInit --vault-path flag in interactive mode", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.errors).toHaveLength(1)
-    expect(scripted.errors[0]).toContain("--vault-path:")
-    expect(scripted.errors[0]).toContain("does not exist")
+    expect(scripted.errors).toEqual([
+      `--vault-path: Path does not exist: ${missingPath}`,
+    ])
     expect(scripted.asked).toContain("Path to your Obsidian vault:")
   })
 })

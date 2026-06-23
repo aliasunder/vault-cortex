@@ -22,18 +22,25 @@ describe("buildFilesToWrite", () => {
       "docker-compose.yml",
       ".env",
     ])
-    expect(files[0].content).toContain("ghcr.io/aliasunder/vault-mcp:latest")
-    expect(files[1].content).toBe("MCP_AUTH_TOKEN=abc\n")
+    const composeFile = files.find((file) => file.name === "docker-compose.yml")
+    const envFile = files.find((file) => file.name === ".env")
+    expect(composeFile?.content).toContain(
+      "ghcr.io/aliasunder/vault-mcp:latest",
+    )
+    expect(envFile?.content).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
   it("plans the two-service remote compose with the forked sync image and no init-config-perms", () => {
     const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
+    const composeContent = files.find(
+      (file) => file.name === "docker-compose.yml",
+    )?.content
 
-    expect(files[0].content).toContain("obsidian-sync")
-    expect(files[0].content).toContain(
+    expect(composeContent).toContain("obsidian-sync")
+    expect(composeContent).toContain(
       "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
     )
-    expect(files[0].content).not.toContain("init-config-perms")
+    expect(composeContent).not.toContain("init-config-perms")
   })
 })
 

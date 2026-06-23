@@ -85,7 +85,8 @@ describe("OAuth refresh token sliding expiry", () => {
       "fresh-token",
     )
 
-    expect(tokens.refresh_token).toBeDefined()
+    expect(typeof tokens.refresh_token).toBe("string")
+    expect(tokens.refresh_token!.length).toBeGreaterThan(0)
     expect(tokens.refresh_token).not.toBe("fresh-token")
     expect(tokens.scope).toBe("vault")
   })
@@ -115,7 +116,7 @@ describe("OAuth refresh token sliding expiry", () => {
 
     await expect(
       oauth.provider.exchangeRefreshToken!(client, "expired-token"),
-    ).rejects.toThrow()
+    ).rejects.toThrow("Refresh token expired or invalid")
 
     const row = db
       .prepare("SELECT * FROM refresh_tokens WHERE token = ?")
@@ -137,12 +138,13 @@ describe("OAuth refresh token sliding expiry", () => {
       "first-token",
     )
     const newToken = tokens.refresh_token
-    expect(newToken).toBeDefined()
+    expect(typeof newToken).toBe("string")
+    expect(newToken!.length).toBeGreaterThan(0)
 
     const row = db
       .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
       .get(newToken!) as { expires_at: number } | undefined
-    expect(row).toBeDefined()
+    expect(row).not.toBeUndefined()
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
     // a fresh window, not inherited from the old token's expires_at.
@@ -219,7 +221,7 @@ describe("OAuth refresh token schema migration", () => {
       const columns = db
         .prepare("SELECT name FROM pragma_table_info('refresh_tokens')")
         .all() as { name: string }[]
-      expect(columns.map((c) => c.name)).toContain("expires_at")
+      expect(columns.map((column) => column.name)).toContain("expires_at")
 
       const row = db
         .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
@@ -299,7 +301,8 @@ describe("verifyAccessToken", () => {
     expect(result.clientId).toBe("client-123")
     expect(result.scopes).toEqual(["vault"])
     expect(result.token).toBe(token)
-    expect(result.expiresAt).toBeDefined()
+    expect(typeof result.expiresAt).toBe("number")
+    expect(result.expiresAt!).toBeGreaterThan(DateTime.now().toUnixInteger())
   })
 
   it("parses multiple scopes from JWT scope claim", async () => {

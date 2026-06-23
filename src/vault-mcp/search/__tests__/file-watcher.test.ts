@@ -34,7 +34,7 @@ const waitFor = async (
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (check()) return
-    await new Promise((r) => setTimeout(r, intervalMs))
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
   throw new Error(`waitFor timed out after ${timeoutMs}ms`)
 }

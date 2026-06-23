@@ -5,19 +5,39 @@ const EMPTY_ENV: Record<string, string | undefined> = {}
 
 describe("loadConfig", () => {
   describe("defaults", () => {
-    it("returns correct defaults when no env vars are set", () => {
+    it("memoryDir defaults to About Me", () => {
       const config = loadConfig(EMPTY_ENV)
       expect(config.memoryDir).toBe("About Me")
+    })
+
+    it("protectedPaths defaults to About Me and Daily Notes", () => {
+      const config = loadConfig(EMPTY_ENV)
       expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
+    })
+
+    it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
+      const config = loadConfig(EMPTY_ENV)
       expect(config.orphanExcludeFolders).toEqual([
         "Daily Notes",
         "Templates",
         "About Me",
       ])
+    })
+
+    it("serviceDocumentationUrl defaults to the GitHub repo", () => {
+      const config = loadConfig(EMPTY_ENV)
       expect(config.serviceDocumentationUrl).toBe(
         "https://github.com/aliasunder/vault-cortex",
       )
+    })
+
+    it("windowsBindMount defaults to false", () => {
+      const config = loadConfig(EMPTY_ENV)
       expect(config.windowsBindMount).toBe(false)
+    })
+
+    it("memoryEnabled defaults to true", () => {
+      const config = loadConfig(EMPTY_ENV)
       expect(config.memoryEnabled).toBe(true)
     })
 
@@ -47,41 +67,46 @@ describe("loadConfig", () => {
       ])
     })
 
-    it("trims whitespace", () => {
-      const config = loadConfig({ MEMORY_DIR: "  Profile  " })
-      expect(config.memoryDir).toBe("Profile")
+    it.each([
+      { name: "trims whitespace", input: "  Profile  ", expected: "Profile" },
+      {
+        name: "strips trailing slashes",
+        input: "Profile/",
+        expected: "Profile",
+      },
+      {
+        name: "strips multiple trailing slashes",
+        input: "Profile///",
+        expected: "Profile",
+      },
+      {
+        name: "treats empty string as unset and uses default",
+        input: "",
+        expected: "About Me",
+      },
+      {
+        name: "treats blank whitespace as unset and uses default",
+        input: "   ",
+        expected: "About Me",
+      },
+    ])("$name", ({ input, expected }) => {
+      const config = loadConfig({ MEMORY_DIR: input })
+      expect(config.memoryDir).toBe(expected)
     })
 
-    it("strips trailing slashes", () => {
-      const config = loadConfig({ MEMORY_DIR: "Profile/" })
-      expect(config.memoryDir).toBe("Profile")
-    })
-
-    it("strips multiple trailing slashes", () => {
-      const config = loadConfig({ MEMORY_DIR: "Profile///" })
-      expect(config.memoryDir).toBe("Profile")
-    })
-
-    it("treats empty string as unset and uses default", () => {
-      const config = loadConfig({ MEMORY_DIR: "" })
-      expect(config.memoryDir).toBe("About Me")
-    })
-
-    it("treats blank whitespace as unset and uses default", () => {
-      const config = loadConfig({ MEMORY_DIR: "   " })
-      expect(config.memoryDir).toBe("About Me")
-    })
-
-    it("rejects path traversal", () => {
-      expect(() => loadConfig({ MEMORY_DIR: "../secrets" })).toThrow(
-        "path traversal",
-      )
-    })
-
-    it("rejects absolute paths", () => {
-      expect(() => loadConfig({ MEMORY_DIR: "/etc/passwd" })).toThrow(
-        "absolute paths",
-      )
+    it.each([
+      {
+        name: "rejects path traversal",
+        input: "../secrets",
+        message: "path traversal",
+      },
+      {
+        name: "rejects absolute paths",
+        input: "/etc/passwd",
+        message: "absolute paths",
+      },
+    ])("$name", ({ input, message }) => {
+      expect(() => loadConfig({ MEMORY_DIR: input })).toThrow(message)
     })
 
     it("accepts folder names with spaces", () => {
@@ -168,7 +193,7 @@ describe("loadConfig", () => {
     it("rejects invalid URLs", () => {
       expect(() =>
         loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" }),
-      ).toThrow()
+      ).toThrow("Invalid URL")
     })
   })
 

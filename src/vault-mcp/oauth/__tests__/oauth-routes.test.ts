@@ -94,51 +94,51 @@ describe("OAuth consent token submission", () => {
       redirect: "manual",
     })
 
-  it("approves the exact token", async () => {
+  const midpoint = Math.floor(AUTH_TOKEN.length / 2)
+  const wrappedToken = `${AUTH_TOKEN.slice(0, midpoint)}\n${AUTH_TOKEN.slice(midpoint)}`
+
+  const approvalScenarios = [
+    { name: "exact token", token: AUTH_TOKEN },
+    {
+      name: "token with leading and trailing whitespace",
+      token: `  ${AUTH_TOKEN}\n`,
+    },
+    {
+      name: "token broken by an embedded newline (terminal wrap)",
+      token: wrappedToken,
+    },
+  ]
+
+  it.each(approvalScenarios)("approves $name", async ({ token }) => {
     const requestId = await startPendingRequest()
-    const response = await submitToken(requestId, AUTH_TOKEN)
+    const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
-    const location = new URL(response.headers.get("location")!)
-    expect(location.searchParams.get("code")).toBeTruthy()
+    const locationHeader = response.headers.get("location")
+    expect(locationHeader).not.toBeNull()
+    const location = new URL(locationHeader!)
+    const code = location.searchParams.get("code")
+    expect(typeof code).toBe("string")
+    expect(code!.length).toBeGreaterThan(0)
     expect(location.searchParams.get("state")).toBe("test-state")
   })
 
-  it("approves a token with leading and trailing whitespace", async () => {
-    const requestId = await startPendingRequest()
-    const response = await submitToken(requestId, `  ${AUTH_TOKEN}\n`)
-    expect(response.status).toBe(302)
-    const location = new URL(response.headers.get("location")!)
-    expect(location.searchParams.get("code")).toBeTruthy()
-    expect(location.searchParams.get("state")).toBe("test-state")
-  })
+  const rejectionScenarios = [
+    { name: "genuinely wrong token", token: "not-the-token" },
+    {
+      name: "all-whitespace token (must not normalize to an empty match)",
+      token: "   \n  ",
+    },
+  ]
 
-  it("approves a token broken by an embedded newline (terminal wrap)", async () => {
-    const requestId = await startPendingRequest()
-    // Split mid-token so the newline is genuinely embedded, regardless of length.
-    const mid = Math.floor(AUTH_TOKEN.length / 2)
-    const wrapped = `${AUTH_TOKEN.slice(0, mid)}\n${AUTH_TOKEN.slice(mid)}`
-    const response = await submitToken(requestId, wrapped)
-    expect(response.status).toBe(302)
-    const location = new URL(response.headers.get("location")!)
-    expect(location.searchParams.get("code")).toBeTruthy()
-    expect(location.searchParams.get("state")).toBe("test-state")
-  })
-
-  it("rejects a genuinely wrong token without redirecting or issuing a code", async () => {
-    const requestId = await startPendingRequest()
-    const response = await submitToken(requestId, "not-the-token")
-    expect(response.status).toBe(200)
-    // No redirect means no authorization code was issued — the only way
-    // the rejection could "pass" spuriously is if it secretly approved.
-    expect(response.headers.get("location")).toBeNull()
-    expect(await response.text()).toContain("Invalid token. Please try again.")
-  })
-
-  it("rejects an all-whitespace token (must not normalize to an empty match)", async () => {
-    const requestId = await startPendingRequest()
-    const response = await submitToken(requestId, "   \n  ")
-    expect(response.status).toBe(200)
-    expect(response.headers.get("location")).toBeNull()
-    expect(await response.text()).toContain("Invalid token. Please try again.")
-  })
+  it.each(rejectionScenarios)(
+    "rejects $name without redirecting or issuing a code",
+    async ({ token }) => {
+      const requestId = await startPendingRequest()
+      const response = await submitToken(requestId, token)
+      expect(response.status).toBe(200)
+      expect(response.headers.get("location")).toBeNull()
+      const body = await response.text()
+      expect(body).toContain("Invalid token. Please try again.")
+    },
+  )
 })

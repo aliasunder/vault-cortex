@@ -67,7 +67,7 @@ describe("atomicWriteFile", () => {
     // the catch-and-cleanup branch, not the initial writeFile.
     const target = join(vault, "occupied")
     await mkdir(target)
-    await expect(atomicWriteFile(target, "body\n")).rejects.toThrow()
+    await expect(atomicWriteFile(target, "body\n")).rejects.toThrow(/EISDIR/)
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -100,7 +100,9 @@ describe("atomicWriteFileExclusive", () => {
   it("leaves no .tmp staging file behind when the target already exists", async () => {
     const target = join(vault, "exists.md")
     await atomicWriteFile(target, "original\n")
-    await expect(atomicWriteFileExclusive(target, "body\n")).rejects.toThrow()
+    await expect(
+      atomicWriteFileExclusive(target, "body\n"),
+    ).rejects.toMatchObject({ code: "EEXIST" })
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -312,7 +314,9 @@ describe("deleteNote", () => {
       },
       logger,
     )
-    await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow()
+    await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow(
+      /ENOENT/,
+    )
   })
 
   it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
@@ -357,7 +361,7 @@ describe("deleteNote", () => {
       },
       logger,
     )
-    await expect(readFile(join(vault, "ok.md"))).rejects.toThrow()
+    await expect(readFile(join(vault, "ok.md"))).rejects.toThrow(/ENOENT/)
   })
 
   it("throws on non-existent file", async () => {
@@ -371,7 +375,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/ENOENT/)
   })
 
   it("rejects a traversal path that resolves into a protected folder", async () => {
