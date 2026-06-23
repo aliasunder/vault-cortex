@@ -232,7 +232,7 @@ const replaceInNote = async (
     replaceAllOccurrences?: boolean
   },
   logger: Logger,
-): Promise<string> => {
+): Promise<{ message: string; count: number }> => {
   const { path, oldText, newText, replaceAllOccurrences } = params
 
   if (oldText.length === 0) {
@@ -272,7 +272,10 @@ const replaceInNote = async (
   const updatedLines = normalizedBody.split("\n")
   const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
   logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
-  return `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`
+  return {
+    message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
+    count,
+  }
 }
 
 /** Deletes a contiguous block of whole lines from a note's body, identified by

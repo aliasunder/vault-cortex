@@ -103,6 +103,7 @@ export type MemoryHeading = Readonly<{
 export type MemoryFileOutline = Readonly<{
   file: string
   title: string
+  bytes: number
   leading_callout: LeadingCallout | null
   headings: MemoryHeading[]
 }>
@@ -584,7 +585,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
               },
         )
 
-        return { file: name, title, leading_callout: leadingCallout, headings }
+        const bytes = Buffer.byteLength(raw, "utf8")
+        return {
+          file: name,
+          title,
+          bytes,
+          leading_callout: leadingCallout,
+          headings,
+        }
       }),
     )
 
