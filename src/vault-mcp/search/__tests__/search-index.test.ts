@@ -10,6 +10,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
@@ -2068,31 +2069,32 @@ describe("brokenLinkCount", () => {
 // ── modifiedOnDate ──────────────────────────────────────────────
 
 describe("modifiedOnDate", () => {
+  const midday = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
+  const lateEvening = DateTime.fromISO("2026-06-15T23:00:00").toMillis()
+  const nextDayMorning = DateTime.fromISO("2026-06-16T08:00:00").toMillis()
+
   beforeEach(() => {
-    // 2026-06-15 12:00:00 UTC
     index.upsertNote(
       {
         filePath: "today-note.md",
         rawContent: "---\ntitle: Today\n---\n# Today\n",
-        fileStat: testStat(1781524800000),
+        fileStat: testStat(midday),
       },
       logger,
     )
-    // 2026-06-15 23:59:59 UTC (same day)
     index.upsertNote(
       {
         filePath: "today-late.md",
         rawContent: "---\ntitle: Today Late\n---\n# Late\n",
-        fileStat: testStat(1781567999000),
+        fileStat: testStat(lateEvening),
       },
       logger,
     )
-    // 2026-06-16 00:00:01 UTC (next day)
     index.upsertNote(
       {
         filePath: "tomorrow-note.md",
         rawContent: "---\ntitle: Tomorrow\n---\n# Tomorrow\n",
-        fileStat: testStat(1781568001000),
+        fileStat: testStat(nextDayMorning),
       },
       logger,
     )

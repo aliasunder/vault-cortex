@@ -1021,13 +1021,13 @@ export const createSearchIndex = (dbPath: string) => {
   }
 
   /** Returns notes whose filesystem mtime falls within a calendar date
-   *  (UTC day boundaries). Enables date-specific activity views. */
+   *  (server-local day boundaries, governed by the TZ env var). */
   const modifiedOnDate = (
     params: { date: string; limit?: number },
     logger: Logger,
   ): NoteMetadata[] => {
     const limit = params.limit ?? 50
-    const dayStart = DateTime.fromISO(params.date, { zone: "utc" })
+    const dayStart = DateTime.fromISO(params.date)
     const dayEnd = dayStart.plus({ days: 1 })
 
     const sql = `
