@@ -2092,6 +2092,10 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
+    const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("sessions/log-a.md")
+    expect(outgoing[0]!.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 
@@ -2099,12 +2103,16 @@ describe("brokenLinkCount", () => {
     index.upsertNote(
       {
         filePath: "source.md",
-        rawContent: "# Source\n\n![[photo.png]] and [[report.pdf]].\n",
+        rawContent:
+          "# Source\n\n![[photo.png]] and [[report.pdf]] and [[real-note]].\n",
         fileStat: testStat(1000),
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("real-note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 })
 
