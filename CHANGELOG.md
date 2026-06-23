@@ -2,6 +2,24 @@
 
 
 
+
+## [0.23.0] — 2026-06-23
+
+### Features
+
+- **prompts:** Enrich prompts with vault health, graph data, and actionable instructions (#189)
+- **tools:** Tool_result logging sweep, input validation, memory bytes (#187)
+
+### Documentation
+
+- Align server.json and package.json descriptions with README positioning (#190)
+- Sync AGENTS.md with tool group modules + TDQS lifts (#186)
+- Update CHANGELOG.md for v0.22.0
+
+### Other Changes
+
+- Tighten assertions, fix naming, and add table-driven patterns across 23 test files (#188)
+
 ## [0.22.0] — 2026-06-22
 
 ### Features
