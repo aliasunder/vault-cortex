@@ -54,6 +54,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       inputSchema: {
         query: z
           .string()
+          .min(1)
           .describe(
             "Search query text — unquoted terms use implicit AND with stemming; wrap in double quotes for exact phrases",
           ),
@@ -61,28 +62,30 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .object({
             folder: z
               .string()
+              .min(1)
               .optional()
               .describe('Restrict to a folder path prefix (e.g. "Projects")'),
             tags: z
-              .array(z.string())
+              .array(z.string().min(1))
               .optional()
               .describe(
                 "Require all listed tags (AND — every tag must be present)",
               ),
             related: z
-              .array(z.string())
+              .array(z.string().min(1))
               .optional()
               .describe("Require all listed related links"),
             type: z
               .string()
+              .min(1)
               .optional()
               .describe(
                 'Match the frontmatter type field (exact match, e.g. "person", "meeting")',
               ),
             properties: z
               .record(
-                z.string(),
-                z.union([z.string(), z.number(), z.boolean()]),
+                z.string().min(1),
+                z.union([z.string().min(1), z.number(), z.boolean()]),
               )
               .optional()
               .describe(
@@ -149,7 +152,7 @@ Errors:
 
 Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
-        tag: z.string().describe("Tag to search for"),
+        tag: z.string().min(1).describe("Tag to search for"),
         exact: z
           .boolean()
           .optional()
@@ -293,6 +296,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       inputSchema: {
         folder: z
           .string()
+          .min(1)
           .describe(
             `Folder path (e.g. "Projects"${config.memoryEnabled ? `, "${config.memoryDir}"` : ""})`,
           ),
@@ -345,6 +349,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
       inputSchema: {
         folder: z
           .string()
+          .min(1)
           .optional()
           .describe('Restrict to a folder (e.g. "Projects")'),
       },
@@ -387,8 +392,9 @@ Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
         key: z
           .string()
+          .min(1)
           .describe('Property key name (e.g. "status", "type", "tags")'),
-        folder: z.string().optional().describe("Restrict to a folder"),
+        folder: z.string().min(1).optional().describe("Restrict to a folder"),
         limit: z
           .number()
           .optional()
@@ -432,9 +438,12 @@ Prefer vault_search when you also have a text query (it supports property filter
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
-        key: z.string().describe("Property key name"),
-        value: z.string().describe("Value to match (exact, case-sensitive)"),
-        folder: z.string().optional().describe("Restrict to a folder"),
+        key: z.string().min(1).describe("Property key name"),
+        value: z
+          .string()
+          .min(1)
+          .describe("Value to match (exact, case-sensitive)"),
+        folder: z.string().min(1).optional().describe("Restrict to a folder"),
         limit: z.number().optional().describe("Max results (default 20)"),
       },
       annotations: {
@@ -582,7 +591,7 @@ Errors:
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         exclude_folders: z
-          .array(z.string())
+          .array(z.string().min(1))
           .optional()
           .describe(
             `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,

@@ -304,7 +304,10 @@ Returns: Confirmation message.`,
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
           .describe("Patch operation to apply"),
-        content: z.string().describe("Content to insert or replace with"),
+        content: z
+          .string()
+          .min(1)
+          .describe("Content to insert or replace with"),
         heading: z
           .string()
           .min(1)

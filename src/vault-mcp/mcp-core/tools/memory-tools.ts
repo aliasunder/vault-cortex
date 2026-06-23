@@ -127,7 +127,7 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        entry: z.string().describe("Entry text (no date prefix)"),
+        entry: z.string().min(1).describe("Entry text (no date prefix)"),
         options: z
           .object({
             date: z
@@ -250,7 +250,7 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        date: z.string().describe("ISO YYYY-MM-DD date of the entry"),
+        date: z.string().min(1).describe("ISO YYYY-MM-DD date of the entry"),
         entry: z
           .string()
           .describe("Exact entry text (no date prefix or bullet)"),
