@@ -1593,6 +1593,22 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
+  it("does not match a folder-qualified target against a same-named file in a different folder", async () => {
+    await mkdir(join(vaultDir, "other"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[views/Inventory]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("views/Inventory")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
   it("resolves extensionless wikilinks to non-md files by relative path", async () => {
     await mkdir(join(vaultDir, "sub"), { recursive: true })
     await writeFile(

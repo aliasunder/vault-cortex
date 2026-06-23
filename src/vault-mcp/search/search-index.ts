@@ -338,6 +338,12 @@ export const createSearchIndex = (dbPath: string) => {
   const checkNonMdByBasenameStmt = db.prepare(
     `SELECT 1 FROM non_md_files WHERE basename = ? LIMIT 1`,
   )
+  /** Suffix-path match: finds non-md files whose base_path ends with the target
+   *  (preserving folder segments). Mirrors links.resolve's basename tier which
+   *  checks `candidatePath.endsWith('/' + target)`. */
+  const checkNonMdBySuffixPathStmt = db.prepare(
+    `SELECT 1 FROM non_md_files WHERE base_path LIKE '%/' || ? LIMIT 1`,
+  )
   const deleteUnresolvedLinkStmt = db.prepare(
     `DELETE FROM links WHERE source = ? AND target = ?`,
   )
@@ -369,9 +375,14 @@ export const createSearchIndex = (dbPath: string) => {
         return true
     }
 
-    // Basename match (Obsidian's default shortest-path resolution)
-    const targetBasename = posix.basename(target)
-    return checkNonMdByBasenameStmt.get(targetBasename) !== undefined
+    // Basename / suffix-path match (Obsidian's shortest-path resolution).
+    // When the target includes folder segments (e.g. "views/Inventory"),
+    // preserve them in the match — only strip to pure basename when the
+    // target is already a bare name. Mirrors links.resolve's endsWith check.
+    if (target.includes("/")) {
+      return checkNonMdBySuffixPathStmt.get(target) !== undefined
+    }
+    return checkNonMdByBasenameStmt.get(target) !== undefined
   }
 
   /** Indexes non-markdown files from a directory listing into the
