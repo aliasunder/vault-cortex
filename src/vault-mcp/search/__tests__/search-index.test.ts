@@ -2008,3 +2008,196 @@ describe("relative links (path from current file)", () => {
     ])
   })
 })
+
+// ── brokenLinkCount ─────────────────────────────────────────────
+
+describe("brokenLinkCount", () => {
+  it("returns 0 when all link targets exist", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[target]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount(logger)).toBe(0)
+  })
+
+  it("counts links to non-existent notes", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount(logger)).toBe(2)
+  })
+
+  it("counts only broken links, not resolved ones", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[exists]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "exists.md",
+        rawContent: "# Exists\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount(logger)).toBe(1)
+  })
+})
+
+// ── modifiedOnDate ──────────────────────────────────────────────
+
+describe("modifiedOnDate", () => {
+  beforeEach(() => {
+    // 2026-06-15 12:00:00 UTC
+    index.upsertNote(
+      {
+        filePath: "today-note.md",
+        rawContent: "---\ntitle: Today\n---\n# Today\n",
+        fileStat: testStat(1781524800000),
+      },
+      logger,
+    )
+    // 2026-06-15 23:59:59 UTC (same day)
+    index.upsertNote(
+      {
+        filePath: "today-late.md",
+        rawContent: "---\ntitle: Today Late\n---\n# Late\n",
+        fileStat: testStat(1781567999000),
+      },
+      logger,
+    )
+    // 2026-06-16 00:00:01 UTC (next day)
+    index.upsertNote(
+      {
+        filePath: "tomorrow-note.md",
+        rawContent: "---\ntitle: Tomorrow\n---\n# Tomorrow\n",
+        fileStat: testStat(1781568001000),
+      },
+      logger,
+    )
+  })
+
+  it("returns notes modified on the given date", () => {
+    const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
+    const paths = results.map((note) => note.path)
+    expect(paths).toContain("today-note.md")
+    expect(paths).toContain("today-late.md")
+    expect(paths).toHaveLength(2)
+  })
+
+  it("excludes notes modified on other dates", () => {
+    const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
+    const paths = results.map((note) => note.path)
+    expect(paths).not.toContain("tomorrow-note.md")
+  })
+
+  it("respects the limit parameter", () => {
+    const results = index.modifiedOnDate(
+      { date: "2026-06-15", limit: 1 },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+  })
+
+  it("returns empty array for a date with no modifications", () => {
+    const results = index.modifiedOnDate({ date: "2020-01-01" }, logger)
+    expect(results).toEqual([])
+  })
+})
+
+// ── vaultStats ──────────────────────────────────────────────────
+
+describe("vaultStats", () => {
+  it("returns correct total note count", () => {
+    index.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\ntags: [one]\nstatus: active\n---\n# A\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [two]\n---\n# B\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats(logger)
+    expect(stats.totalNotes).toBe(2)
+  })
+
+  it("counts untagged notes", () => {
+    index.upsertNote(
+      {
+        filePath: "tagged.md",
+        rawContent: "---\ntags: [one]\n---\n# Tagged\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "untagged.md",
+        rawContent: "# Untagged\n\nNo frontmatter.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats(logger)
+    expect(stats.untaggedNotes).toBe(1)
+  })
+
+  it("counts notes without frontmatter properties", () => {
+    index.upsertNote(
+      {
+        filePath: "with-props.md",
+        rawContent: "---\nstatus: active\n---\n# Props\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "no-props.md",
+        rawContent: "# Bare\n\nNo frontmatter at all.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats(logger)
+    expect(stats.noPropertiesNotes).toBe(1)
+  })
+
+  it("returns all zeros on an empty index", () => {
+    const stats = index.vaultStats(logger)
+    expect(stats).toEqual({
+      totalNotes: 0,
+      untaggedNotes: 0,
+      noPropertiesNotes: 0,
+    })
+  })
+})
