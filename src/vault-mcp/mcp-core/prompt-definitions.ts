@@ -91,20 +91,20 @@ const formatPropertyAdoption = (
 
   return propertyKeys
     .slice(0, limit)
-    .map((key) => {
+    .map((propertyKey) => {
       const percentage =
-        totalNotes > 0 ? Math.round((key.count / totalNotes) * 100) : 0
+        totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
       const displayPercentage =
-        key.count > 0 && percentage === 0 ? "<1" : String(percentage)
+        propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
       const samples =
-        key.sample_values.length > 0
-          ? ` — e.g. ${key.sample_values.join(", ")}`
+        propertyKey.sample_values.length > 0
+          ? ` — e.g. ${propertyKey.sample_values.join(", ")}`
           : ""
       const lowAdoption =
-        totalNotes > 0 && key.count / totalNotes < lowAdoptionThreshold
+        totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
           ? " (low adoption)"
           : ""
-      return `- ${key.key} (${key.count}/${totalNotes} — ${displayPercentage}%)${samples}${lowAdoption}`
+      return `- ${propertyKey.key} (${propertyKey.count}/${totalNotes} — ${displayPercentage}%)${samples}${lowAdoption}`
     })
     .join("\n")
 }
@@ -549,7 +549,7 @@ export const registerPrompts = (params: {
           reqLogger,
         )
         const dateArg = args.date ?? DateTime.now().toISODate()!
-        const modifiedToday = search.modifiedOnDate(
+        const modifiedOnDate = search.modifiedOnDate(
           { date: dateArg, limit: DAILY_RECENT_LIMIT },
           reqLogger,
         )
@@ -594,8 +594,8 @@ export const registerPrompts = (params: {
               ? "No other notes link to this daily note."
               : "_Daily note does not exist — no link analysis available._"
         const modifiedSection =
-          modifiedToday.length > 0
-            ? modifiedToday.map(formatNoteLine).join("\n")
+          modifiedOnDate.length > 0
+            ? modifiedOnDate.map(formatNoteLine).join("\n")
             : `No notes were modified on ${dateArg}.`
 
         const reviewSteps = [
