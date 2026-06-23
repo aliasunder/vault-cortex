@@ -117,8 +117,11 @@ describe("parseLeadingCallout", () => {
     })
   })
 
-  it("returns null for an empty or whitespace-only body", () => {
+  it("returns null for an empty array", () => {
     expect(parseLeadingCallout([])).toBeNull()
+  })
+
+  it("returns null for a whitespace-only array", () => {
     expect(parseLeadingCallout(["", "   ", ""])).toBeNull()
   })
 

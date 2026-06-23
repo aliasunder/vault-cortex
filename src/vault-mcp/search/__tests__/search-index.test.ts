@@ -500,7 +500,7 @@ describe("fullTextSearch", () => {
     )
     const results = index.fullTextSearch({ query: "run" }, logger)
     expect(results.length).toBeGreaterThan(0)
-    expect(results.some((r) => r.path === "stem.md")).toBe(true)
+    expect(results.some((result) => result.path === "stem.md")).toBe(true)
   })
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
@@ -547,8 +547,12 @@ describe("fullTextSearch", () => {
       { query: '"machine learning"' },
       logger,
     )
-    expect(phraseResults.some((r) => r.path === "phrase.md")).toBe(true)
-    expect(phraseResults.some((r) => r.path === "separate.md")).toBe(false)
+    expect(phraseResults.some((result) => result.path === "phrase.md")).toBe(
+      true,
+    )
+    expect(phraseResults.some((result) => result.path === "separate.md")).toBe(
+      false,
+    )
   })
 
   it("query with FTS5 operators does not throw", () => {
@@ -1040,7 +1044,7 @@ describe("listAllTags", () => {
   it("returns tags with counts ordered by count desc", () => {
     const tags = index.listAllTags(logger)
     expect(tags[0]).toEqual({ tag: "principles", count: 2 })
-    expect(tags.find((t) => t.tag === "self")).toEqual({
+    expect(tags.find((tagEntry) => tagEntry.tag === "self")).toEqual({
       tag: "self",
       count: 1,
     })

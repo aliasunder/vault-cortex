@@ -47,17 +47,9 @@ const createMockReqRes = (
 }
 
 describe("createErrorMiddleware", () => {
-  let errorSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    errorSpy.mockRestore()
-  })
-
   it("returns 500 with json error when headers have not been sent", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
     const { req, res, resStatus, resJson, next } = createMockReqRes()
     const err = new Error("boom")
@@ -69,6 +61,8 @@ describe("createErrorMiddleware", () => {
   })
 
   it("does not call res.status or res.json when headers have already been sent", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
     const { req, res, resStatus, resJson, next } = createMockReqRes({}, true)
     const err = new Error("boom")
@@ -80,6 +74,8 @@ describe("createErrorMiddleware", () => {
   })
 
   it("logs unhandled_error with session, ip, method, path, and error message", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
     const { req, res, next } = createMockReqRes({
       headers: { "mcp-session-id": "session-123" },
@@ -102,6 +98,8 @@ describe("createErrorMiddleware", () => {
   })
 
   it("logs sessionId as undefined when mcp-session-id header is absent", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
     const { req, res, next } = createMockReqRes({
       headers: {},
@@ -123,6 +121,8 @@ describe("createErrorMiddleware", () => {
   })
 
   it("does not call next() (terminal error handler)", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
     const { req, res, next } = createMockReqRes()
 

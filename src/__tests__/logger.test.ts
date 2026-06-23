@@ -49,9 +49,13 @@ describe("createFileSinkExtension", () => {
     extension(sampleEntry("world"), sampleLine("world"))
 
     const today = DateTime.now().toISODate()
-    const content = readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")
-    expect(content).toContain('"message":"hello"')
-    expect(content).toContain('"message":"world"')
+    const lines = readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    expect(lines).toHaveLength(2)
+    expect(lines[0].message).toBe("hello")
+    expect(lines[1].message).toBe("world")
   })
 
   it("creates the log directory if it does not exist", () => {
@@ -73,9 +77,13 @@ describe("createFileSinkExtension", () => {
     const extension = createFileSinkExtension(logDir)
     extension(sampleEntry("appended"), sampleLine("appended"))
 
-    const content = readFileSync(logFile, "utf8")
-    expect(content).toContain('"message":"existing"')
-    expect(content).toContain('"message":"appended"')
+    const lines = readFileSync(logFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    expect(lines).toHaveLength(2)
+    expect(lines[0].message).toBe("existing")
+    expect(lines[1].message).toBe("appended")
   })
 
   it("rolls to a new file when the date changes", () => {
@@ -109,8 +117,10 @@ describe("createFileSinkExtension", () => {
       join(logDir, "vault-mcp-2026-01-16.log"),
       "utf8",
     )
-    expect(day1Content).toContain('"message":"day1"')
-    expect(day2Content).toContain('"message":"day2"')
+    const day1Line = JSON.parse(day1Content.trim())
+    const day2Line = JSON.parse(day2Content.trim())
+    expect(day1Line.message).toBe("day1")
+    expect(day2Line.message).toBe("day2")
   })
 
   it("prunes old files on creation", () => {
@@ -163,8 +173,11 @@ describe("pruneOldLogFiles", () => {
 
     pruneOldLogFiles(logDir, 30)
 
-    const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(2)
+    const remaining = readdirSync(logDir).sort()
+    expect(remaining).toEqual([
+      `vault-mcp-${yesterday}.log`,
+      `vault-mcp-${today}.log`,
+    ])
   })
 
   it("respects custom retention days", () => {

@@ -327,9 +327,11 @@ Content under H6.
     const updated = await readTestNote(`level-${level}.md`)
     const lines = updated.split("\n")
     const existingIdx = lines.findIndex(
-      (l) => l === `Content under ${heading}.`,
+      (line) => line === `Content under ${heading}.`,
     )
-    const appendedIdx = lines.findIndex((l) => l === `Appended to ${heading}.`)
+    const appendedIdx = lines.findIndex(
+      (line) => line === `Appended to ${heading}.`,
+    )
     expect(existingIdx).toBeGreaterThan(-1)
     expect(appendedIdx).toBeGreaterThan(existingIdx)
   })
@@ -365,9 +367,11 @@ Content under H6.
     )
     const updated = await readTestNote("code.md")
     const lines = updated.split("\n")
-    const someTextIdx = lines.findIndex((l) => l === "Some text.")
-    const appendedIdx = lines.findIndex((l) => l === "appended text")
-    const anotherIdx = lines.findIndex((l) => l === "## Another Real Heading")
+    const someTextIdx = lines.findIndex((line) => line === "Some text.")
+    const appendedIdx = lines.findIndex((line) => line === "appended text")
+    const anotherIdx = lines.findIndex(
+      (line) => line === "## Another Real Heading",
+    )
     expect(someTextIdx).toBeGreaterThan(-1)
     expect(appendedIdx).toBeGreaterThan(someTextIdx)
     expect(anotherIdx).toBeGreaterThan(appendedIdx)
@@ -395,8 +399,8 @@ Content here.
     )
     const updated = await readTestNote("hashes.md")
     const lines = updated.split("\n")
-    const contentIdx = lines.findIndex((l) => l === "Content here.")
-    const newLineIdx = lines.findIndex((l) => l === "new line")
+    const contentIdx = lines.findIndex((line) => line === "Content here.")
+    const newLineIdx = lines.findIndex((line) => line === "new line")
     expect(contentIdx).toBeGreaterThan(-1)
     expect(newLineIdx).toBeGreaterThan(contentIdx)
   })
@@ -444,8 +448,8 @@ More content.
     )
     const updated = await readTestNote("nested-fence.md")
     const lines = updated.split("\n")
-    const moreIdx = lines.findIndex((l) => l === "More content.")
-    const appendIdx = lines.findIndex((l) => l === "appended to real")
+    const moreIdx = lines.findIndex((line) => line === "More content.")
+    const appendIdx = lines.findIndex((line) => line === "appended to real")
     expect(appendIdx).toBeGreaterThan(moreIdx)
   })
 
@@ -608,11 +612,15 @@ Sub-level content.
     )
     const updated = await readTestNote("levels.md")
     const lines = updated.split("\n")
-    const h1Idx = lines.findIndex((l) => l === "# Overview")
-    const topContentIdx = lines.findIndex((l) => l === "Top-level content.")
-    const h2Idx = lines.findIndex((l) => l === "## Overview")
-    const subContentIdx = lines.findIndex((l) => l === "Sub-level content.")
-    const addedIdx = lines.findIndex((l) => l === "added to H2")
+    const h1Idx = lines.findIndex((line) => line === "# Overview")
+    const topContentIdx = lines.findIndex(
+      (line) => line === "Top-level content.",
+    )
+    const h2Idx = lines.findIndex((line) => line === "## Overview")
+    const subContentIdx = lines.findIndex(
+      (line) => line === "Sub-level content.",
+    )
+    const addedIdx = lines.findIndex((line) => line === "added to H2")
     // added to H2 must be in the H2 section (after Sub-level content), not H1
     expect(addedIdx).toBeGreaterThan(subContentIdx)
     expect(addedIdx).toBeGreaterThan(h2Idx)
@@ -738,10 +746,10 @@ describe("patchNote — section-level append", () => {
     )
     const updated = await readTestNote("note.md")
     const lines = updated.split("\n")
-    const upNextIdx = lines.findIndex((l) => l === "## Up Next")
-    const taskCIdx = lines.findIndex((l) => l === "- [ ] Task C")
-    const taskEIdx = lines.findIndex((l) => l === "- [ ] Task E")
-    const doneIdx = lines.findIndex((l) => l === "## Done")
+    const upNextIdx = lines.findIndex((line) => line === "## Up Next")
+    const taskCIdx = lines.findIndex((line) => line === "- [ ] Task C")
+    const taskEIdx = lines.findIndex((line) => line === "- [ ] Task E")
+    const doneIdx = lines.findIndex((line) => line === "## Done")
     // Task E must be after existing Up Next content, before ## Done
     expect(upNextIdx).toBeGreaterThan(-1)
     expect(taskCIdx).toBeGreaterThan(upNextIdx)
@@ -781,16 +789,16 @@ describe("patchNote — section-level append", () => {
     )
     const updated = await readTestNote("note.md")
     const lines = updated.split("\n")
-    const doneIdx = lines.findIndex((l) => l === "## Done")
-    const taskDIdx = lines.findIndex((l) => l === "- [x] Task D")
-    const taskEIdx = lines.findIndex((l) => l === "- [x] Task E")
+    const doneIdx = lines.findIndex((line) => line === "## Done")
+    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
+    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
     // Task E must be in the Done section, after existing Task D
     expect(taskDIdx).toBeGreaterThan(doneIdx)
     expect(taskEIdx).toBeGreaterThan(taskDIdx)
     // No heading after Task E (it's the last section)
     const headingsAfter = lines
       .slice(taskEIdx + 1)
-      .filter((l) => /^#{1,6} /.test(l))
+      .filter((line) => /^#{1,6} /.test(line))
     expect(headingsAfter).toHaveLength(0)
   })
 })
@@ -1388,8 +1396,8 @@ describe("patchNote — insert_before", () => {
     const lines = updated.split("\n")
     // Frontmatter closes with ---
     const fmCloseIdx = lines.indexOf("---", 1)
-    const prefaceIdx = lines.findIndex((l) => l === "# Preface")
-    const mainIdx = lines.findIndex((l) => l === "# Main Title")
+    const prefaceIdx = lines.findIndex((line) => line === "# Preface")
+    const mainIdx = lines.findIndex((line) => line === "# Main Title")
     // Preface must be after frontmatter fence, before original heading
     expect(prefaceIdx).toBeGreaterThan(fmCloseIdx)
     expect(mainIdx).toBeGreaterThan(prefaceIdx)
@@ -1449,10 +1457,10 @@ describe("frontmatter preservation", () => {
     )
     const updated = await readTestNote("no-fm.md")
     const lines = updated.split("\n")
-    const sectionOneIdx = lines.findIndex((l) => l === "## Section One")
-    const contentIdx = lines.findIndex((l) => l === "Content one.")
-    const appendIdx = lines.findIndex((l) => l === "Appended text.")
-    const sectionTwoIdx = lines.findIndex((l) => l === "## Section Two")
+    const sectionOneIdx = lines.findIndex((line) => line === "## Section One")
+    const contentIdx = lines.findIndex((line) => line === "Content one.")
+    const appendIdx = lines.findIndex((line) => line === "Appended text.")
+    const sectionTwoIdx = lines.findIndex((line) => line === "## Section Two")
     // Appended text must be within Section One (after content, before Section Two)
     expect(contentIdx).toBeGreaterThan(sectionOneIdx)
     expect(appendIdx).toBeGreaterThan(contentIdx)
@@ -1762,10 +1770,10 @@ Some text.
     )
     const updated = await readTestNote("trailing.md")
     const lines = updated.split("\n")
-    const hasContentIdx = lines.findIndex((l) => l === "## Has Content")
-    const someTextIdx = lines.findIndex((l) => l === "Some text.")
-    const headingIdx = lines.findIndex((l) => l === "## Trailing Heading")
-    const addedIdx = lines.findIndex((l) => l === "Added to trailing.")
+    const hasContentIdx = lines.findIndex((line) => line === "## Has Content")
+    const someTextIdx = lines.findIndex((line) => line === "Some text.")
+    const headingIdx = lines.findIndex((line) => line === "## Trailing Heading")
+    const addedIdx = lines.findIndex((line) => line === "Added to trailing.")
     // Previous section intact
     expect(someTextIdx).toBeGreaterThan(hasContentIdx)
     expect(headingIdx).toBeGreaterThan(someTextIdx)
@@ -1774,7 +1782,7 @@ Some text.
     // No heading after the added content
     const headingsAfter = lines
       .slice(addedIdx + 1)
-      .filter((l) => /^#{1,6} /.test(l))
+      .filter((line) => /^#{1,6} /.test(line))
     expect(headingsAfter).toHaveLength(0)
   })
 
@@ -1799,8 +1807,8 @@ Body.
     )
     const updated = await readTestNote("sub/dir/nested.md")
     const lines = updated.split("\n")
-    const bodyIdx = lines.findIndex((l) => l === "Body.")
-    const moreIdx = lines.findIndex((l) => l === "More body.")
+    const bodyIdx = lines.findIndex((line) => line === "Body.")
+    const moreIdx = lines.findIndex((line) => line === "More body.")
     expect(bodyIdx).toBeGreaterThan(-1)
     expect(moreIdx).toBeGreaterThan(bodyIdx)
     expect(updated).toContain("title: Nested")

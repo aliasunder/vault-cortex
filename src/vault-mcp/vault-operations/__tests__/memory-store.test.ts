@@ -231,7 +231,7 @@ describe("updateMemory", () => {
       },
       logger,
     )
-    const lines = result.split("\n").filter((l) => l.startsWith("- "))
+    const lines = result.split("\n").filter((line) => line.startsWith("- "))
     expect(lines[lines.length - 1]).toBe("- **2026-04-01**: bottom entry")
   })
 
@@ -759,8 +759,10 @@ describe("listMemoryFiles", () => {
 
   it("surfaces each file's leading scope callout (null when absent)", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((o) => o.file === "Principles")!
-    const opinions = outlines.find((o) => o.file === "Opinions")!
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
+    const opinions = outlines.find((outline) => outline.file === "Opinions")!
     expect(principles.leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
@@ -777,7 +779,7 @@ describe("listMemoryFiles", () => {
       "utf8",
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const noTitle = outlines.find((o) => o.file === "NoTitle")
+    const noTitle = outlines.find((outline) => outline.file === "NoTitle")
     expect(noTitle?.title).toBe("NoTitle")
   })
 
@@ -814,28 +816,32 @@ describe("listMemoryFiles", () => {
 
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((o) => o.file === "Principles")!
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
     const heuristics = principles.headings.find(
-      (h) => h.text === "Decision heuristics (newest first)",
+      (heading) => heading.text === "Decision heuristics (newest first)",
     )
     expect(heuristics?.entryCount).toBe(2)
 
     const workingStyle = principles.headings.find(
-      (h) => h.text === "Working style (newest first)",
+      (heading) => heading.text === "Working style (newest first)",
     )
     expect(workingStyle?.entryCount).toBe(1)
 
     const emptySection = principles.headings.find(
-      (h) => h.text === "Empty section (newest first)",
+      (heading) => heading.text === "Empty section (newest first)",
     )
     expect(emptySection?.entryCount).toBe(0)
   })
 
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((o) => o.file === "Principles")!
-    const h1s = principles.headings.filter((h) => h.level === 1)
-    const h2s = principles.headings.filter((h) => h.level === 2)
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
+    const h1s = principles.headings.filter((heading) => heading.level === 1)
+    const h2s = principles.headings.filter((heading) => heading.level === 2)
     expect(h1s).toHaveLength(1)
     expect(h1s[0].text).toBe("Principles")
     expect(h2s).toHaveLength(3)
@@ -843,8 +849,10 @@ describe("listMemoryFiles", () => {
 
   it("does not count callout lines as entries", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((o) => o.file === "Principles")!
-    const h1 = principles.headings.find((h) => h.level === 1)
+    const principles = outlines.find(
+      (outline) => outline.file === "Principles",
+    )!
+    const h1 = principles.headings.find((heading) => heading.level === 1)
     expect(h1?.entryCount).toBeUndefined()
   })
 
