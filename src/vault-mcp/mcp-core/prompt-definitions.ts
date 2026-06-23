@@ -226,13 +226,15 @@ export const registerPrompts = (params: {
           config.memoryEnabled && memoryStore
             ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
             : []
-        const orphans = search.findOrphans(
+        const orphanResults = search.findOrphans(
           {
             excludeFolders: [...config.orphanExcludeFolders],
-            limit: ORIENTATION_ORPHAN_LIMIT,
+            limit: ORIENTATION_ORPHAN_LIMIT + 1,
           },
           reqLogger,
         )
+        const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
+        const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const brokenLinks = search.brokenLinkCount(reqLogger)
         const stats = search.vaultStats(reqLogger)
 
@@ -276,7 +278,7 @@ export const registerPrompts = (params: {
         const orphanSection =
           orphans.length > 0
             ? [
-                `${orphans.length}${orphans.length >= ORIENTATION_ORPHAN_LIMIT ? "+" : ""} orphan notes (no incoming links):`,
+                `${orphans.length}${hasMoreOrphans ? "+" : ""} orphan notes (no incoming links):`,
                 ...orphans.map(formatNoteLine),
               ].join("\n")
             : "No orphans found — every note has at least one incoming link."

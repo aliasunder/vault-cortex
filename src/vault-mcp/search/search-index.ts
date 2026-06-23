@@ -1051,6 +1051,8 @@ export const createSearchIndex = (dbPath: string) => {
   /** Lightweight aggregate counts — total notes, untagged notes, notes without
    *  frontmatter properties. Single SQL to avoid multiple round-trips. */
   const vaultStats = (logger: Logger): VaultStats => {
+    // Conditional aggregation: count all rows, then conditionally count rows
+    // whose tags/properties are the empty-JSON sentinel set by upsertNote.
     const sql = `
       SELECT
         COUNT(*) as totalNotes,
