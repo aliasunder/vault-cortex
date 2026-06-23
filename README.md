@@ -9,16 +9,16 @@
 [![Trivy](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/trivy.yml?branch=main&logo=github&label=Trivy&cacheSeconds=43200&v=1)](https://github.com/aliasunder/vault-cortex/actions/workflows/trivy.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex?cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/releases)
 [![License: MIT](https://img.shields.io/github/license/aliasunder/vault-cortex?v=1&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/blob/main/LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aliasunder/vault-cortex)
 [![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
 </div>
 
-**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads `.md` files directly. No Obsidian plugins, no running Obsidian, no separate bridge. One Docker container gives any MCP client 25 tools and 3 guided prompts for search, memory, link graph, properties, and daily notes.
+**Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-The typical Obsidian MCP setup requires three moving parts: Obsidian open, a REST API plugin installed, and a separate MCP server wrapping the plugin. Vault Cortex replaces all of that with one Docker container and your vault folder. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client.
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Configuration](#configuration) · [Authentication](#authentication) · [Deployment](#deployment-options)
+
+## What you get
 
 <table align="center">
   <tr>
@@ -43,18 +43,7 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts that surface vault health (orphans, broken links, property adoption), review your memory layer's structure and coverage, or reconcile a day's work with outgoing links, backlinks, and date-specific activity. Assembled from live vault data each time you run them.
 
-### Roadmap
-
-| Phase | What                                                         | Status   |
-| ----- | ------------------------------------------------------------ | -------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
-| **2** | Semantic search + knowledge graph                            | Planned  |
-
-## Why Vault Cortex?
-
-Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It runs its own SQLite FTS5 search index, includes a structured memory system for AI personalization, and protects every connection with OAuth 2.1 (PKCE, dynamic client registration, refresh token rotation). Three built-in prompts pull from the search index, link graph, and memory layer together — surfacing vault health, reviewing memory coverage, and reconciling daily work in one view.
-
-Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ## Quick Start
 
@@ -86,7 +75,7 @@ docker compose up
 
 </details>
 
-**[Full local guide →](./deploy/local/)** — on Windows, [set `WINDOWS_MODE=true`](./deploy/local/#windows-docker-desktop) to run against a `C:` drive.
+**[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
@@ -133,7 +122,10 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 
 `--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
-**Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+<details>
+<summary><strong>Claude Desktop</strong> (localhost requires mcp-remote bridge)</summary>
+
+The "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
 
 ```json
 {
@@ -152,11 +144,27 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 }
 ```
 
+</details>
+
 **claude.ai (web and mobile)** connects to the remote setup only — its connectors are fetched server-side and can never reach localhost.
 
 > "Remote MCP server" refers to the connection type (HTTP) — in the local setup the server still runs entirely on your machine.
 
 See [Authentication](#authentication) for both methods and token lifetimes.
+
+## How It Works
+
+```mermaid
+graph LR
+    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
+    Server -->|read/write| Vault[("/vault<br/>.md files")]
+    Server -->|query| SQLite[("SQLite FTS5")]
+    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
+```
+
+The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
 
 ## Tools (25)
 
@@ -246,7 +254,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 
@@ -258,20 +266,6 @@ Two methods:
 OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate).
 
 See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
-
-## How It Works
-
-```mermaid
-graph LR
-    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
-    Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|query| SQLite[("SQLite FTS5")]
-    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
-```
-
-The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
 
 ## Deployment Options
 
@@ -313,6 +307,13 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 ```
 
 [Skill source →](https://github.com/aliasunder/agent-skills/tree/main/skills/obsidian-vault)
+
+## Roadmap
+
+| Phase | What                                                         | Status      |
+| ----- | ------------------------------------------------------------ | ----------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
+| **2** | Semantic search + knowledge graph                            | In progress |
 
 ## Acknowledgments
 
