@@ -9,12 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import {
-  buildFilesToWrite,
-  readComposeTemplate,
-  readEnvPort,
-  writeFiles,
-} from "../scaffold.js"
+import { buildFilesToWrite, readEnvPort, writeFiles } from "../scaffold.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
@@ -29,7 +24,9 @@ describe("buildFilesToWrite", () => {
     ])
     const composeFile = files.find((file) => file.name === "docker-compose.yml")
     const envFile = files.find((file) => file.name === ".env")
-    expect(composeFile?.content).toBe(readComposeTemplate("local"))
+    expect(composeFile?.content).toContain(
+      "ghcr.io/aliasunder/vault-mcp:latest",
+    )
     expect(envFile?.content).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
@@ -39,7 +36,11 @@ describe("buildFilesToWrite", () => {
       (file) => file.name === "docker-compose.yml",
     )?.content
 
-    expect(composeContent).toBe(readComposeTemplate("remote"))
+    expect(composeContent).toContain("obsidian-sync")
+    expect(composeContent).toContain(
+      "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
+    )
+    expect(composeContent).not.toContain("init-config-perms")
   })
 })
 

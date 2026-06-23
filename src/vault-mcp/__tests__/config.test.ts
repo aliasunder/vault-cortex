@@ -5,46 +5,40 @@ const EMPTY_ENV: Record<string, string | undefined> = {}
 
 describe("loadConfig", () => {
   describe("defaults", () => {
-    it.each([
-      {
-        name: "memoryDir defaults to About Me",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.memoryDir).toBe("About Me"),
-      },
-      {
-        name: "protectedPaths defaults to About Me and Daily Notes",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"]),
-      },
-      {
-        name: "orphanExcludeFolders defaults to Daily Notes, Templates, About Me",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.orphanExcludeFolders).toEqual([
-            "Daily Notes",
-            "Templates",
-            "About Me",
-          ]),
-      },
-      {
-        name: "serviceDocumentationUrl defaults to the GitHub repo",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.serviceDocumentationUrl).toBe(
-            "https://github.com/aliasunder/vault-cortex",
-          ),
-      },
-      {
-        name: "windowsBindMount defaults to false",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.windowsBindMount).toBe(false),
-      },
-      {
-        name: "memoryEnabled defaults to true",
-        check: (config: ReturnType<typeof loadConfig>) =>
-          expect(config.memoryEnabled).toBe(true),
-      },
-    ])("$name", ({ check }) => {
+    it("memoryDir defaults to About Me", () => {
       const config = loadConfig(EMPTY_ENV)
-      check(config)
+      expect(config.memoryDir).toBe("About Me")
+    })
+
+    it("protectedPaths defaults to About Me and Daily Notes", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
+    })
+
+    it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.orphanExcludeFolders).toEqual([
+        "Daily Notes",
+        "Templates",
+        "About Me",
+      ])
+    })
+
+    it("serviceDocumentationUrl defaults to the GitHub repo", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.serviceDocumentationUrl).toBe(
+        "https://github.com/aliasunder/vault-cortex",
+      )
+    })
+
+    it("windowsBindMount defaults to false", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.windowsBindMount).toBe(false)
+    })
+
+    it("memoryEnabled defaults to true", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.memoryEnabled).toBe(true)
     })
 
     it("returns a frozen (immutable) config object", () => {

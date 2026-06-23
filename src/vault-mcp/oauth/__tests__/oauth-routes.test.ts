@@ -94,6 +94,9 @@ describe("OAuth consent token submission", () => {
       redirect: "manual",
     })
 
+  const midpoint = Math.floor(AUTH_TOKEN.length / 2)
+  const wrappedToken = `${AUTH_TOKEN.slice(0, midpoint)}\n${AUTH_TOKEN.slice(midpoint)}`
+
   const approvalScenarios = [
     { name: "exact token", token: AUTH_TOKEN },
     {
@@ -102,7 +105,7 @@ describe("OAuth consent token submission", () => {
     },
     {
       name: "token broken by an embedded newline (terminal wrap)",
-      token: `${AUTH_TOKEN.slice(0, Math.floor(AUTH_TOKEN.length / 2))}\n${AUTH_TOKEN.slice(Math.floor(AUTH_TOKEN.length / 2))}`,
+      token: wrappedToken,
     },
   ]
 

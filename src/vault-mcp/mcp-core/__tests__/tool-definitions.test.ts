@@ -211,40 +211,25 @@ describe("config interpolation in descriptions", () => {
   const findCustomCall = (name: string): RegisterToolCall | undefined =>
     customCalls.find(([toolName]) => toolName === name)
 
-  const interpolationScenarios = [
-    {
-      name: "vault_get_memory",
-      toolName: TOOL_NAMES.VAULT_GET_MEMORY,
-      defaultRef: "About Me/",
-    },
-    {
-      name: "vault_update_memory",
-      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
-      defaultRef: "About Me/",
-    },
+  const DEFAULT_MEMORY_REF = "About Me/"
+
+  const memoryDirTools = [
+    { name: "vault_get_memory", toolName: TOOL_NAMES.VAULT_GET_MEMORY },
+    { name: "vault_update_memory", toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY },
     {
       name: "vault_list_memory_files",
       toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
-      defaultRef: "About Me/",
     },
-    {
-      name: "vault_delete_memory",
-      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
-      defaultRef: "About Me/",
-    },
-    {
-      name: "vault_read_note",
-      toolName: TOOL_NAMES.VAULT_READ_NOTE,
-      defaultRef: "About Me/",
-    },
+    { name: "vault_delete_memory", toolName: TOOL_NAMES.VAULT_DELETE_MEMORY },
+    { name: "vault_read_note", toolName: TOOL_NAMES.VAULT_READ_NOTE },
   ] as const
 
-  it.each(interpolationScenarios)(
+  it.each(memoryDirTools)(
     "$name description references the configured memory dir",
-    ({ toolName, defaultRef }) => {
+    ({ toolName }) => {
       const [, config] = findCustomCall(toolName)!
       expect(config.description).toContain(`${CUSTOM_MEMORY_DIR}/`)
-      expect(config.description).not.toContain(defaultRef)
+      expect(config.description).not.toContain(DEFAULT_MEMORY_REF)
     },
   )
 
