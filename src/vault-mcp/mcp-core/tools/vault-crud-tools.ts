@@ -243,7 +243,10 @@ Returns: Confirmation message.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_WRITE_NOTE,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", {
+        path,
+        hasProperties: properties !== undefined,
+      })
       return safeHandler(
         reqLogger,
         () =>
@@ -402,7 +405,11 @@ Returns: Confirmation message with replacement count.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
       })
-      reqLogger.info("tool_call", { path, replace_all_occurrences })
+      reqLogger.info("tool_call", {
+        path,
+        isDeletion: new_text.length === 0,
+        replace_all_occurrences,
+      })
       return safeHandler(
         reqLogger,
         () =>
@@ -416,9 +423,12 @@ Returns: Confirmation message with replacement count.`,
             },
             reqLogger,
           ),
-        (msg) => {
-          reqLogger.info("tool_result", { outcome: "replaced" })
-          return msg
+        (result) => {
+          reqLogger.info("tool_result", {
+            outcome: "replaced",
+            count: result.count,
+          })
+          return result.message
         },
       )
     },
