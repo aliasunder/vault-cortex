@@ -385,14 +385,15 @@ export const createSearchIndex = (dbPath: string) => {
     normalizedVault: string,
   ): number => {
     let count = 0
-    for (const entry of entries) {
-      if (!entry.isFile() || entry.name.endsWith(".md")) continue
-      const absolutePath = join(entry.parentPath, entry.name)
+    for (const directoryEntry of entries) {
+      if (!directoryEntry.isFile() || directoryEntry.name.endsWith(".md"))
+        continue
+      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
       const relativePath = relative(normalizedVault, absolutePath)
       if (relativePath.split("/").some((segment) => segment.startsWith(".")))
         continue
       const basePath = stripExtension(relativePath)
-      const baseFilename = stripExtension(entry.name)
+      const baseFilename = stripExtension(directoryEntry.name)
       upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
       count += 1
     }
