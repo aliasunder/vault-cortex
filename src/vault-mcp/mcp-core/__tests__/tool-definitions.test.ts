@@ -196,19 +196,17 @@ describe("annotations", () => {
 describe("config interpolation in descriptions", () => {
   const CUSTOM_MEMORY_DIR = "Profile"
   const customConfig = loadConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
-  let customCalls: RegisterToolCall[]
-
-  beforeEach(() => {
-    const customServer = { registerTool: vi.fn() }
+  const customCalls = (() => {
+    const server = { registerTool: vi.fn() }
     registerTools({
-      server: customServer as unknown as McpServer,
+      server: server as unknown as McpServer,
       vaultPath: "/test-vault",
       search: {} as SearchIndex,
       logger,
       config: customConfig,
     })
-    customCalls = customServer.registerTool.mock.calls as RegisterToolCall[]
-  })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  })()
 
   const findCustomCall = (name: string): RegisterToolCall | undefined =>
     customCalls.find(([toolName]) => toolName === name)
