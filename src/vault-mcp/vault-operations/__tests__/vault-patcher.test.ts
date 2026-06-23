@@ -1828,7 +1828,10 @@ And apple appears here too.
       },
       logger,
     )
-    expect(result).toBe("Replaced 1 occurrence in replace.md")
+    expect(result).toEqual({
+      message: "Replaced 1 occurrence in replace.md",
+      count: 1,
+    })
     const updated = await readTestNote("replace.md")
     expect(updated).toContain("The word orange appears here.")
     expect(updated).toContain("And apple appears here too.")
@@ -1852,7 +1855,10 @@ apple and apple and apple.
       },
       logger,
     )
-    expect(result).toBe("Replaced 3 occurrences in replace-all.md")
+    expect(result).toEqual({
+      message: "Replaced 3 occurrences in replace-all.md",
+      count: 3,
+    })
     const updated = await readTestNote("replace-all.md")
     expect(updated).toContain("orange and orange and orange.")
     expect(updated).not.toContain("apple")

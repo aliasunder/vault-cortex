@@ -751,6 +751,14 @@ describe("listMemoryFiles", () => {
     expect(outlines[1].file).toBe("Principles")
   })
 
+  it("includes byte size per file", async () => {
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    for (const outline of outlines) {
+      expect(outline.bytes).toBeGreaterThan(0)
+      expect(typeof outline.bytes).toBe("number")
+    }
+  })
+
   it("uses frontmatter title", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines[0].title).toBe("Opinions — About Me")
