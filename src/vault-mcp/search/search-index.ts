@@ -142,6 +142,12 @@ type PropertyValueCount = {
   count: number
 }
 
+type VaultStats = {
+  totalNotes: number
+  untaggedNotes: number
+  noPropertiesNotes: number
+}
+
 type SearchFilters = {
   folder?: string
   tags?: string[]
@@ -701,7 +707,10 @@ export const createSearchIndex = (dbPath: string) => {
   }
 
   /** Returns all tags in the vault with their note counts. */
-  const listAllTags = (logger: Logger): TagCount[] => {
+  const listAllTags = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): TagCount[] => {
     const sql = `
       SELECT value as tag, COUNT(*) as count
       FROM notes, json_each(notes.tags)
@@ -998,6 +1007,73 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
+  // ── Aggregate queries ──────────────────────────────────────────
+
+  /** Counts links whose targets don't exist in the notes table — broken links
+   *  are a vault-wide health metric. Individual broken links per note are
+   *  already available via getOutgoingLinks (filtering exists: false). */
+  const brokenLinkCount = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): number => {
+    const sql = `
+      SELECT COUNT(*) as count
+      FROM links
+      WHERE target NOT IN (SELECT path FROM notes)
+    `
+    const row = db.prepare(sql).get() as { count: number }
+    logger.info("broken link count", { count: row.count })
+    return row.count
+  }
+
+  /** Returns notes whose filesystem mtime falls within a calendar date
+   *  (server-local day boundaries, governed by the TZ env var). */
+  const modifiedOnDate = (
+    params: { date: string; limit?: number },
+    logger: Logger,
+  ): NoteMetadata[] => {
+    const limit = params.limit ?? 50
+    const dayStart = DateTime.fromISO(params.date)
+    const dayEnd = dayStart.plus({ days: 1 })
+
+    const sql = `
+      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+      FROM notes
+      WHERE mtime >= ? AND mtime < ?
+      ORDER BY mtime DESC
+      LIMIT ?
+    `
+    const rows = db
+      .prepare(sql)
+      .all(dayStart.toMillis(), dayEnd.toMillis(), limit) as NoteRow[]
+    const results = rows.map(rowToMetadata)
+    logger.info("modified on date", {
+      date: params.date,
+      resultCount: results.length,
+    })
+    return results
+  }
+
+  /** Lightweight aggregate counts — total notes, untagged notes, notes without
+   *  frontmatter properties. Single SQL to avoid multiple round-trips. */
+  const vaultStats = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): VaultStats => {
+    // Conditional aggregation: count all rows, then conditionally count rows
+    // whose tags/properties are the empty-JSON sentinel set by upsertNote.
+    const sql = `
+      SELECT
+        COUNT(*) as totalNotes,
+        COALESCE(SUM(CASE WHEN tags = '[]' THEN 1 ELSE 0 END), 0) as untaggedNotes,
+        COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
+      FROM notes
+    `
+    const row = db.prepare(sql).get() as VaultStats
+    logger.info("vault stats", row)
+    return row
+  }
+
   return {
     upsertNote,
     removeNote,
@@ -1013,6 +1089,9 @@ export const createSearchIndex = (dbPath: string) => {
     getBacklinks,
     getOutgoingLinks,
     findOrphans,
+    brokenLinkCount,
+    modifiedOnDate,
+    vaultStats,
   }
 }
 

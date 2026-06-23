@@ -63,6 +63,10 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
+// Self-documenting epoch ms for daily-review tests — midday on 2026-06-16
+// in the system timezone, matching the modifiedOnDate TZ-aware behavior.
+const JUNE_16_MIDDAY_MS = DateTime.fromISO("2026-06-16T12:00:00").toMillis()
+
 // Indexed notes in distinct folders so folder derivation, tags, property
 // keys, and recent-notes all have something to surface.
 const FIXTURE_NOTES: ReadonlyArray<{
@@ -300,8 +304,6 @@ describe("registerPrompts — genericness", () => {
 // ── vault-orientation handler ────────────────────────────────────
 
 describe("vault-orientation handler", () => {
-  // Exact assembled output is asserted in "full prompt output"; the cases below
-  // cover sentinels and degradation.
   it("returns sentinels and never throws on an empty vault", async () => {
     const config = loadConfig({})
     const { calls } = await setupVault({
@@ -315,6 +317,167 @@ describe("vault-orientation handler", () => {
     expect(text).toContain("No tags yet.")
     expect(text).toContain("No frontmatter properties yet.")
     expect(text).toContain(`the ${config.memoryDir}/ layer is empty`)
+    expect(text).toContain("No orphans found")
+  })
+
+  it("shows vault stats header with note count", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("## Vault stats")
+    // 2 indexed notes; 3 folders on disk (About Me, Projects, Reference)
+    expect(text).toContain("2 notes across")
+    expect(text).toContain("3 folders")
+  })
+
+  it("shows folder note counts instead of bare names", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("- Projects (1)")
+    expect(text).toContain("- Reference (1)")
+  })
+
+  it("shows orphan count and sample when orphans exist", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    // Both fixture notes are orphans (no incoming links between them)
+    expect(text).toContain("## Orphans")
+    expect(text).toContain("orphan notes (no incoming links)")
+    expect(text).toContain("Projects/alpha.md")
+  })
+
+  it("shows no-orphans message when all notes are linked", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-linked-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    const search = createSearchIndex(":memory:")
+    // Two notes that link to each other — no orphans
+    search.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "# A\n\n[[b]].\n",
+        fileStat: { mtimeMs: 1000, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "# B\n\n[[a]].\n",
+        fileStat: { mtimeMs: 2000, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain(
+      "No orphans found — every note has at least one incoming link.",
+    )
+  })
+
+  it("shows property adoption rates with count/total format", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    // Both fixture notes have "title", "type", and "tags" properties
+    expect(text).toMatch(/- title \(2\/2 — 100%\)/)
+  })
+
+  it("flags low-adoption properties", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-adoption-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    const search = createSearchIndex(":memory:")
+    // 21 notes total, 1 with "rare" property → 1/21 < 5% threshold
+    for (let noteIndex = 0; noteIndex < 21; noteIndex++) {
+      const extra = noteIndex === 0 ? "rare: yes\n" : ""
+      search.upsertNote(
+        {
+          filePath: `note-${noteIndex}.md`,
+          rawContent: `---\ntitle: Note ${noteIndex}\n${extra}---\n# Note\n`,
+          fileStat: { mtimeMs: noteIndex * 1000, size: 50 },
+        },
+        logger,
+      )
+    }
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("rare (1/21")
+    expect(text).toContain("(low adoption)")
+  })
+
+  it("suggests vault_find_orphans in footer when orphans exist", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("vault_find_orphans")
+  })
+
+  it("omits vault_find_orphans from footer when no orphans", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-noorphan-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "# A\n\n[[b]].\n",
+        fileStat: { mtimeMs: 1000, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "# B\n\n[[a]].\n",
+        fileStat: { mtimeMs: 2000, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).not.toContain("vault_find_orphans")
+  })
+
+  it("shows broken link count in stats when broken links exist", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-broken-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "note.md",
+        rawContent: "# Note\n\n[[missing]] and [[also-missing]].\n",
+        fileStat: { mtimeMs: 1000, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("2 broken links.")
   })
 })
 
@@ -412,6 +575,46 @@ describe("memory-review handler", () => {
     expect(text).not.toContain("truncated at")
     expect(text).toContain("Research current docs before configuring")
   })
+
+  it("renders structural overview before content", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    const structurePos = text.indexOf("## Structure")
+    const contentPos = text.indexOf("## Current memory")
+    expect(structurePos).toBeGreaterThan(-1)
+    expect(contentPos).toBeGreaterThan(structurePos)
+  })
+
+  it("structural overview shows file count and section entry counts", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).toContain("2 memory files in About Me/:")
+    expect(text).toContain("**Principles**")
+    expect(text).toContain("**Opinions**")
+    expect(text).toContain("entries)")
+  })
+
+  it("enhanced step 2 references the Structure section", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).toContain("Structure section above")
+    expect(text).toContain("Contains/Does NOT contain")
+  })
+
+  it("includes coverage analysis as a review step", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).toContain("5. **Coverage analysis.**")
+    expect(text).toContain("NOT yet represented")
+  })
 })
 
 // ── daily-review handler ─────────────────────────────────────────
@@ -419,14 +622,15 @@ describe("memory-review handler", () => {
 describe("daily-review handler", () => {
   // Exact assembled output (note + recent notes) is asserted in "full prompt
   // output"; the cases below cover the missing-note and default-date branches.
-  it("offers to create a missing note and still lists recent notes", async () => {
+  it("offers to create a missing note and shows date-specific activity", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
 
     expect(text).toContain("No daily note found")
     expect(text).toContain("Daily Notes/2020-01-01.md")
-    expect(text).toContain("Projects/alpha.md") // recent notes still shown
+    // No notes modified on 2020-01-01, so the section shows the empty message
+    expect(text).toContain("No notes were modified on 2020-01-01.")
   })
 
   it("defaults to today when no date is given", async () => {
@@ -466,6 +670,218 @@ describe("daily-review handler", () => {
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
     expect(text).not.toContain("runs well past the cap")
+  })
+
+  it("shows outgoing links when daily note has links", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-links-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nWorked on [[Projects/alpha]].\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nWorked on [[Projects/alpha]].\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "Projects/alpha.md",
+        rawContent: "---\ntitle: Alpha\n---\n# Alpha\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Outgoing links")
+    expect(text).toContain("Projects/alpha.md")
+  })
+
+  it("flags broken outgoing links", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-broken-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nSee [[missing-note]].\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nSee [[missing-note]].\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("**broken**")
+    expect(text).toContain("1 broken link")
+  })
+
+  it("shows backlinks when other notes reference the daily note", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-back-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nJournal.\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "meeting.md",
+        rawContent:
+          "---\ntitle: Meeting\n---\n# Meeting\n\nSee [[Daily Notes/2026-06-16]].\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Backlinks")
+    expect(text).toContain("meeting.md — Meeting")
+  })
+
+  it("shows empty-links messages when daily note has no links", async () => {
+    const { vault, search, calls } = await setupVault()
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    const dailyContent = "# 2026-06-16\n\nPlain text, no links.\n"
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      dailyContent,
+      "utf8",
+    )
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: dailyContent,
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("No outgoing links in this daily note.")
+    expect(text).toContain("No other notes link to this daily note.")
+  })
+
+  it("degrades link sections when daily note does not exist", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
+
+    expect(text).toContain("no link analysis available")
+  })
+
+  it("uses date-filtered notes instead of global recent", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-date-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    // Note modified on 2026-06-16
+    search.upsertNote(
+      {
+        filePath: "same-day.md",
+        rawContent: "---\ntitle: Same Day\n---\n# Same Day\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    // Note modified on a different date (epoch ms 1000 = 1970)
+    search.upsertNote(
+      {
+        filePath: "other-day.md",
+        rawContent: "---\ntitle: Other Day\n---\n# Other Day\n",
+        fileStat: { mtimeMs: 1000, size: 50 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Notes modified on 2026-06-16")
+    expect(text).toContain("same-day.md — Same Day")
+    expect(text).not.toContain("other-day.md")
+  })
+
+  it("includes task extraction and pattern recognition in review steps", async () => {
+    const { vault, calls } = await setupVault()
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("**Task extraction**")
+    expect(text).toContain("**Follow the links**")
+    expect(text).toContain("**Pattern recognition**")
+  })
+
+  it("numbers review steps correctly with memory disabled", async () => {
+    const disabledConfig = loadConfig({ MEMORY_ENABLED: "false" })
+    const { vault, calls } = await setupVault({ config: disabledConfig })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    // Without memory: Reconcile(1), Follow-ups(2), Task(3), Links(4), Patterns(5)
+    expect(text).toContain("1. **Reconcile")
+    expect(text).toContain("2. **Capture follow-ups**")
+    expect(text).not.toContain("Surface durable facts")
+    expect(text).toContain("3. **Task extraction**")
+    expect(text).toContain("5. **Pattern recognition**")
   })
 })
 
@@ -659,6 +1075,13 @@ describe("full prompt output", () => {
         "",
         "Below is the current content of the About Me/Mem memory file. It is an **append-with-dates, newest-first** record: each dated entry was true when it was written, and the timeline read top-to-bottom *is* the meaning.",
         "",
+        "## Structure",
+        "",
+        "1 memory file in About Me/:",
+        "",
+        "- **Mem** (98 bytes)",
+        "  - Notes (newest first) (1 entries)",
+        "",
         "## Current memory",
         "",
         "# Mem",
@@ -669,9 +1092,10 @@ describe("full prompt output", () => {
         "## How to reflect",
         "",
         '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
-        "2. **Scope-fit.** Note any entry that seems to belong in a different file or section, based on each file's declared scope (respect a scope header if the file states one; don't assume one otherwise).",
+        "2. **Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
         "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
         "4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.",
+        "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
         "",
         "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
       ].join("\n"),
@@ -702,19 +1126,26 @@ describe("full prompt output", () => {
       [
         "# Vault orientation",
         "",
-        "This vault is a structured, convention-driven Obsidian system. Survey its actual conventions below, then use the `vault_*` tools to go deeper.",
+        "This vault is a structured, convention-driven Obsidian system. Survey its structure and health below, then use the vault tools to go deeper.",
+        "",
+        "## Vault stats",
+        "1 notes across 2 folders, 0 tags, 1 property keys. 1 untagged.",
         "",
         "## Folders",
-        "- About Me",
-        "- Notes",
+        "- About Me (1)",
+        "- Notes (1)",
         "",
         "## Tags",
         "No tags yet.",
         "",
         "## Property keys",
-        "- title (1) — e.g. Alpha",
+        "- title (1/1 — 100%) — e.g. Alpha",
         "",
         "## Recently modified",
+        "- Notes/alpha.md — Alpha",
+        "",
+        "## Orphans",
+        "1 orphan notes (no incoming links):",
         "- Notes/alpha.md — Alpha",
         "",
         "## Memory (About Me/)",
@@ -722,7 +1153,13 @@ describe("full prompt output", () => {
         "  - Notes (newest first) (1)",
         "",
         "---",
-        "Go deeper with the vault tools: `vault_search` (full-text), `vault_search_by_tag`, `vault_list_property_values`, `vault_get_memory`, and `vault_read_note`.",
+        "Go deeper with the vault tools:",
+        "- `vault_search` — full-text search across all notes",
+        "- `vault_search_by_tag` — explore notes by tag",
+        "- `vault_list_property_values` — explore values for any property key",
+        "- `vault_find_orphans` — full orphan list with exclusion control",
+        "- `vault_get_memory` — read memory files in detail",
+        "- `vault_read_note` — read any note's full content",
       ].join("\n"),
     )
   })
@@ -736,11 +1173,21 @@ describe("full prompt output", () => {
       "utf8",
     )
     const search = createSearchIndex(":memory:")
+    // Index the daily note so link analysis works
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nShipped the prompts.\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    // Index a note modified on the same date
     search.upsertNote(
       {
         filePath: "Log/note.md",
         rawContent: "---\ntitle: Note One\n---\nbody\n",
-        fileStat: { mtimeMs: 1000, size: 100 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
       },
       logger,
     )
@@ -760,15 +1207,27 @@ describe("full prompt output", () => {
         "",
         "Shipped the prompts.",
         "",
-        "## Recently modified notes",
+        "## Outgoing links",
         "",
+        "No outgoing links in this daily note.",
+        "",
+        "## Backlinks",
+        "",
+        "No other notes link to this daily note.",
+        "",
+        "## Notes modified on 2026-06-16",
+        "",
+        "- Daily Notes/2026-06-16.md — 2026-06-16",
         "- Log/note.md — Note One",
         "",
         "## How to review",
         "",
-        "1. **Reconcile the day** — what got done, what's still open, what changed — cross-referencing the recent notes above.",
+        "1. **Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
         "2. **Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
         "3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to About Me/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.",
+        "4. **Task extraction** — identify any incomplete tasks (`- [ ]`) in the daily note. Are any overdue or blocked?",
+        "5. **Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
+        "6. **Pattern recognition** — look for recurring themes, repeated tasks, or persistent concerns across this note and recent activity.",
       ].join("\n"),
     )
   })

@@ -258,13 +258,13 @@ Link queries use a `links` table populated during indexing from `[[wikilink]]` a
 
 Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated — clients that support the `prompts/list` capability surface them via a **+** menu (Claude Desktop), slash commands (Claude Code), or similar (OpenCode, Zed); support varies by client and some (Cursor, Windsurf) currently expose tools only. Handlers assemble live vault content at invocation time over the same data layer the tools use, so there is no embedded procedure that can drift, only live content plus thin, durable instruction.
 
-| Prompt              | Arguments             | Purpose                                                                                                |
-| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |
-| `vault-orientation` | —                     | Surveys folders, tags, property keys, recent notes, and the memory layer to expose vault conventions.  |
-| `memory-review`     | `file?`, `max_chars?` | Reflects on the memory layer as an append-with-dates **evolution**; proposes append-only updates only. |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day's daily note against recent activity and feeds durable facts back into memory.        |
+| Prompt              | Arguments             | Purpose                                                                                                                                                                                                                                                                     |
+| ------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Vault stats, folder note counts, property adoption rates, orphan detection, broken link count, tags, recent notes, memory outline, and contextual tool suggestions. Uses `findOrphans`, `brokenLinkCount`, `vaultStats` alongside the existing tag/property/recent queries. |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts from `listMemoryFiles`, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit against declared scopes, backfill gaps, coverage analysis. Append-only by design.                        |
+| `daily-review`      | `date?`, `max_chars?` | Daily note content + outgoing links (via `getOutgoingLinks`, with broken-link flags) + backlinks (via `getBacklinks`) + date-specific activity (via `modifiedOnDate`). Guides reconciliation, link following, and pattern recognition.                                      |
 
-Each handler degrades to a valid message rather than throwing, so a prompt never hard-fails the client. `memory-review` is deliberately append-only: it reads dated entries as a timeline (each entry true when written), never as "newest supersedes older," and never prunes "stale" entries — matching the memory layer's design.
+Each handler degrades to a valid message rather than throwing, so a prompt never hard-fails the client. `memory-review` is deliberately append-only: it reads dated entries as a timeline (each entry true when written), never as "newest supersedes older," and never prunes "stale" entries — matching the memory layer's design. `daily-review` uses `modifiedOnDate` instead of `recentNotes`, so past-date reviews show activity from _that_ date — not today's globally recent notes.
 
 ## Infrastructure
 

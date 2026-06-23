@@ -41,7 +41,7 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **[Guided workflows](#prompts-3)** — three built-in prompts that orient a new session to your vault's conventions, review your memory layer as a timeline, or reconcile a day's work. Assembled from live vault content each time you run them.
+- **[Guided workflows](#prompts-3)** — three built-in prompts that surface vault health (orphans, broken links, property adoption), review your memory layer's structure and coverage, or reconcile a day's work with outgoing links, backlinks, and date-specific activity. Assembled from live vault data each time you run them.
 
 ### Roadmap
 
@@ -52,7 +52,7 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 
 ## Why Vault Cortex?
 
-Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It runs its own SQLite FTS5 search index, includes a structured memory system for AI personalization, and protects every connection with OAuth 2.1 (PKCE, dynamic client registration, refresh token rotation).
+Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It runs its own SQLite FTS5 search index, includes a structured memory system for AI personalization, and protects every connection with OAuth 2.1 (PKCE, dynamic client registration, refresh token rotation). Three built-in prompts pull from the search index, link graph, and memory layer together — surfacing vault health, reviewing memory coverage, and reconciling daily work in one view.
 
 Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
@@ -190,13 +190,13 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## Prompts (3)
 
-Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger: run one to instantly ground a session in your vault's structure, reflect on how your preferences have evolved, or reconcile a day's work into follow-ups and memory. Each prompt assembles live vault content when you invoke it, so the context is always current.
+Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
-| Prompt              | Arguments             | What it does                                                                                                                                                              |
-| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys your folders, tags, property keys, recent notes, and memory layer — grounds a new session in your vault's real conventions                                        |
-| `memory-review`     | `file?`, `max_chars?` | Reads your memory as a dated timeline (an evolution, not "latest wins"), surfaces scope-fit issues, and proposes append-only updates. Hidden when `MEMORY_ENABLED=false`. |
-| `daily-review`      | `date?`, `max_chars?` | Cross-references a day's daily note with recent vault activity, captures follow-ups, and surfaces durable facts worth saving to memory                                    |
+| Prompt              | Arguments             | What it does                                                                                                                                                                                                           |
+| ------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                        |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis. Hidden when `MEMORY_ENABLED=false`. |
+| `daily-review`      | `date?`, `max_chars?` | Reviews a day's daily note with outgoing links (broken-link detection), backlinks, and date-specific activity — guides reconciliation, link following, and pattern recognition                                         |
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 

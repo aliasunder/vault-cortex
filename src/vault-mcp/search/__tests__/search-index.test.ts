@@ -10,6 +10,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
@@ -338,7 +339,7 @@ describe("upsertNote", () => {
       },
       logger,
     )
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
 })
@@ -1042,7 +1043,7 @@ describe("listAllTags", () => {
   })
 
   it("returns tags with counts ordered by count desc", () => {
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags[0]).toEqual({ tag: "principles", count: 2 })
     expect(tags.find((tagEntry) => tagEntry.tag === "self")).toEqual({
       tag: "self",
@@ -1059,7 +1060,7 @@ describe("listAllTags", () => {
       },
       logger,
     )
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags).toHaveLength(3)
     const results = index.fullTextSearch({ query: "no tags" }, logger)
     expect(results).toHaveLength(1)
@@ -2016,5 +2017,198 @@ describe("relative links (path from current file)", () => {
         bytes: 100,
       },
     ])
+  })
+})
+
+// ── brokenLinkCount ─────────────────────────────────────────────
+
+describe("brokenLinkCount", () => {
+  it("returns 0 when all link targets exist", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[target]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "target.md",
+        rawContent: "# Target\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
+
+  it("counts links to non-existent notes", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(2)
+  })
+
+  it("counts only broken links, not resolved ones", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[exists]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "exists.md",
+        rawContent: "# Exists\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+})
+
+// ── modifiedOnDate ──────────────────────────────────────────────
+
+describe("modifiedOnDate", () => {
+  const midday = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
+  const lateEvening = DateTime.fromISO("2026-06-15T23:00:00").toMillis()
+  const nextDayMorning = DateTime.fromISO("2026-06-16T08:00:00").toMillis()
+
+  beforeEach(() => {
+    index.upsertNote(
+      {
+        filePath: "today-note.md",
+        rawContent: "---\ntitle: Today\n---\n# Today\n",
+        fileStat: testStat(midday),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "today-late.md",
+        rawContent: "---\ntitle: Today Late\n---\n# Late\n",
+        fileStat: testStat(lateEvening),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "tomorrow-note.md",
+        rawContent: "---\ntitle: Tomorrow\n---\n# Tomorrow\n",
+        fileStat: testStat(nextDayMorning),
+      },
+      logger,
+    )
+  })
+
+  it("returns notes modified on the given date, ordered by mtime descending", () => {
+    const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
+    const paths = results.map((note) => note.path)
+    expect(paths).toEqual(["today-late.md", "today-note.md"])
+  })
+
+  it("excludes notes modified on other dates", () => {
+    const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
+    const paths = results.map((note) => note.path)
+    expect(paths).not.toContain("tomorrow-note.md")
+  })
+
+  it("respects the limit parameter", () => {
+    const results = index.modifiedOnDate(
+      { date: "2026-06-15", limit: 1 },
+      logger,
+    )
+    const paths = results.map((note) => note.path)
+    expect(paths).toEqual(["today-late.md"])
+  })
+
+  it("returns empty array for a date with no modifications", () => {
+    const results = index.modifiedOnDate({ date: "2020-01-01" }, logger)
+    expect(results).toEqual([])
+  })
+})
+
+// ── vaultStats ──────────────────────────────────────────────────
+
+describe("vaultStats", () => {
+  it("returns correct total note count", () => {
+    index.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\ntags: [one]\nstatus: active\n---\n# A\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [two]\n---\n# B\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats({}, logger)
+    expect(stats.totalNotes).toBe(2)
+  })
+
+  it("counts untagged notes", () => {
+    index.upsertNote(
+      {
+        filePath: "tagged.md",
+        rawContent: "---\ntags: [one]\n---\n# Tagged\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "untagged.md",
+        rawContent: "# Untagged\n\nNo frontmatter.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats({}, logger)
+    expect(stats.untaggedNotes).toBe(1)
+  })
+
+  it("counts notes without frontmatter properties", () => {
+    index.upsertNote(
+      {
+        filePath: "with-props.md",
+        rawContent: "---\nstatus: active\n---\n# Props\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "no-props.md",
+        rawContent: "# Bare\n\nNo frontmatter at all.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const stats = index.vaultStats({}, logger)
+    expect(stats.noPropertiesNotes).toBe(1)
+  })
+
+  it("returns all zeros on an empty index", () => {
+    const stats = index.vaultStats({}, logger)
+    expect(stats).toEqual({
+      totalNotes: 0,
+      untaggedNotes: 0,
+      noPropertiesNotes: 0,
+    })
   })
 })
