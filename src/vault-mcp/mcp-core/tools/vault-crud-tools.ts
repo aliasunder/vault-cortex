@@ -482,7 +482,11 @@ Returns: Confirmation message with the number of lines removed and a truncated p
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_SPAN,
       })
-      reqLogger.info("tool_call", { path, first_match })
+      reqLogger.info("tool_call", {
+        path,
+        hasEndAnchor: end_anchor !== undefined,
+        first_match,
+      })
       return safeHandler(
         reqLogger,
         () =>
