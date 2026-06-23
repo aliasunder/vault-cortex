@@ -306,6 +306,9 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      'memory file not found: "About Me/Nonexistent.md"',
+    )
   })
 
   it("vault_read_note rejects combining outline with heading", async () => {

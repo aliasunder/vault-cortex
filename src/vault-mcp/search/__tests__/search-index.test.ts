@@ -1060,7 +1060,10 @@ describe("listAllTags", () => {
       logger,
     )
     const tags = index.listAllTags(logger)
-    expect(tags.length).toBeGreaterThan(0)
+    expect(tags).toHaveLength(3)
+    const results = index.fullTextSearch({ query: "no tags" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("bare.md")
   })
 })
 
@@ -1385,15 +1388,17 @@ describe("searchByProperty", () => {
       { key: "status", value: "done" },
       logger,
     )
-    expect(results[0]).toHaveProperty("path")
-    expect(results[0]).toHaveProperty("title")
-    expect(results[0]).toHaveProperty("tags")
-    expect(results[0]).toHaveProperty("related")
-    expect(results[0]).toHaveProperty("folder")
-    expect(results[0]).toHaveProperty("type")
-    expect(results[0]).toHaveProperty("modified")
-    expect(results[0]).toHaveProperty("bytes")
-    expect(results[0]).toHaveProperty("properties")
+    expect(results).toHaveLength(1)
+    const result = results[0]
+    expect(result.path).toBe("Projects/done.md")
+    expect(result.title).toBe("Done Project")
+    expect(result.tags).toEqual(["project", "done"])
+    expect(result.folder).toBe("Projects")
+    expect(result.type).toBe("project")
+    expect(result.bytes).toBe(100)
+    expect(result.properties).toEqual(
+      expect.objectContaining({ status: "done", priority: "low" }),
+    )
   })
 
   it("returns empty for non-matching value", () => {
@@ -1490,8 +1495,10 @@ describe("rebuildFromVault", () => {
 
   it("skips hidden directories", async () => {
     await index.rebuildFromVault(vaultDir)
-    const results = index.fullTextSearch({ query: "hidden" }, logger)
-    expect(results).toHaveLength(0)
+    const visible = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(visible).toHaveLength(1)
+    const hidden = index.fullTextSearch({ query: "hidden" }, logger)
+    expect(hidden).toHaveLength(0)
   })
 
   it("clears existing data before rebuilding", async () => {
@@ -1741,11 +1748,11 @@ describe("findOrphans", () => {
       (orphan) => orphan.path === "Projects/orphan.md",
     )
     expect(projectOrphan).toBeDefined()
-    expect(projectOrphan).toHaveProperty("title")
-    expect(projectOrphan).toHaveProperty("tags")
-    expect(projectOrphan).toHaveProperty("folder")
-    expect(projectOrphan).toHaveProperty("modified")
-    expect(projectOrphan).toHaveProperty("bytes")
+    expect(projectOrphan!.title).toBe("Orphan")
+    expect(projectOrphan!.tags).toEqual(["project"])
+    expect(projectOrphan!.folder).toBe("Projects")
+    expect(projectOrphan!.bytes).toBe(100)
+    expect(typeof projectOrphan!.modified).toBe("string")
   })
 
   it("treats self-linking notes as orphans", () => {

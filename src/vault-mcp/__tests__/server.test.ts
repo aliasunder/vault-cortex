@@ -69,6 +69,7 @@ describe("createErrorMiddleware", () => {
 
     middleware(err, req, res, next)
 
+    expect(errorSpy).toHaveBeenCalledTimes(1)
     expect(resStatus).not.toHaveBeenCalled()
     expect(resJson).not.toHaveBeenCalled()
   })
@@ -124,10 +125,11 @@ describe("createErrorMiddleware", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
-    const { req, res, next } = createMockReqRes()
+    const { req, res, resStatus, next } = createMockReqRes()
 
     middleware(new Error("x"), req, res, next)
 
+    expect(resStatus).toHaveBeenCalledWith(500)
     expect(next).not.toHaveBeenCalled()
   })
 })

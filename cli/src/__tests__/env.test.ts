@@ -9,12 +9,6 @@ describe("buildLocalEnv", () => {
       vaultPath: "/Users/you/My Vault",
     })
 
-    expect(env).toBe(
-      buildLocalEnv({
-        mcpAuthToken: "abc123",
-        vaultPath: "/Users/you/My Vault",
-      }),
-    )
     const lines = env.split("\n")
     expect(lines).toContain("MCP_AUTH_TOKEN=abc123")
     expect(lines).toContain("VAULT_PATH=/Users/you/My Vault")

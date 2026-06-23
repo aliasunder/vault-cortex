@@ -683,6 +683,7 @@ title: Dupe
       logger,
     )
     const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).not.toContain("Least-privilege for AI agents")
     expect(raw).toContain("title: Principles — About Me")
     expect(raw).toContain("type: profile")
     // Local-offset created stamp survives byte-identically — never
