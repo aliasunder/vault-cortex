@@ -777,12 +777,21 @@ describe("daily-review handler", () => {
   })
 
   it("shows empty-links messages when daily note has no links", async () => {
-    const { vault, calls } = await setupVault()
+    const { vault, search, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    const dailyContent = "# 2026-06-16\n\nPlain text, no links.\n"
     await writeFile(
       join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nPlain text, no links.\n",
+      dailyContent,
       "utf8",
+    )
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: dailyContent,
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
     )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))

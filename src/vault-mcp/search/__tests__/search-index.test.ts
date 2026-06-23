@@ -2110,12 +2110,10 @@ describe("modifiedOnDate", () => {
     )
   })
 
-  it("returns notes modified on the given date", () => {
+  it("returns notes modified on the given date, ordered by mtime descending", () => {
     const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
     const paths = results.map((note) => note.path)
-    expect(paths).toContain("today-note.md")
-    expect(paths).toContain("today-late.md")
-    expect(paths).toHaveLength(2)
+    expect(paths).toEqual(["today-late.md", "today-note.md"])
   })
 
   it("excludes notes modified on other dates", () => {
@@ -2129,7 +2127,8 @@ describe("modifiedOnDate", () => {
       { date: "2026-06-15", limit: 1 },
       logger,
     )
-    expect(results).toHaveLength(1)
+    const paths = results.map((note) => note.path)
+    expect(paths).toEqual(["today-late.md"])
   })
 
   it("returns empty array for a date with no modifications", () => {

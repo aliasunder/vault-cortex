@@ -544,13 +544,13 @@ export const registerPrompts = (params: {
       const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {
-        // getDailyNote resolves the path via the vault's daily-notes config and
-        // degrades to the documented Obsidian defaults when none is present.
+        // Resolve the date once so getDailyNote and modifiedOnDate always
+        // target the same calendar day, even around midnight.
+        const dateArg = args.date ?? DateTime.now().toISODate()!
         const daily = await getDailyNote(
-          { vaultPath, date: args.date },
+          { vaultPath, date: dateArg },
           reqLogger,
         )
-        const dateArg = args.date ?? DateTime.now().toISODate()!
         const modifiedOnDate = search.modifiedOnDate(
           { date: dateArg, limit: DAILY_RECENT_LIMIT },
           reqLogger,
