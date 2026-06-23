@@ -16,7 +16,7 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. Most Obsidian MCP servers wrap the Obsidian REST API plugin, which means they only work while the desktop app is open. Vault Cortex takes the opposite approach: it reads your `.md` files directly and owns the whole stack, with its own SQLite search index, a heading-aware memory layer for AI personalization, and OAuth 2.1 authentication that few MCP servers implement. One Docker container gives any MCP client 25 tools and 3 guided prompts, from your phone to claude.ai.
+**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads your `.md` files directly, so the Obsidian desktop app never has to be running. It brings its own SQLite search index, a memory layer for AI personalization, and OAuth 2.1 authentication that few MCP servers implement. One Docker container gives any MCP client 25 tools and 3 guided prompts, from your phone to claude.ai.
 
 **Contents** — [Why Vault Cortex?](#why-vault-cortex) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
 
@@ -37,7 +37,7 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+Built and tested across a 15-day trip through Europe. 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 - **[Remote access](#authentication)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
