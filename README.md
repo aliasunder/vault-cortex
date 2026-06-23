@@ -73,7 +73,7 @@ docker compose up
 
 </details>
 
-**[Full local guide →](./deploy/local/)** — on Windows, [set `WINDOWS_MODE=true`](./deploy/local/#windows-docker-desktop) to run against a `C:` drive.
+**[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
