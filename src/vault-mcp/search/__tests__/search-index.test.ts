@@ -1561,22 +1561,23 @@ describe("rebuildFromVault", () => {
     await mkdir(join(vaultDir, "canvases"), { recursive: true })
     await writeFile(
       join(vaultDir, "source.md"),
-      "# Source\n\nSee [[Dashboard]].\n",
+      "# Source\n\nSee [[Dashboard]] and [[genuinely-missing]].\n",
       "utf8",
     )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(0)
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by exact path", async () => {
     await mkdir(join(vaultDir, "views"), { recursive: true })
     await writeFile(
       join(vaultDir, "source.md"),
-      "# Source\n\nSee [[views/Inventory]].\n",
+      "# Source\n\nSee [[views/Inventory]] and [[genuinely-missing]].\n",
       "utf8",
     )
     await writeFile(
@@ -1587,8 +1588,9 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(0)
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
   it("skips non-md files in hidden directories", async () => {

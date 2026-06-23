@@ -599,12 +599,13 @@ export const createSearchIndex = (dbPath: string) => {
       }),
     )
 
-    // Index non-markdown files so extensionless wikilinks to .canvas, .base,
-    // etc. are recognized as asset references rather than broken note links.
-    const nonMdCount = indexNonMarkdownFiles(entries, normalizedVault)
-
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
+      // Index non-markdown files so extensionless wikilinks to .canvas, .base,
+      // etc. are recognized as asset references rather than broken note links.
+      const nonMdCount = indexNonMarkdownFiles(entries, normalizedVault)
+      logger.debug("indexed non-md files", { count: nonMdCount })
+
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
@@ -645,11 +646,7 @@ export const createSearchIndex = (dbPath: string) => {
       (sum, note) => sum + note.sizeBytes,
       0,
     )
-    logger.info("rebuilt index", {
-      count: noteContents.length,
-      nonMarkdownFiles: nonMdCount,
-      totalBytes,
-    })
+    logger.info("rebuilt index", { count: noteContents.length, totalBytes })
     return noteContents.length
   }
 
