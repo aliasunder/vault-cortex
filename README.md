@@ -37,8 +37,6 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
-
 - **[Remote access](#authentication)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
@@ -47,12 +45,7 @@
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts that surface vault health (orphans, broken links, property adoption), review your memory layer's structure and coverage, or reconcile a day's work with outgoing links, backlinks, and date-specific activity. Assembled from live vault data each time you run them.
 
-### Roadmap
-
-| Phase | What                                                         | Status   |
-| ----- | ------------------------------------------------------------ | -------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
-| **2** | Semantic search + knowledge graph                            | Planned  |
+**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ## Quick Start
 
@@ -275,6 +268,13 @@ graph LR
 The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
+
+## Roadmap
+
+| Phase | What                                                         | Status      |
+| ----- | ------------------------------------------------------------ | ----------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
+| **2** | Semantic search + knowledge graph                            | In progress |
 
 ## Deployment Options
 
