@@ -50,9 +50,11 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
 | **2** | Semantic search + knowledge graph                            | Planned  |
 
+**Contents** — [Why Vault Cortex?](#why-vault-cortex) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Properties](#properties) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
+
 ## Why Vault Cortex?
 
-Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It runs its own SQLite FTS5 search index, includes a structured memory system for AI personalization, and protects every connection with OAuth 2.1 (PKCE, dynamic client registration, refresh token rotation). Three built-in prompts pull from the search index, link graph, and memory layer together — surfacing vault health, reviewing memory coverage, and reconciling daily work in one view.
+Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. Servers built on Obsidian's REST API route every read, write, and search through a running Obsidian; Vault Cortex reads `.md` files directly and owns its own search index, so it runs fully headless — and adds a structured memory layer plus prompts that fuse search, links, and memory in one pass.
 
 Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
@@ -246,7 +248,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 
