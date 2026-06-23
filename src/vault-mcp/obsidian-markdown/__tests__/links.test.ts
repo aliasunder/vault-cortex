@@ -329,6 +329,11 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Real Note"])
   })
 
+  it("excludes non-note assets regardless of extension casing", () => {
+    const targets = links.extractFromBody("![[photo.PNG]] and [[Note]]")
+    expect(targets).toEqual(["Note"])
+  })
+
   it("keeps wikilinks to notes with dots in the name", () => {
     const targets = links.extractFromBody("[[v2.0]] and [[release-1.3]]")
     expect(targets).toEqual(["v2.0", "release-1.3"])
