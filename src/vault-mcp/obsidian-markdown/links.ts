@@ -48,6 +48,63 @@ const safeDecodeURIComponent = (encoded: string): string => {
   }
 }
 
+/** Strips a trailing backslash from a wikilink target. In Obsidian tables the
+ *  pipe alias separator must be escaped as `\|` to avoid breaking column syntax.
+ *  The WIKILINK_RE regex captures the `\` as part of the target — e.g.
+ *  `[[path\|alias]]` yields group 1 = `path\`. Stripping the trailing backslash
+ *  recovers the real target. Safe unconditionally: backslash is never valid in
+ *  a file path on macOS or Windows, so a target ending in `\` is always an
+ *  escaped pipe, never a legitimate path character. */
+const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
+
+/** File extensions recognized by Obsidian as non-note attachments. Wikilinks to
+ *  these assets (e.g. `![[diagram.png]]`, `[[report.pdf]]`) are vault assets,
+ *  not note-to-note graph edges, so they are excluded from link extraction. The
+ *  set covers Obsidian's "Accepted file formats" documented at
+ *  help.obsidian.md/Files+and+folders/Accepted+file+formats */
+const NON_MARKDOWN_EXTENSIONS = new Set([
+  // images
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "bmp",
+  "svg",
+  "webp",
+  "avif",
+  "ico",
+  // audio
+  "mp3",
+  "wav",
+  "m4a",
+  "ogg",
+  "3gp",
+  "flac",
+  "webm",
+  // video
+  "mp4",
+  "ogv",
+  "mov",
+  "mkv",
+  // documents / data
+  "pdf",
+  "csv",
+  "html",
+  "json",
+  // canvas
+  "canvas",
+])
+
+/** Returns true when a raw wikilink target points to a non-note asset rather
+ *  than a markdown note. Targets with no dot or with a `.md` extension are note
+ *  links; targets ending in a recognized attachment extension are asset links. */
+const isNonMarkdownTarget = (target: string): boolean => {
+  const dotIndex = target.lastIndexOf(".")
+  if (dotIndex === -1) return false
+  const extension = target.slice(dotIndex + 1).toLowerCase()
+  return NON_MARKDOWN_EXTENSIONS.has(extension)
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 /** A link found in a single line, with the character offsets needed to splice a
@@ -152,8 +209,8 @@ const extractFromBody = (content: string): string[] => {
     )
 
     for (const match of withoutInlineCode.matchAll(WIKILINK_RE)) {
-      const target = match[1]!.trim()
-      if (target.length > 0) targets.add(target)
+      const target = stripEscapedPipe(match[1]!.trim())
+      if (target.length > 0 && !isNonMarkdownTarget(target)) targets.add(target)
     }
     for (const match of withoutInlineCode.matchAll(MD_LINK_RE)) {
       const target = safeDecodeURIComponent(match[1]!.trim())
@@ -181,8 +238,9 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
     // Leaf: a string may hold one or more wikilinks — pull out each target.
     if (typeof frontmatterValue === "string") {
       for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
-        const target = match[1]!.trim()
-        if (target.length > 0) targets.add(target)
+        const target = stripEscapedPipe(match[1]!.trim())
+        if (target.length > 0 && !isNonMarkdownTarget(target))
+          targets.add(target)
       }
       return
     }
