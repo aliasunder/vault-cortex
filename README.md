@@ -16,9 +16,11 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server for [Obsidian](https://obsidian.md) vaults. It reads `.md` files directly. No Obsidian plugins, no running Obsidian, no separate bridge. One Docker container gives any MCP client 25 tools and 3 guided prompts for search, memory, link graph, properties, and daily notes.
+**Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-The typical Obsidian MCP setup requires three moving parts: Obsidian open, a REST API plugin installed, and a separate MCP server wrapping the plugin. Vault Cortex replaces all of that with one Docker container and your vault folder. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, CI, or any remote MCP client.
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
+
+## What you get
 
 <table align="center">
   <tr>
@@ -35,6 +37,8 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
+**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+
 - **[Remote access](#authentication)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
@@ -49,12 +53,6 @@ The typical Obsidian MCP setup requires three moving parts: Obsidian open, a RES
 | ----- | ------------------------------------------------------------ | -------- |
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete |
 | **2** | Semantic search + knowledge graph                            | Planned  |
-
-## Why Vault Cortex?
-
-Vault Cortex is a standalone knowledge layer for your vault, not an HTTP proxy to a running Obsidian instance. It runs its own SQLite FTS5 search index, includes a structured memory system for AI personalization, and protects every connection with OAuth 2.1 (PKCE, dynamic client registration, refresh token rotation). Three built-in prompts pull from the search index, link graph, and memory layer together — surfacing vault health, reviewing memory coverage, and reconciling daily work in one view.
-
-Built and tested across a 15-day trip through Europe. 30 sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ## Quick Start
 
@@ -133,7 +131,10 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 
 `--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
-**Claude Desktop:** the "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+<details>
+<summary><strong>Claude Desktop</strong> (localhost requires mcp-remote bridge)</summary>
+
+The "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
 
 ```json
 {
@@ -151,6 +152,8 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
   }
 }
 ```
+
+</details>
 
 **claude.ai (web and mobile)** connects to the remote setup only — its connectors are fetched server-side and can never reach localhost.
 
@@ -246,7 +249,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 
