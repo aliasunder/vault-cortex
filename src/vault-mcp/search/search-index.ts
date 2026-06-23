@@ -707,7 +707,10 @@ export const createSearchIndex = (dbPath: string) => {
   }
 
   /** Returns all tags in the vault with their note counts. */
-  const listAllTags = (logger: Logger): TagCount[] => {
+  const listAllTags = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): TagCount[] => {
     const sql = `
       SELECT value as tag, COUNT(*) as count
       FROM notes, json_each(notes.tags)
@@ -1009,7 +1012,10 @@ export const createSearchIndex = (dbPath: string) => {
   /** Counts links whose targets don't exist in the notes table — broken links
    *  are a vault-wide health metric. Individual broken links per note are
    *  already available via getOutgoingLinks (filtering exists: false). */
-  const brokenLinkCount = (logger: Logger): number => {
+  const brokenLinkCount = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): number => {
     const sql = `
       SELECT COUNT(*) as count
       FROM links
@@ -1050,7 +1056,10 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Lightweight aggregate counts — total notes, untagged notes, notes without
    *  frontmatter properties. Single SQL to avoid multiple round-trips. */
-  const vaultStats = (logger: Logger): VaultStats => {
+  const vaultStats = (
+    _params: Record<string, never>,
+    logger: Logger,
+  ): VaultStats => {
     // Conditional aggregation: count all rows, then conditionally count rows
     // whose tags/properties are the empty-JSON sentinel set by upsertNote.
     const sql = `

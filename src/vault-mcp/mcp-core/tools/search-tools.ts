@@ -210,7 +210,7 @@ Returns: JSON array of { tag, count } objects.`,
       reqLogger.info("tool_call")
       return safeHandler(
         reqLogger,
-        async () => search.listAllTags(reqLogger),
+        async () => search.listAllTags({}, reqLogger),
         (tags) => JSON.stringify(tags),
       )
     },

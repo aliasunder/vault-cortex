@@ -215,7 +215,7 @@ export const registerPrompts = (params: {
       // A prompt must never hard-fail the client; degrade to a valid message
       // that still points at the tools if any data gathering throws.
       try {
-        const tags = search.listAllTags(reqLogger)
+        const tags = search.listAllTags({}, reqLogger)
         const propertyKeys = search.listPropertyKeys({}, reqLogger)
         const recent = search.recentNotes(
           { sort_by: "modified", limit: ORIENTATION_RECENT_LIMIT },
@@ -235,8 +235,8 @@ export const registerPrompts = (params: {
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const brokenLinks = search.brokenLinkCount(reqLogger)
-        const stats = search.vaultStats(reqLogger)
+        const brokenLinks = search.brokenLinkCount({}, reqLogger)
+        const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
         const statsLine = [

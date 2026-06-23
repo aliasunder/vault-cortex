@@ -339,7 +339,7 @@ describe("upsertNote", () => {
       },
       logger,
     )
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
 })
@@ -1039,7 +1039,7 @@ describe("listAllTags", () => {
   })
 
   it("returns tags with counts ordered by count desc", () => {
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags[0]).toEqual({ tag: "principles", count: 2 })
     expect(tags.find((t) => t.tag === "self")).toEqual({
       tag: "self",
@@ -1056,7 +1056,7 @@ describe("listAllTags", () => {
       },
       logger,
     )
-    const tags = index.listAllTags(logger)
+    const tags = index.listAllTags({}, logger)
     expect(tags.length).toBeGreaterThan(0)
   })
 })
@@ -2030,7 +2030,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount(logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 
   it("counts links to non-existent notes", () => {
@@ -2042,7 +2042,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount(logger)).toBe(2)
+    expect(index.brokenLinkCount({}, logger)).toBe(2)
   })
 
   it("counts only broken links, not resolved ones", () => {
@@ -2062,7 +2062,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount(logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 })
 
@@ -2148,7 +2148,7 @@ describe("vaultStats", () => {
       },
       logger,
     )
-    const stats = index.vaultStats(logger)
+    const stats = index.vaultStats({}, logger)
     expect(stats.totalNotes).toBe(2)
   })
 
@@ -2169,7 +2169,7 @@ describe("vaultStats", () => {
       },
       logger,
     )
-    const stats = index.vaultStats(logger)
+    const stats = index.vaultStats({}, logger)
     expect(stats.untaggedNotes).toBe(1)
   })
 
@@ -2190,12 +2190,12 @@ describe("vaultStats", () => {
       },
       logger,
     )
-    const stats = index.vaultStats(logger)
+    const stats = index.vaultStats({}, logger)
     expect(stats.noPropertiesNotes).toBe(1)
   })
 
   it("returns all zeros on an empty index", () => {
-    const stats = index.vaultStats(logger)
+    const stats = index.vaultStats({}, logger)
     expect(stats).toEqual({
       totalNotes: 0,
       untaggedNotes: 0,
