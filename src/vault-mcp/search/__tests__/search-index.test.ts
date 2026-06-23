@@ -1494,9 +1494,8 @@ describe("rebuildFromVault", () => {
   })
 
   it("skips hidden directories", async () => {
-    await index.rebuildFromVault(vaultDir)
-    const visible = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(visible).toHaveLength(1)
+    const indexedCount = await index.rebuildFromVault(vaultDir)
+    expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
   })
