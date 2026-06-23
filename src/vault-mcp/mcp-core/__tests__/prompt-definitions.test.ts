@@ -63,6 +63,10 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
+// Self-documenting epoch ms for daily-review tests — midday on 2026-06-16
+// in the system timezone, matching the modifiedOnDate TZ-aware behavior.
+const JUNE_16_MIDDAY_MS = DateTime.fromISO("2026-06-16T12:00:00").toMillis()
+
 // Indexed notes in distinct folders so folder derivation, tags, property
 // keys, and recent-notes all have something to surface.
 const FIXTURE_NOTES: ReadonlyArray<{
@@ -687,7 +691,7 @@ describe("daily-review handler", () => {
       {
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nWorked on [[Projects/alpha]].\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -695,7 +699,7 @@ describe("daily-review handler", () => {
       {
         filePath: "Projects/alpha.md",
         rawContent: "---\ntitle: Alpha\n---\n# Alpha\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -724,7 +728,7 @@ describe("daily-review handler", () => {
       {
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nSee [[missing-note]].\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -753,7 +757,7 @@ describe("daily-review handler", () => {
       {
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nJournal.\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -762,7 +766,7 @@ describe("daily-review handler", () => {
         filePath: "meeting.md",
         rawContent:
           "---\ntitle: Meeting\n---\n# Meeting\n\nSee [[Daily Notes/2026-06-16]].\n",
-        fileStat: { mtimeMs: 1781611200000, size: 80 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
       },
       logger,
     )
@@ -815,7 +819,7 @@ describe("daily-review handler", () => {
       {
         filePath: "same-day.md",
         rawContent: "---\ntitle: Same Day\n---\n# Same Day\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -1167,7 +1171,7 @@ describe("full prompt output", () => {
       {
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nShipped the prompts.\n",
-        fileStat: { mtimeMs: 1781611200000, size: 50 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
       },
       logger,
     )
@@ -1176,7 +1180,7 @@ describe("full prompt output", () => {
       {
         filePath: "Log/note.md",
         rawContent: "---\ntitle: Note One\n---\nbody\n",
-        fileStat: { mtimeMs: 1781611200000, size: 100 },
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
       },
       logger,
     )
