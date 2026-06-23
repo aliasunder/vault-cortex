@@ -4,6 +4,17 @@
 
 
 
+
+## [0.23.2] — 2026-06-23
+
+### Bug Fixes
+
+- **links:** Stop counting escaped-pipe wikilinks and non-markdown assets as broken (#193)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.23.1
+
 ## [0.23.1] — 2026-06-23
 
 ### Documentation
