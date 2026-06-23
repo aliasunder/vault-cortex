@@ -2074,6 +2074,38 @@ describe("brokenLinkCount", () => {
     )
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
+
+  it("does not count escaped-pipe wikilinks as broken when the target note exists", () => {
+    index.upsertNote(
+      {
+        filePath: "dashboard.md",
+        rawContent: "| Link |\n| --- |\n| [[sessions/log-a\\|log-a]] |\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "sessions/log-a.md",
+        rawContent: "# Log A\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
+
+  it("does not count wikilinks to non-note assets as broken", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]] and [[report.pdf]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
 })
 
 // ── modifiedOnDate ──────────────────────────────────────────────

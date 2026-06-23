@@ -293,6 +293,51 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody("[done](100%zzcomplete.md)")
     expect(targets).toEqual(["100%zzcomplete"])
   })
+
+  it("strips the escaped pipe backslash from wikilink targets in table cells", () => {
+    const content = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[sessions/log-a\\|log-a]] | First session |",
+      "| [[sessions/log-b\\|log-b]] | Second session |",
+    ].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["sessions/log-a", "sessions/log-b"])
+  })
+
+  it("strips the escaped pipe backslash from aliased wikilinks outside tables", () => {
+    const targets = links.extractFromBody("See [[Note A\\|display text]].")
+    expect(targets).toEqual(["Note A"])
+  })
+
+  it("does not alter wikilinks that use a plain pipe alias", () => {
+    const targets = links.extractFromBody("See [[Note A|display]].")
+    expect(targets).toEqual(["Note A"])
+  })
+
+  it("excludes wikilinks to non-note assets (images, PDFs, audio, video)", () => {
+    const targets = links.extractFromBody(
+      "![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]",
+    )
+    expect(targets).toEqual(["Note A"])
+  })
+
+  it("excludes embedded assets with folder paths", () => {
+    const targets = links.extractFromBody(
+      "![[attachments/diagram.svg]] and [[Real Note]]",
+    )
+    expect(targets).toEqual(["Real Note"])
+  })
+
+  it("keeps wikilinks to notes with dots in the name", () => {
+    const targets = links.extractFromBody("[[v2.0]] and [[release-1.3]]")
+    expect(targets).toEqual(["v2.0", "release-1.3"])
+  })
+
+  it("keeps wikilinks with explicit .md extension", () => {
+    const targets = links.extractFromBody("[[Projects/plan.md]]")
+    expect(targets).toEqual(["Projects/plan.md"])
+  })
 })
 
 // ── extractFromFrontmatter ───────────────────────────────────────
@@ -345,6 +390,22 @@ describe("extractFromFrontmatter", () => {
       links.extractFromFrontmatter({
         up: "[[Note A]]",
         related: ["[[Note A]]"],
+      }),
+    ).toEqual(["Note A"])
+  })
+
+  it("strips the escaped pipe backslash from frontmatter wikilinks", () => {
+    expect(
+      links.extractFromFrontmatter({
+        related: ["[[sessions/log-a\\|log-a]]"],
+      }),
+    ).toEqual(["sessions/log-a"])
+  })
+
+  it("excludes wikilinks to non-note assets in frontmatter", () => {
+    expect(
+      links.extractFromFrontmatter({
+        related: ["[[diagram.png]]", "[[Note A]]"],
       }),
     ).toEqual(["Note A"])
   })
