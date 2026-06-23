@@ -41,12 +41,14 @@ Returns: Raw markdown text.`,
       inputSchema: {
         file: z
           .string()
+          .min(1)
           .optional()
           .describe(
             'Memory file name without .md (e.g. "Principles", "Opinions")',
           ),
         section: z
           .string()
+          .min(1)
           .optional()
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Call vault_list_memory_files first to discover valid names.',
@@ -80,7 +82,12 @@ Returns: Raw markdown text.`,
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
-          const mode = !file ? "all" : !section ? "file" : "section"
+          const mode =
+            file === undefined
+              ? "all"
+              : section === undefined
+                ? "file"
+                : "section"
           reqLogger.info("tool_result", { mode })
           return text
         },
