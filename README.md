@@ -16,7 +16,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Configuration](#configuration) · [Authentication](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -152,6 +152,20 @@ The "Add custom connector" dialog only accepts `https` URLs. With an `https` PUB
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
+## How It Works
+
+```mermaid
+graph LR
+    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
+    Server -->|read/write| Vault[("/vault<br/>.md files")]
+    Server -->|query| SQLite[("SQLite FTS5")]
+    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
+```
+
+The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
+
 ## Tools (25)
 
 | Category        | Tool                         | Description                                                |
@@ -253,27 +267,6 @@ OAuth uses dynamic client registration — no Client ID/Secret needed. A consent
 
 See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
 
-## How It Works
-
-```mermaid
-graph LR
-    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
-    Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|query| SQLite[("SQLite FTS5")]
-    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
-```
-
-The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
-
-## Roadmap
-
-| Phase | What                                                         | Status      |
-| ----- | ------------------------------------------------------------ | ----------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
-| **2** | Semantic search + knowledge graph                            | In progress |
-
 ## Deployment Options
 
 | Path          | What                                               | Guide                                |
@@ -314,6 +307,13 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 ```
 
 [Skill source →](https://github.com/aliasunder/agent-skills/tree/main/skills/obsidian-vault)
+
+## Roadmap
+
+| Phase | What                                                         | Status      |
+| ----- | ------------------------------------------------------------ | ----------- |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
+| **2** | Semantic search + knowledge graph                            | In progress |
 
 ## Acknowledgments
 
