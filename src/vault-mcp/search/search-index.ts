@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
-import { join, basename, relative, resolve } from "node:path"
+import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -265,6 +265,14 @@ export const createSearchIndex = (dbPath: string) => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
+
+    CREATE TABLE IF NOT EXISTS non_md_files (
+      path      TEXT PRIMARY KEY,
+      base_path TEXT NOT NULL,
+      basename  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
+    CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
@@ -309,6 +317,114 @@ export const createSearchIndex = (dbPath: string) => {
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
+
+  // ── Non-markdown file awareness ────────────────────────────────
+  //
+  // Obsidian resolves extensionless wikilinks (e.g. [[Trip Route]]) against
+  // ALL vault files, not just .md. The non_md_files table tracks non-markdown
+  // file paths so unresolved link targets can be checked against it before
+  // being counted as broken. Populated during rebuildFromVault, maintained
+  // incrementally by the file watcher.
+
+  const upsertNonMdFileStmt = db.prepare(
+    `INSERT OR REPLACE INTO non_md_files (path, base_path, basename) VALUES (?, ?, ?)`,
+  )
+  const deleteNonMdFileStmt = db.prepare(
+    `DELETE FROM non_md_files WHERE path = ?`,
+  )
+  const checkNonMdByBasePathStmt = db.prepare(
+    `SELECT 1 FROM non_md_files WHERE base_path = ? LIMIT 1`,
+  )
+  const checkNonMdByBasenameStmt = db.prepare(
+    `SELECT 1 FROM non_md_files WHERE basename = ? LIMIT 1`,
+  )
+  const deleteUnresolvedLinkStmt = db.prepare(
+    `DELETE FROM links WHERE source = ? AND target = ?`,
+  )
+
+  /** Strips the file extension from a path, or returns the path unchanged if
+   *  it has no extension. Uses the last dot in the filename (not the path). */
+  const stripExtension = (filePath: string): string => {
+    const fileName = basename(filePath)
+    const dotIndex = fileName.lastIndexOf(".")
+    if (dotIndex <= 0) return filePath
+    return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
+  }
+
+  /** Returns true when an extensionless wikilink target matches a known
+   *  non-markdown file in the vault. Mirrors links.resolve's three-tier
+   *  strategy (exact → relative-to-source → basename) but checks against
+   *  non_md_files instead of the notes table. */
+  const resolveNonMarkdownFile = (
+    target: string,
+    sourcePath?: string,
+  ): boolean => {
+    // Exact base_path match ("path from vault folder")
+    if (checkNonMdByBasePathStmt.get(target) !== undefined) return true
+
+    // Relative-to-source match ("path from current file")
+    if (sourcePath) {
+      const relativeTarget = posix.join(posix.dirname(sourcePath), target)
+      if (checkNonMdByBasePathStmt.get(relativeTarget) !== undefined)
+        return true
+    }
+
+    // Basename match (Obsidian's default shortest-path resolution)
+    const targetBasename = posix.basename(target)
+    return checkNonMdByBasenameStmt.get(targetBasename) !== undefined
+  }
+
+  /** Indexes non-markdown files from a directory listing into the
+   *  non_md_files table. Skips hidden directories (same filter as notes). */
+  const indexNonMarkdownFiles = (
+    entries: ReadonlyArray<{
+      isFile: () => boolean
+      name: string
+      parentPath: string
+    }>,
+    normalizedVault: string,
+  ): number => {
+    let count = 0
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.name.endsWith(".md")) continue
+      const absolutePath = join(entry.parentPath, entry.name)
+      const relativePath = relative(normalizedVault, absolutePath)
+      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
+        continue
+      const basePath = stripExtension(relativePath)
+      const baseFilename = stripExtension(entry.name)
+      upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
+      count += 1
+    }
+    return count
+  }
+
+  /** Adds a single non-markdown file to the index and cleans up any unresolved
+   *  links that now match it. Called by the file watcher on add/change. */
+  const upsertNonMdFile = (filePath: string): void => {
+    const basePath = stripExtension(filePath)
+    const baseFilename = stripExtension(basename(filePath))
+    upsertNonMdFileStmt.run(filePath, basePath, baseFilename)
+
+    // Remove unresolved links that now resolve to this non-md file — they
+    // were asset references all along, not broken note links.
+    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
+      source: string
+      target: string
+    }>
+    for (const link of unresolvedLinks) {
+      if (resolveNonMarkdownFile(link.target, link.source)) {
+        deleteUnresolvedLinkStmt.run(link.source, link.target)
+      }
+    }
+  }
+
+  /** Removes a non-markdown file from the index. Called by the file watcher
+   *  on unlink. Does not re-add links — notes that linked to the removed file
+   *  will only show as broken after the next rebuild. */
+  const removeNonMdFile = (filePath: string): void => {
+    deleteNonMdFileStmt.run(filePath)
+  }
 
   // ── Index maintenance ──────────────────────────────────────────
 
@@ -408,7 +524,11 @@ export const createSearchIndex = (dbPath: string) => {
     deleteLinksStmt.run(note.path)
     for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
       const resolved = links.resolve(rawTarget, pathList, note.path)
-      insertLinkStmt.run(note.path, resolved ?? rawTarget)
+      if (resolved !== null) {
+        insertLinkStmt.run(note.path, resolved)
+      } else if (!resolveNonMarkdownFile(rawTarget, note.path)) {
+        insertLinkStmt.run(note.path, rawTarget)
+      }
     }
 
     // Re-resolve links still stored as raw text now that this note exists.
@@ -443,6 +563,7 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
+    db.exec("DELETE FROM non_md_files")
 
     const normalizedVault = resolve(vaultPath)
     const entries = await readdir(vaultPath, {
@@ -478,6 +599,10 @@ export const createSearchIndex = (dbPath: string) => {
       }),
     )
 
+    // Index non-markdown files so extensionless wikilinks to .canvas, .base,
+    // etc. are recognized as asset references rather than broken note links.
+    const nonMdCount = indexNonMarkdownFiles(entries, normalizedVault)
+
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
@@ -507,7 +632,11 @@ export const createSearchIndex = (dbPath: string) => {
         const parsed = parseNote(note.content)
         for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
           const resolved = links.resolve(rawTarget, pathList, note.relativePath)
-          insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
+          if (resolved !== null) {
+            insertLinkStmt.run(note.relativePath, resolved)
+          } else if (!resolveNonMarkdownFile(rawTarget, note.relativePath)) {
+            insertLinkStmt.run(note.relativePath, rawTarget)
+          }
         }
       }
     })()
@@ -516,7 +645,11 @@ export const createSearchIndex = (dbPath: string) => {
       (sum, note) => sum + note.sizeBytes,
       0,
     )
-    logger.info("rebuilt index", { count: noteContents.length, totalBytes })
+    logger.info("rebuilt index", {
+      count: noteContents.length,
+      nonMarkdownFiles: nonMdCount,
+      totalBytes,
+    })
     return noteContents.length
   }
 
@@ -1078,6 +1211,8 @@ export const createSearchIndex = (dbPath: string) => {
     upsertNote,
     removeNote,
     rebuildFromVault,
+    upsertNonMdFile,
+    removeNonMdFile,
     fullTextSearch,
     searchByTag,
     searchByFolder,

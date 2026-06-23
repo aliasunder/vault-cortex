@@ -1541,6 +1541,67 @@ describe("rebuildFromVault", () => {
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("a-source.md")
   })
+
+  it("does not count extensionless wikilinks to non-md files as broken", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Trip Route]] and [[missing-note]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("missing-note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves extensionless wikilinks to non-md files by basename", async () => {
+    await mkdir(join(vaultDir, "canvases"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Dashboard]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(0)
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
+
+  it("resolves extensionless wikilinks to non-md files by exact path", async () => {
+    await mkdir(join(vaultDir, "views"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[views/Inventory]].\n",
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "views/Inventory.base"),
+      "filters: []\n",
+      "utf8",
+    )
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(0)
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
+
+  it("skips non-md files in hidden directories", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[config]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
@@ -2113,6 +2174,37 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("real-note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
+    index.upsertNonMdFile("Trip Route.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Trip Route]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("missing")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("upsertNonMdFile cleans up previously unresolved links that now match", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Route]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+
+    index.upsertNonMdFile("Route.canvas")
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 })
 
