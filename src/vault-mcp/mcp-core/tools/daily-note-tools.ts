@@ -54,7 +54,13 @@ Returns: JSON with path (resolved vault-relative path), content (note body or nu
       return safeHandler(
         reqLogger,
         () => getDailyNote({ vaultPath, date }, reqLogger),
-        (result) => JSON.stringify(result),
+        (result) => {
+          reqLogger.info("tool_result", {
+            exists: result.exists,
+            path: result.path,
+          })
+          return JSON.stringify(result)
+        },
       )
     },
   )

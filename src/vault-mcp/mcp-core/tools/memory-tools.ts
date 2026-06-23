@@ -79,7 +79,11 @@ Returns: Raw markdown text.`,
       return safeHandler(
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
-        (text) => text,
+        (text) => {
+          const mode = !file ? "all" : !section ? "file" : "section"
+          reqLogger.info("tool_result", { mode })
+          return text
+        },
       )
     },
   )
@@ -162,6 +166,7 @@ Returns: Confirmation message.`,
             reqLogger,
           ),
         (outcome) => {
+          reqLogger.info("tool_result", { outcome })
           const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
           // Nudge the caller to author the scope callout the new file was
           // seeded with, so the file self-documents what belongs in it.
@@ -186,7 +191,7 @@ When to use: Discovering what memory files and sections exist — and what each 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 
-Returns: JSON array of file outlines, each { file, title, leading_callout, headings } — leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
+Returns: JSON array of file outlines, each { file, title, bytes, leading_callout, headings } — bytes is the on-disk file size; leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -204,7 +209,10 @@ Returns: JSON array of file outlines, each { file, title, leading_callout, headi
       return safeHandler(
         reqLogger,
         () => memoryStore.listMemoryFiles({ vaultPath }, reqLogger),
-        (outlines) => JSON.stringify(outlines),
+        (outlines) => {
+          reqLogger.info("tool_result", { resultCount: outlines.length })
+          return JSON.stringify(outlines)
+        },
       )
     },
   )
@@ -260,8 +268,10 @@ Returns: Confirmation message.`,
             { vaultPath, file, section, date, entry },
             reqLogger,
           ),
-        () =>
-          `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`,
+        () => {
+          reqLogger.info("tool_result", { outcome: "entry_deleted" })
+          return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`
+        },
       )
     },
   )

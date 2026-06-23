@@ -211,7 +211,10 @@ Returns: JSON array of { tag, count } objects.`,
       return safeHandler(
         reqLogger,
         async () => search.listAllTags(reqLogger),
-        (tags) => JSON.stringify(tags),
+        (tags) => {
+          reqLogger.info("tool_result", { resultCount: tags.length })
+          return JSON.stringify(tags)
+        },
       )
     },
   )
@@ -361,7 +364,10 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
       return safeHandler(
         reqLogger,
         async () => search.listPropertyKeys({ folder }, reqLogger),
-        (keys) => JSON.stringify(keys),
+        (keys) => {
+          reqLogger.info("tool_result", { resultCount: keys.length })
+          return JSON.stringify(keys)
+        },
       )
     },
   )
@@ -405,7 +411,10 @@ Returns: JSON array of { value, count } sorted by count descending.`,
         reqLogger,
         async () =>
           search.listPropertyValues({ key, folder, limit }, reqLogger),
-        (values) => JSON.stringify(values),
+        (values) => {
+          reqLogger.info("tool_result", { resultCount: values.length })
+          return JSON.stringify(values)
+        },
       )
     },
   )

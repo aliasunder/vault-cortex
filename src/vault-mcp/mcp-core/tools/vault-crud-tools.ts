@@ -109,7 +109,13 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_NOTE,
       })
-      reqLogger.info("tool_call", { path, properties_only, outline, heading })
+      reqLogger.info("tool_call", {
+        path,
+        properties_only,
+        outline,
+        heading,
+        heading_level,
+      })
 
       const returnError = (
         message: string,
@@ -146,7 +152,10 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
         return safeHandler(
           reqLogger,
           () => vaultFs.readNoteProperties({ vaultPath, path }, reqLogger),
-          (properties) => JSON.stringify(properties, null, 2),
+          (properties) => {
+            reqLogger.info("tool_result", { mode: "properties" })
+            return JSON.stringify(properties, null, 2)
+          },
         )
       }
 
@@ -154,7 +163,10 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
         return safeHandler(
           reqLogger,
           () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
-          (headings) => JSON.stringify(headings),
+          (outline) => {
+            reqLogger.info("tool_result", { mode: "outline" })
+            return JSON.stringify(outline)
+          },
         )
       }
 
@@ -169,14 +181,20 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
               { vaultPath, path, heading, headingLevel: heading_level },
               reqLogger,
             ),
-          (text) => text,
+          (text) => {
+            reqLogger.info("tool_result", { mode: "section" })
+            return text
+          },
         )
       }
 
       return safeHandler(
         reqLogger,
         () => vaultFs.readNote({ vaultPath, path }, reqLogger),
-        (text) => text,
+        (text) => {
+          reqLogger.info("tool_result", { mode: "full" })
+          return text
+        },
       )
     },
   )
@@ -230,7 +248,10 @@ Returns: Confirmation message.`,
         reqLogger,
         () =>
           vaultFs.writeNote({ vaultPath, path, body, properties }, reqLogger),
-        () => `Wrote ${path}`,
+        () => {
+          reqLogger.info("tool_result", { outcome: "written" })
+          return `Wrote ${path}`
+        },
       )
     },
   )
@@ -310,7 +331,7 @@ Returns: Confirmation message.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_PATCH_NOTE,
       })
-      reqLogger.info("tool_call", { path, operation, heading })
+      reqLogger.info("tool_call", { path, operation, heading, heading_level })
       return safeHandler(
         reqLogger,
         () =>
@@ -325,7 +346,10 @@ Returns: Confirmation message.`,
             },
             reqLogger,
           ),
-        (msg) => msg,
+        (msg) => {
+          reqLogger.info("tool_result", { outcome: "patched" })
+          return msg
+        },
       )
     },
   )
@@ -378,7 +402,7 @@ Returns: Confirmation message with replacement count.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, replace_all_occurrences })
       return safeHandler(
         reqLogger,
         () =>
@@ -392,7 +416,10 @@ Returns: Confirmation message with replacement count.`,
             },
             reqLogger,
           ),
-        (msg) => msg,
+        (msg) => {
+          reqLogger.info("tool_result", { outcome: "replaced" })
+          return msg
+        },
       )
     },
   )
@@ -455,7 +482,7 @@ Returns: Confirmation message with the number of lines removed and a truncated p
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_SPAN,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, first_match })
       return safeHandler(
         reqLogger,
         () =>
@@ -469,7 +496,10 @@ Returns: Confirmation message with the number of lines removed and a truncated p
             },
             reqLogger,
           ),
-        (msg) => msg,
+        (msg) => {
+          reqLogger.info("tool_result", { outcome: "span_deleted" })
+          return msg
+        },
       )
     },
   )
@@ -516,7 +546,10 @@ Returns: JSON array of vault-relative paths.`,
       return safeHandler(
         reqLogger,
         () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
-        (paths) => JSON.stringify(paths),
+        (paths) => {
+          reqLogger.info("tool_result", { resultCount: paths.length })
+          return JSON.stringify(paths)
+        },
       )
     },
   )
@@ -578,10 +611,15 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
             },
             reqLogger,
           ),
-        ({ prunedEmptyFolders }) =>
-          prunedEmptyFolders > 0
+        ({ prunedEmptyFolders }) => {
+          reqLogger.info("tool_result", {
+            outcome: "deleted",
+            prunedEmptyFolders,
+          })
+          return prunedEmptyFolders > 0
             ? `Deleted ${path} (removed ${prunedEmptyFolders} empty folder${prunedEmptyFolders > 1 ? "s" : ""})`
-            : `Deleted ${path}`,
+            : `Deleted ${path}`
+        },
       )
     },
   )
@@ -678,7 +716,14 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             reqLogger,
           )
         },
-        (result) => JSON.stringify(result),
+        (result) => {
+          reqLogger.info("tool_result", {
+            outcome: "moved",
+            linksUpdated: result.links_updated,
+            prunedEmptyFolders: result.pruned_empty_folders,
+          })
+          return JSON.stringify(result)
+        },
       )
     },
   )
@@ -728,7 +773,10 @@ Returns: Confirmation message.`,
         reqLogger,
         () =>
           vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
-        () => `Updated properties on ${path}`,
+        () => {
+          reqLogger.info("tool_result", { outcome: "properties_updated" })
+          return `Updated properties on ${path}`
+        },
       )
     },
   )
