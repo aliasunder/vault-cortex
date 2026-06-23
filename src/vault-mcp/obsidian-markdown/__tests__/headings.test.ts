@@ -35,17 +35,23 @@ describe("parseHeadings", () => {
 
   it("includes child headings in a parent section's span", () => {
     const lines = ["## Parent", "x", "### Child", "y", "## Sibling", "z"]
-    const parent = parseHeadings(lines).find((h) => h.text === "Parent")
+    const parent = parseHeadings(lines).find(
+      (heading) => heading.text === "Parent",
+    )
     // bodyEndLine stops at "## Sibling" (line 4), so "### Child" is included.
-    expect(parent).toMatchObject({ startLine: 0, bodyEndLine: 4 })
+    expect(parent).toEqual({
+      text: "Parent",
+      level: 2,
+      startLine: 0,
+      bodyStartLine: 1,
+      bodyEndLine: 4,
+    })
   })
 
   it("ignores ATX headings inside fenced code blocks", () => {
     const lines = ["# Real", "```", "# Not a heading", "```", "## Also real"]
-    expect(parseHeadings(lines).map((h) => h.text)).toEqual([
-      "Real",
-      "Also real",
-    ])
+    const headingTexts = parseHeadings(lines).map((heading) => heading.text)
+    expect(headingTexts).toEqual(["Real", "Also real"])
   })
 
   it("ignores ATX headings inside an indented fenced code block (CommonMark §4.5)", () => {
@@ -66,7 +72,9 @@ describe("parseHeadings", () => {
   })
 
   it("strips trailing closing hashes from heading text", () => {
-    expect(parseHeadings(["## Title ##"]).map((h) => h.text)).toEqual(["Title"])
+    const headings = parseHeadings(["## Title ##"])
+    const headingTexts = headings.map((heading) => heading.text)
+    expect(headingTexts).toEqual(["Title"])
   })
 
   it("stops the final section before a trailing Kanban %% settings block", () => {
@@ -79,7 +87,8 @@ describe("parseHeadings", () => {
       "%%", // 5
     ]
     // bodyEndLine absorbs the blank line before %% → ends at line 2.
-    expect(parseHeadings(lines)[0].bodyEndLine).toBe(2)
+    const headings = parseHeadings(lines)
+    expect(headings[0].bodyEndLine).toBe(2)
   })
 
   it("returns an empty array when there are no headings", () => {

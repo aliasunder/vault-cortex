@@ -57,7 +57,7 @@ describe("buildProgram", () => {
 
     await expect(
       program.parseAsync(["init", "--bogus"], { from: "user" }),
-    ).rejects.toThrow()
+    ).rejects.toThrow("unknown option '--bogus'")
     expect(calls).toEqual([])
   })
 

@@ -478,7 +478,9 @@ describe("moveNote — failure safety", () => {
     // fail before any write so the vault is left untouched.
     await expect(
       moveNote("Foo.md", "Bar.md", ["Hub.md", "Ghost.md"]),
-    ).rejects.toThrow()
+    ).rejects.toThrow(
+      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+    )
 
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
@@ -492,7 +494,9 @@ describe("moveNote — failure safety", () => {
 
     await expect(
       moveNote("Foo.md", "Bar.md", ["Hub.md", "Ghost.md"]),
-    ).rejects.toThrow()
+    ).rejects.toThrow(
+      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+    )
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not read/plan a backlink source",

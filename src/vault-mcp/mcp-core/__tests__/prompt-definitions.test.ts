@@ -231,43 +231,41 @@ describe("registerPrompts — registration", () => {
   it("every prompt has a non-empty title", () => {
     const calls = captureRegistration()
     for (const call of calls) {
-      expect(call[1].title).toBeDefined()
-      expect(call[1].title!.length).toBeGreaterThan(0)
+      const [, config] = call
+      expect(typeof config.title).toBe("string")
+      expect(config.title!.length).toBeGreaterThan(0)
     }
   })
 
   it("every prompt has a non-empty description", () => {
     const calls = captureRegistration()
     for (const call of calls) {
-      expect(call[1].description).toBeDefined()
-      expect(call[1].description!.length).toBeGreaterThan(0)
+      const [, config] = call
+      expect(typeof config.description).toBe("string")
+      expect(config.description!.length).toBeGreaterThan(0)
     }
   })
 
   it("vault-orientation is registered with no argsSchema (zero-arg)", () => {
     const calls = captureRegistration()
-    const call = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
-    expect(call[1].argsSchema).toBeUndefined()
+    const [, config] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
+    expect(config.argsSchema).toBeUndefined()
   })
 
   it("memory-review and daily-review expose an argsSchema", () => {
     const calls = captureRegistration()
-    expect(
-      findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema,
-    ).toBeDefined()
-    expect(
-      findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[1].argsSchema,
-    ).toBeDefined()
+    const [, memoryConfig] = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)
+    const [, dailyConfig] = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)
+    expect(memoryConfig.argsSchema).toBeDefined()
+    expect(dailyConfig.argsSchema).toBeDefined()
   })
 
   it("memory-review and daily-review accept an optional max_chars argument", () => {
     const calls = captureRegistration()
-    expect(
-      findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema,
-    ).toHaveProperty("max_chars")
-    expect(
-      findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[1].argsSchema,
-    ).toHaveProperty("max_chars")
+    const [, memoryConfig] = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)
+    const [, dailyConfig] = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)
+    expect(memoryConfig.argsSchema).toHaveProperty("max_chars")
+    expect(dailyConfig.argsSchema).toHaveProperty("max_chars")
   })
 })
 
@@ -276,14 +274,14 @@ describe("registerPrompts — registration", () => {
 describe("registerPrompts — genericness", () => {
   it("descriptions interpolate a custom MEMORY_DIR and never hardcode 'About Me/'", () => {
     const calls = captureRegistration(loadConfig({ MEMORY_DIR: "Profile" }))
-    for (const name of [
+    for (const promptName of [
       PROMPT_NAMES.VAULT_ORIENTATION,
       PROMPT_NAMES.MEMORY_REVIEW,
       PROMPT_NAMES.DAILY_REVIEW,
     ]) {
-      const description = findCall(calls, name)[1].description!
-      expect(description).toContain("Profile/")
-      expect(description).not.toContain("About Me/")
+      const [, config] = findCall(calls, promptName)
+      expect(config.description).toContain("Profile/")
+      expect(config.description).not.toContain("About Me/")
     }
   })
 
@@ -291,7 +289,7 @@ describe("registerPrompts — genericness", () => {
     const { calls } = await setupVault({
       config: loadConfig({ MEMORY_DIR: "Profile" }),
     })
-    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
     const text = textOf(await handler(fakeExtra))
     expect(text).toContain("## Memory (Profile/)")
     expect(text).toContain("Principles")
@@ -311,7 +309,7 @@ describe("vault-orientation handler", () => {
       indexNotes: false,
       memoryFiles: false,
     })
-    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
     const text = textOf(await handler(fakeExtra))
 
     expect(text).toContain("No tags yet.")

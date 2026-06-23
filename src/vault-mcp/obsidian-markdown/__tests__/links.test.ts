@@ -61,49 +61,36 @@ describe("inlineCodeSpans", () => {
 // ── splitWikilink ────────────────────────────────────────────────
 
 describe("splitWikilink", () => {
-  it("splits a bare wikilink", () => {
-    expect(links.splitWikilink("[[A]]")).toEqual({
-      embed: "",
-      target: "A",
-      heading: "",
-      alias: "",
-    })
-  })
+  const scenarios = [
+    {
+      name: "splits a bare wikilink",
+      input: "[[A]]",
+      expected: { embed: "", target: "A", heading: "", alias: "" },
+    },
+    {
+      name: "splits a wikilink with an alias",
+      input: "[[A|x]]",
+      expected: { embed: "", target: "A", heading: "", alias: "|x" },
+    },
+    {
+      name: "splits a wikilink with a heading",
+      input: "[[A#h]]",
+      expected: { embed: "", target: "A", heading: "#h", alias: "" },
+    },
+    {
+      name: "splits a wikilink with a heading and an alias",
+      input: "[[A#h|x]]",
+      expected: { embed: "", target: "A", heading: "#h", alias: "|x" },
+    },
+    {
+      name: "preserves the embed marker",
+      input: "![[A]]",
+      expected: { embed: "!", target: "A", heading: "", alias: "" },
+    },
+  ]
 
-  it("splits a wikilink with an alias", () => {
-    expect(links.splitWikilink("[[A|x]]")).toEqual({
-      embed: "",
-      target: "A",
-      heading: "",
-      alias: "|x",
-    })
-  })
-
-  it("splits a wikilink with a heading", () => {
-    expect(links.splitWikilink("[[A#h]]")).toEqual({
-      embed: "",
-      target: "A",
-      heading: "#h",
-      alias: "",
-    })
-  })
-
-  it("splits a wikilink with a heading and an alias", () => {
-    expect(links.splitWikilink("[[A#h|x]]")).toEqual({
-      embed: "",
-      target: "A",
-      heading: "#h",
-      alias: "|x",
-    })
-  })
-
-  it("preserves the embed marker", () => {
-    expect(links.splitWikilink("![[A]]")).toEqual({
-      embed: "!",
-      target: "A",
-      heading: "",
-      alias: "",
-    })
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    expect(links.splitWikilink(input)).toEqual(expected)
   })
 
   it("returns null for text that is not a well-formed wikilink", () => {
@@ -114,40 +101,46 @@ describe("splitWikilink", () => {
 // ── splitMarkdownLink ────────────────────────────────────────────
 
 describe("splitMarkdownLink", () => {
-  it("splits a plain markdown link, stripping .md", () => {
-    expect(links.splitMarkdownLink("[t](a/b.md)")).toEqual({
-      prefix: "[t](",
-      path: "a/b",
-      heading: "",
-      closeParen: ")",
-    })
-  })
+  const scenarios = [
+    {
+      name: "splits a plain markdown link, stripping .md",
+      input: "[t](a/b.md)",
+      expected: { prefix: "[t](", path: "a/b", heading: "", closeParen: ")" },
+    },
+    {
+      name: "splits a markdown link with a heading",
+      input: "[t](a/b.md#sec)",
+      expected: {
+        prefix: "[t](",
+        path: "a/b",
+        heading: "#sec",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "decodes a percent-encoded path",
+      input: "[t](My%20Note.md)",
+      expected: {
+        prefix: "[t](",
+        path: "My Note",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "falls back to the raw path when percent-encoding is malformed",
+      input: "[t](100%zzcomplete.md)",
+      expected: {
+        prefix: "[t](",
+        path: "100%zzcomplete",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+  ]
 
-  it("splits a markdown link with a heading", () => {
-    expect(links.splitMarkdownLink("[t](a/b.md#sec)")).toEqual({
-      prefix: "[t](",
-      path: "a/b",
-      heading: "#sec",
-      closeParen: ")",
-    })
-  })
-
-  it("decodes a percent-encoded path", () => {
-    expect(links.splitMarkdownLink("[t](My%20Note.md)")).toEqual({
-      prefix: "[t](",
-      path: "My Note",
-      heading: "",
-      closeParen: ")",
-    })
-  })
-
-  it("falls back to the raw path when percent-encoding is malformed", () => {
-    expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")).toEqual({
-      prefix: "[t](",
-      path: "100%zzcomplete",
-      heading: "",
-      closeParen: ")",
-    })
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    expect(links.splitMarkdownLink(input)).toEqual(expected)
   })
 
   it("returns null for malformed link text (missing closing paren)", () => {

@@ -3,14 +3,15 @@ import { describe, expect, it } from "vitest"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
 describe("buildLocalEnv", () => {
-  it("fills in the token and vault path as uncommented required lines", () => {
+  it("produces the full expected .env from the given answers", () => {
     const env = buildLocalEnv({
       mcpAuthToken: "abc123",
       vaultPath: "/Users/you/My Vault",
     })
 
-    expect(env).toContain("MCP_AUTH_TOKEN=abc123\n")
-    expect(env).toContain("VAULT_PATH=/Users/you/My Vault\n")
+    const lines = env.split("\n")
+    expect(lines).toContain("MCP_AUTH_TOKEN=abc123")
+    expect(lines).toContain("VAULT_PATH=/Users/you/My Vault")
   })
 
   it("links to the canonical .env.example and keeps optional settings commented out", () => {
@@ -45,11 +46,12 @@ describe("buildRemoteEnv", () => {
 
   it("fills in all four required values as uncommented lines", () => {
     const env = buildRemoteEnv(baseAnswers)
+    const lines = env.split("\n")
 
-    expect(env).toContain("MCP_AUTH_TOKEN=abc123\n")
-    expect(env).toContain("PUBLIC_URL=https://vault.example.com\n")
-    expect(env).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
-    expect(env).toContain("VAULT_NAME=MyVault\n")
+    expect(lines).toContain("MCP_AUTH_TOKEN=abc123")
+    expect(lines).toContain("PUBLIC_URL=https://vault.example.com")
+    expect(lines).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz")
+    expect(lines).toContain("VAULT_NAME=MyVault")
   })
 
   it("keeps VAULT_PASSWORD commented out when the vault has no encryption", () => {
@@ -61,8 +63,9 @@ describe("buildRemoteEnv", () => {
 
   it("writes VAULT_PASSWORD as a real line when provided", () => {
     const env = buildRemoteEnv({ ...baseAnswers, vaultPassword: "hunter2" })
+    const lines = env.split("\n")
 
-    expect(env).toContain("VAULT_PASSWORD=hunter2\n")
+    expect(lines).toContain("VAULT_PASSWORD=hunter2")
   })
 
   it("writes an empty OBSIDIAN_AUTH_TOKEN line with a fill-this-in warning when the token was skipped", () => {

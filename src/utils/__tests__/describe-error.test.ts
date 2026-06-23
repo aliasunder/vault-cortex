@@ -2,24 +2,36 @@ import { describe, it, expect } from "vitest"
 import { describeError } from "../describe-error.js"
 
 describe("describeError", () => {
-  it("returns an Error's message", () => {
-    expect(describeError(new Error("boom"))).toBe("boom")
-  })
+  const scenarios = [
+    {
+      name: "returns an Error's message",
+      input: new Error("boom"),
+      expected: "boom",
+    },
+    {
+      name: "returns the message of an Error subclass",
+      input: new TypeError("bad type"),
+      expected: "bad type",
+    },
+    {
+      name: "stringifies a non-Error string",
+      input: "plain string",
+      expected: "plain string",
+    },
+    {
+      name: "stringifies a non-Error number",
+      input: 42 as unknown,
+      expected: "42",
+    },
+    { name: "stringifies null", input: null as unknown, expected: "null" },
+    {
+      name: "stringifies undefined",
+      input: undefined as unknown,
+      expected: "undefined",
+    },
+  ]
 
-  it("returns the message of an Error subclass", () => {
-    expect(describeError(new TypeError("bad type"))).toBe("bad type")
-  })
-
-  it("stringifies a non-Error string", () => {
-    expect(describeError("plain string")).toBe("plain string")
-  })
-
-  it("stringifies a non-Error number", () => {
-    expect(describeError(42)).toBe("42")
-  })
-
-  it("stringifies null and undefined", () => {
-    expect(describeError(null)).toBe("null")
-    expect(describeError(undefined)).toBe("undefined")
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    expect(describeError(input)).toBe(expected)
   })
 })

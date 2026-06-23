@@ -242,7 +242,8 @@ describe("createMcpRouter — construction", () => {
     const harness = await setupHarness()
 
     expect(requireBearerAuth).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(requireBearerAuth).mock.calls[0]![0]).toEqual({
+    const bearerAuthArg = vi.mocked(requireBearerAuth).mock.calls[0]![0]
+    expect(bearerAuthArg).toEqual({
       verifier: harness.provider,
     })
   })
@@ -291,31 +292,34 @@ describe("createMcpRouter — POST /mcp", () => {
     it("forwards the request body to transport.handleRequest", async () => {
       const { transport } = await setupInitializedSession()
       expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-      expect(transport.handleRequest.mock.calls[0]![2]).toEqual(initializeBody)
+      const requestBody = transport.handleRequest.mock.calls[0]![2]
+      expect(requestBody).toEqual(initializeBody)
     })
 
     it("registers tools on the new server with vault context and config", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerTools).toHaveBeenCalledTimes(1)
-      const arg = vi.mocked(registerTools).mock.calls[0]![0]
-      expect(arg.server).toBe(harness.serverInstances[0])
-      expect(arg.vaultPath).toBe(VAULT_PATH)
-      expect(arg.search).toBe(harness.search)
-      expect(arg.logger).toBeDefined()
-      expect(arg.config).toBe(DEFAULT_CONFIG)
+      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      expect(toolRegistration.server).toBe(harness.serverInstances[0])
+      expect(toolRegistration.vaultPath).toBe(VAULT_PATH)
+      expect(toolRegistration.search).toBe(harness.search)
+      expect(toolRegistration.logger).toBe(
+        mockedLogger.child.mock.results[0]!.value,
+      )
+      expect(toolRegistration.config).toBe(DEFAULT_CONFIG)
     })
 
     it("registers prompts on the new server with the same vault context as the tools", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerPrompts).toHaveBeenCalledTimes(1)
-      const promptArg = vi.mocked(registerPrompts).mock.calls[0]![0]
-      const toolArg = vi.mocked(registerTools).mock.calls[0]![0]
-      expect(promptArg.server).toBe(harness.serverInstances[0])
-      expect(promptArg.vaultPath).toBe(VAULT_PATH)
-      expect(promptArg.search).toBe(harness.search)
-      expect(promptArg.config).toBe(DEFAULT_CONFIG)
+      const promptRegistration = vi.mocked(registerPrompts).mock.calls[0]![0]
+      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      expect(promptRegistration.server).toBe(harness.serverInstances[0])
+      expect(promptRegistration.vaultPath).toBe(VAULT_PATH)
+      expect(promptRegistration.search).toBe(harness.search)
+      expect(promptRegistration.config).toBe(DEFAULT_CONFIG)
       // Prompts and tools share the same session-scoped logger and context.
-      expect(promptArg.logger).toBe(toolArg.logger)
+      expect(promptRegistration.logger).toBe(toolRegistration.logger)
     })
 
     it("scopes the logger for registerTools to the sessionId and clientIp", async () => {
@@ -363,7 +367,8 @@ describe("createMcpRouter — POST /mcp", () => {
 
     expect(harness.transportInstances).toHaveLength(1)
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-    expect(transport.handleRequest.mock.calls[0]![2]).toEqual(followUp)
+    const forwardedBody = transport.handleRequest.mock.calls[0]![2]
+    expect(forwardedBody).toEqual(followUp)
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
@@ -440,7 +445,9 @@ describe("createMcpRouter — GET /mcp", () => {
     await response.arrayBuffer()
 
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-    expect(transport.handleRequest.mock.calls[0]).toHaveLength(2)
+    // GET forwards req + res without a body argument (2 args, not 3).
+    const handleRequestArgs = transport.handleRequest.mock.calls[0]!
+    expect(handleRequestArgs).toHaveLength(2)
   })
 
   it("returns 404 when the mcp-session-id header is missing", async () => {

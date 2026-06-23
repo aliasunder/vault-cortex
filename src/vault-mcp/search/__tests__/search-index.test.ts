@@ -500,7 +500,7 @@ describe("fullTextSearch", () => {
     )
     const results = index.fullTextSearch({ query: "run" }, logger)
     expect(results.length).toBeGreaterThan(0)
-    expect(results.some((r) => r.path === "stem.md")).toBe(true)
+    expect(results.some((result) => result.path === "stem.md")).toBe(true)
   })
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
@@ -547,8 +547,12 @@ describe("fullTextSearch", () => {
       { query: '"machine learning"' },
       logger,
     )
-    expect(phraseResults.some((r) => r.path === "phrase.md")).toBe(true)
-    expect(phraseResults.some((r) => r.path === "separate.md")).toBe(false)
+    expect(phraseResults.some((result) => result.path === "phrase.md")).toBe(
+      true,
+    )
+    expect(phraseResults.some((result) => result.path === "separate.md")).toBe(
+      false,
+    )
   })
 
   it("query with FTS5 operators does not throw", () => {
@@ -1040,7 +1044,7 @@ describe("listAllTags", () => {
   it("returns tags with counts ordered by count desc", () => {
     const tags = index.listAllTags(logger)
     expect(tags[0]).toEqual({ tag: "principles", count: 2 })
-    expect(tags.find((t) => t.tag === "self")).toEqual({
+    expect(tags.find((tagEntry) => tagEntry.tag === "self")).toEqual({
       tag: "self",
       count: 1,
     })
@@ -1056,7 +1060,10 @@ describe("listAllTags", () => {
       logger,
     )
     const tags = index.listAllTags(logger)
-    expect(tags.length).toBeGreaterThan(0)
+    expect(tags).toHaveLength(3)
+    const results = index.fullTextSearch({ query: "no tags" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("bare.md")
   })
 })
 
@@ -1381,15 +1388,17 @@ describe("searchByProperty", () => {
       { key: "status", value: "done" },
       logger,
     )
-    expect(results[0]).toHaveProperty("path")
-    expect(results[0]).toHaveProperty("title")
-    expect(results[0]).toHaveProperty("tags")
-    expect(results[0]).toHaveProperty("related")
-    expect(results[0]).toHaveProperty("folder")
-    expect(results[0]).toHaveProperty("type")
-    expect(results[0]).toHaveProperty("modified")
-    expect(results[0]).toHaveProperty("bytes")
-    expect(results[0]).toHaveProperty("properties")
+    expect(results).toHaveLength(1)
+    const result = results[0]
+    expect(result.path).toBe("Projects/done.md")
+    expect(result.title).toBe("Done Project")
+    expect(result.tags).toEqual(["project", "done"])
+    expect(result.folder).toBe("Projects")
+    expect(result.type).toBe("project")
+    expect(result.bytes).toBe(100)
+    expect(result.properties).toEqual(
+      expect.objectContaining({ status: "done", priority: "low" }),
+    )
   })
 
   it("returns empty for non-matching value", () => {
@@ -1485,9 +1494,10 @@ describe("rebuildFromVault", () => {
   })
 
   it("skips hidden directories", async () => {
-    await index.rebuildFromVault(vaultDir)
-    const results = index.fullTextSearch({ query: "hidden" }, logger)
-    expect(results).toHaveLength(0)
+    const indexedCount = await index.rebuildFromVault(vaultDir)
+    expect(indexedCount).toBe(2)
+    const hidden = index.fullTextSearch({ query: "hidden" }, logger)
+    expect(hidden).toHaveLength(0)
   })
 
   it("clears existing data before rebuilding", async () => {
@@ -1737,11 +1747,11 @@ describe("findOrphans", () => {
       (orphan) => orphan.path === "Projects/orphan.md",
     )
     expect(projectOrphan).toBeDefined()
-    expect(projectOrphan).toHaveProperty("title")
-    expect(projectOrphan).toHaveProperty("tags")
-    expect(projectOrphan).toHaveProperty("folder")
-    expect(projectOrphan).toHaveProperty("modified")
-    expect(projectOrphan).toHaveProperty("bytes")
+    expect(projectOrphan!.title).toBe("Orphan")
+    expect(projectOrphan!.tags).toEqual(["project"])
+    expect(projectOrphan!.folder).toBe("Projects")
+    expect(projectOrphan!.bytes).toBe(100)
+    expect(typeof projectOrphan!.modified).toBe("string")
   })
 
   it("treats self-linking notes as orphans", () => {

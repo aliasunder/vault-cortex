@@ -46,7 +46,10 @@ describe("validateVaultPath", () => {
 
     const validation = validateVaultPath(missingPath)
 
-    expect(validation.kind).toBe("error")
+    expect(validation).toEqual({
+      kind: "error",
+      message: `Path does not exist: ${missingPath}`,
+    })
   })
 
   it("returns an error when the path is a file, not a directory", () => {
@@ -56,7 +59,10 @@ describe("validateVaultPath", () => {
 
     const validation = validateVaultPath(filePath)
 
-    expect(validation.kind).toBe("error")
+    expect(validation).toEqual({
+      kind: "error",
+      message: `Path is not a directory: ${filePath}`,
+    })
   })
 
   it("warns when the directory has no .obsidian folder", () => {
@@ -64,11 +70,11 @@ describe("validateVaultPath", () => {
 
     const validation = validateVaultPath(tempDir)
 
-    expect(validation.kind).toBe("warn")
-    if (validation.kind === "warn") {
-      expect(validation.path).toBe(tempDir)
-      expect(validation.message).toContain(".obsidian")
-    }
+    expect(validation).toEqual({
+      kind: "warn",
+      path: tempDir,
+      message: `${tempDir} doesn't look like an Obsidian vault (no .obsidian folder).`,
+    })
   })
 
   it("returns ok for a directory containing .obsidian", () => {
