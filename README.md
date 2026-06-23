@@ -16,7 +16,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Configuration](#configuration) · [Authentication](#authentication) · [How It Works](#how-it-works) · [Deployment](#deployment-options)
 
 ## What you get
 
