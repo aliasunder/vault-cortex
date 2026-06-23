@@ -3,6 +3,15 @@
 
 
 
+
+## [0.23.1] — 2026-06-23
+
+### Documentation
+
+- Shorten Contents row labels to fit one line
+- Sharpen README intro, cut redundancy, improve navigability (#192)
+- Update CHANGELOG.md for v0.23.0
+
 ## [0.23.0] — 2026-06-23
 
 ### Features
