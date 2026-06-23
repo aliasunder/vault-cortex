@@ -1593,6 +1593,22 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
+  it("resolves extensionless wikilinks to non-md files by relative path", async () => {
+    await mkdir(join(vaultDir, "sub"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "sub/source.md"),
+      "# Source\n\nSee [[../Route]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
   it("skips non-md files in hidden directories", async () => {
     await writeFile(
       join(vaultDir, "source.md"),
