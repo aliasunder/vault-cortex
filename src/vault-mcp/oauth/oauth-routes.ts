@@ -28,11 +28,11 @@ export const createOAuthRoutes = ({
     oauthProvider
   const router = Router()
 
-  // Rate limiting for OAuth endpoints (SDK default: 5 req/min per IP).
-  // API Gateway sends the real client IP in the Forwarded header, but
-  // express-rate-limit doesn't parse it by default — so we extract it
-  // here. Validation suppressed because we handle proxy headers ourselves.
-  const rateLimitKeyGenerator = (req: Request): string => {
+  // API Gateway sends the real client IP in the RFC 7239 Forwarded header,
+  // but Express only reads X-Forwarded-For. Extract from Forwarded first,
+  // falling back to req.ip. Used by both rate limiting and audit logging
+  // so both identify the same client.
+  const extractClientIp = (req: Request): string => {
     const forwarded = req.headers["forwarded"]
     if (forwarded) {
       const match = /for="?([^";,]+)"?/i.exec(forwarded)
@@ -42,7 +42,7 @@ export const createOAuthRoutes = ({
   }
 
   const rateLimit = {
-    keyGenerator: rateLimitKeyGenerator,
+    keyGenerator: extractClientIp,
     validate: false as const,
   }
 
@@ -66,7 +66,7 @@ export const createOAuthRoutes = ({
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
       const { request_id, token, action } = req.body as Record<string, string>
-      const clientIp = req.ip ?? "unknown"
+      const clientIp = extractClientIp(req)
       const pending = getPendingRequest(request_id)
 
       if (!pending) {
