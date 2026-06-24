@@ -450,7 +450,10 @@ describe("OAuth audit logging", () => {
   it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
     const { logs, testLogger, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
-    const code = oauth.approveRequest(requestId, testLogger)
+    const code = oauth.approveRequest(
+      requestId,
+      testLogger.child({ clientId: client.client_id }),
+    )
     logs.length = 0
 
     await oauth.provider.exchangeAuthorizationCode!(client, code)
@@ -549,8 +552,13 @@ describe("OAuth audit logging", () => {
   it("logs oauth_consent_approved on consent approval", async () => {
     const { logs, testLogger, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
+    const consentLogger = testLogger.child({
+      clientIp: "127.0.0.1",
+      requestId,
+      clientId: client.client_id,
+    })
 
-    oauth.approveRequest(requestId, testLogger)
+    oauth.approveRequest(requestId, consentLogger)
 
     const event = logs.find((log) => log.message === "oauth_consent_approved")
     expect(event).toBeDefined()
@@ -561,8 +569,9 @@ describe("OAuth audit logging", () => {
 
   it("logs oauth_consent_approve_failed when no pending request exists", async () => {
     const { logs, testLogger, oauth } = await setupAuditTest()
+    const reqLogger = testLogger.child({ requestId: "nonexistent" })
 
-    expect(() => oauth.approveRequest("nonexistent", testLogger)).toThrow(
+    expect(() => oauth.approveRequest("nonexistent", reqLogger)).toThrow(
       "No pending request",
     )
 

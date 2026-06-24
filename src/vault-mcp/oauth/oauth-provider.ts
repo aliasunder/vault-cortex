@@ -391,7 +391,7 @@ export const createOAuthProvider = ({
     if (!pending) return undefined
     if (pending.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
-      reqLogger.info("oauth_request_expired", { requestId: id })
+      reqLogger.info("oauth_request_expired")
       return undefined
     }
     return pending
@@ -401,7 +401,6 @@ export const createOAuthProvider = ({
     const pending = pendingRequests.get(requestId)
     if (!pending) {
       reqLogger.warn("oauth_consent_approve_failed", {
-        requestId,
         reason: "no_pending_request",
       })
       throw new Error("No pending request")
@@ -415,10 +414,7 @@ export const createOAuthProvider = ({
       params: pending.params,
       expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
-    reqLogger.info("oauth_consent_approved", {
-      clientId: pending.client.client_id,
-      requestId,
-    })
+    reqLogger.info("oauth_consent_approved")
     return code
   }
 
