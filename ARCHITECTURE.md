@@ -244,7 +244,16 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_get_outgoing_links` | `path`                     | readOnlyHint |
 | `vault_find_orphans`       | `exclude_folders?, limit?` | readOnlyHint |
 
-Link queries use a `links` table populated during indexing from `[[wikilink]]` and `[text](path.md)` links in the note body (fence-aware parsing skips code blocks) plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`), matching Obsidian's graph. Each target is resolved against all known note paths covering Obsidian's three "New link format" modes: exact vault-relative path (path from vault folder), path relative to the linking note (path from current file, including upward `../`), then basename (shortest-path-first for ambiguous basenames). Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher) — wikilinks to `.canvas`, `.base`, images, PDFs, and other non-markdown assets resolve as `kind: "asset"` instead of being counted as broken. `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references. `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
+Link queries use a `links` table populated during indexing:
+
+- **Sources:** `[[wikilink]]` and `[text](path.md)` links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`).
+- **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
+  1. Exact vault-relative path (path from vault folder)
+  2. Path relative to the linking note (path from current file, including upward `../`)
+  3. Basename (shortest-path-first for ambiguous basenames)
+- **Non-markdown assets:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Wikilinks to `.canvas`, `.base`, images, PDFs, and other non-markdown assets resolve as `kind: "asset"` instead of being counted as broken.
+- **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
+- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
 ### Phase 2: Knowledge Base (R8)
 
