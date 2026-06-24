@@ -185,21 +185,26 @@ const capContent = (
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
  *  not instruction — defense-in-depth for shared/synced vault scenarios. The cap
  *  (via capContent) is applied to the inner content; the opening and closing tags
- *  always survive truncation. */
+ *  always survive truncation.
+ *  @param content — raw vault text to wrap
+ *  @param markerAttributes — key-value pairs rendered as XML attributes on the
+ *    opening tag (source, type, date) to identify the content's origin
+ *  @param maxChars — optional cap forwarded to capContent
+ *  @param toolHint — tool name shown in the truncation message */
 const wrapWithDataMarkers = (
   content: string,
-  attrs: Record<string, string>,
+  markerAttributes: Record<string, string>,
   maxChars: number | undefined,
   toolHint: string,
 ): string => {
-  const attrString = Object.entries(attrs)
+  const attributeString = Object.entries(markerAttributes)
     .map(
       ([key, value]) =>
         `${key}="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`,
     )
     .join(" ")
   return [
-    `<vault-content ${attrString}>`,
+    `<vault-content ${attributeString}>`,
     capContent(content, maxChars, toolHint),
     "</vault-content>",
   ].join("\n")
