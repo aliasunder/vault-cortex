@@ -50,7 +50,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results (array of { path (string), title (string), snippet (string), score (number — relevance rank), tags (string[]), folder (string), type (string|null), created (ISO string|null), modified (ISO string), bytes (number — on-disk file size) }) and total (number). With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -150,7 +150,7 @@ Parameters:
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of up to 20 { path (string), title (string), tags (string[]), related (string[]), folder (string), type (string|null), created (ISO string|null), modified (ISO string), bytes (number — on-disk file size), leading_callout? ({ type, title, body }), additional_properties (object — unpromoted frontmatter keys only) }, sorted by most recently modified.`,
+Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z
           .string()
@@ -398,7 +398,7 @@ Example: vault_list_property_values({ key: "status" }) returns [{ value: "active
 When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are enumerated individually.
 Call vault_list_property_keys first to discover valid key names.
 
-Returns: JSON array of { value (string), count (number — unique notes with this value) }, sorted by count descending.`,
+Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
         key: z
           .string()
@@ -458,7 +458,7 @@ Prefer vault_search when you also have a text query (it supports property filter
 Errors:
 - No matches returns an empty array, not an error.
 
-Returns: JSON array of { path (string), title (string), tags (string[]), related (string[]), folder (string), type (string|null), created (ISO string|null), modified (ISO string), bytes (number — on-disk file size), leading_callout? ({ type, title, body }), additional_properties (object) }, sorted by most recently modified.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         key: z
           .string()
@@ -520,13 +520,10 @@ Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 When to use: Understanding what references a note or assessing its connectivity.
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
 
-Parameters:
-- path must be the exact vault-relative path — case-sensitive, including the .md extension.
-
 Errors:
 - A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
 
-Returns: JSON with path (string — the queried note), backlinks (array of { path (string), title (string), bytes (number — on-disk file size) }, sorted by title), and count (number).`,
+Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes }, sorted by title), and count. bytes is the on-disk file size.`,
       inputSchema: {
         path: z
           .string()
@@ -573,7 +570,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Errors:
 - A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
-Returns: JSON with path (string — the queried note), outgoing_links (array of { path (string), title (string), exists (boolean), kind ("note"|"asset"), bytes (number|null — null for broken links and assets) }, sorted by target path), and count (number).`,
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, kind, bytes }, sorted by target path), and count. kind is "note" or "asset". bytes is the on-disk file size (null for broken links and assets).`,
       inputSchema: {
         path: z
           .string()

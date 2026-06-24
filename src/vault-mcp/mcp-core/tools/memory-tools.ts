@@ -193,7 +193,7 @@ When to use: Discovering what memory files and sections exist — and what each 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 
-Returns: JSON array of { file (string — name without .md), title (string), bytes (number — on-disk file size), leading_callout ({ type, title, body }|null — by convention a "Scope of this file" block), headings (array of { level (1|2), text (string), entryCount (number) }) }.`,
+Returns: JSON array of file outlines, each { file, title, bytes, leading_callout, headings } — bytes is the on-disk file size; leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
