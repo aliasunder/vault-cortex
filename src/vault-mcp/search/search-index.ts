@@ -310,10 +310,11 @@ export const createSearchIndex = (dbPath: string) => {
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
   )
-  // Links whose target isn't a known note path — stored as raw text because
-  // they were unresolved when indexed (e.g. a forward reference).
+  // Links whose target isn't a known note or non-md file — stored as raw text
+  // because they were unresolved when indexed (e.g. a forward reference).
+  // Used by both note and non-md re-resolution to find candidates to upgrade.
   const selectUnresolvedLinksStmt = db.prepare(
-    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes)`,
+    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
   )
   // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
   // (source, resolved) row so re-resolution can't hit a PK collision.
