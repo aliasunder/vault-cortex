@@ -325,6 +325,10 @@ export const createOAuthProvider = ({
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
         oauthLogger.debug("oauth_token_verified", { method: "static" })
+        // The static token never expires, but the SDK's requireBearerAuth
+        // rejects any AuthInfo without a numeric expiresAt ("Token has no
+        // expiration time"). Hand it a far-future timestamp so the static
+        // token is accepted while remaining effectively perpetual.
         return {
           token,
           clientId: "static",

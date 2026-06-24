@@ -567,6 +567,16 @@ describe("memory-review handler", () => {
     expect(text).not.toContain("Research current docs before configuring")
   })
 
+  it("data markers survive truncation", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({ max_chars: "40" }, fakeExtra))
+
+    expect(text).toContain('<vault-content source="About Me" type="memory">')
+    expect(text).toContain("</vault-content>")
+    expect(text).toContain("truncated at 40 characters")
+  })
+
   it("returns full memory content when max_chars is omitted", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
@@ -670,6 +680,26 @@ describe("daily-review handler", () => {
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
     expect(text).not.toContain("runs well past the cap")
+  })
+
+  it("daily-review data markers survive truncation", async () => {
+    const { vault, calls } = await setupVault()
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nA very long journal entry that runs well past the cap.\n",
+      "utf8",
+    )
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(
+      await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra),
+    )
+
+    expect(text).toContain(
+      '<vault-content source="Daily Notes/2026-06-16.md" type="daily-note" date="2026-06-16">',
+    )
+    expect(text).toContain("</vault-content>")
+    expect(text).toContain("truncated at 30 characters")
   })
 
   it("shows outgoing links when daily note has links", async () => {
