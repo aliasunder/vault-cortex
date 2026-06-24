@@ -6,12 +6,14 @@ import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
+import type { Logger } from "../../logger.js"
 
 export type OAuthRoutesOptions = {
   authToken: string
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
+  logger: Logger
 }
 
 export const createOAuthRoutes = ({
@@ -19,7 +21,9 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
+  logger,
 }: OAuthRoutesOptions): Router => {
+  const routeLogger = logger.child({ component: "oauth-routes" })
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
     oauthProvider
   const router = Router()
@@ -62,14 +66,26 @@ export const createOAuthRoutes = ({
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
       const { request_id, token, action } = req.body as Record<string, string>
+      const clientIp = req.ip ?? "unknown"
       const pending = getPendingRequest(request_id)
 
       if (!pending) {
+        routeLogger.warn("oauth_consent_expired", {
+          clientIp,
+          requestId: request_id,
+        })
         res.status(400).send("Authorization request expired or invalid.")
         return
       }
 
+      const clientId = pending.client.client_id
+
       if (action !== "approve") {
+        routeLogger.info("oauth_consent_denied_by_user", {
+          clientIp,
+          requestId: request_id,
+          clientId,
+        })
         deletePendingRequest(request_id)
         const redirectUrl = new URL(pending.params.redirectUri)
         redirectUrl.searchParams.set("error", "access_denied")
@@ -88,10 +104,15 @@ export const createOAuthRoutes = ({
       // already applied to bearer-header auth in parseBearer().
       const submittedToken = token?.replace(/\s+/g, "") ?? ""
       if (!submittedToken || !safeEqual(submittedToken, authToken)) {
+        routeLogger.warn("oauth_consent_bad_token", {
+          clientIp,
+          requestId: request_id,
+          clientId,
+        })
         res.type("html").send(
           renderConsentPage({
             clientName: pending.client.client_name ?? pending.client.client_id,
-            clientId: pending.client.client_id,
+            clientId,
             scopes: pending.params.scopes ?? [],
             requestId: request_id,
             error: "Invalid token. Please try again.",
@@ -101,6 +122,11 @@ export const createOAuthRoutes = ({
       }
 
       const code = approveRequest(request_id)
+      routeLogger.info("oauth_consent_completed", {
+        clientIp,
+        requestId: request_id,
+        clientId,
+      })
       const redirectUrl = new URL(pending.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
       if (pending.params.state)

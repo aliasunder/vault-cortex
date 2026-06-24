@@ -8,6 +8,7 @@ import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
+import { logger } from "../../../logger.js"
 
 const AUTH_TOKEN = "test-static-token"
 
@@ -59,8 +60,8 @@ describe("OAuth refresh token sliding expiry", () => {
     dbPath = join(dir, "oauth.db")
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
     db = new Database(dbPath)
     client = seedClient(db)
@@ -212,8 +213,8 @@ describe("OAuth refresh token schema migration", () => {
 
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
 
     const db = new Database(dbPath)
@@ -236,15 +237,15 @@ describe("OAuth refresh token schema migration", () => {
   it("is idempotent — re-running on a migrated DB doesn't error", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
 
     expect(() =>
       createOAuthProvider({
         authToken: AUTH_TOKEN,
-
         dbPath,
+        logger,
       }),
     ).not.toThrow()
   })
@@ -262,7 +263,7 @@ describe("verifyAccessToken", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
     dbPath = join(dir, "oauth.db")
-    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath })
+    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     db = new Database(dbPath)
   })
 

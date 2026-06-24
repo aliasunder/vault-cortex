@@ -10,6 +10,7 @@ import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
+import { logger } from "../../../logger.js"
 
 // The documented local-dev placeholder (.gitleaks.toml allowlist, also used in
 // README/CONTRIBUTING) — allowlisted by the secret scanner, never a real key.
@@ -30,12 +31,14 @@ describe("OAuth consent token submission", () => {
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
+      logger,
     })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      logger,
     })
     const app = express()
     app.use(router)

@@ -91,6 +91,7 @@ const startServer = async (): Promise<void> => {
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
+    logger,
   })
 
   const app = express()
@@ -109,6 +110,7 @@ const startServer = async (): Promise<void> => {
       serverUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
+      logger,
     }),
   )
   app.use(
