@@ -233,6 +233,79 @@ describe("moveNote — link rewriting forms", () => {
     expect(result.links_updated).toBe(1)
   })
 
+  it("rewrites a wikilink with an escaped pipe in a table cell", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const table = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Foo\\|display]] | A topic |",
+    ].join("\n")
+    await writeFixture("Hub.md", `${table}\n`)
+
+    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    const expected = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Bar\\|display]] | A topic |",
+    ].join("\n")
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+  })
+
+  it("rewrites multiple escaped pipe wikilinks in a single table", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const table = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Foo\\|first]] | Row 1 |",
+      "| [[Foo\\|second]] | Row 2 |",
+    ].join("\n")
+    await writeFixture("Hub.md", `${table}\n`)
+
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    const expected = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Bar\\|first]] | Row 1 |",
+      "| [[Bar\\|second]] | Row 2 |",
+    ].join("\n")
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+    expect(result.links_updated).toBe(2)
+  })
+
+  it("preserves an escaped pipe in a non-table context", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo\\|display text]].\n")
+
+    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar\\|display text]].\n")
+  })
+
+  it("rewrites a table wikilink with an escaped pipe and a heading anchor", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const table = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Foo#Setup\\|link]] | A topic |",
+    ].join("\n")
+    await writeFixture("Hub.md", `${table}\n`)
+
+    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    const expected = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Bar#Setup\\|link]] | A topic |",
+    ].join("\n")
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+  })
+
   it("rewrites a source-relative wikilink in another folder", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("B/Target.md", "content\n")
@@ -315,6 +388,49 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     expect(await readNote("Hub.md")).toBe(
       "Use `[[Foo]]` syntax to link [[Bar]].\n",
     )
+  })
+
+  it("rewrites only the moved note's escaped pipe link, leaving other escaped pipe links intact", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Other.md", "other\n")
+    const table = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Foo\\|display]] | Moved |",
+      "| [[Other\\|label]] | Stays |",
+    ].join("\n")
+    await writeFixture("Hub.md", `${table}\n`)
+
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    const expected = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Bar\\|display]] | Moved |",
+      "| [[Other\\|label]] | Stays |",
+    ].join("\n")
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("does not touch a backlink source whose only escaped pipe link points elsewhere", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("NotMoved.md", "other\n")
+    const table = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[NotMoved\\|alias]] | A topic |",
+    ].join("\n")
+    const original = `${table}\n`
+    await writeFixture("Hub.md", original)
+
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    expect(await readNote("Hub.md")).toBe(original)
+    expect(result.links_updated).toBe(0)
+    expect(result.updated_notes).toEqual([])
   })
 
   it("does not rewrite a same-named link that resolves to a different note, even when passed as a candidate", async () => {

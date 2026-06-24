@@ -87,6 +87,41 @@ describe("splitWikilink", () => {
       input: "![[A]]",
       expected: { embed: "!", target: "A", heading: "", alias: "" },
     },
+    {
+      name: "strips the escaped pipe backslash and shifts it into the alias",
+      input: "[[sessions/log-a\\|log-a]]",
+      expected: {
+        embed: "",
+        target: "sessions/log-a",
+        heading: "",
+        alias: "\\|log-a",
+      },
+    },
+    {
+      name: "strips the escaped pipe backslash from a nested path",
+      input: "[[Projects/Foo\\|display]]",
+      expected: {
+        embed: "",
+        target: "Projects/Foo",
+        heading: "",
+        alias: "\\|display",
+      },
+    },
+    {
+      name: "strips the escaped pipe backslash from an embedded wikilink",
+      input: "![[Photo\\|thumbnail]]",
+      expected: {
+        embed: "!",
+        target: "Photo",
+        heading: "",
+        alias: "\\|thumbnail",
+      },
+    },
+    {
+      name: "does not strip a trailing backslash when there is no alias",
+      input: "[[path\\]]",
+      expected: { embed: "", target: "path\\", heading: "", alias: "" },
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
