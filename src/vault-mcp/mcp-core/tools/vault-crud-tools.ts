@@ -627,9 +627,7 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path of the note to delete (e.g. "Scratch/temp.md")',
-          ),
+          .describe("Vault-relative path of the note to delete"),
         prune_empty_folders: z
           .boolean()
           .optional()

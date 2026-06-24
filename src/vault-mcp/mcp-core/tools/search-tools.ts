@@ -529,7 +529,7 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
           .string()
           .min(1)
           .describe(
-            'Exact vault-relative path including .md extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
+            'Vault-relative path to the note (e.g. "Projects/vault-cortex.md")',
           ),
       },
       annotations: {
