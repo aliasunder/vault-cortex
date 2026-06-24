@@ -243,7 +243,7 @@ describe("moveNote — link rewriting forms", () => {
     ].join("\n")
     await writeFixture("Hub.md", `${table}\n`)
 
-    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
 
     const expected = [
       "| Link | Topic |",
@@ -251,6 +251,7 @@ describe("moveNote — link rewriting forms", () => {
       "| [[Bar\\|display]] | A topic |",
     ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+    expect(result.links_updated).toBe(1)
   })
 
   it("rewrites multiple escaped pipe wikilinks in a single table", async () => {
@@ -281,12 +282,13 @@ describe("moveNote — link rewriting forms", () => {
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "See [[Foo\\|display text]].\n")
 
-    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
 
     expect(await readNote("Hub.md")).toBe("See [[Bar\\|display text]].\n")
+    expect(result.links_updated).toBe(1)
   })
 
-  it("rewrites a table wikilink with an escaped pipe and a heading anchor", async () => {
+  it("preserves a heading anchor adjacent to an escaped pipe during rewrite", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     const table = [
