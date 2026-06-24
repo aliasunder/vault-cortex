@@ -158,8 +158,8 @@ describe("registerTools", () => {
 
   it("vault_recent_notes description documents sorting behavior", () => {
     const [, config] = findCall(TOOL_NAMES.VAULT_RECENT_NOTES)!
-    expect(config.description).toContain("Sorting behavior:")
-    expect(config.description).toContain("sort to the bottom")
+    expect(config.description).toContain("filesystem mtime")
+    expect(config.description).toContain("sort last")
   })
 
   it("vault_read_note description cross-references graph tools", () => {

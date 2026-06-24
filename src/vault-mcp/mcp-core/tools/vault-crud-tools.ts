@@ -46,9 +46,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
 Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
-
-Modes are mutually exclusive — set at most one of properties_only, outline, or heading. heading_level only applies with heading.
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading.
 
 Errors:
 - "heading not found" — no heading matches the text; error lists available headings
@@ -212,18 +210,21 @@ Prefer vault_update_properties for property-only edits (no body round-trip).${co
 
 Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
-Obsidian syntax: Body content is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, watch for Obsidian-specific patterns:
-- #word (no space after #) = tag — escape with \\# or backticks
-- [[ = wikilink, ![[ = embed — escape with \\[[
-- %% = comment block (hidden in reading view)
-Properties: quote wikilink values ("[[Note]]"), use YAML lists for tags ([tag1, tag2]), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
+Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path for the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path (e.g. "Projects/notes.md"). Parent folders are created as needed.',
+          ),
         body: z
           .string()
-          .describe("Markdown body content (no frontmatter fences)"),
+          .describe(
+            "Markdown body content — do not include frontmatter fences (---); use the properties parameter instead.",
+          ),
         properties: z
           .record(z.string().min(1), z.unknown())
           .optional()
@@ -294,13 +295,17 @@ Errors:
 - "operation requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 
-Obsidian syntax: Content is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, watch for: #word (no space) = tag, [[ = wikilink, %% = comment block. Escape with \\# or \\[[ when unintentional.
-Structural note: inserting heading-level content (e.g. ## New Section) changes the note's section structure — future patch calls targeting headings may resolve differently.
-Table note: when prepending/appending a row to an existing markdown table, send only the data row (e.g. "| cell1 | cell2 |") — do not include the table header or separator row, which already exist. A duplicated header splits the table in two.
+Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
+Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path to the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note (e.g. "TASKS.md", "Projects/plan.md")',
+          ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
           .describe("Patch operation to apply"),
@@ -379,11 +384,16 @@ Errors:
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "old_text cannot be empty" — old_text must be at least one character
 
-Obsidian syntax: new_text is rendered as Obsidian Flavored Markdown with no escaping applied. Beyond standard Markdown, Obsidian-specific patterns (#word = tag, [[ = wikilink, %% = comment block) apply to replacement text. Verify replacements won't introduce unintended Obsidian rendering.
+Obsidian syntax: new_text is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in replacement text.
 
-Returns: Confirmation message with replacement count.`,
+Returns: Confirmation message with replacement count (number of occurrences replaced).`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path to the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note (e.g. "Projects/plan.md")',
+          ),
         old_text: z
           .string()
           .min(1)
@@ -441,7 +451,7 @@ Returns: Confirmation message with replacement count.`,
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by naming it with short anchor substrings — without reproducing the block's text. More reliable than passing a large block as old_text to vault_replace_in_note: a short, unique fragment can't drift from the original the way a re-quoted multi-line block can, and you don't regenerate the whole block. Matches exact text (case-sensitive). Properties are preserved; operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing it with short anchor substrings — no need to reproduce the full block text. More reliable than vault_replace_in_note for large blocks (a short fragment can't drift). Case-sensitive matching. Properties are preserved; operates on the body only.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes the multi-line block from the line containing the start anchor through the line containing the end anchor.
@@ -458,11 +468,16 @@ Errors:
 - "ambiguous start anchor ... matches N lines" / "ambiguous end anchor ..." — the fragment is on more than one line; use a longer, unique fragment or set first_match: true
 - "start_anchor cannot be empty" / "end_anchor cannot be empty"
 
-Obsidian syntax: Anchors are matched as literal text against the Obsidian Flavored Markdown source, never as regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear in the note (verify with vault_read_note). This tool only removes content; it inserts none.
+Obsidian syntax: Anchors match literal text against the raw Markdown source, never regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear (verify with vault_read_note). This tool only removes content.
 
-Returns: Confirmation message with the number of lines removed and a truncated preview of the deleted text.`,
+Returns: Confirmation message with lines removed (number) and a truncated preview of the deleted text.`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path to the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note (e.g. "Tracker.md", "Notes/Plan.md")',
+          ),
         start_anchor: z
           .string()
           .min(1)
@@ -527,24 +542,32 @@ Returns: Confirmation message with the number of lines removed and a truncated p
       title: "List Notes",
       description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
 
-Example: vault_list_notes({ folder: "Projects" }) or vault_list_notes({ glob: "**/*session-log*.md" })
+Example: vault_list_notes({ folder: "Projects" })
+Example: vault_list_notes({ glob: "**/*session-log*.md" })
 
 When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
-Returns: JSON array of vault-relative paths.`,
+Parameters:
+- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). When combined with glob, the glob pattern is applied within the folder's scope.
+- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.
+
+Errors:
+- A nonexistent folder or no glob matches returns an empty array, not an error.
+
+Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
       inputSchema: {
         folder: z
           .string()
           .optional()
           .describe(
-            `Folder to list (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects")`,
+            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
           ),
         glob: z
           .string()
           .optional()
           .describe(
-            'Glob pattern to filter paths (e.g. "Projects/**/*.md", "*.md"). Supports * and ** wildcards.',
+            'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
           ),
       },
       annotations: {
@@ -575,7 +598,7 @@ Returns: JSON array of vault-relative paths.`,
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note. The note is removed from disk directly (not moved to a trash folder), and this server has no undo — recovery depends on your own backups or sync history. After deletion it no longer appears in search results or backlinks, and links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused to prevent accidental loss of memory or daily notes.
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). Recovery depends on backups or sync history. After deletion, links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -762,15 +785,20 @@ Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
 
-Obsidian syntax: Property values follow YAML conventions. Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
+Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path to the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note (e.g. "Projects/todo.md")',
+          ),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(
-            "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved.",
+            'Properties to merge (e.g. { status: "active", draft: null }). New keys added; existing keys overwritten; null deletes a key; unmentioned keys preserved. Arrays are replaced entirely, not appended to.',
           ),
       },
       annotations: {
