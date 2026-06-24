@@ -122,7 +122,12 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        entry: z.string().min(1).describe("Entry text (no date prefix)"),
+        entry: z
+          .string()
+          .min(1)
+          .describe(
+            'Raw entry text — the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
+          ),
         options: z
           .object({
             date: z
@@ -245,10 +250,17 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        date: z.string().min(1).describe("ISO YYYY-MM-DD date of the entry"),
+        date: z
+          .string()
+          .min(1)
+          .describe(
+            'ISO YYYY-MM-DD date of the entry (e.g. "2026-05-01"). Must match the date shown by vault_get_memory.',
+          ),
         entry: z
           .string()
-          .describe("Exact entry text (no date prefix or bullet)"),
+          .describe(
+            'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
+          ),
       },
       annotations: {
         readOnlyHint: false,

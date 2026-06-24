@@ -308,11 +308,15 @@ Returns: Confirmation message.`,
           ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
-          .describe("Patch operation to apply"),
+          .describe(
+            "append | prepend | replace | insert_before. replace and insert_before require a heading; append and prepend work with or without one.",
+          ),
         content: z
           .string()
           .min(1)
-          .describe("Content to insert or replace with"),
+          .describe(
+            "Markdown content to insert. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
+          ),
         heading: z
           .string()
           .min(1)
@@ -397,8 +401,14 @@ Returns: Confirmation message with replacement count (number of occurrences repl
         old_text: z
           .string()
           .min(1)
-          .describe("Exact text to find (case-sensitive, non-empty)"),
-        new_text: z.string().describe("Replacement text"),
+          .describe(
+            "Exact text to find (case-sensitive). Matches in the body only — text inside frontmatter properties is not searched.",
+          ),
+        new_text: z
+          .string()
+          .describe(
+            'Replacement text. Empty string ("") deletes the matched text.',
+          ),
         replace_all_occurrences: z
           .boolean()
           .optional()
@@ -617,7 +627,9 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
         path: z
           .string()
           .min(1)
-          .describe("Vault-relative path of the note to delete"),
+          .describe(
+            'Vault-relative path of the note to delete (e.g. "Scratch/temp.md")',
+          ),
         prune_empty_folders: z
           .boolean()
           .optional()

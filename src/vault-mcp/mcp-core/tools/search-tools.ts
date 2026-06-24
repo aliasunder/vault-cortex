@@ -513,7 +513,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes that link to a given note via incoming [[wikilinks]] or [markdown](links). Reveals what references the target — its context and importance in the knowledge graph, invisible without a graph query. Both link styles are captured; links inside code blocks are ignored, and a note that links to itself appears in its own backlinks.
+      description: `Find all notes that link to a given note via incoming [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; a note that links to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 
