@@ -29,24 +29,25 @@ tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
 This alone makes any MCP client vault-aware and personalized across
 conversations.
 
-**Phase 2** adds semantic and knowledge-graph queries over the vault. The
-file watcher gains a second hook for semantic ingestion (re-index on
-change) and a new `vault_query_kb` MCP tool is added — additive, no
-rewrites. The retrieval stack is being finalized in a design spike, so the
-detailed Phase 2 sections below reflect the original candidate.
+**Phase 2** is in discovery. The leading candidate adds hybrid search
+(FTS5 + sqlite-vec vector search with RRF fusion) to the existing
+`vault_search` tool — embeddings generated locally by a small ONNX model
+running in-process, no external API required. The file watcher would gain
+a second hook for embedding ingestion. Additive, no rewrites. Phase 2
+sections below reflect the current direction but are not finalized.
 
 ## User Requirements
 
-| ID  | Requirement                     | Phase | Summary                                                             |
-| --- | ------------------------------- | ----- | ------------------------------------------------------------------- |
-| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.       |
-| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder. |
-| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.         |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.           |
-| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).   |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.             |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.            |
-| R8  | Extensible for semantic search  | 2     | LightRAG plugs into existing watcher. Not a rewrite.                |
+| ID  | Requirement                     | Phase | Summary                                                                                   |
+| --- | ------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
+| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                             |
+| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                       |
+| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                               |
+| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                 |
+| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
+| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.                                  |
+| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
 
 ## Component Diagram
 
@@ -78,7 +79,7 @@ graph TB
     end
 
     subgraph phase2 ["Phase 2"]
-        LIGHTRAG["LightRAG :9621<br/>graph + vector retrieval"]
+        HYBRID["sqlite-vec<br/>hybrid search (FTS5 + vector)"]
     end
 
     subgraph clients ["MCP Clients"]
@@ -93,10 +94,10 @@ graph TB
     OB_HEADLESS -->|read/write .md| VAULT_FS
     VAULT_FS -->|watch| WATCHER
     WATCHER -->|index| SQLITE
-    WATCHER -.->|Phase 2: ingest| LIGHTRAG
+    WATCHER -.->|Phase 2: embed| HYBRID
     MCP_SERVER -->|read/write| VAULT_FS
     MCP_SERVER -->|query| SQLITE
-    MCP_SERVER -.->|Phase 2: semantic query| LIGHTRAG
+    MCP_SERVER -.->|Phase 2: hybrid query| HYBRID
     CC -->|OAuth 2.1 / Bearer token| APIGW
     CD -->|OAuth 2.1| APIGW
     CU -->|OAuth 2.1 / Bearer token| APIGW
@@ -170,33 +171,35 @@ graph LR
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → obsidian-headless → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Semantic query (Phase 2):** MCP client → `vault_query_kb` tool → LightRAG → graph + vector retrieval → response.
+**Hybrid query (Phase 2):** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
 
 ## Invariant: Vault Is Source of Truth
 
-The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. This extends to Phase 2: LightRAG's knowledge graph is also derived from vault files, not the other way around.
+The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. This extends to Phase 2: the vector embeddings in sqlite-vec are also derived from vault files, not the other way around.
 
 ## MCP Tools
 
 ### Phase 1: Vault Read/Write (R2, R3)
 
-| Tool                    | Input                                                        | Annotation      |
-| ----------------------- | ------------------------------------------------------------ | --------------- |
-| `vault_read_note`       | `path, properties_only?, outline?, heading?, heading_level?` | readOnlyHint    |
-| `vault_write_note`      | `path, body, frontmatter?`                                   | destructiveHint |
-| `vault_patch_note`      | `path, operation, content, heading?, heading_level?`         | destructiveHint |
-| `vault_replace_in_note` | `path, old_text, new_text, replace_all_occurrences?`         | destructiveHint |
-| `vault_list_notes`      | `folder?, glob?`                                             | readOnlyHint    |
-| `vault_delete_note`     | `path`                                                       | destructiveHint |
-| `vault_move_note`       | `old_path, new_path`                                         | destructiveHint |
+| Tool                      | Input                                                        | Annotation      |
+| ------------------------- | ------------------------------------------------------------ | --------------- |
+| `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?` | readOnlyHint    |
+| `vault_write_note`        | `path, body, properties?`                                    | destructiveHint |
+| `vault_patch_note`        | `path, operation, content, heading?, heading_level?`         | destructiveHint |
+| `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`         | destructiveHint |
+| `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`              | destructiveHint |
+| `vault_list_notes`        | `folder?, glob?`                                             | readOnlyHint    |
+| `vault_delete_note`       | `path, prune_empty_folders?`                                 | destructiveHint |
+| `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                   | destructiveHint |
+| `vault_update_properties` | `path, properties`                                           | destructiveHint |
 
 `vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, headings }` — the heading tree plus any top-of-file callout (a `> [!type]` block) when present.
 
-`vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body.
+`vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. `vault_replace_in_note` does exact text find-and-replace in the note body. `vault_delete_span` deletes a contiguous block of lines by short anchor substrings — more reliable than reproducing the full block as `old_text`, and the complement to `vault_replace_in_note` for deletion.
 
-`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files.
+`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
-`vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links — mirroring Obsidian's built-in rename. It reuses the same link-resolution logic as the link-graph tools, only rewrites a link when leaving it would break it, and refuses to overwrite an existing destination or touch `PROTECTED_PATHS`.
+`vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links — mirroring Obsidian's built-in rename. It reuses the same link-resolution logic as the link-graph tools, only rewrites a link when leaving it would break it, and refuses to overwrite an existing destination or touch `PROTECTED_PATHS`. Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
 ### Phase 1: Search (R4)
 
@@ -225,12 +228,12 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ### Phase 1: Memory (R5)
 
-| Tool                      | Input                            | Annotation      |
-| ------------------------- | -------------------------------- | --------------- |
-| `vault_get_memory`        | `file?, section?`                | readOnlyHint    |
-| `vault_update_memory`     | `file, section, entry, options?` | destructiveHint |
-| `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint |
-| `vault_list_memory_files` | —                                | readOnlyHint    |
+| Tool                      | Input                            | Annotation       |
+| ------------------------- | -------------------------------- | ---------------- |
+| `vault_get_memory`        | `file?, section?`                | readOnlyHint     |
+| `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
+| `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
+| `vault_list_memory_files` | —                                | readOnlyHint     |
 
 **Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
 
@@ -255,13 +258,9 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
-### Phase 2: Knowledge Base (R8)
+### Phase 2: Hybrid Search (R8)
 
-| Tool             | Input          | Annotation   |
-| ---------------- | -------------- | ------------ |
-| `vault_query_kb` | `query, mode?` | readOnlyHint |
-
-`mode` options: `hybrid` (default), `local` (entity-centric), `global` (conceptual), `naive` (vector-only).
+Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (all-MiniLM-L6-v2 or bge-small-en-v1.5, 22–33M params, ~23 MB quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
 
 ## MCP Prompts
 
@@ -375,7 +374,7 @@ Two services run in order via `depends_on`:
 
 1. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
    the config volume at `/home/obsidian/.config` (persists across restarts
-   for incremental sync — critical for Phase 2 LightRAG ingestion). The
+   for incremental sync — critical for Phase 2 embedding ingestion). The
    forked sync image owns `/home/obsidian/.config` as `obsidian:obsidian`
    at build time, so named-volume mounts are writable by UID 1000 without a
    separate init container.
@@ -417,29 +416,34 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ## Cost
 
-| Component                    | Phase 1                                    | Phase 2       |
-| ---------------------------- | ------------------------------------------ | ------------- |
-| Lightsail                    | $12/mo (2 GB)                              | $24/mo (4 GB) |
-| Lightsail auto-snapshots     | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same          |
-| API Gateway                  | ~$0                                        | ~$0           |
-| Obsidian Sync                | existing                                   | same          |
-| LightRAG (OpenAI embeddings) | —                                          | ~$1–2/mo      |
-| **Total**                    | **~$13/mo**                                | **~$27/mo**   |
+| Component                          | Phase 1                                    | Phase 2       |
+| ---------------------------------- | ------------------------------------------ | ------------- |
+| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB) |
+| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same          |
+| API Gateway                        | ~$0                                        | ~$0           |
+| Obsidian Sync                      | existing                                   | same          |
+| Local embeddings (in-process ONNX) | —                                          | $0 (no API)   |
+| **Total**                          | **~$13/mo**                                | **~$25/mo**   |
 
 ## Key Decisions
 
-| Decision                            | Rationale                                                                                                                             |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Lightsail over ECS                  | $12 vs ~$50+. Single-user server.                                                                                                     |
-| API Gateway over Caddy              | Free HTTPS URL, no domain needed, SST native.                                                                                         |
-| OAuth 2.1 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                        |
-| JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                            |
-| 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                         |
-| Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state. |
-| Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.       |
-| SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                              |
-| chokidar                            | Node-native, same process as SQLite. Phase 2: adds LightRAG hook.                                                                     |
-| Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                     |
-| GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                             |
-| Factory over class                  | Functional style. Closure holds db ref, no `this`.                                                                                    |
-| `type` over `interface`             | Preferred unless `interface` specifically required.                                                                                   |
+| Decision                            | Rationale                                                                                                                                                                                                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lightsail over ECS                  | $12 vs ~$50+. Single-user server.                                                                                                                                                                                                                              |
+| API Gateway over Caddy              | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle. |
+| Obsidian Sync over git-based sync   | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                 |
+| Forked obsidian-headless-sync       | Upstream image lacked `DEVICE_NAME` support and had config-dir ownership issues. Fork adds both — `--device-name` parameter and `chown` at build time — so named-volume mounts work without an init container.                                                 |
+| OAuth 2.1 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                                                                                                                                                 |
+| Custom JWT over jose                | 50-line HS256 implementation vs 200KB+ jose bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                |
+| JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                     |
+| 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                  |
+| Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                          |
+| Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                |
+| SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                                                                                                                                                       |
+| chokidar                            | Node-native, same process as SQLite. Phase 2: adds embedding hook.                                                                                                                                                                                             |
+| Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                                                                                                                                              |
+| GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                                                                                                                                                      |
+| Express 5 over Fastify/Hono         | Ecosystem maturity, middleware compatibility. Express 5's native async error handling eliminated wrapper boilerplate. MCP SDK reference implementation uses Express.                                                                                           |
+| Atomic writes + per-file mutex      | MCP handlers are concurrent — two tools could write the same file. Write-to-tmp-then-rename prevents partial writes; per-file mutex serializes conflicting operations.                                                                                         |
+| Factory over class                  | Functional style. Closure holds db ref, no `this`.                                                                                                                                                                                                             |
+| `type` over `interface`             | Preferred unless `interface` specifically required.                                                                                                                                                                                                            |

@@ -310,10 +310,10 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase | What                                                         | Status      |
-| ----- | ------------------------------------------------------------ | ----------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
-| **2** | Semantic search + knowledge graph                            | In progress |
+| Phase | What                                                         | Status       |
+| ----- | ------------------------------------------------------------ | ------------ |
+| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete     |
+| **2** | Hybrid search (FTS5 + vector)                                | In discovery |
 
 ## Acknowledgments
 

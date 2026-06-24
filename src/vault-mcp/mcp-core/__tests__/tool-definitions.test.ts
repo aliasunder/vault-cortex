@@ -156,6 +156,39 @@ describe("registerTools", () => {
     expect(config.description).toContain("keys set to null removed")
   })
 
+  it("vault_recent_notes description documents sorting behavior", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_RECENT_NOTES)!
+    expect(config.description).toContain("Sorting behavior:")
+    expect(config.description).toContain("sort to the bottom")
+  })
+
+  it("vault_read_note description cross-references graph tools", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    expect(config.description).toContain("vault_get_backlinks")
+    expect(config.description).toContain("vault_get_outgoing_links")
+  })
+
+  it("vault_search_by_property parameters cross-reference discovery tools", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY)!
+    expect(config.description).toContain("vault_list_property_keys")
+    expect(config.description).toContain("vault_list_property_values")
+  })
+
+  it("vault_list_notes description cross-references vault_read_note", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_NOTES)!
+    expect(config.description).toContain("vault_read_note")
+  })
+
+  it("vault_get_daily_note description cross-references vault_recent_notes", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)!
+    expect(config.description).toContain("vault_recent_notes")
+  })
+
+  it("vault_search_by_folder description cross-references graph tools", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)!
+    expect(config.description).toContain("vault_get_backlinks")
+  })
+
   it("every tool has all 4 annotation hints", () => {
     for (const [, config] of calls) {
       const annotations = config.annotations!
