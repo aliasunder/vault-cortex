@@ -473,8 +473,9 @@ export const createSearchIndex = (dbPath: string) => {
   }
 
   /** Removes a non-markdown file from the index. Called by the file watcher
-   *  on unlink. Does not re-add links — notes that linked to the removed file
-   *  will only show as broken after the next rebuild. */
+   *  on unlink. Links that resolved to this file become broken automatically
+   *  at query time — getOutgoingLinks shows exists: false, brokenLinkCount
+   *  includes them. Same behavior as removeNote for deleted .md files. */
   const removeNonMdFile = (filePath: string): void => {
     deleteNonMdFileStmt.run(filePath)
   }
