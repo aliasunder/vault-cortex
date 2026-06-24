@@ -16,9 +16,10 @@ endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.
 
-**Phase 2** adds semantic / knowledge-graph queries over the vault. The
-file watcher gains a second hook for semantic ingestion, and a new
-`vault_query_kb` tool is added. Additive — not a rewrite.
+**Phase 2** (in discovery) adds hybrid search — FTS5 + sqlite-vec vector
+search with RRF fusion — to the existing `vault_search` tool. The file
+watcher gains a second hook for embedding ingestion. Additive — not a
+rewrite.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
