@@ -1552,8 +1552,13 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("missing-note")
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "missing-note")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
@@ -1568,8 +1573,15 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find(
+      (link) => link.path === "canvases/Dashboard.canvas",
+    )
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
@@ -1588,8 +1600,13 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "views/Inventory.base")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
@@ -1609,6 +1626,19 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
+  it("does not let LIKE wildcards in the target match unrelated files", async () => {
+    await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[a_b/c]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
   it("resolves extensionless wikilinks to non-md files by relative path", async () => {
     await mkdir(join(vaultDir, "sub"), { recursive: true })
     await writeFile(
@@ -1620,8 +1650,13 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("genuinely-missing")
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
@@ -1727,21 +1762,23 @@ describe("getOutgoingLinks", () => {
     )
   })
 
-  it("returns outgoing links with exists flag", () => {
+  it("returns outgoing links with exists flag and kind", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(links).toHaveLength(2)
 
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
     expect(existing!.exists).toBe(true)
+    expect(existing!.kind).toBe("note")
     expect(existing!.title).toBe("Target")
   })
 
-  it("marks unresolved links as exists: false", () => {
+  it("marks unresolved links as exists: false with kind note", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
     expect(missing!.exists).toBe(false)
+    expect(missing!.kind).toBe("note")
     expect(missing!.title).toBeNull()
     expect(missing!.bytes).toBeNull()
   })
@@ -1982,6 +2019,7 @@ describe("frontmatter links in the graph", () => {
     expect(links).toHaveLength(1)
     expect(links[0].path).toBe("task-board.md")
     expect(links[0].exists).toBe(true)
+    expect(links[0].kind).toBe("note")
   })
 
   it("surfaces a frontmatter-only source in getBacklinks", () => {
@@ -2109,6 +2147,7 @@ describe("relative links (path from current file)", () => {
         path: "Areas/Health/target.md",
         title: "target",
         exists: true,
+        kind: "note",
         bytes: 100,
       },
     ])
@@ -2191,6 +2230,7 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("sessions/log-a.md")
     expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 
@@ -2221,12 +2261,17 @@ describe("brokenLinkCount", () => {
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("missing")
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
-  it("upsertNonMdFile cleans up previously unresolved links that now match", () => {
+  it("upsertNonMdFile re-resolves previously unresolved links to non-md paths", () => {
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2239,6 +2284,31 @@ describe("brokenLinkCount", () => {
 
     index.upsertNonMdFile("Route.canvas")
     expect(index.brokenLinkCount({}, logger)).toBe(0)
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("Route.canvas")
+    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]!.kind).toBe("asset")
+  })
+
+  it("removeNonMdFile makes previously resolved asset links broken again", () => {
+    index.upsertNonMdFile("Route.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Route]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+
+    index.removeNonMdFile("Route.canvas")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.exists).toBe(false)
+    expect(outgoing[0]!.kind).toBe("note")
   })
 })
 

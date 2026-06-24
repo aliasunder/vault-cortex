@@ -179,6 +179,9 @@ type OutgoingLinkEntry = {
   path: string
   title: string | null
   exists: boolean
+  /** "note" for .md targets, "asset" for resolved non-markdown files
+   *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
+  kind: "note" | "asset"
   bytes: number | null
 }
 
@@ -332,21 +335,27 @@ export const createSearchIndex = (dbPath: string) => {
   const deleteNonMdFileStmt = db.prepare(
     `DELETE FROM non_md_files WHERE path = ?`,
   )
-  const checkNonMdByBasePathStmt = db.prepare(
-    `SELECT 1 FROM non_md_files WHERE base_path = ? LIMIT 1`,
+  const resolveNonMdByBasePathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE base_path = ? LIMIT 1`,
   )
-  const checkNonMdByBasenameStmt = db.prepare(
-    `SELECT 1 FROM non_md_files WHERE basename = ? LIMIT 1`,
+  const resolveNonMdByBasenameStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE basename = ? LIMIT 1`,
   )
   /** Suffix-path match: finds non-md files whose base_path ends with the target
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
-   *  checks `candidatePath.endsWith('/' + target)`. */
-  const checkNonMdBySuffixPathStmt = db.prepare(
-    `SELECT 1 FROM non_md_files WHERE base_path LIKE '%/' || ? LIMIT 1`,
+   *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
+   *  and `%` in the target from acting as LIKE wildcards. */
+  const resolveNonMdBySuffixPathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' LIMIT 1`,
   )
-  const deleteUnresolvedLinkStmt = db.prepare(
-    `DELETE FROM links WHERE source = ? AND target = ?`,
+  const updateLinkToResolvedNonMdStmt = db.prepare(
+    `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
+
+  /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
+   *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
+  const escapeLikeWildcards = (value: string): string =>
+    value.replace(/[\\%_]/g, (character) => `\\${character}`)
 
   /** Strips the file extension from a path, or returns the path unchanged if
    *  it has no extension. Uses the last dot in the filename (not the path). */
@@ -357,22 +366,27 @@ export const createSearchIndex = (dbPath: string) => {
     return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
   }
 
-  /** Returns true when an extensionless wikilink target matches a known
-   *  non-markdown file in the vault. Mirrors links.resolve's three-tier
-   *  strategy (exact → relative-to-source → basename) but checks against
-   *  non_md_files instead of the notes table. */
+  /** Resolves an extensionless wikilink target to a known non-markdown file
+   *  path, or null when no match is found. Mirrors links.resolve's three-tier
+   *  strategy (exact → relative-to-source → basename/suffix) but checks
+   *  against non_md_files instead of the notes table. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,
-  ): boolean => {
+  ): string | null => {
     // Exact base_path match ("path from vault folder")
-    if (checkNonMdByBasePathStmt.get(target) !== undefined) return true
+    const exactMatch = resolveNonMdByBasePathStmt.get(target) as
+      | { path: string }
+      | undefined
+    if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
-      if (checkNonMdByBasePathStmt.get(relativeTarget) !== undefined)
-        return true
+      const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
+        | { path: string }
+        | undefined
+      if (relativeMatch) return relativeMatch.path
     }
 
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
@@ -380,9 +394,15 @@ export const createSearchIndex = (dbPath: string) => {
     // preserve them in the match — only strip to pure basename when the
     // target is already a bare name. Mirrors links.resolve's endsWith check.
     if (target.includes("/")) {
-      return checkNonMdBySuffixPathStmt.get(target) !== undefined
+      const suffixMatch = resolveNonMdBySuffixPathStmt.get(
+        escapeLikeWildcards(target),
+      ) as { path: string } | undefined
+      return suffixMatch?.path ?? null
     }
-    return checkNonMdByBasenameStmt.get(target) !== undefined
+    const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
+      | { path: string }
+      | undefined
+    return basenameMatch?.path ?? null
   }
 
   /** Indexes non-markdown files from a directory listing into the
@@ -411,22 +431,29 @@ export const createSearchIndex = (dbPath: string) => {
     return count
   }
 
-  /** Adds a single non-markdown file to the index and cleans up any unresolved
-   *  links that now match it. Called by the file watcher on add/change. */
+  /** Adds a single non-markdown file to the index and re-resolves any
+   *  unresolved links that now match it. Called by the file watcher on
+   *  add/change. Mirrors the note forward-reference re-resolution pattern:
+   *  updates the link target from the raw text to the resolved non-md path. */
   const upsertNonMdFile = (filePath: string): void => {
     const basePath = stripExtension(filePath)
     const baseFilename = stripExtension(basename(filePath))
     upsertNonMdFileStmt.run(filePath, basePath, baseFilename)
 
-    // Remove unresolved links that now resolve to this non-md file — they
-    // were asset references all along, not broken note links.
+    // Re-resolve unresolved links that now match this non-md file — upgrade
+    // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
     const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
       source: string
       target: string
     }>
     for (const link of unresolvedLinks) {
-      if (resolveNonMarkdownFile(link.target, link.source)) {
-        deleteUnresolvedLinkStmt.run(link.source, link.target)
+      const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
+      if (resolvedPath !== null) {
+        updateLinkToResolvedNonMdStmt.run({
+          resolved: resolvedPath,
+          source: link.source,
+          rawTarget: link.target,
+        })
       }
     }
   }
@@ -538,8 +565,9 @@ export const createSearchIndex = (dbPath: string) => {
       const resolved = links.resolve(rawTarget, pathList, note.path)
       if (resolved !== null) {
         insertLinkStmt.run(note.path, resolved)
-      } else if (!resolveNonMarkdownFile(rawTarget, note.path)) {
-        insertLinkStmt.run(note.path, rawTarget)
+      } else {
+        const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path)
+        insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
       }
     }
 
@@ -647,8 +675,15 @@ export const createSearchIndex = (dbPath: string) => {
           const resolved = links.resolve(rawTarget, pathList, note.relativePath)
           if (resolved !== null) {
             insertLinkStmt.run(note.relativePath, resolved)
-          } else if (!resolveNonMarkdownFile(rawTarget, note.relativePath)) {
-            insertLinkStmt.run(note.relativePath, rawTarget)
+          } else {
+            const resolvedNonMdPath = resolveNonMarkdownFile(
+              rawTarget,
+              note.relativePath,
+            )
+            insertLinkStmt.run(
+              note.relativePath,
+              resolvedNonMdPath ?? rawTarget,
+            )
           }
         }
       }
@@ -1083,7 +1118,10 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
-  /** Returns notes that the given path links TO (outgoing links). */
+  /** Returns notes and assets that the given path links TO (outgoing links).
+   *  Each entry carries a `kind` discriminator: "note" for .md targets,
+   *  "asset" for resolved non-markdown files (.canvas, .base, images, etc.),
+   *  defaulting to "note" for unresolved (broken) links. */
   const getOutgoingLinks = (
     params: { path: string },
     logger: Logger,
@@ -1091,10 +1129,16 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT l.target as path,
              n.title,
-             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag,
+             CASE WHEN n.path IS NOT NULL THEN 1
+                  WHEN f.path IS NOT NULL THEN 1
+                  ELSE 0 END as exists_flag,
+             CASE WHEN n.path IS NOT NULL THEN 'note'
+                  WHEN f.path IS NOT NULL THEN 'asset'
+                  ELSE 'note' END as kind,
              n.bytes
       FROM links l
       LEFT JOIN notes n ON n.path = l.target
+      LEFT JOIN non_md_files f ON f.path = l.target
       WHERE l.source = ?
       ORDER BY l.target
     `
@@ -1102,12 +1146,14 @@ export const createSearchIndex = (dbPath: string) => {
       path: string
       title: string | null
       exists_flag: number
+      kind: "note" | "asset"
       bytes: number | null
     }>
     const results: OutgoingLinkEntry[] = rows.map((row) => ({
       path: row.path,
       title: row.title,
       exists: row.exists_flag === 1,
+      kind: row.kind,
       bytes: row.bytes ?? null,
     }))
     logger.info("get outgoing links", {
@@ -1151,9 +1197,9 @@ export const createSearchIndex = (dbPath: string) => {
 
   // ── Aggregate queries ──────────────────────────────────────────
 
-  /** Counts links whose targets don't exist in the notes table — broken links
-   *  are a vault-wide health metric. Individual broken links per note are
-   *  already available via getOutgoingLinks (filtering exists: false). */
+  /** Counts links whose targets exist in neither the notes table nor the
+   *  non_md_files table — genuinely broken links. Resolved note links and
+   *  resolved asset links are both excluded. */
   const brokenLinkCount = (
     _params: Record<string, never>,
     logger: Logger,
@@ -1162,6 +1208,7 @@ export const createSearchIndex = (dbPath: string) => {
       SELECT COUNT(*) as count
       FROM links
       WHERE target NOT IN (SELECT path FROM notes)
+        AND target NOT IN (SELECT path FROM non_md_files)
     `
     const row = db.prepare(sql).get() as { count: number }
     logger.info("broken link count", { count: row.count })
