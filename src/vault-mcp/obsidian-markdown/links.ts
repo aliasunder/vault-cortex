@@ -124,14 +124,15 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
 // ── Parsing ─────────────────────────────────────────────────────
 
 /** Splits a matched wikilink into its parts, or null when the text is not a
- *  well-formed wikilink. Escaped table pipes (`\|`) are normalized: the trailing
- *  `\` is stripped from target and shifted into the alias, so reconstruction via
- *  concatenation preserves the escape. */
+ *  well-formed wikilink. A trailing `\` on the target (from Obsidian's `\|`
+ *  table-pipe escape) is always stripped — consistent with stripEscapedPipe's
+ *  rule that backslash is never valid in a file path — and shifted into the
+ *  alias so reconstruction via concatenation preserves the escape. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
   if (!parts) return null
   const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
-  const hasEscapedPipe = rawTarget!.endsWith("\\") && rawAlias !== ""
+  const hasEscapedPipe = rawTarget!.endsWith("\\")
   const target = hasEscapedPipe ? rawTarget!.slice(0, -1) : rawTarget!
   const alias = hasEscapedPipe ? `\\${rawAlias}` : rawAlias
   return { embed: embed!, target, heading, alias }

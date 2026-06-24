@@ -118,9 +118,9 @@ describe("splitWikilink", () => {
       },
     },
     {
-      name: "does not strip a trailing backslash when there is no alias",
+      name: "strips a trailing backslash even when there is no alias",
       input: "[[path\\]]",
-      expected: { embed: "", target: "path\\", heading: "", alias: "" },
+      expected: { embed: "", target: "path", heading: "", alias: "\\" },
     },
   ]
 
