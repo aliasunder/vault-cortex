@@ -340,18 +340,21 @@ export const createSearchIndex = (dbPath: string) => {
   const resolveNonMdByFullPathStmt = db.prepare(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
   )
+  /** All three base_path/basename/suffix queries use ORDER BY length(path), path
+   *  so resolution is deterministic when multiple non-md files share a stem —
+   *  shortest path wins, matching links.resolve's note-resolution heuristic. */
   const resolveNonMdByBasePathStmt = db.prepare(
-    `SELECT path FROM non_md_files WHERE base_path = ? LIMIT 1`,
+    `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
   )
   const resolveNonMdByBasenameStmt = db.prepare(
-    `SELECT path FROM non_md_files WHERE basename = ? LIMIT 1`,
+    `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
   )
   /** Suffix-path match: finds non-md files whose base_path ends with the target
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
    *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
    *  and `%` in the target from acting as LIKE wildcards. */
   const resolveNonMdBySuffixPathStmt = db.prepare(
-    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' LIMIT 1`,
+    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
    *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
