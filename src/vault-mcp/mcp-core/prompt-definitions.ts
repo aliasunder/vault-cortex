@@ -193,7 +193,10 @@ const wrapWithDataMarkers = (
   toolHint: string,
 ): string => {
   const attrString = Object.entries(attrs)
-    .map(([key, value]) => `${key}="${value.replace(/"/g, "&quot;")}"`)
+    .map(
+      ([key, value]) =>
+        `${key}="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`,
+    )
     .join(" ")
   return [
     `<vault-content ${attrString}>`,
