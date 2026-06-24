@@ -795,20 +795,15 @@ Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
 
-Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"), keep property types consistent across the vault (string/number/list mismatches cause silent query failures).
+Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"). Keep property types consistent (mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe(
-            'Vault-relative path to the note (e.g. "Projects/todo.md")',
-          ),
+        path: z.string().min(1).describe("Vault-relative path to the note"),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(
-            'Properties to merge (e.g. { status: "active", draft: null }). New keys added; existing keys overwritten; null deletes a key; unmentioned keys preserved. Arrays are replaced entirely, not appended to.',
+            "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved.",
           ),
       },
       annotations: {
