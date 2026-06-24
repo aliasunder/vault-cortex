@@ -5,6 +5,17 @@
 
 
 
+
+## [0.23.3] — 2026-06-24
+
+### Features
+
+- **search:** Non-markdown file awareness for broken link detection (#194)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.23.2
+
 ## [0.23.2] — 2026-06-23
 
 ### Bug Fixes
