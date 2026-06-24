@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -396,33 +403,33 @@ describe("verifyAccessToken", () => {
   })
 })
 
-describe("OAuth audit logging", () => {
-  let dir: string
-  let dbPath: string
-  let logs: LogCall[]
-  let oauth: OAuthProvider
-  let db: Database.Database
-  let client: OAuthClientInformationFull
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-audit-test-"))
-    dbPath = join(dir, "oauth.db")
-    logs = []
-    oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger: recordingLogger(logs),
-    })
-    db = new Database(dbPath)
-    client = seedClient(db)
+const setupAuditTest = async (): Promise<{
+  logs: LogCall[]
+  oauth: OAuthProvider
+  db: Database.Database
+  client: OAuthClientInformationFull
+}> => {
+  const dir = await mkdtemp(join(tmpdir(), "oauth-audit-test-"))
+  const dbPath = join(dir, "oauth.db")
+  const logs: LogCall[] = []
+  const oauth = createOAuthProvider({
+    authToken: AUTH_TOKEN,
+    dbPath,
+    logger: recordingLogger(logs),
   })
-
-  afterEach(async () => {
+  const db = new Database(dbPath)
+  const client = seedClient(db)
+  onTestFinished(async () => {
     db.close()
     await rm(dir, { recursive: true, force: true })
   })
+  return { logs, oauth, db, client }
+}
 
+describe("OAuth audit logging", () => {
   it("logs oauth_client_registered on dynamic client registration", async () => {
+    const { logs, oauth } = await setupAuditTest()
+
     const registered = await oauth.provider.clientsStore!.registerClient!({
       client_name: "Audit Test Client",
       redirect_uris: ["https://example.com/cb"],
@@ -439,6 +446,7 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
     const code = oauth.approveRequest(requestId)
     logs.length = 0
@@ -452,6 +460,8 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_code_exchange_failed when auth code is expired", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
     await expect(
       oauth.provider.exchangeAuthorizationCode!(client, "bogus-code"),
     ).rejects.toThrow("Authorization code expired or invalid")
@@ -465,6 +475,7 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_token_refreshed on successful refresh", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
     seedRefreshToken(
       db,
       "audit-refresh",
@@ -483,6 +494,8 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_token_refresh_failed when refresh token is invalid", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
     await expect(
       oauth.provider.exchangeRefreshToken!(client, "nonexistent"),
     ).rejects.toThrow("Refresh token expired or invalid")
@@ -496,6 +509,8 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_token_revoked on revocation", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
     await oauth.provider.revokeToken!(client, {
       token: "some-token",
       token_type_hint: "access_token",
@@ -507,6 +522,7 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_token_rejected when a revoked token is verified", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
     const validJwt = signJwt(
       {
         sub: client.client_id,
@@ -529,6 +545,7 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_consent_approved on consent approval", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
 
     oauth.approveRequest(requestId)
@@ -540,7 +557,9 @@ describe("OAuth audit logging", () => {
     expect(event!.data.requestId).toBe(requestId)
   })
 
-  it("logs oauth_consent_approve_failed when no pending request exists", () => {
+  it("logs oauth_consent_approve_failed when no pending request exists", async () => {
+    const { logs, oauth } = await setupAuditTest()
+
     expect(() => oauth.approveRequest("nonexistent")).toThrow(
       "No pending request",
     )
