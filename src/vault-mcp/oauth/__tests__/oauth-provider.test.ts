@@ -439,7 +439,7 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
-    const requestId = startAuthFlow(oauth, client)
+    const requestId = await startAuthFlow(oauth, client)
     const code = oauth.approveRequest(requestId)
     logs.length = 0
 
@@ -492,6 +492,7 @@ describe("OAuth audit logging", () => {
     )
     expect(event).toBeDefined()
     expect(event!.level).toBe("warn")
+    expect(event!.data.reason).toBe("expired_or_invalid")
   })
 
   it("logs oauth_token_revoked on revocation", async () => {
@@ -527,8 +528,8 @@ describe("OAuth audit logging", () => {
     expect(event!.data.reason).toBe("revoked")
   })
 
-  it("logs oauth_consent_approved on consent approval", () => {
-    const requestId = startAuthFlow(oauth, client)
+  it("logs oauth_consent_approved on consent approval", async () => {
+    const requestId = await startAuthFlow(oauth, client)
 
     oauth.approveRequest(requestId)
 
@@ -555,10 +556,10 @@ describe("OAuth audit logging", () => {
 
 /** Starts an authorization flow and returns the requestId extracted from
  *  the rendered consent HTML. */
-const startAuthFlow = (
+const startAuthFlow = async (
   oauth: OAuthProvider,
   client: OAuthClientInformationFull,
-): string => {
+): Promise<string> => {
   let capturedHtml = ""
   const res = {
     type: () => res,
@@ -567,7 +568,7 @@ const startAuthFlow = (
       return res
     },
   }
-  oauth.provider.authorize(
+  await oauth.provider.authorize(
     client,
     {
       codeChallenge: "test-challenge",
