@@ -241,7 +241,7 @@ Sorting behavior:
 
 Errors:
 - An empty vault returns an empty array, not an error.
-- Sorting by "created" with a small limit may return fewer relevant results when many notes lack a created property — increase limit or use "modified" for broader coverage.
+- Sorting by "created" with a small limit: notes without a created property sort last and may fall outside the window — increase limit or use "modified" for broader coverage.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by chosen timestamp descending. bytes is the on-disk file size.`,
       inputSchema: {
@@ -255,7 +255,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .number()
           .optional()
           .describe(
-            "Max results to return (default 20). When sorting by created, notes without a created property sort last — a small limit may return fewer notes than expected.",
+            "Max results to return (default 20). When sorting by created, notes without a created property sort last and may fall outside a small limit.",
           ),
       },
       annotations: {
