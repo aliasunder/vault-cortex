@@ -353,10 +353,6 @@ export const createSearchIndex = (dbPath: string) => {
   const resolveNonMdBySuffixPathStmt = db.prepare(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' LIMIT 1`,
   )
-  const updateLinkToResolvedNonMdStmt = db.prepare(
-    `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
-  )
-
   /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
    *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
   const escapeLikeWildcards = (value: string): string =>
@@ -464,7 +460,7 @@ export const createSearchIndex = (dbPath: string) => {
     for (const link of unresolvedLinks) {
       const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
       if (resolvedPath !== null) {
-        updateLinkToResolvedNonMdStmt.run({
+        updateLinkTargetStmt.run({
           resolved: resolvedPath,
           source: link.source,
           rawTarget: link.target,
