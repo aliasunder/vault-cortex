@@ -381,14 +381,14 @@ export const createOAuthProvider = ({
   }
 
   const getPendingRequest = (id: string): PendingAuthRequest | undefined => {
-    const req = pendingRequests.get(id)
-    if (!req) return undefined
-    if (req.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
+    const pending = pendingRequests.get(id)
+    if (!pending) return undefined
+    if (pending.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
       oauthLogger.info("oauth_request_expired", { requestId: id })
       return undefined
     }
-    return req
+    return pending
   }
 
   const approveRequest = (requestId: string): string => {
@@ -418,7 +418,6 @@ export const createOAuthProvider = ({
 
   const deletePendingRequest = (id: string): void => {
     pendingRequests.delete(id)
-    oauthLogger.info("oauth_consent_denied", { requestId: id })
   }
 
   return { provider, getPendingRequest, approveRequest, deletePendingRequest }
