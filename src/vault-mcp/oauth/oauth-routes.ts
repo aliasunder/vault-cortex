@@ -6,12 +6,14 @@ import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
+import type { Logger } from "../../logger.js"
 
 export type OAuthRoutesOptions = {
   authToken: string
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
+  logger: Logger
 }
 
 export const createOAuthRoutes = ({
@@ -19,16 +21,18 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
+  logger,
 }: OAuthRoutesOptions): Router => {
+  const routeLogger = logger.child({ component: "oauth-routes" })
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
     oauthProvider
   const router = Router()
 
-  // Rate limiting for OAuth endpoints (SDK default: 5 req/min per IP).
-  // API Gateway sends the real client IP in the Forwarded header, but
-  // express-rate-limit doesn't parse it by default — so we extract it
-  // here. Validation suppressed because we handle proxy headers ourselves.
-  const rateLimitKeyGenerator = (req: Request): string => {
+  // API Gateway sends the real client IP in the RFC 7239 Forwarded header,
+  // but Express only reads X-Forwarded-For. Extract from Forwarded first,
+  // falling back to req.ip. Used by both rate limiting and audit logging
+  // so both identify the same client.
+  const extractClientIp = (req: Request): string => {
     const forwarded = req.headers["forwarded"]
     if (forwarded) {
       const match = /for="?([^";,]+)"?/i.exec(forwarded)
@@ -38,7 +42,7 @@ export const createOAuthRoutes = ({
   }
 
   const rateLimit = {
-    keyGenerator: rateLimitKeyGenerator,
+    keyGenerator: extractClientIp,
     validate: false as const,
   }
 
@@ -62,14 +66,30 @@ export const createOAuthRoutes = ({
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
       const { request_id, token, action } = req.body as Record<string, string>
-      const pending = getPendingRequest(request_id)
+      const clientIp = extractClientIp(req)
+      const pending = getPendingRequest(
+        request_id,
+        routeLogger.child({ clientIp, requestId: request_id }),
+      )
 
       if (!pending) {
+        routeLogger.warn("oauth_consent_expired", {
+          clientIp,
+          requestId: request_id,
+        })
         res.status(400).send("Authorization request expired or invalid.")
         return
       }
 
+      const clientId = pending.client.client_id
+      const consentLogger = routeLogger.child({
+        clientIp,
+        requestId: request_id,
+        clientId,
+      })
+
       if (action !== "approve") {
+        consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(request_id)
         const redirectUrl = new URL(pending.params.redirectUri)
         redirectUrl.searchParams.set("error", "access_denied")
@@ -88,10 +108,11 @@ export const createOAuthRoutes = ({
       // already applied to bearer-header auth in parseBearer().
       const submittedToken = token?.replace(/\s+/g, "") ?? ""
       if (!submittedToken || !safeEqual(submittedToken, authToken)) {
+        consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
           renderConsentPage({
             clientName: pending.client.client_name ?? pending.client.client_id,
-            clientId: pending.client.client_id,
+            clientId,
             scopes: pending.params.scopes ?? [],
             requestId: request_id,
             error: "Invalid token. Please try again.",
@@ -100,7 +121,8 @@ export const createOAuthRoutes = ({
         return
       }
 
-      const code = approveRequest(request_id)
+      const code = approveRequest(request_id, consentLogger)
+      consentLogger.info("oauth_consent_completed")
       const redirectUrl = new URL(pending.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
       if (pending.params.state)

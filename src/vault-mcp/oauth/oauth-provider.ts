@@ -28,6 +28,7 @@ import { InvalidGrantError } from "@modelcontextprotocol/sdk/server/auth/errors.
 import { safeEqual } from "../../auth.js"
 import { signJwt, verifyJwt } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
+import type { Logger } from "../../logger.js"
 
 // 24 hours
 const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
@@ -55,6 +56,7 @@ type StoredAuthCode = {
 export type OAuthProviderOptions = {
   authToken: string
   dbPath: string
+  logger: Logger
 }
 
 const initDb = (dbPath: string): Database.Database => {
@@ -95,7 +97,10 @@ const initDb = (dbPath: string): Database.Database => {
 }
 
 class SqliteClientsStore implements OAuthRegisteredClientsStore {
-  constructor(private db: Database.Database) {}
+  constructor(
+    private db: Database.Database,
+    private logger: Logger,
+  ) {}
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     const row = this.db
@@ -122,23 +127,32 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.db
       .prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
       .run(full.client_id, JSON.stringify(full))
+    this.logger.info("oauth_client_registered", {
+      clientId: full.client_id,
+      clientName: full.client_name ?? null,
+    })
     return full
   }
 }
 
 export type OAuthProvider = {
   provider: OAuthServerProvider
-  getPendingRequest: (id: string) => PendingAuthRequest | undefined
-  approveRequest: (id: string) => string
+  getPendingRequest: (
+    id: string,
+    logger: Logger,
+  ) => PendingAuthRequest | undefined
+  approveRequest: (requestId: string, logger: Logger) => string
   deletePendingRequest: (id: string) => void
 }
 
 export const createOAuthProvider = ({
   authToken,
   dbPath,
+  logger,
 }: OAuthProviderOptions): OAuthProvider => {
+  const oauthLogger = logger.child({ component: "oauth" })
   const db = initDb(dbPath)
-  const store = new SqliteClientsStore(db)
+  const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
 
@@ -215,6 +229,11 @@ export const createOAuthProvider = ({
         createdAt: DateTime.now(),
       })
 
+      oauthLogger.info("oauth_authorize_started", {
+        clientId: client.client_id,
+        requestId,
+        scopes: params.scopes ?? [],
+      })
       res.type("html").send(
         renderConsentPage({
           clientName: client.client_name ?? client.client_id,
@@ -231,6 +250,9 @@ export const createOAuthProvider = ({
     ): Promise<string> {
       const stored = authCodes.get(authorizationCode)
       if (!stored || stored.expiresAt < DateTime.now()) {
+        oauthLogger.warn("oauth_challenge_failed", {
+          reason: "expired_or_invalid",
+        })
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       return stored.codeChallenge
@@ -245,6 +267,9 @@ export const createOAuthProvider = ({
     ): Promise<OAuthTokens> {
       const stored = authCodes.get(authorizationCode)
       if (!stored || stored.expiresAt < DateTime.now()) {
+        oauthLogger.warn("oauth_code_exchange_failed", {
+          reason: "expired_or_invalid",
+        })
         throw new InvalidGrantError("Authorization code expired or invalid")
       }
       authCodes.delete(authorizationCode)
@@ -254,6 +279,10 @@ export const createOAuthProvider = ({
       const refreshToken = randomBytes(32).toString("hex")
       saveRefreshToken(refreshToken, stored.clientId, scopes)
 
+      oauthLogger.info("oauth_code_exchanged", {
+        clientId: stored.clientId,
+        scopes,
+      })
       return {
         access_token: accessToken,
         token_type: "Bearer",
@@ -271,6 +300,9 @@ export const createOAuthProvider = ({
     ): Promise<OAuthTokens> {
       const stored = consumeRefreshToken(refreshToken)
       if (!stored) {
+        oauthLogger.warn("oauth_token_refresh_failed", {
+          reason: "expired_or_invalid",
+        })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
@@ -279,6 +311,10 @@ export const createOAuthProvider = ({
       const newRefreshToken = randomBytes(32).toString("hex")
       saveRefreshToken(newRefreshToken, stored.clientId, grantedScopes)
 
+      oauthLogger.info("oauth_token_refreshed", {
+        clientId: stored.clientId,
+        scopes: grantedScopes,
+      })
       return {
         access_token: accessToken,
         token_type: "Bearer",
@@ -291,6 +327,7 @@ export const createOAuthProvider = ({
     /** Three-tier verification: static token (fast path for CLI) → revocation check → JWT. */
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
+        oauthLogger.debug("oauth_token_verified", { method: "static" })
         // The static token never expires, but the SDK's requireBearerAuth
         // rejects any AuthInfo without a numeric expiresAt ("Token has no
         // expiration time"). Hand it a far-future timestamp so the static
@@ -304,6 +341,7 @@ export const createOAuthProvider = ({
       }
 
       if (isRevoked(token)) {
+        oauthLogger.warn("oauth_token_rejected", { reason: "revoked" })
         const { InvalidTokenError } =
           await import("@modelcontextprotocol/sdk/server/auth/errors.js")
         throw new InvalidTokenError("Token has been revoked")
@@ -311,6 +349,10 @@ export const createOAuthProvider = ({
 
       const payload = verifyJwt(token, authToken)
       if (payload) {
+        oauthLogger.debug("oauth_token_verified", {
+          method: "jwt",
+          clientId: payload.sub,
+        })
         return {
           token,
           clientId: payload.sub,
@@ -319,6 +361,9 @@ export const createOAuthProvider = ({
         }
       }
 
+      oauthLogger.warn("oauth_token_rejected", {
+        reason: "invalid_or_expired",
+      })
       const { InvalidTokenError } =
         await import("@modelcontextprotocol/sdk/server/auth/errors.js")
       throw new InvalidTokenError("Token expired or invalid")
@@ -334,22 +379,32 @@ export const createOAuthProvider = ({
       db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(
         request.token,
       )
+      oauthLogger.info("oauth_token_revoked")
     },
   }
 
-  const getPendingRequest = (id: string): PendingAuthRequest | undefined => {
-    const req = pendingRequests.get(id)
-    if (!req) return undefined
-    if (req.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
+  const getPendingRequest = (
+    id: string,
+    reqLogger: Logger,
+  ): PendingAuthRequest | undefined => {
+    const pending = pendingRequests.get(id)
+    if (!pending) return undefined
+    if (pending.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
+      reqLogger.info("oauth_request_expired")
       return undefined
     }
-    return req
+    return pending
   }
 
-  const approveRequest = (requestId: string): string => {
+  const approveRequest = (requestId: string, reqLogger: Logger): string => {
     const pending = pendingRequests.get(requestId)
-    if (!pending) throw new Error("No pending request")
+    if (!pending) {
+      reqLogger.warn("oauth_consent_approve_failed", {
+        reason: "no_pending_request",
+      })
+      throw new Error("No pending request")
+    }
     pendingRequests.delete(requestId)
 
     const code = randomBytes(32).toString("hex")
@@ -359,6 +414,7 @@ export const createOAuthProvider = ({
       params: pending.params,
       expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
+    reqLogger.info("oauth_consent_approved")
     return code
   }
 

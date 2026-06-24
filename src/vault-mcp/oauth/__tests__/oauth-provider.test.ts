@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+} from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -8,6 +15,27 @@ import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
+import { logger, type Logger } from "../../../logger.js"
+
+type LogCall = {
+  level: "debug" | "info" | "warn" | "error"
+  message: string
+  data: Record<string, unknown>
+}
+const recordingLogger = (sink: LogCall[]): Logger => {
+  const make = (props: Record<string, unknown>): Logger => ({
+    debug: (message, data = {}) =>
+      sink.push({ level: "debug", message, data: { ...props, ...data } }),
+    info: (message, data = {}) =>
+      sink.push({ level: "info", message, data: { ...props, ...data } }),
+    warn: (message, data = {}) =>
+      sink.push({ level: "warn", message, data: { ...props, ...data } }),
+    error: (message, data = {}) =>
+      sink.push({ level: "error", message, data: { ...props, ...data } }),
+    child: (childProps) => make({ ...props, ...childProps }),
+  })
+  return make({})
+}
 
 const AUTH_TOKEN = "test-static-token"
 
@@ -59,8 +87,8 @@ describe("OAuth refresh token sliding expiry", () => {
     dbPath = join(dir, "oauth.db")
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
     db = new Database(dbPath)
     client = seedClient(db)
@@ -212,8 +240,8 @@ describe("OAuth refresh token schema migration", () => {
 
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
 
     const db = new Database(dbPath)
@@ -236,15 +264,15 @@ describe("OAuth refresh token schema migration", () => {
   it("is idempotent — re-running on a migrated DB doesn't error", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
-
       dbPath,
+      logger,
     })
 
     expect(() =>
       createOAuthProvider({
         authToken: AUTH_TOKEN,
-
         dbPath,
+        logger,
       }),
     ).not.toThrow()
   })
@@ -262,7 +290,7 @@ describe("verifyAccessToken", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
     dbPath = join(dir, "oauth.db")
-    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath })
+    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     db = new Database(dbPath)
   })
 
@@ -374,3 +402,212 @@ describe("verifyAccessToken", () => {
     ).rejects.toThrow("Token expired or invalid")
   })
 })
+
+const setupAuditTest = async (): Promise<{
+  logs: LogCall[]
+  testLogger: Logger
+  oauth: OAuthProvider
+  db: Database.Database
+  client: OAuthClientInformationFull
+}> => {
+  const dir = await mkdtemp(join(tmpdir(), "oauth-audit-test-"))
+  const dbPath = join(dir, "oauth.db")
+  const logs: LogCall[] = []
+  const testLogger = recordingLogger(logs)
+  const oauth = createOAuthProvider({
+    authToken: AUTH_TOKEN,
+    dbPath,
+    logger: testLogger,
+  })
+  const db = new Database(dbPath)
+  const client = seedClient(db)
+  onTestFinished(async () => {
+    db.close()
+    await rm(dir, { recursive: true, force: true })
+  })
+  return { logs, testLogger, oauth, db, client }
+}
+
+describe("OAuth audit logging", () => {
+  it("logs oauth_client_registered on dynamic client registration", async () => {
+    const { logs, oauth } = await setupAuditTest()
+
+    const registered = await oauth.provider.clientsStore!.registerClient!({
+      client_name: "Audit Test Client",
+      redirect_uris: ["https://example.com/cb"],
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    })
+
+    const event = logs.find((log) => log.message === "oauth_client_registered")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("info")
+    expect(event!.data.clientId).toBe(registered.client_id)
+    expect(event!.data.clientName).toBe("Audit Test Client")
+  })
+
+  it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(
+      requestId,
+      testLogger.child({ clientId: client.client_id }),
+    )
+    logs.length = 0
+
+    await oauth.provider.exchangeAuthorizationCode!(client, code)
+
+    const event = logs.find((log) => log.message === "oauth_code_exchanged")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("info")
+    expect(event!.data.clientId).toBe(client.client_id)
+  })
+
+  it("logs oauth_code_exchange_failed when auth code is expired", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
+    await expect(
+      oauth.provider.exchangeAuthorizationCode!(client, "bogus-code"),
+    ).rejects.toThrow("Authorization code expired or invalid")
+
+    const event = logs.find(
+      (log) => log.message === "oauth_code_exchange_failed",
+    )
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("warn")
+    expect(event!.data.reason).toBe("expired_or_invalid")
+  })
+
+  it("logs oauth_token_refreshed on successful refresh", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    seedRefreshToken(
+      db,
+      "audit-refresh",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+    logs.length = 0
+
+    await oauth.provider.exchangeRefreshToken!(client, "audit-refresh")
+
+    const event = logs.find((log) => log.message === "oauth_token_refreshed")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("info")
+    expect(event!.data.clientId).toBe(client.client_id)
+  })
+
+  it("logs oauth_token_refresh_failed when refresh token is invalid", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
+    await expect(
+      oauth.provider.exchangeRefreshToken!(client, "nonexistent"),
+    ).rejects.toThrow("Refresh token expired or invalid")
+
+    const event = logs.find(
+      (log) => log.message === "oauth_token_refresh_failed",
+    )
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("warn")
+    expect(event!.data.reason).toBe("expired_or_invalid")
+  })
+
+  it("logs oauth_token_revoked on revocation", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
+    await oauth.provider.revokeToken!(client, {
+      token: "some-token",
+      token_type_hint: "access_token",
+    })
+
+    const event = logs.find((log) => log.message === "oauth_token_revoked")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("info")
+  })
+
+  it("logs oauth_token_rejected when a revoked token is verified", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    const validJwt = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      },
+      AUTH_TOKEN,
+    )
+    seedRevokedToken(db, validJwt)
+
+    await expect(oauth.provider.verifyAccessToken!(validJwt)).rejects.toThrow(
+      "Token has been revoked",
+    )
+
+    const event = logs.find((log) => log.message === "oauth_token_rejected")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("warn")
+    expect(event!.data.reason).toBe("revoked")
+  })
+
+  it("logs oauth_consent_approved on consent approval", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const requestId = await startAuthFlow(oauth, client)
+    const consentLogger = testLogger.child({
+      clientIp: "127.0.0.1",
+      requestId,
+      clientId: client.client_id,
+    })
+
+    oauth.approveRequest(requestId, consentLogger)
+
+    const event = logs.find((log) => log.message === "oauth_consent_approved")
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("info")
+    expect(event!.data.clientId).toBe(client.client_id)
+    expect(event!.data.requestId).toBe(requestId)
+  })
+
+  it("logs oauth_consent_approve_failed when no pending request exists", async () => {
+    const { logs, testLogger, oauth } = await setupAuditTest()
+    const reqLogger = testLogger.child({ requestId: "nonexistent" })
+
+    expect(() => oauth.approveRequest("nonexistent", reqLogger)).toThrow(
+      "No pending request",
+    )
+
+    const event = logs.find(
+      (log) => log.message === "oauth_consent_approve_failed",
+    )
+    expect(event).toBeDefined()
+    expect(event!.level).toBe("warn")
+    expect(event!.data.reason).toBe("no_pending_request")
+  })
+})
+
+/** Starts an authorization flow and returns the requestId extracted from
+ *  the rendered consent HTML. */
+const startAuthFlow = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+): Promise<string> => {
+  let capturedHtml = ""
+  const res = {
+    type: () => res,
+    send: (html: string) => {
+      capturedHtml = html
+      return res
+    },
+  }
+  await oauth.provider.authorize(
+    client,
+    {
+      codeChallenge: "test-challenge",
+      redirectUri: "https://example.com/cb",
+      scopes: ["vault"],
+    },
+    res as never,
+  )
+  const match = /name="request_id"\s+value="([^"]+)"/.exec(capturedHtml)
+  if (!match?.[1]) throw new Error("no request_id in consent HTML")
+  return match[1]
+}
