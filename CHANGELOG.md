@@ -6,6 +6,19 @@
 
 
 
+
+## [0.23.4] — 2026-06-24
+
+### Bug Fixes
+
+- **move:** Handle escaped pipe wikilinks in table cells (#196)
+
+### Documentation
+
+- **arch:** Fix tool table accuracy and enrich Key Decisions (#197)
+- **tools:** Improve TDQS scores and cross-tool discoverability (#195)
+- Update CHANGELOG.md for v0.23.3
+
 ## [0.23.3] — 2026-06-24
 
 ### Features
