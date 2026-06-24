@@ -285,7 +285,10 @@ throughout the codebase.
 - `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
-- No `any`. Prefer `async/await` over `.then()`/`.catch()`.
+- No `any`. No `as` or `!` (non-null assertion) — both are type
+  assertions that bypass the compiler. Use runtime guards (`if (x ===
+undefined) return`) or schema validation to narrow types instead.
+  Prefer `async/await` over `.then()`/`.catch()`.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and

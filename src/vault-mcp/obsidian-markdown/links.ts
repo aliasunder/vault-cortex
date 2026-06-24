@@ -72,8 +72,9 @@ type LinkMatch = {
 type CodeSpan = { start: number; end: number }
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
- *  keep their leading `#` / `|` so reconstruction is plain concatenation; target
- *  is not trimmed (the caller trims). */
+ *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
+ *  reconstruction is plain concatenation; target is not trimmed (the caller
+ *  trims). */
 type WikilinkParts = {
   embed: string
   target: string
@@ -123,12 +124,19 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
 // ── Parsing ─────────────────────────────────────────────────────
 
 /** Splits a matched wikilink into its parts, or null when the text is not a
- *  well-formed wikilink. */
+ *  well-formed wikilink. A trailing `\` on the target (from Obsidian's `\|`
+ *  table-pipe escape) is always stripped — consistent with stripEscapedPipe's
+ *  rule that backslash is never valid in a file path — and shifted into the
+ *  alias so reconstruction via concatenation preserves the escape. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
   if (!parts) return null
-  const [, embed, target, heading = "", alias = ""] = parts
-  return { embed: embed!, target: target!, heading, alias }
+  const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
+  if (embed === undefined || rawTarget === undefined) return null
+  const hasEscapedPipe = rawTarget.endsWith("\\")
+  const target = hasEscapedPipe ? rawTarget.slice(0, -1) : rawTarget
+  const alias = hasEscapedPipe ? `\\${rawAlias}` : rawAlias
+  return { embed, target, heading, alias }
 }
 
 /** Splits a matched markdown link into its parts (path decoded, .md stripped), or
