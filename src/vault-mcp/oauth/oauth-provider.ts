@@ -137,8 +137,11 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
 
 export type OAuthProvider = {
   provider: OAuthServerProvider
-  getPendingRequest: (id: string) => PendingAuthRequest | undefined
-  approveRequest: (id: string) => string
+  getPendingRequest: (
+    id: string,
+    logger: Logger,
+  ) => PendingAuthRequest | undefined
+  approveRequest: (requestId: string, logger: Logger) => string
   deletePendingRequest: (id: string) => void
 }
 
@@ -380,21 +383,24 @@ export const createOAuthProvider = ({
     },
   }
 
-  const getPendingRequest = (id: string): PendingAuthRequest | undefined => {
+  const getPendingRequest = (
+    id: string,
+    reqLogger: Logger,
+  ): PendingAuthRequest | undefined => {
     const pending = pendingRequests.get(id)
     if (!pending) return undefined
     if (pending.createdAt.plus({ seconds: AUTH_CODE_TTL_S }) < DateTime.now()) {
       pendingRequests.delete(id)
-      oauthLogger.info("oauth_request_expired", { requestId: id })
+      reqLogger.info("oauth_request_expired", { requestId: id })
       return undefined
     }
     return pending
   }
 
-  const approveRequest = (requestId: string): string => {
+  const approveRequest = (requestId: string, reqLogger: Logger): string => {
     const pending = pendingRequests.get(requestId)
     if (!pending) {
-      oauthLogger.warn("oauth_consent_approve_failed", {
+      reqLogger.warn("oauth_consent_approve_failed", {
         requestId,
         reason: "no_pending_request",
       })
@@ -409,7 +415,7 @@ export const createOAuthProvider = ({
       params: pending.params,
       expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
-    oauthLogger.info("oauth_consent_approved", {
+    reqLogger.info("oauth_consent_approved", {
       clientId: pending.client.client_id,
       requestId,
     })

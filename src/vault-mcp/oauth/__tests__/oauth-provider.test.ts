@@ -405,6 +405,7 @@ describe("verifyAccessToken", () => {
 
 const setupAuditTest = async (): Promise<{
   logs: LogCall[]
+  testLogger: Logger
   oauth: OAuthProvider
   db: Database.Database
   client: OAuthClientInformationFull
@@ -412,10 +413,11 @@ const setupAuditTest = async (): Promise<{
   const dir = await mkdtemp(join(tmpdir(), "oauth-audit-test-"))
   const dbPath = join(dir, "oauth.db")
   const logs: LogCall[] = []
+  const testLogger = recordingLogger(logs)
   const oauth = createOAuthProvider({
     authToken: AUTH_TOKEN,
     dbPath,
-    logger: recordingLogger(logs),
+    logger: testLogger,
   })
   const db = new Database(dbPath)
   const client = seedClient(db)
@@ -423,7 +425,7 @@ const setupAuditTest = async (): Promise<{
     db.close()
     await rm(dir, { recursive: true, force: true })
   })
-  return { logs, oauth, db, client }
+  return { logs, testLogger, oauth, db, client }
 }
 
 describe("OAuth audit logging", () => {
@@ -446,9 +448,9 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
-    const { logs, oauth, client } = await setupAuditTest()
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
-    const code = oauth.approveRequest(requestId)
+    const code = oauth.approveRequest(requestId, testLogger)
     logs.length = 0
 
     await oauth.provider.exchangeAuthorizationCode!(client, code)
@@ -545,10 +547,10 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_consent_approved on consent approval", async () => {
-    const { logs, oauth, client } = await setupAuditTest()
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
 
-    oauth.approveRequest(requestId)
+    oauth.approveRequest(requestId, testLogger)
 
     const event = logs.find((log) => log.message === "oauth_consent_approved")
     expect(event).toBeDefined()
@@ -558,9 +560,9 @@ describe("OAuth audit logging", () => {
   })
 
   it("logs oauth_consent_approve_failed when no pending request exists", async () => {
-    const { logs, oauth } = await setupAuditTest()
+    const { logs, testLogger, oauth } = await setupAuditTest()
 
-    expect(() => oauth.approveRequest("nonexistent")).toThrow(
+    expect(() => oauth.approveRequest("nonexistent", testLogger)).toThrow(
       "No pending request",
     )
 

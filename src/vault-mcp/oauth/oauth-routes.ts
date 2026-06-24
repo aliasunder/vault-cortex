@@ -67,7 +67,10 @@ export const createOAuthRoutes = ({
     (req: Request, res: Response) => {
       const { request_id, token, action } = req.body as Record<string, string>
       const clientIp = extractClientIp(req)
-      const pending = getPendingRequest(request_id)
+      const pending = getPendingRequest(
+        request_id,
+        routeLogger.child({ clientIp, requestId: request_id }),
+      )
 
       if (!pending) {
         routeLogger.warn("oauth_consent_expired", {
@@ -118,7 +121,7 @@ export const createOAuthRoutes = ({
         return
       }
 
-      const code = approveRequest(request_id)
+      const code = approveRequest(request_id, consentLogger)
       consentLogger.info("oauth_consent_completed")
       const redirectUrl = new URL(pending.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
