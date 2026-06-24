@@ -335,6 +335,11 @@ export const createSearchIndex = (dbPath: string) => {
   const deleteNonMdFileStmt = db.prepare(
     `DELETE FROM non_md_files WHERE path = ?`,
   )
+  /** Direct path match for targets that already include a non-md extension
+   *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
+  const resolveNonMdByFullPathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
+  )
   const resolveNonMdByBasePathStmt = db.prepare(
     `SELECT path FROM non_md_files WHERE base_path = ? LIMIT 1`,
   )
@@ -366,14 +371,24 @@ export const createSearchIndex = (dbPath: string) => {
     return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
   }
 
-  /** Resolves an extensionless wikilink target to a known non-markdown file
-   *  path, or null when no match is found. Mirrors links.resolve's three-tier
-   *  strategy (exact → relative-to-source → basename/suffix) but checks
-   *  against non_md_files instead of the notes table. */
+  /** Resolves a wikilink target to a known non-markdown file path, or null
+   *  when no match is found. Handles both extensionless targets ([[Trip Route]]
+   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]] →
+   *  photo.png). Mirrors links.resolve's three-tier strategy but checks against
+   *  non_md_files instead of the notes table. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,
   ): string | null => {
+    // Full-path match for targets that already include a non-md extension
+    // (e.g. [[photo.png]], ![[diagram.svg]]). Checked first because the
+    // base_path column strips the extension, so "photo.png" wouldn't match
+    // base_path "photo".
+    const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
+      | { path: string }
+      | undefined
+    if (fullPathMatch) return fullPathMatch.path
+
     // Exact base_path match ("path from vault folder")
     const exactMatch = resolveNonMdByBasePathStmt.get(target) as
       | { path: string }

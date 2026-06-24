@@ -2234,7 +2234,9 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 
-  it("does not count wikilinks to non-note assets as broken", () => {
+  it("does not count wikilinks to non-note assets as broken when files are registered", () => {
+    index.upsertNonMdFile("photo.png")
+    index.upsertNonMdFile("report.pdf")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2245,8 +2247,16 @@ describe("brokenLinkCount", () => {
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("real-note")
+    expect(outgoing).toHaveLength(3)
+    const photo = outgoing.find((link) => link.path === "photo.png")
+    expect(photo!.exists).toBe(true)
+    expect(photo!.kind).toBe("asset")
+    const pdf = outgoing.find((link) => link.path === "report.pdf")
+    expect(pdf!.exists).toBe(true)
+    expect(pdf!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "real-note")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
