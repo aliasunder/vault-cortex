@@ -1541,6 +1541,177 @@ describe("rebuildFromVault", () => {
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("a-source.md")
   })
+
+  it("does not count extensionless wikilinks to non-md files as broken", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Trip Route]] and [[missing-note]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "missing-note")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves extensionless wikilinks to non-md files by basename", async () => {
+    await mkdir(join(vaultDir, "canvases"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Dashboard]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find(
+      (link) => link.path === "canvases/Dashboard.canvas",
+    )
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves extensionless wikilinks to non-md files by exact path", async () => {
+    await mkdir(join(vaultDir, "views"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[views/Inventory]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "views/Inventory.base"),
+      "filters: []\n",
+      "utf8",
+    )
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "views/Inventory.base")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("does not match a folder-qualified target against a same-named file in a different folder", async () => {
+    await mkdir(join(vaultDir, "other"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[views/Inventory]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("views/Inventory")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("does not let LIKE wildcards in the target match unrelated files", async () => {
+    await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[a_b/c]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves extensionless wikilinks to non-md files by relative path", async () => {
+    await mkdir(join(vaultDir, "sub"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "sub/source.md"),
+      "# Source\n\nSee [[../Route]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("skips non-md files in hidden directories", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[config]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves explicit-extension wikilinks against the non-md file index", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\n![[photo.png]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "photo.png")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves an extensionless target to a note when both note and non-md file share the same base name", async () => {
+    await writeFile(
+      join(vaultDir, "Report.md"),
+      "# Report\n\nNote content.\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Report.pdf"), "binary", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Report]].\n",
+      "utf8",
+    )
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("Report.md")
+    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]!.exists).toBe(true)
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
@@ -1632,21 +1803,23 @@ describe("getOutgoingLinks", () => {
     )
   })
 
-  it("returns outgoing links with exists flag", () => {
+  it("returns outgoing links with exists flag and kind", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(links).toHaveLength(2)
 
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
     expect(existing!.exists).toBe(true)
+    expect(existing!.kind).toBe("note")
     expect(existing!.title).toBe("Target")
   })
 
-  it("marks unresolved links as exists: false", () => {
+  it("marks unresolved links as exists: false with kind note", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
     expect(missing!.exists).toBe(false)
+    expect(missing!.kind).toBe("note")
     expect(missing!.title).toBeNull()
     expect(missing!.bytes).toBeNull()
   })
@@ -1887,6 +2060,7 @@ describe("frontmatter links in the graph", () => {
     expect(links).toHaveLength(1)
     expect(links[0].path).toBe("task-board.md")
     expect(links[0].exists).toBe(true)
+    expect(links[0].kind).toBe("note")
   })
 
   it("surfaces a frontmatter-only source in getBacklinks", () => {
@@ -2014,6 +2188,7 @@ describe("relative links (path from current file)", () => {
         path: "Areas/Health/target.md",
         title: "target",
         exists: true,
+        kind: "note",
         bytes: 100,
       },
     ])
@@ -2096,10 +2271,13 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("sessions/log-a.md")
     expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(0)
   })
 
-  it("does not count wikilinks to non-note assets as broken", () => {
+  it("does not count wikilinks to non-note assets as broken when files are registered", () => {
+    index.upsertNonMdFile("photo.png")
+    index.upsertNonMdFile("report.pdf")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2110,9 +2288,78 @@ describe("brokenLinkCount", () => {
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("real-note")
+    expect(outgoing).toHaveLength(3)
+    const photo = outgoing.find((link) => link.path === "photo.png")
+    expect(photo!.exists).toBe(true)
+    expect(photo!.kind).toBe("asset")
+    const pdf = outgoing.find((link) => link.path === "report.pdf")
+    expect(pdf!.exists).toBe(true)
+    expect(pdf!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "real-note")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
+    index.upsertNonMdFile("Trip Route.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Trip Route]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "missing")
+    expect(broken!.exists).toBe(false)
+    expect(broken!.kind).toBe("note")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("upsertNonMdFile re-resolves previously unresolved links to non-md paths", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Route]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+
+    index.upsertNonMdFile("Route.canvas")
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("Route.canvas")
+    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]!.kind).toBe("asset")
+  })
+
+  it("removeNonMdFile makes previously resolved asset links broken again", () => {
+    index.upsertNonMdFile("Route.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Route]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+
+    index.removeNonMdFile("Route.canvas")
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.exists).toBe(false)
+    expect(outgoing[0]!.kind).toBe("note")
   })
 })
 

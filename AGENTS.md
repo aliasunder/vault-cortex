@@ -266,6 +266,17 @@ watcher or during bulk indexing, with no user-initiated action. If the
 log would produce N lines during a vault rebuild (one per note), it's
 `debug`; if it produces one summary line, it's `info`.
 
+## Platform
+
+The server runs in Linux Docker — even on Windows and macOS, Docker
+Desktop runs a Linux VM internally. Path operations (`relative`,
+`join`, `basename`) produce POSIX separators (`/`) in all deployment
+paths; `WINDOWS_MODE=true` handles Docker Desktop's WSL2 bind mount
+limitations (no hard links, polling for file watching) but does not
+change path separator behavior. Native Windows execution (without
+Docker) is not a supported deployment and would break path handling
+throughout the codebase.
+
 ## Code style
 
 - Functional over OOP. Arrow functions over `function` declarations.
@@ -296,7 +307,8 @@ log would produce N lines during a vault rebuild (one per note), it's
   `items.map(rewrite)` then a separate, named count sum reads on its own.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
-  `available`, `searchText` not `needle`, `fileContent` not `raw`).
+  `available`, `searchText` not `needle`, `fileContent` not `raw`,
+  `filesIndexed` not `count`).
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.

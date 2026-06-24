@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
-import { join, basename, relative, resolve } from "node:path"
+import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -179,6 +179,9 @@ type OutgoingLinkEntry = {
   path: string
   title: string | null
   exists: boolean
+  /** "note" for .md targets, "asset" for resolved non-markdown files
+   *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
+  kind: "note" | "asset"
   bytes: number | null
 }
 
@@ -265,6 +268,14 @@ export const createSearchIndex = (dbPath: string) => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
+
+    CREATE TABLE IF NOT EXISTS non_md_files (
+      path      TEXT PRIMARY KEY,
+      base_path TEXT NOT NULL,
+      basename  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
+    CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
@@ -299,16 +310,176 @@ export const createSearchIndex = (dbPath: string) => {
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
   )
-  // Links whose target isn't a known note path — stored as raw text because
-  // they were unresolved when indexed (e.g. a forward reference).
+  // Links whose target isn't a known note or non-md file — stored as raw text
+  // because they were unresolved when indexed (e.g. a forward reference).
+  // Used by both note and non-md re-resolution to find candidates to upgrade.
   const selectUnresolvedLinksStmt = db.prepare(
-    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes)`,
+    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
   )
   // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
   // (source, resolved) row so re-resolution can't hit a PK collision.
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
+
+  // ── Non-markdown file awareness ────────────────────────────────
+  //
+  // Obsidian resolves extensionless wikilinks (e.g. [[Trip Route]]) against
+  // ALL vault files, not just .md. The non_md_files table tracks non-markdown
+  // file paths so unresolved link targets can be checked against it before
+  // being counted as broken. Populated during rebuildFromVault, maintained
+  // incrementally by the file watcher.
+
+  const upsertNonMdFileStmt = db.prepare(
+    `INSERT OR REPLACE INTO non_md_files (path, base_path, basename) VALUES (?, ?, ?)`,
+  )
+  const deleteNonMdFileStmt = db.prepare(
+    `DELETE FROM non_md_files WHERE path = ?`,
+  )
+  /** Direct path match for targets that already include a non-md extension
+   *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
+  const resolveNonMdByFullPathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
+  )
+  /** All three base_path/basename/suffix queries use ORDER BY length(path), path
+   *  so resolution is deterministic when multiple non-md files share a stem —
+   *  shortest path wins, matching links.resolve's note-resolution heuristic. */
+  const resolveNonMdByBasePathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
+  )
+  const resolveNonMdByBasenameStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
+  )
+  /** Suffix-path match: finds non-md files whose base_path ends with the target
+   *  (preserving folder segments). Mirrors links.resolve's basename tier which
+   *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
+   *  and `%` in the target from acting as LIKE wildcards. */
+  const resolveNonMdBySuffixPathStmt = db.prepare(
+    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
+  )
+  /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
+   *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
+  const escapeLikeWildcards = (value: string): string =>
+    value.replace(/[\\%_]/g, (character) => `\\${character}`)
+
+  /** Strips the file extension from a path, or returns the path unchanged if
+   *  it has no extension. Uses the last dot in the filename (not the path). */
+  const stripExtension = (filePath: string): string => {
+    const fileName = basename(filePath)
+    const dotIndex = fileName.lastIndexOf(".")
+    if (dotIndex <= 0) return filePath
+    return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
+  }
+
+  /** Resolves a wikilink target to a known non-markdown file path, or null
+   *  when no match is found. Handles both extensionless targets ([[Trip Route]]
+   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]] →
+   *  photo.png). Mirrors links.resolve's three-tier strategy but checks against
+   *  non_md_files instead of the notes table. */
+  const resolveNonMarkdownFile = (
+    target: string,
+    sourcePath?: string,
+  ): string | null => {
+    // Full-path match for targets that already include a non-md extension
+    // (e.g. [[photo.png]], ![[diagram.svg]]). Checked first because the
+    // base_path column strips the extension, so "photo.png" wouldn't match
+    // base_path "photo".
+    const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
+      | { path: string }
+      | undefined
+    if (fullPathMatch) return fullPathMatch.path
+
+    // Exact base_path match ("path from vault folder")
+    const exactMatch = resolveNonMdByBasePathStmt.get(target) as
+      | { path: string }
+      | undefined
+    if (exactMatch) return exactMatch.path
+
+    // Relative-to-source match ("path from current file")
+    if (sourcePath) {
+      const relativeTarget = posix.join(posix.dirname(sourcePath), target)
+      const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
+        | { path: string }
+        | undefined
+      if (relativeMatch) return relativeMatch.path
+    }
+
+    // Basename / suffix-path match (Obsidian's shortest-path resolution).
+    // When the target includes folder segments (e.g. "views/Inventory"),
+    // preserve them in the match — only strip to pure basename when the
+    // target is already a bare name. Mirrors links.resolve's endsWith check.
+    if (target.includes("/")) {
+      const suffixMatch = resolveNonMdBySuffixPathStmt.get(
+        escapeLikeWildcards(target),
+      ) as { path: string } | undefined
+      return suffixMatch?.path ?? null
+    }
+    const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
+      | { path: string }
+      | undefined
+    return basenameMatch?.path ?? null
+  }
+
+  /** Indexes non-markdown files from a directory listing into the
+   *  non_md_files table. Skips hidden directories (same filter as notes). */
+  const indexNonMarkdownFiles = (
+    entries: ReadonlyArray<{
+      isFile: () => boolean
+      name: string
+      parentPath: string
+    }>,
+    normalizedVault: string,
+  ): number => {
+    let filesIndexed = 0
+    for (const directoryEntry of entries) {
+      if (!directoryEntry.isFile() || directoryEntry.name.endsWith(".md"))
+        continue
+      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
+      const relativePath = relative(normalizedVault, absolutePath)
+      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
+        continue
+      const basePath = stripExtension(relativePath)
+      const baseFilename = stripExtension(directoryEntry.name)
+      upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
+      filesIndexed += 1
+    }
+    return filesIndexed
+  }
+
+  /** Adds a single non-markdown file to the index and re-resolves any
+   *  unresolved links that now match it. Called by the file watcher on
+   *  add/change. Mirrors the note forward-reference re-resolution pattern:
+   *  updates the link target from the raw text to the resolved non-md path. */
+  const upsertNonMdFile = (filePath: string): void => {
+    const basePath = stripExtension(filePath)
+    const baseFilename = stripExtension(basename(filePath))
+    upsertNonMdFileStmt.run(filePath, basePath, baseFilename)
+
+    // Re-resolve unresolved links that now match this non-md file — upgrade
+    // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
+    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
+      source: string
+      target: string
+    }>
+    for (const link of unresolvedLinks) {
+      const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
+      if (resolvedPath !== null) {
+        updateLinkTargetStmt.run({
+          resolved: resolvedPath,
+          source: link.source,
+          rawTarget: link.target,
+        })
+      }
+    }
+  }
+
+  /** Removes a non-markdown file from the index. Called by the file watcher
+   *  on unlink. Links that resolved to this file become broken automatically
+   *  at query time — getOutgoingLinks shows exists: false, brokenLinkCount
+   *  includes them. Same behavior as removeNote for deleted .md files. */
+  const removeNonMdFile = (filePath: string): void => {
+    deleteNonMdFileStmt.run(filePath)
+  }
 
   // ── Index maintenance ──────────────────────────────────────────
 
@@ -408,7 +579,12 @@ export const createSearchIndex = (dbPath: string) => {
     deleteLinksStmt.run(note.path)
     for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
       const resolved = links.resolve(rawTarget, pathList, note.path)
-      insertLinkStmt.run(note.path, resolved ?? rawTarget)
+      if (resolved !== null) {
+        insertLinkStmt.run(note.path, resolved)
+      } else {
+        const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path)
+        insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
+      }
     }
 
     // Re-resolve links still stored as raw text now that this note exists.
@@ -443,6 +619,7 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
+    db.exec("DELETE FROM non_md_files")
 
     const normalizedVault = resolve(vaultPath)
     const entries = await readdir(vaultPath, {
@@ -480,6 +657,11 @@ export const createSearchIndex = (dbPath: string) => {
 
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
+      // Index non-markdown files so extensionless wikilinks to .canvas, .base,
+      // etc. are recognized as asset references rather than broken note links.
+      const nonMdCount = indexNonMarkdownFiles(entries, normalizedVault)
+      logger.debug("indexed non-md files", { count: nonMdCount })
+
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
@@ -507,7 +689,18 @@ export const createSearchIndex = (dbPath: string) => {
         const parsed = parseNote(note.content)
         for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
           const resolved = links.resolve(rawTarget, pathList, note.relativePath)
-          insertLinkStmt.run(note.relativePath, resolved ?? rawTarget)
+          if (resolved !== null) {
+            insertLinkStmt.run(note.relativePath, resolved)
+          } else {
+            const resolvedNonMdPath = resolveNonMarkdownFile(
+              rawTarget,
+              note.relativePath,
+            )
+            insertLinkStmt.run(
+              note.relativePath,
+              resolvedNonMdPath ?? rawTarget,
+            )
+          }
         }
       }
     })()
@@ -941,7 +1134,10 @@ export const createSearchIndex = (dbPath: string) => {
     return results
   }
 
-  /** Returns notes that the given path links TO (outgoing links). */
+  /** Returns notes and assets that the given path links TO (outgoing links).
+   *  Each entry carries a `kind` discriminator: "note" for .md targets,
+   *  "asset" for resolved non-markdown files (.canvas, .base, images, etc.),
+   *  defaulting to "note" for unresolved (broken) links. */
   const getOutgoingLinks = (
     params: { path: string },
     logger: Logger,
@@ -949,10 +1145,16 @@ export const createSearchIndex = (dbPath: string) => {
     const sql = `
       SELECT l.target as path,
              n.title,
-             CASE WHEN n.path IS NOT NULL THEN 1 ELSE 0 END as exists_flag,
+             CASE WHEN n.path IS NOT NULL THEN 1
+                  WHEN f.path IS NOT NULL THEN 1
+                  ELSE 0 END as exists_flag,
+             CASE WHEN n.path IS NOT NULL THEN 'note'
+                  WHEN f.path IS NOT NULL THEN 'asset'
+                  ELSE 'note' END as kind,
              n.bytes
       FROM links l
       LEFT JOIN notes n ON n.path = l.target
+      LEFT JOIN non_md_files f ON f.path = l.target
       WHERE l.source = ?
       ORDER BY l.target
     `
@@ -960,12 +1162,14 @@ export const createSearchIndex = (dbPath: string) => {
       path: string
       title: string | null
       exists_flag: number
+      kind: "note" | "asset"
       bytes: number | null
     }>
     const results: OutgoingLinkEntry[] = rows.map((row) => ({
       path: row.path,
       title: row.title,
       exists: row.exists_flag === 1,
+      kind: row.kind,
       bytes: row.bytes ?? null,
     }))
     logger.info("get outgoing links", {
@@ -1009,9 +1213,9 @@ export const createSearchIndex = (dbPath: string) => {
 
   // ── Aggregate queries ──────────────────────────────────────────
 
-  /** Counts links whose targets don't exist in the notes table — broken links
-   *  are a vault-wide health metric. Individual broken links per note are
-   *  already available via getOutgoingLinks (filtering exists: false). */
+  /** Counts links whose targets exist in neither the notes table nor the
+   *  non_md_files table — genuinely broken links. Resolved note links and
+   *  resolved asset links are both excluded. */
   const brokenLinkCount = (
     _params: Record<string, never>,
     logger: Logger,
@@ -1020,6 +1224,7 @@ export const createSearchIndex = (dbPath: string) => {
       SELECT COUNT(*) as count
       FROM links
       WHERE target NOT IN (SELECT path FROM notes)
+        AND target NOT IN (SELECT path FROM non_md_files)
     `
     const row = db.prepare(sql).get() as { count: number }
     logger.info("broken link count", { count: row.count })
@@ -1078,6 +1283,8 @@ export const createSearchIndex = (dbPath: string) => {
     upsertNote,
     removeNote,
     rebuildFromVault,
+    upsertNonMdFile,
+    removeNonMdFile,
     fullTextSearch,
     searchByTag,
     searchByFolder,

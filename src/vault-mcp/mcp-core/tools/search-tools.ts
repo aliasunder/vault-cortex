@@ -525,7 +525,11 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes a given note links to via outgoing [[wikilinks]] or [markdown](links). Each entry has an exists flag — false marks a broken link (target not in the vault). Both link styles are captured; links inside code blocks are ignored, and a note that links to itself appears in its own outgoing links.
+      description: `Find all notes and assets a given note links to via outgoing [[wikilinks]] or [markdown](links). Each entry carries an exists flag and a kind discriminator — three states:
+- kind "note", exists true — resolved .md note, retrievable via vault_read_note
+- kind "asset", exists true — resolved non-markdown file (.canvas, .base, image, PDF) that exists in the vault graph but cannot be read through vault_read_note
+- kind "note", exists false — broken link (target not in the vault)
+Both link styles are captured; links inside code blocks are ignored, and a note that links to itself appears in its own outgoing links.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 
@@ -538,7 +542,7 @@ Parameters:
 Errors:
 - A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, bytes }, sorted by target path), and count. bytes is the on-disk file size (null for broken links where exists is false).`,
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, kind, bytes }, sorted by target path), and count. kind is "note" or "asset". bytes is the on-disk file size (null for broken links and assets).`,
       inputSchema: {
         path: z.string().min(1).describe("Vault-relative path to the note"),
       },

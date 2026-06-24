@@ -31,8 +31,14 @@ export const startFileWatcher = (
   options?: FileWatcherOptions,
 ): Promise<void> => {
   const handleChange = async (filePath: string): Promise<void> => {
-    if (!filePath.endsWith(".md")) return
     const relativePath = relative(vaultPath, filePath)
+
+    if (!filePath.endsWith(".md")) {
+      search.upsertNonMdFile(relativePath)
+      logger.debug("indexed non-md file", { path: relativePath })
+      return
+    }
+
     try {
       const [content, fileStat] = await Promise.all([
         readFile(filePath, "utf8"),
@@ -55,8 +61,14 @@ export const startFileWatcher = (
   }
 
   const handleDelete = (filePath: string): void => {
-    if (!filePath.endsWith(".md")) return
     const relativePath = relative(vaultPath, filePath)
+
+    if (!filePath.endsWith(".md")) {
+      search.removeNonMdFile(relativePath)
+      logger.debug("removed non-md file from index", { path: relativePath })
+      return
+    }
+
     search.removeNote(relativePath)
     logger.debug("removed from index", { path: relativePath })
   }

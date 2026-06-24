@@ -315,23 +315,18 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Note A"])
   })
 
-  it("excludes wikilinks to non-note assets (images, PDFs, audio, video)", () => {
+  it("extracts wikilinks to non-markdown assets alongside note links", () => {
     const targets = links.extractFromBody(
       "![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]",
     )
-    expect(targets).toEqual(["Note A"])
+    expect(targets).toEqual(["photo.png", "report.pdf", "song.mp3", "Note A"])
   })
 
-  it("excludes embedded assets with folder paths", () => {
+  it("extracts embedded assets with folder paths", () => {
     const targets = links.extractFromBody(
       "![[attachments/diagram.svg]] and [[Real Note]]",
     )
-    expect(targets).toEqual(["Real Note"])
-  })
-
-  it("excludes non-note assets regardless of extension casing", () => {
-    const targets = links.extractFromBody("![[photo.PNG]] and [[Note]]")
-    expect(targets).toEqual(["Note"])
+    expect(targets).toEqual(["attachments/diagram.svg", "Real Note"])
   })
 
   it("keeps wikilinks to notes with dots in the name", () => {
@@ -407,12 +402,12 @@ describe("extractFromFrontmatter", () => {
     ).toEqual(["sessions/log-a"])
   })
 
-  it("excludes wikilinks to non-note assets in frontmatter", () => {
+  it("extracts wikilinks to non-markdown assets in frontmatter", () => {
     expect(
       links.extractFromFrontmatter({
         related: ["[[diagram.png]]", "[[Note A]]"],
       }),
-    ).toEqual(["Note A"])
+    ).toEqual(["diagram.png", "Note A"])
   })
 })
 

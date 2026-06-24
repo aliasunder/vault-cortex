@@ -55,7 +55,7 @@
     },
     {
       "title": "Search and Indexing",
-      "purpose": "The SQLite FTS5 search system in search/. Covers: search-index.ts (the factory/closure that creates the SQLite database, FTS5 virtual table with body + metadata columns, indexing pipeline that extracts tags/folder/type/leading-callout/frontmatter, and query functions for full-text search, tag queries, folder browsing, property queries, recent notes, backlinks, outgoing links, and orphan detection); file-watcher.ts (chokidar watcher that keeps the index current on every file add/change/unlink, with Windows polling mode support). The index is rebuilt from scratch on startup and maintained incrementally thereafter.",
+      "purpose": "The SQLite FTS5 search system in search/. Covers: search-index.ts (the factory/closure that creates the SQLite database, FTS5 virtual table with body + metadata columns, indexing pipeline that extracts tags/folder/type/leading-callout/frontmatter, and query functions for full-text search, tag queries, folder browsing, property queries, recent notes, backlinks, outgoing links, and orphan detection); a non_md_files table that tracks non-markdown vault files (.canvas, .base, images, PDFs) so wikilinks to assets resolve as kind: 'asset' instead of counting as broken — outgoing links carry a kind discriminator ('note' vs 'asset') and broken-link counts exclude resolved assets; file-watcher.ts (chokidar watcher that keeps both the notes index and non_md_files table current on every file add/change/unlink, with Windows polling mode support). The index is rebuilt from scratch on startup and maintained incrementally thereafter.",
       "parent": "Architecture"
     },
     {
