@@ -44,7 +44,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
-Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note.
+Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
@@ -530,7 +530,7 @@ Returns: Confirmation message with the number of lines removed and a truncated p
 Example: vault_list_notes({ folder: "Projects" }) or vault_list_notes({ glob: "**/*session-log*.md" })
 
 When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
-Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery.
+Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Returns: JSON array of vault-relative paths.`,
       inputSchema: {

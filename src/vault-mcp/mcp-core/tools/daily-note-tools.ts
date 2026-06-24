@@ -24,7 +24,7 @@ export const registerDailyNoteTools = ({
 
 Example: vault_get_daily_note({ date: "2026-05-13" })
 
-When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. To append content to a daily note section, use the returned path with vault_patch_note.
+When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. To append content to a daily note section, use the returned path with vault_patch_note. Use vault_recent_notes to see what else changed on the same day.
 
 Errors:
 - "invalid date" — use YYYY-MM-DD format (e.g. "2026-05-13")
