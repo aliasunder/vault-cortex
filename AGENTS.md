@@ -307,7 +307,8 @@ throughout the codebase.
   `items.map(rewrite)` then a separate, named count sum reads on its own.
 - Explicit names over abbreviations. Variable names should describe
   what the value _is_, not use shorthand (`availableHeadings` not
-  `available`, `searchText` not `needle`, `fileContent` not `raw`).
+  `available`, `searchText` not `needle`, `fileContent` not `raw`,
+  `filesIndexed` not `count`).
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.
