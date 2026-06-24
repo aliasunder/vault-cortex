@@ -132,10 +132,11 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
   if (!parts) return null
   const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
-  const hasEscapedPipe = rawTarget!.endsWith("\\")
-  const target = hasEscapedPipe ? rawTarget!.slice(0, -1) : rawTarget!
+  if (embed === undefined || rawTarget === undefined) return null
+  const hasEscapedPipe = rawTarget.endsWith("\\")
+  const target = hasEscapedPipe ? rawTarget.slice(0, -1) : rawTarget
   const alias = hasEscapedPipe ? `\\${rawAlias}` : rawAlias
-  return { embed: embed!, target, heading, alias }
+  return { embed, target, heading, alias }
 }
 
 /** Splits a matched markdown link into its parts (path decoded, .md stripped), or
