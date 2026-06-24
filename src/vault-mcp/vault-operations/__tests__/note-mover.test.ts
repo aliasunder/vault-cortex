@@ -298,7 +298,7 @@ describe("moveNote — link rewriting forms", () => {
     ].join("\n")
     await writeFixture("Hub.md", `${table}\n`)
 
-    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+    const result = await moveNote("Foo.md", "Bar.md", ["Hub.md"])
 
     const expected = [
       "| Link | Topic |",
@@ -306,6 +306,7 @@ describe("moveNote — link rewriting forms", () => {
       "| [[Bar#Setup\\|link]] | A topic |",
     ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
+    expect(result.links_updated).toBe(1)
   })
 
   it("rewrites a source-relative wikilink in another folder", async () => {
