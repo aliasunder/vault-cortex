@@ -229,25 +229,34 @@ Returns: JSON array of { tag, count } objects.`,
       description: `List recently modified or created notes, sorted by timestamp. Returns the most recent notes first — does not filter by date range.
 
 Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
+Example: vault_recent_notes({ sort_by: "created", limit: 5 })
+Example: vault_recent_notes({}) — defaults to modified-sorted, 20 results.
 
-When to use: Catching up on vault changes or finding recent work.
+When to use: Catching up on vault changes, finding recent work, or orienting after a break. Pair with vault_read_note to read a note you find here.
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
+
+Sorting behavior:
+- "modified" (default) — sorts by filesystem mtime, which updates on any file write (content edits, property changes, or sync touches).
+- "created" — sorts by the frontmatter created property (ISO timestamp). Notes without a created property sort to the bottom, not excluded — so with a small limit you may see only notes that have the property.
 
 Errors:
 - An empty vault returns an empty array, not an error.
+- Sorting by "created" with a small limit: notes without a created property sort last and may fall outside the window — increase limit or use "modified" for broader coverage.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by chosen timestamp. bytes is the on-disk file size.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by chosen timestamp descending. bytes is the on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
           .optional()
           .describe(
-            'Sort by "created" (frontmatter created timestamp) or "modified" (filesystem mtime). Default "modified". Notes without a created property are excluded from created-sorted results.',
+            'Sort by "created" (frontmatter created timestamp) or "modified" (filesystem mtime). Default "modified". Notes without a created property sort to the bottom of created-sorted results — with a small limit they may not appear at all.',
           ),
         limit: z
           .number()
           .optional()
-          .describe("Max results to return (default 20)"),
+          .describe(
+            "Max results to return (default 20). When sorting by created, notes without a created property sort last and may fall outside a small limit.",
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -282,7 +291,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
 Example: vault_search_by_folder({ folder: "Projects" })${config.memoryEnabled ? ` or vault_search_by_folder({ folder: "${config.memoryDir}", recursive: false })` : ""}
 
 When to use: Exploring a folder's contents with full context for vault orientation.
-Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query.
+Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query. Use vault_get_backlinks or vault_get_outgoing_links to explore how notes in a folder connect to the rest of the vault.
 
 Parameters:
 - folder is matched as a path prefix; pass it without a trailing slash ("Projects").
@@ -434,15 +443,22 @@ Returns: JSON array of { value, count } sorted by count descending.`,
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 
 When to use: Finding notes by metadata when you don't have a text query. Fills the gap where vault_search requires search text.
-Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).
+Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
-        key: z.string().min(1).describe("Property key name"),
+        key: z
+          .string()
+          .min(1)
+          .describe(
+            'Property key name (e.g. "status", "type"). Use vault_list_property_keys to discover valid keys.',
+          ),
         value: z
           .string()
           .min(1)
-          .describe("Value to match (exact, case-sensitive)"),
+          .describe(
+            "Value to match (exact, case-sensitive). Use vault_list_property_values to discover valid values for a key.",
+          ),
         folder: z.string().min(1).optional().describe("Restrict to a folder"),
         limit: z.number().optional().describe("Max results (default 20)"),
       },

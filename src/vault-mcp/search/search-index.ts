@@ -1083,6 +1083,7 @@ export const createSearchIndex = (dbPath: string) => {
          AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
       )
       ${folderCondition}
+      ORDER BY mtime DESC
       LIMIT @limit
     `
 
