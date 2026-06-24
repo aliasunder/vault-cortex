@@ -266,6 +266,17 @@ watcher or during bulk indexing, with no user-initiated action. If the
 log would produce N lines during a vault rebuild (one per note), it's
 `debug`; if it produces one summary line, it's `info`.
 
+## Platform
+
+The server runs in Linux Docker — even on Windows and macOS, Docker
+Desktop runs a Linux VM internally. Path operations (`relative`,
+`join`, `basename`) produce POSIX separators (`/`) in all deployment
+paths; `WINDOWS_MODE=true` handles Docker Desktop's WSL2 bind mount
+limitations (no hard links, polling for file watching) but does not
+change path separator behavior. Native Windows execution (without
+Docker) is not a supported deployment and would break path handling
+throughout the codebase.
+
 ## Code style
 
 - Functional over OOP. Arrow functions over `function` declarations.
