@@ -429,7 +429,7 @@ export const createSearchIndex = (dbPath: string) => {
     }>,
     normalizedVault: string,
   ): number => {
-    let count = 0
+    let filesIndexed = 0
     for (const directoryEntry of entries) {
       if (!directoryEntry.isFile() || directoryEntry.name.endsWith(".md"))
         continue
@@ -440,9 +440,9 @@ export const createSearchIndex = (dbPath: string) => {
       const basePath = stripExtension(relativePath)
       const baseFilename = stripExtension(directoryEntry.name)
       upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
-      count += 1
+      filesIndexed += 1
     }
-    return count
+    return filesIndexed
   }
 
   /** Adds a single non-markdown file to the index and re-resolves any
