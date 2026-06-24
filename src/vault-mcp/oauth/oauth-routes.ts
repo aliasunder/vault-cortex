@@ -79,13 +79,14 @@ export const createOAuthRoutes = ({
       }
 
       const clientId = pending.client.client_id
+      const consentLogger = routeLogger.child({
+        clientIp,
+        requestId: request_id,
+        clientId,
+      })
 
       if (action !== "approve") {
-        routeLogger.info("oauth_consent_denied_by_user", {
-          clientIp,
-          requestId: request_id,
-          clientId,
-        })
+        consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(request_id)
         const redirectUrl = new URL(pending.params.redirectUri)
         redirectUrl.searchParams.set("error", "access_denied")
@@ -104,11 +105,7 @@ export const createOAuthRoutes = ({
       // already applied to bearer-header auth in parseBearer().
       const submittedToken = token?.replace(/\s+/g, "") ?? ""
       if (!submittedToken || !safeEqual(submittedToken, authToken)) {
-        routeLogger.warn("oauth_consent_bad_token", {
-          clientIp,
-          requestId: request_id,
-          clientId,
-        })
+        consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
           renderConsentPage({
             clientName: pending.client.client_name ?? pending.client.client_id,
@@ -122,11 +119,7 @@ export const createOAuthRoutes = ({
       }
 
       const code = approveRequest(request_id)
-      routeLogger.info("oauth_consent_completed", {
-        clientIp,
-        requestId: request_id,
-        clientId,
-      })
+      consentLogger.info("oauth_consent_completed")
       const redirectUrl = new URL(pending.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
       if (pending.params.state)
