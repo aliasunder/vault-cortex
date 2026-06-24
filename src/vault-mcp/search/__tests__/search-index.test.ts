@@ -1671,6 +1671,47 @@ describe("rebuildFromVault", () => {
 
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
+
+  it("resolves explicit-extension wikilinks against the non-md file index", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\n![[photo.png]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(2)
+    const asset = outgoing.find((link) => link.path === "photo.png")
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
+    const broken = outgoing.find((link) => link.path === "genuinely-missing")
+    expect(broken!.exists).toBe(false)
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("resolves an extensionless target to a note when both note and non-md file share the same base name", async () => {
+    await writeFile(
+      join(vaultDir, "Report.md"),
+      "# Report\n\nNote content.\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "Report.pdf"), "binary", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Report]].\n",
+      "utf8",
+    )
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("Report.md")
+    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]!.exists).toBe(true)
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
