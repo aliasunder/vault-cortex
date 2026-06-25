@@ -7,6 +7,23 @@
 
 
 
+
+## [0.23.5] — 2026-06-25
+
+### Features
+
+- **security:** OAuth audit logging + prompt content data markers (#198)
+
+### Bug Fixes
+
+- **search:** Exclude Templater syntax and daily note forward-refs from broken link detection (#200)
+- **security:** Escape closing vault-content tags in prompt data markers (#201)
+
+### Documentation
+
+- **tools:** TDQS improvement pass across all 25 tool descriptions (#199)
+- Update CHANGELOG.md for v0.23.4
+
 ## [0.23.4] — 2026-06-24
 
 ### Bug Fixes
