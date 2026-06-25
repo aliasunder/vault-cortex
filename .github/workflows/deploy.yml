@@ -33,6 +33,7 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
       SST_STAGE: ${{ secrets.SST_STAGE }}
       IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
+      TAILSCALE_SSH_HOST: ${{ secrets.TAILSCALE_SSH_HOST }}
     steps:
       # Build from the release tag, not the default checkout SHA. On a manual
       # release the tag (created by bump-and-tag) points at the version-bump
@@ -67,8 +68,6 @@ jobs:
 
       - name: Connect to Tailscale
         if: env.TAILSCALE_SSH_HOST != ''
-        env:
-          TAILSCALE_SSH_HOST: ${{ secrets.TAILSCALE_SSH_HOST }}
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
