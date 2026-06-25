@@ -267,9 +267,18 @@ export const registerPrompts = (params: {
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
-        const brokenLinkSuffix =
-          brokenLinkResult.excludedCount > 0
-            ? ` (excludes ${brokenLinkResult.excludedCount} forward-ref${brokenLinkResult.excludedCount === 1 ? "" : "s"} in ${brokenLinkResult.excludedFolder}/)`
+        const {
+          count: brokenCount,
+          excludedFolder,
+          excludedCount,
+        } = brokenLinkResult
+        const excludedNote =
+          excludedCount > 0
+            ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
+            : ""
+        const brokenLinkSegment =
+          brokenCount > 0 || excludedNote.length > 0
+            ? `${brokenCount} broken link${brokenCount === 1 ? "" : "s"}${excludedNote.length > 0 ? ` (${excludedNote})` : ""}.`
             : ""
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
@@ -279,13 +288,7 @@ export const registerPrompts = (params: {
           ...(stats.noPropertiesNotes > 0
             ? [`${stats.noPropertiesNotes} without properties.`]
             : []),
-          ...(brokenLinkResult.count > 0
-            ? [
-                `${brokenLinkResult.count} broken link${brokenLinkResult.count === 1 ? "" : "s"}${brokenLinkSuffix}.`,
-              ]
-            : brokenLinkSuffix.length > 0
-              ? [`0 broken links${brokenLinkSuffix}.`]
-              : []),
+          ...(brokenLinkSegment.length > 0 ? [brokenLinkSegment] : []),
         ].join(" ")
 
         const foldersSection =
