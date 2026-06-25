@@ -94,14 +94,12 @@ Returns: Raw markdown text.`,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically (format: "- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Pass raw entry text without a date prefix.
+      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Append-only — repeat calls add duplicates; when a preference changes, append the new state (newest wins) rather than deleting the old one.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
-Prefer vault_write_note for creating non-memory notes.
-
-Behavior: Append-only — existing entries are never overwritten, and repeat calls add duplicates. When a preference changes, append a new dated entry (newest wins); use vault_delete_memory only for entries that were wrong when written. A missing file or section is created automatically; section names have "(newest first)" appended when creating a new section. Creating a new file seeds a placeholder scope callout — fill in its Contains/Does NOT contain via vault_patch_note so other agents know what belongs.
+Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_patch_note).
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
@@ -110,7 +108,7 @@ Parameters:
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
 Errors:
-- "refusing memory write: … would shrink content from N to M bytes" — a safety guard blocked a write that would remove more than half of the existing file. An append should never shrink a file, so this signals the on-disk copy has diverged from what you expect (e.g. a stale/truncated server copy). Re-read with vault_get_memory or vault_read_note to confirm the current content before retrying.
+- "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -234,6 +232,10 @@ Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (
 
 When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory is append-only by design, so do NOT delete to reflect a change: when a preference or fact has since evolved, append the new state via vault_update_memory (newest-first naturally supersedes). Call vault_get_memory(file, section) first to see exact entry text for matching.
 Prefer vault_update_memory to supersede a changed entry; prefer vault_delete_note for deleting entire non-protected notes.
+
+Parameters:
+- date + entry together uniquely identify the bullet line within the given section. If multiple entries share the same date and text, deletion fails as ambiguous.
+- section scopes the match — an identical entry under a different heading is not found. Section matching is case-insensitive, with or without the "(newest first)" suffix.
 
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
