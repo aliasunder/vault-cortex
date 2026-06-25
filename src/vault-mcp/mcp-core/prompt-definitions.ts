@@ -186,7 +186,7 @@ const capContent = (
  *  controls vault content cannot break out of the data-marker boundary. The
  *  slash is HTML-entity-escaped (`&#x2F;`), preserving readability while making
  *  the closing tag syntactically inert to an LLM parsing XML structure. */
-const escapeClosingTag = (text: string): string =>
+const escapeVaultContentClosingTag = (text: string): string =>
   text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
 
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
@@ -213,7 +213,7 @@ const wrapWithDataMarkers = (
     .join(" ")
   return [
     `<vault-content ${attributeString}>`,
-    escapeClosingTag(capContent(content, maxChars, toolHint)),
+    escapeVaultContentClosingTag(capContent(content, maxChars, toolHint)),
     "</vault-content>",
   ].join("\n")
 }
