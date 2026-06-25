@@ -10,6 +10,14 @@
 
 
 
+
+## [0.23.8] — 2026-06-25
+
+### Documentation
+
+- **tools:** Fix TDQS regressions in vault_list_property_values, vault_search_by_property, vault_delete_note (#205)
+- Update CHANGELOG.md for v0.23.7
+
 ## [0.23.7] — 2026-06-25
 
 ### Documentation
