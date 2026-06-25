@@ -144,8 +144,8 @@ When to use: Exploring tag hierarchies or finding all notes with a specific tag,
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
-- tag is the bare tag name without a leading "#" ("project", not "#project").
-- exact (default false) does hierarchical prefix matching — the tag and all its children. Set true to match the exact tag only, excluding children.
+- tag is the bare tag name without a leading "#" ("project", not "#project"). Hierarchical tags use "/" separators ("project/vault-cortex").
+- tag + exact interact: with exact=false (default), "project" matches "project", "project/vault-cortex", "project/blog" — the match is prefix-based on the "/" separator, so "project" does NOT match "my-project" or "projects". Set exact=true to match only the literal tag, excluding children.
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
@@ -234,14 +234,16 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 Example: vault_recent_notes({ sort_by: "created", limit: 5 })
 
 When to use: Catching up on vault changes, finding recent work, or orienting after a break.
-Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder. Pair with vault_read_note to read a note you find here.
+Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
-Behavior: "modified" (default) sorts by filesystem mtime — any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits. "created" sorts by the frontmatter created property; notes without it sort last (not excluded), so a small limit may return only notes that have the property — increase limit or use "modified" for broader coverage.
+Parameters:
+- sort_by + limit interact: "modified" (default) uses filesystem mtime, so every note has a value and limit works predictably. "created" uses the frontmatter created property — notes without it sort last (not excluded), so a small limit may return only notes that have the property; increase limit or use "modified" for broader coverage.
+- "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of { path (string), title (string), tags (string[]), related (string[]), folder (string), type (string|null), created (ISO string|null — null when the property is missing), modified (ISO string), bytes (number — on-disk file size), leading_callout? ({ type, title, body }), additional_properties (object) }, sorted descending by chosen timestamp.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -388,8 +390,12 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
 
-When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are enumerated individually.
-Call vault_list_property_keys first to discover valid key names.
+When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names.
+
+Parameters:
+- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Array-valued properties (tags, related) are unpacked — each element is counted individually, so the sum of counts may exceed the note count.
+- folder + key interact: folder restricts counting to notes in that subtree, useful for comparing how a property is used across areas (e.g. vault_list_property_values({ key: "type", folder: "Projects" }) vs the whole vault).
+- limit (default 50) caps the values returned, sorted by count descending. High-cardinality keys like "title" or "created" may have hundreds of unique values — increase limit to see more.
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
@@ -440,13 +446,13 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles scalar properties (status: "active") and array properties (tags, related) — arrays match if any element equals the value. Matching is exact and case-sensitive; no matches returns an empty array, not an error.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
 
-When to use: Finding notes by metadata when you don't have a text query.
-Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
+When to use: Finding notes by metadata without a text query.
+Prefer vault_search when you also have text (it supports property filters). Prefer vault_search_by_tag for tag queries. Use vault_list_property_keys and vault_list_property_values to discover valid keys and values.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified.`,
       inputSchema: {
@@ -550,17 +556,17 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and assets a given note links to via outgoing [[wikilinks]] or [markdown](links). Each entry carries exists (boolean) and kind ("note"|"asset"): exists+note = readable via vault_read_note; exists+asset = non-markdown file (.canvas, image, PDF) in the vault; !exists+note = broken link. Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and assets a given note links to via outgoing [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; self-links are included.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 
-When to use: Navigating the graph forward, auditing broken links in one note, or checking what a note depends on before editing.
+When to use: Navigating the graph forward, auditing broken links in one note, or checking dependencies before editing.
 For incoming links (what links TO a note), use vault_get_backlinks.
 
-Errors:
-- A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
+Parameters:
+- path is matched against the search index, so the note must be indexed (file watcher processes new/moved files within seconds). A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. bytes is null for broken links and assets.`,
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"asset"): exists+note = readable via vault_read_note; exists+asset = non-markdown file (.canvas, image, PDF); !exists+note = broken link. bytes is null for broken links and assets.`,
       inputSchema: {
         path: z
           .string()

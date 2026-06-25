@@ -378,10 +378,12 @@ Returns: Confirmation message.`,
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large multi-line block without re-quoting it, prefer vault_delete_span — it references the block by short anchors instead of echoing the full old_text.
-To relocate content between headings, use vault_replace_in_note to remove from the source (new_text=""), then vault_patch_note to append at the target. Read the note first with vault_read_note to confirm exact text.
+To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text). To relocate content between headings, remove from source (new_text="") then vault_patch_note to append at the target.
 
-Limitation: Exact text match only (no regex). old_text must appear in the note body or an error is returned.
+Parameters:
+- old_text is matched in the body only — frontmatter properties are never searched. Include enough surrounding context to ensure uniqueness when the target text appears in multiple places.
+- old_text + new_text together determine the operation: a non-empty new_text is an edit; an empty new_text ("") is a deletion. No regex — exact text only.
+- replace_all_occurrences (default false) replaces only the first match — a safety default when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
@@ -461,23 +463,23 @@ Returns: Confirmation message with replacement count (number of occurrences repl
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing it with short anchor substrings — no need to reproduce the full block text. More reliable than vault_replace_in_note for large blocks (a short fragment can't drift). Case-sensitive matching. Properties are preserved; operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Case-sensitive matching. Properties are preserved; operates on the body only.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
-Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes the multi-line block from the line containing the start anchor through the line containing the end anchor.
+Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
-When to use: Removing a block you have already read — a single long line (e.g. a wide table row) or a multi-line block (a callout, a run of list items) — where reproducing it exactly as old_text would be error-prone or wasteful. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
-Prefer vault_replace_in_note for small in-place edits or renames where sending old_text is fine, and for replacing text (this tool only deletes). To replace a block, delete it here, then vault_patch_note (append/prepend by heading) to add the new content.
+When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
+Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, delete it here, then vault_patch_note to add the new content.
 
-Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. An anchor locates a line; the entire line is removed regardless of where the anchor matches — it never cuts mid-line.
-Matching: end_anchor is searched at or after the start line, so the span can never run backward. By default each anchor must match exactly one line; on a tie, pass first_match to take the first. After deletion, runs of blank lines are collapsed so no gap is left.
+Parameters:
+- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
+- end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
+- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring. Blank-line runs left by the deletion are collapsed automatically.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous anchor" — matches multiple lines; use a longer fragment or set first_match: true
-
-Obsidian syntax: Anchors match literal text, not regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear in the source.
 
 Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
       inputSchema: {
@@ -607,19 +609,18 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). Recovery depends on backups or sync history. After deletion, links to it from other notes become broken (detectable via vault_get_outgoing_links). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused.
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, incoming links from other notes become broken (detectable via vault_get_backlinks on the deleted path, or vault_find_orphans for a vault-wide scan).
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
-Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
+Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also removes empty parent folders.
 
-When to use: Removing a note you no longer need.${config.memoryEnabled ? `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.` : ""}
-
-Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be.
+When to use: Removing a note you no longer need.${config.memoryEnabled ? ` Prefer vault_delete_memory for individual dated entries in ${config.memoryDir}/ files.` : ""}
+Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused. With prune_empty_folders, pruning is best-effort — it never fails the call even if a folder can't be removed.
 
 Errors:
-- "cannot delete protected path …" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
-- "path traversal blocked" — path escapes the vault root; use a vault-relative path
-- note does not exist — verify the path with vault_list_notes before deleting
+- "cannot delete protected path …" — path under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
+- "path traversal blocked" — path escapes the vault root
+- note does not exist — verify with vault_list_notes
 
 Returns: Confirmation message, noting how many empty folders were pruned when any were.`,
       inputSchema: {
