@@ -11,6 +11,18 @@
 
 
 
+
+## [0.23.9] — 2026-06-25
+
+### Documentation
+
+- **tools:** Revert vault_delete_note to 4.9-era TDQS structure (#208)
+- Update CHANGELOG.md for v0.23.8
+
+### Other Changes
+
+- Lightsail 4GB upgrade + Phase 2 deploy workflow (#207)
+
 ## [0.23.8] — 2026-06-25
 
 ### Documentation
