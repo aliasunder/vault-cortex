@@ -782,20 +782,18 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Pass null as a value to delete that key. Body content is never modified.
+      description: `Update a note's frontmatter properties via shallow merge — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Body is never modified.
 
-Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } }) — sets status and deletes the draft key.
+Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 
-Read current properties first with vault_read_note({ properties_only: true }) — merge overwrites each key entirely (arrays are replaced, not appended to). Deleting the last remaining property removes the frontmatter block entirely.
-
-When to use: Changing tags, status, type, or any property without reading/rewriting the full note body. Saves tokens on large notes.
-Prefer vault_write_note when creating a new note or replacing the body.
+When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
+Prefer vault_write_note when creating a new note or replacing the body. Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
 
-Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"). Keep property types consistent (mismatches cause silent query failures).
+Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {

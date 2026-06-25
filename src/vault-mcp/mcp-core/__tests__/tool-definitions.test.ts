@@ -148,7 +148,7 @@ describe("registerTools", () => {
 
   it("vault_update_properties description documents null-deletes-key contract", () => {
     const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
-    expect(config.description).toContain("null as a value to delete")
+    expect(config.description).toContain("null deletes a key")
   })
 
   it("vault_write_note description documents null-deletes-key contract", () => {
