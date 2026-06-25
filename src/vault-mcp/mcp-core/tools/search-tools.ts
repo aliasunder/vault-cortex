@@ -246,15 +246,11 @@ Returns: JSON array of { path (string), title (string), tags (string[]), related
         sort_by: z
           .enum(["created", "modified"])
           .optional()
-          .describe(
-            '"created" or "modified" (default). "modified" uses filesystem mtime (any write, including sync, updates it). "created" uses the frontmatter created property — notes without it sort last; pair with a higher limit to include them.',
-          ),
+          .describe('Sort order (default "modified")'),
         limit: z
           .number()
           .optional()
-          .describe(
-            "Max results (default 20, no upper cap). Example: limit: 5 returns the top 5 by chosen timestamp.",
-          ),
+          .describe("Max results (default 20, no upper cap)"),
       },
       annotations: {
         readOnlyHint: true,
