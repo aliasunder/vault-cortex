@@ -357,9 +357,9 @@ a tunnel or reverse proxy (e.g., Cloudflare Tunnel), then set
 tokens never travel in plaintext on any network segment — all traffic is
 HTTPS end-to-end. See [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
-**Optional: restrict SSH.** Set `SSH_CIDRS=none` to remove port 22 from the
-Lightsail firewall and reach the instance exclusively via a Tailscale
-WireGuard mesh (Tailscale traffic bypasses the public-IP firewall). See
+**Optional: restrict SSH.** Set `SSH_CIDRS=none` to block public SSH and
+reach the instance exclusively via a Tailscale WireGuard mesh (Tailscale
+traffic bypasses the public-IP firewall). See
 [`DEPLOY.md`](./DEPLOY.md#ssh-hardening-with-tailscale-optional).
 
 **Optional: custom domain.** Set `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`
