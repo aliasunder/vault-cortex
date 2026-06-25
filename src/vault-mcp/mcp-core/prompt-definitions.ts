@@ -182,10 +182,18 @@ const capContent = (
     ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters — use ${toolHint} for the full content)`
     : text
 
+/** Escapes any closing `</vault-content>` tag in the body so an attacker who
+ *  controls vault content cannot break out of the data-marker boundary. The
+ *  slash is HTML-entity-escaped (`&#x2F;`), preserving readability while making
+ *  the closing tag syntactically inert to an LLM parsing XML structure. */
+const escapeVaultContentClosingTag = (text: string): string =>
+  text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
+
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
  *  not instruction — defense-in-depth for shared/synced vault scenarios. The cap
  *  (via capContent) is applied to the inner content; the opening and closing tags
- *  always survive truncation.
+ *  always survive truncation. Any `</vault-content>` in the body is escaped to
+ *  prevent tag-breakout injection.
  *  @param content — raw vault text to wrap
  *  @param markerAttributes — key-value pairs rendered as XML attributes on the
  *    opening tag (source, type, date) to identify the content's origin
@@ -205,7 +213,7 @@ const wrapWithDataMarkers = (
     .join(" ")
   return [
     `<vault-content ${attributeString}>`,
-    capContent(content, maxChars, toolHint),
+    escapeVaultContentClosingTag(capContent(content, maxChars, toolHint)),
     "</vault-content>",
   ].join("\n")
 }
