@@ -1256,28 +1256,38 @@ export const createSearchIndex = (dbPath: string) => {
     _params: Record<string, never>,
     logger: Logger,
   ): number => {
-    const sql = `
-      SELECT DISTINCT target
-      FROM links
-      WHERE target NOT IN (SELECT path FROM notes)
-        AND target NOT IN (SELECT path FROM non_md_files)
-    `
-    const brokenTargets = db.prepare(sql).all() as Array<{ target: string }>
-
     const exclusion = dailyNoteExclusion
-    const count =
-      exclusion !== null
-        ? brokenTargets.filter(
-            (row) => !isDailyNoteDateTarget(row.target, exclusion),
-          ).length
-        : brokenTargets.length
+
+    if (exclusion === null) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT target) as count
+           FROM links
+           WHERE target NOT IN (SELECT path FROM notes)
+             AND target NOT IN (SELECT path FROM non_md_files)`,
+        )
+        .get() as { count: number }
+      logger.info("broken link count", { count: row.count })
+      return row.count
+    }
+
+    const brokenTargets = db
+      .prepare(
+        `SELECT DISTINCT target
+         FROM links
+         WHERE target NOT IN (SELECT path FROM notes)
+           AND target NOT IN (SELECT path FROM non_md_files)`,
+      )
+      .all() as Array<{ target: string }>
+
+    const count = brokenTargets.filter(
+      (row) => !isDailyNoteDateTarget(row.target, exclusion),
+    ).length
 
     logger.info("broken link count", {
       count,
-      ...(exclusion !== null && {
-        dailyNoteFolder: exclusion.folder,
-        excludedForwardRefs: brokenTargets.length - count,
-      }),
+      dailyNoteFolder: exclusion.folder,
+      excludedForwardRefs: brokenTargets.length - count,
     })
     return count
   }
