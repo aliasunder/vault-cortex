@@ -121,7 +121,7 @@ export default $config({
     })
 
     // ── Lightsail ─────────────────────────────────────────────────
-    // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
+    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
@@ -137,11 +137,10 @@ export default $config({
     //
     // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
     //            normally replace the instance. With protect:true,
-    //            Pulumi refuses and the deploy fails loudly. To
-    //            intentionally replace (e.g. bundle upgrade for
-    //            Phase 2), see the "Intentional replace" section
-    //            of RECOVERY.md — unprotect via state command,
-    //            deploy, then it re-protects on next regular deploy.
+    //            Pulumi refuses and the deploy fails loudly. For
+    //            bundle upgrades, use a snapshot-based upgrade
+    //            (preserves all state) then reconcile SST state
+    //            afterward — see RECOVERY.md.
     // GOTCHA #2: The deploy-key convention above keeps keyPairName
     //            stable across local and CI deploys.
     // GOTCHA #3: userData is visible via get-instance API/console.
@@ -152,8 +151,8 @@ export default $config({
       {
         name: `vault-cortex-${$app.stage}`,
         availabilityZone: `${awsRegion}a`,
-        blueprintId: "ubuntu_22_04",
-        bundleId: "small_3_0",
+        blueprintId: "ubuntu_24_04",
+        bundleId: "medium_3_0",
         keyPairName: keyPair.name,
         addOn: {
           type: "AutoSnapshot",
