@@ -172,7 +172,16 @@ export default $config({
         ].join("\n"),
         tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
       },
-      { protect: true, retainOnDelete: true },
+      {
+        protect: true,
+        retainOnDelete: true,
+        // Lightsail treats userData and blueprintId as create-time-only
+        // properties. Changing either triggers a full instance replacement
+        // (not an in-place update). After a snapshot-based bundle upgrade
+        // or an in-place OS update, these values in Pulumi state won't
+        // match the config — ignore them so deploys stay clean.
+        ignoreChanges: ["userData", "blueprintId"],
+      },
     )
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {
