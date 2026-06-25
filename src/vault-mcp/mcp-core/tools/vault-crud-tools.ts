@@ -609,7 +609,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, incoming links from other notes become broken (detectable via vault_get_outgoing_links).
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, incoming links from other notes become broken (detectable via vault_get_backlinks on the deleted path, or vault_find_orphans for a vault-wide scan).
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also removes empty parent folders.
