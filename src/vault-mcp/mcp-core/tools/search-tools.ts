@@ -390,12 +390,12 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
 
-When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names.
+When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.
 
 Parameters:
-- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Array-valued properties (tags, related) are unpacked — each element is counted individually, so the sum of counts may exceed the note count.
-- folder + key interact: folder restricts counting to notes in that subtree, useful for comparing how a property is used across areas (e.g. vault_list_property_values({ key: "type", folder: "Projects" }) vs the whole vault).
-- limit (default 50) caps the values returned, sorted by count descending. High-cardinality keys like "title" or "created" may have hundreds of unique values — increase limit to see more.
+- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Values are always strings — numeric and boolean properties are stringified for counting.
+- folder + key interact: folder restricts counting to a subtree, so the same key can return different value distributions depending on folder scope.
+- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Increase for high-cardinality keys like "title" or "created".
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
@@ -446,15 +446,20 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles scalar properties (status: "active") and array properties (tags, related) — arrays match if any element equals the value. Matching is exact and case-sensitive; no matches returns an empty array, not an error.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
 
-When to use: Finding notes by metadata without a text query.
-Prefer vault_search when you also have text (it supports property filters). Prefer vault_search_by_tag for tag queries. Use vault_list_property_keys and vault_list_property_values to discover valid keys and values.
+When to use: Finding notes by metadata when you don't have a text query.
+Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified.`,
+Parameters:
+- key + value are both exact and case-sensitive — no partial matching or globbing. All property values are compared as strings, so numeric or boolean properties must be passed as their string representation.
+- For array properties (tags, related), value is tested against each element individually (contains check) — "blog" matches a note with tags: ["blog", "draft"] but not tags: ["my-blog"].
+- folder narrows results to a subtree; omit for vault-wide search. Combined with key+value, this lets you check how a property is used within a specific area.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.`,
       inputSchema: {
         key: z
           .string()
