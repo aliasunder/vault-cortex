@@ -149,10 +149,13 @@ survive — only on-disk state carries over.
 7. Start Docker Compose and verify
 8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
    if the OS was upgraded in-place)
-9. Reconcile SST state: `sst state remove 'VaultCortexVm'`, then add
-   `import: "<instance-name>"` to the resource options, deploy once,
-   remove the import line, run `sst refresh`, deploy again
-10. Delete the old instance after verification
+9. Remove the old instance from SST state:
+   `sst state remove 'VaultCortexVm'`
+10. Import the new instance: add `import: "<instance-name>"` to the
+    resource options in `sst.config.ts`, then `sst deploy`
+11. Clean up the import: remove the `import` line, run `sst refresh`,
+    then `sst deploy` again to confirm a clean no-diff deploy
+12. Delete the old instance after verification
 
 If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
 use Path 1 from "Reconciling SST state" below to rename it back before
@@ -166,8 +169,7 @@ but destroys all on-disk state: installed packages, Docker volumes,
 Claude Code, etc.). Only use this if you don't have state worth preserving or
 you're comfortable re-provisioning from scratch.
 
-To intentionally replace (e.g. bundle upgrade from
-`small_3_0` 2 GB → `medium_3_0` 4 GB):
+To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
 
 ```bash
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago
