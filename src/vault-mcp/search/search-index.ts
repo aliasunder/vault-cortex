@@ -21,7 +21,7 @@ import {
  *  date in the configured format. These targets are Templater-generated
  *  navigation links (e.g. `[[Daily Notes/2026-06-25|Tomorrow >>]]`)
  *  pointing to dates where no note was created yet. */
-const isDailyNoteDateTarget = (
+export const isDailyNoteDateTarget = (
   target: string,
   exclusion: DailyNoteExclusion,
 ): boolean => {
