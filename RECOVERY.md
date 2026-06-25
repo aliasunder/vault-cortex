@@ -129,8 +129,47 @@ their next token refresh.
 ## Intentional replace (bundle upgrade, blueprint change, etc.)
 
 The `protect: true` seatbelt blocks any deploy that would replace the
-Instance. To intentionally replace (e.g. Phase 2 bundle upgrade from
-`small_3_0` 2 GB → `medium_3_0` 4 GB):
+Instance. Two approaches depending on how much state you want to preserve:
+
+### Option A — Snapshot-based upgrade (recommended)
+
+Preserves everything on disk: installed packages, Docker volumes,
+credentials, SSH keys. The new instance is an exact copy at a larger
+bundle. Running processes (tmux sessions, background jobs) do not
+survive — only on-disk state carries over.
+
+1. Stop Docker Compose (clean SQLite state for snapshot)
+2. Create a manual snapshot of the current instance
+3. Create a new instance from the snapshot at the larger bundle
+4. Swap the static IP to the new instance
+5. Open port 8000 on the new instance (Lightsail firewall rules don't
+   carry over from snapshots)
+6. If Tailscale is installed: reset state and re-authenticate (snapshot
+   restore creates a duplicate node key)
+7. Start Docker Compose and verify
+8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
+   if the OS was upgraded in-place)
+9. Remove the old instance from SST state:
+   `sst state remove 'VaultCortexVm'`
+10. Import the new instance: add `import: "<instance-name>"` to the
+    resource options in `sst.config.ts`, then `sst deploy`
+11. Clean up the import: remove the `import` line, run `sst refresh`,
+    then `sst deploy` again to confirm a clean no-diff deploy
+12. Delete the old instance after verification
+
+If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
+use Path 1 from "Reconciling SST state" below to rename it back before
+reconciling — avoids permanent state drift.
+
+### Option B — SST replace (clean provision)
+
+Provisions a fresh instance from the `userData` bootstrap script. Simpler
+but destroys all on-disk state: installed packages, Docker volumes,
+`/opt/vault-cortex/.env`, SSH keys, and any ad-hoc tools (Tailscale,
+Claude Code, etc.). Only use this if you don't have state worth preserving or
+you're comfortable re-provisioning from scratch.
+
+To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
 
 ```bash
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago

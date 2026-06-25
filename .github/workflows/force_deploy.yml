@@ -9,6 +9,10 @@ name: Force Deploy
 on:
   workflow_dispatch:
 
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
 # Top-level token is read-only; jobs declare their writes.
 permissions:
   contents: read

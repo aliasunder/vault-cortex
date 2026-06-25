@@ -121,7 +121,10 @@ export default $config({
     })
 
     // ── Lightsail ─────────────────────────────────────────────────
-    // small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD, 3 TB transfer, $12/mo.
+    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
+    // Phase 1 runs fine on small_3_0 (2 GB, $12/mo). Phase 2 (hybrid
+    // search with local embeddings) needs the extra RAM. To downgrade,
+    // change bundleId to "small_3_0" — no snapshot needed, just redeploy.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
@@ -137,11 +140,10 @@ export default $config({
     //
     // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
     //            normally replace the instance. With protect:true,
-    //            Pulumi refuses and the deploy fails loudly. To
-    //            intentionally replace (e.g. bundle upgrade for
-    //            Phase 2), see the "Intentional replace" section
-    //            of RECOVERY.md — unprotect via state command,
-    //            deploy, then it re-protects on next regular deploy.
+    //            Pulumi refuses and the deploy fails loudly. For
+    //            bundle upgrades, use a snapshot-based upgrade
+    //            (preserves all state) then reconcile SST state
+    //            afterward — see RECOVERY.md.
     // GOTCHA #2: The deploy-key convention above keeps keyPairName
     //            stable across local and CI deploys.
     // GOTCHA #3: userData is visible via get-instance API/console.
@@ -152,8 +154,8 @@ export default $config({
       {
         name: `vault-cortex-${$app.stage}`,
         availabilityZone: `${awsRegion}a`,
-        blueprintId: "ubuntu_22_04",
-        bundleId: "small_3_0",
+        blueprintId: "ubuntu_24_04",
+        bundleId: "medium_3_0",
         keyPairName: keyPair.name,
         addOn: {
           type: "AutoSnapshot",
@@ -173,7 +175,16 @@ export default $config({
         ].join("\n"),
         tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
       },
-      { protect: true, retainOnDelete: true },
+      {
+        protect: true,
+        retainOnDelete: true,
+        // Lightsail treats userData and blueprintId as create-time-only
+        // properties. Changing either triggers a full instance replacement
+        // (not an in-place update). After a snapshot-based bundle upgrade
+        // or an in-place OS update, these values in Pulumi state won't
+        // match the config — ignore them so deploys stay clean.
+        ignoreChanges: ["userData", "blueprintId"],
+      },
     )
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {

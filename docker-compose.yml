@@ -40,7 +40,7 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   vault-mcp:
-    image: ghcr.io/${GHCR_USER:?GHCR_USER required}/vault-mcp:latest
+    image: ghcr.io/${GHCR_USER:?GHCR_USER required}/vault-mcp:${VAULT_MCP_TAG:-latest}
     container_name: vault-mcp
     restart: unless-stopped
     depends_on:
