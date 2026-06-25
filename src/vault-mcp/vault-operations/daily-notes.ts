@@ -106,6 +106,64 @@ export const readDailyNotesConfig = async (
   return cachedConfig
 }
 
+// ── Templater-gated daily note exclusion ────────────────────────
+
+export type DailyNoteExclusion = {
+  folder: string
+  luxonFormat: string
+}
+
+/** Reads .obsidian/community-plugins.json and checks whether the
+ *  Templater community plugin is enabled. When it is, returns the
+ *  daily note folder and Luxon date format so callers can identify
+ *  Templater-generated forward-reference links (e.g. "Tomorrow >>")
+ *  and exclude them from broken-link counts. Returns null when
+ *  Templater is not enabled or the config cannot be read. */
+export const readDailyNoteExclusion = async (
+  vaultPath: string,
+): Promise<DailyNoteExclusion | null> => {
+  try {
+    const communityPluginsContent = await readFile(
+      join(vaultPath, ".obsidian", "community-plugins.json"),
+      "utf8",
+    )
+    const enabledPlugins = JSON.parse(communityPluginsContent) as unknown
+    if (
+      !Array.isArray(enabledPlugins) ||
+      !enabledPlugins.includes("templater-obsidian")
+    ) {
+      return null
+    }
+  } catch {
+    return null
+  }
+
+  const config = await readDailyNotesConfig(vaultPath)
+  return {
+    folder: config.folder,
+    luxonFormat: momentToLuxonFormat(config.format),
+  }
+}
+
+/** Checks whether a broken link target is a daily note date reference —
+ *  a path under the daily note folder whose basename parses as a valid
+ *  date in the configured format. These targets are Templater-generated
+ *  navigation links (e.g. `[[Daily Notes/2026-06-25|Tomorrow >>]]`)
+ *  pointing to dates where no note was created yet. */
+export const isDailyNoteDateTarget = (
+  target: string,
+  exclusion: DailyNoteExclusion,
+): boolean => {
+  const folderPrefix = `${exclusion.folder}/`
+  if (!target.startsWith(folderPrefix)) return false
+
+  const afterPrefix = target.slice(folderPrefix.length)
+  const basename = afterPrefix.endsWith(".md")
+    ? afterPrefix.slice(0, -3)
+    : afterPrefix
+  return DateTime.fromFormat(basename, exclusion.luxonFormat).isValid
+}
+
 // ── Path resolution + read ──────────────────────────────────────
 
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */

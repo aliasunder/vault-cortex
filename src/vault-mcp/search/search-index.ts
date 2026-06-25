@@ -9,6 +9,11 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
+import {
+  readDailyNoteExclusion,
+  isDailyNoteDateTarget,
+  type DailyNoteExclusion,
+} from "../vault-operations/daily-notes.js"
 
 // ── Type guards ─────────────────────────────────────────────────
 
@@ -293,6 +298,11 @@ export const createSearchIndex = (dbPath: string) => {
   if (!noteColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`)
   }
+
+  // Daily note folder exclusion for brokenLinkCount — set during
+  // rebuildFromVault when the Templater community plugin is enabled.
+  // Null until then (no exclusion applied).
+  let dailyNoteExclusion: DailyNoteExclusion | null = null
 
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
@@ -616,6 +626,8 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Drops the entire index and re-indexes every .md file in the vault. */
   const rebuildFromVault = async (vaultPath: string): Promise<number> => {
+    dailyNoteExclusion = await readDailyNoteExclusion(vaultPath)
+
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -1216,20 +1228,38 @@ export const createSearchIndex = (dbPath: string) => {
 
   /** Counts links whose targets exist in neither the notes table nor the
    *  non_md_files table — genuinely broken links. Resolved note links and
-   *  resolved asset links are both excluded. */
+   *  resolved asset links are both excluded. When the Templater community
+   *  plugin is enabled, daily note forward-reference links (valid date
+   *  targets under the daily note folder) are also excluded — they are
+   *  intentional "create on click" navigation, not genuinely broken. */
   const brokenLinkCount = (
     _params: Record<string, never>,
     logger: Logger,
   ): number => {
     const sql = `
-      SELECT COUNT(*) as count
+      SELECT DISTINCT target
       FROM links
       WHERE target NOT IN (SELECT path FROM notes)
         AND target NOT IN (SELECT path FROM non_md_files)
     `
-    const row = db.prepare(sql).get() as { count: number }
-    logger.info("broken link count", { count: row.count })
-    return row.count
+    const brokenTargets = db.prepare(sql).all() as Array<{ target: string }>
+
+    const exclusion = dailyNoteExclusion
+    const count =
+      exclusion !== null
+        ? brokenTargets.filter(
+            (row) => !isDailyNoteDateTarget(row.target, exclusion),
+          ).length
+        : brokenTargets.length
+
+    logger.info("broken link count", {
+      count,
+      ...(exclusion !== null && {
+        dailyNoteFolder: exclusion.folder,
+        excludedForwardRefs: brokenTargets.length - count,
+      }),
+    })
+    return count
   }
 
   /** Returns notes whose filesystem mtime falls within a calendar date
@@ -1280,12 +1310,20 @@ export const createSearchIndex = (dbPath: string) => {
     return row
   }
 
+  /** Sets the daily note exclusion used by brokenLinkCount to filter out
+   *  Templater-generated forward-reference links. Automatically called
+   *  during rebuildFromVault; exposed for testing. */
+  const setDailyNoteExclusion = (exclusion: DailyNoteExclusion): void => {
+    dailyNoteExclusion = exclusion
+  }
+
   return {
     upsertNote,
     removeNote,
     rebuildFromVault,
     upsertNonMdFile,
     removeNonMdFile,
+    setDailyNoteExclusion,
     fullTextSearch,
     searchByTag,
     searchByFolder,

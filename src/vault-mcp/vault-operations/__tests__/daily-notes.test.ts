@@ -67,6 +67,122 @@ describe("momentToLuxonFormat", () => {
   })
 })
 
+// ── isDailyNoteDateTarget ────────────────────────────────────────
+
+describe("isDailyNoteDateTarget", () => {
+  const defaultExclusion = { folder: "Daily Notes", luxonFormat: "yyyy-MM-dd" }
+
+  const scenarios = [
+    {
+      name: "returns true for a valid date under the daily note folder",
+      target: "Daily Notes/2026-06-25",
+      exclusion: defaultExclusion,
+      expected: true,
+    },
+    {
+      name: "returns true for a valid date with .md extension",
+      target: "Daily Notes/2026-06-25.md",
+      exclusion: defaultExclusion,
+      expected: true,
+    },
+    {
+      name: "returns false for a non-date basename",
+      target: "Daily Notes/random-text",
+      exclusion: defaultExclusion,
+      expected: false,
+    },
+    {
+      name: "returns false for a path outside the daily note folder",
+      target: "Projects/2026-06-25",
+      exclusion: defaultExclusion,
+      expected: false,
+    },
+    {
+      name: "handles a custom folder and format",
+      target: "Journal/25-06-2026",
+      exclusion: { folder: "Journal", luxonFormat: "dd-MM-yyyy" },
+      expected: true,
+    },
+    {
+      name: "rejects an invalid date even under the daily note folder",
+      target: "Daily Notes/2026-13-45",
+      exclusion: defaultExclusion,
+      expected: false,
+    },
+  ]
+
+  it.each(scenarios)("$name", async ({ target, exclusion, expected }) => {
+    const { isDailyNoteDateTarget } = await import("../daily-notes.js")
+    expect(isDailyNoteDateTarget(target, exclusion)).toBe(expected)
+  })
+})
+
+// ── readDailyNoteExclusion ──────────────────────────────────────
+
+describe("readDailyNoteExclusion", () => {
+  let vaultDir: string
+
+  beforeEach(async () => {
+    vi.resetModules()
+    vaultDir = await mkdtemp(join(tmpdir(), "daily-excl-test-"))
+    await mkdir(join(vaultDir, ".obsidian"), { recursive: true })
+  })
+
+  afterEach(async () => {
+    await rm(vaultDir, { recursive: true })
+  })
+
+  it("returns exclusion when Templater is enabled", async () => {
+    const { readDailyNoteExclusion } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "community-plugins.json"),
+      JSON.stringify(["templater-obsidian", "dataview"]),
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+      "utf8",
+    )
+
+    const exclusion = await readDailyNoteExclusion(vaultDir)
+    expect(exclusion).toEqual({ folder: "Journal", luxonFormat: "dd-MM-yyyy" })
+  })
+
+  it("returns null when Templater is not in the enabled list", async () => {
+    const { readDailyNoteExclusion } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "community-plugins.json"),
+      JSON.stringify(["dataview"]),
+      "utf8",
+    )
+
+    const exclusion = await readDailyNoteExclusion(vaultDir)
+    expect(exclusion).toBeNull()
+  })
+
+  it("returns null when community-plugins.json is missing", async () => {
+    const { readDailyNoteExclusion } = await import("../daily-notes.js")
+    const exclusion = await readDailyNoteExclusion(vaultDir)
+    expect(exclusion).toBeNull()
+  })
+
+  it("uses default daily note config when daily-notes.json is missing", async () => {
+    const { readDailyNoteExclusion } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "community-plugins.json"),
+      JSON.stringify(["templater-obsidian"]),
+      "utf8",
+    )
+
+    const exclusion = await readDailyNoteExclusion(vaultDir)
+    expect(exclusion).toEqual({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+  })
+})
+
 // ── readDailyNotesConfig ─────────────────────────────────────────
 
 describe("readDailyNotesConfig", () => {

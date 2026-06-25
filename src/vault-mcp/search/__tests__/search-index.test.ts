@@ -2361,6 +2361,68 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]!.exists).toBe(false)
     expect(outgoing[0]!.kind).toBe("note")
   })
+
+  it("excludes forward-reference links that are valid dates under the daily note folder", () => {
+    index.setDailyNoteExclusion({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("still counts broken links outside the daily note folder", () => {
+    index.setDailyNoteExclusion({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(2)
+  })
+
+  it("still counts non-date broken links inside the daily note folder", () => {
+    index.setDailyNoteExclusion({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[Daily Notes/random-text]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(1)
+  })
+
+  it("counts all broken links when no daily note exclusion is set", () => {
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(2)
+  })
 })
 
 // ── modifiedOnDate ──────────────────────────────────────────────

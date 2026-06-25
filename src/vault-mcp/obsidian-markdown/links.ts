@@ -30,6 +30,13 @@ const MD_LINK_RE =
  *  ignored. Global — use only with matchAll/replaceAll. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
+/** Matches Templater expressions so links inside template directives
+ *  (e.g. `<% tp.date.now("YYYY-MM-DD", 1, tp.file.title, "YYYY-MM-DD") %>`)
+ *  are not extracted as link targets. Covers all Templater run-mode variants:
+ *  `<%`  `<%+`  `<%*`  `<%-`  `<%_`  `<%~`. Single-line only — consistent
+ *  with INLINE_CODE_RE. Global — use only with matchAll/replaceAll. */
+const TEMPLATER_RE = /<%[-+*_~]?.*?%>/g
+
 /** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`].
  *  Anchored and non-global — safe for .exec(). */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
@@ -167,12 +174,17 @@ const extractFromBody = (content: string): string[] => {
     const withoutInlineCode = text.replace(INLINE_CODE_RE, (match) =>
       " ".repeat(match.length),
     )
+    // Replace Templater expressions with spaces so wikilink-like patterns
+    // inside directives (e.g. tp.file.title) are never extracted as targets.
+    const withoutTemplater = withoutInlineCode.replace(TEMPLATER_RE, (match) =>
+      " ".repeat(match.length),
+    )
 
-    for (const match of withoutInlineCode.matchAll(WIKILINK_RE)) {
+    for (const match of withoutTemplater.matchAll(WIKILINK_RE)) {
       const target = stripEscapedPipe(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
-    for (const match of withoutInlineCode.matchAll(MD_LINK_RE)) {
+    for (const match of withoutTemplater.matchAll(MD_LINK_RE)) {
       const target = safeDecodeURIComponent(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
