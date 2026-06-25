@@ -854,6 +854,7 @@ export const createSearchIndex = (dbPath: string) => {
       SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
       FROM notes n
       WHERE ${condition}
+      ORDER BY mtime DESC
       LIMIT ?
     `
 
@@ -905,7 +906,7 @@ export const createSearchIndex = (dbPath: string) => {
     logger: Logger,
   ): TagCount[] => {
     const sql = `
-      SELECT value as tag, COUNT(*) as count
+      SELECT value as tag, COUNT(DISTINCT notes.path) as count
       FROM notes, json_each(notes.tags)
       GROUP BY value
       ORDER BY count DESC

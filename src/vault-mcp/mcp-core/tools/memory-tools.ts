@@ -101,13 +101,13 @@ Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
 Prefer vault_write_note for creating non-memory notes.
 
-Behavior: Append-only by design — existing entries are never overwritten, and repeat calls add duplicate entries. When a preference or fact changes, append a new dated entry (newest wins; older entries stay as history); delete (vault_delete_memory) is only for entries that were wrong when written. A missing file or section is created automatically; if the section name omits "(newest first)" the server appends it when creating a new section ("Design preferences" becomes "Design preferences (newest first)"); an existing section is matched with or without the suffix. Creating a brand-new file also seeds a placeholder scope callout — the confirmation message nudges you to fill in its Contains/Does NOT contain via vault_patch_note so other agents know what belongs in the file.
+Behavior: Append-only — existing entries are never overwritten, and repeat calls add duplicates. When a preference changes, append a new dated entry (newest wins); use vault_delete_memory only for entries that were wrong when written. A missing file or section is created automatically; section names have "(newest first)" appended when creating a new section. Creating a new file seeds a placeholder scope callout — fill in its Contains/Does NOT contain via vault_patch_note so other agents know what belongs.
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
 - options.position — "top" (default, newest-first) inserts above existing entries; "bottom" appends below them.
 
-Obsidian syntax: Entry text renders as Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with backslash or backticks when unintentional.
+Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
 Errors:
 - "refusing memory write: … would shrink content from N to M bytes" — a safety guard blocked a write that would remove more than half of the existing file. An append should never shrink a file, so this signals the on-disk copy has diverged from what you expect (e.g. a stale/truncated server copy). Re-read with vault_get_memory or vault_read_note to confirm the current content before retrying.
@@ -122,7 +122,12 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        entry: z.string().min(1).describe("Entry text (no date prefix)"),
+        entry: z
+          .string()
+          .min(1)
+          .describe(
+            'Raw entry text — the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
+          ),
         options: z
           .object({
             date: z
@@ -233,7 +238,7 @@ Prefer vault_update_memory to supersede a changed entry; prefer vault_delete_not
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one bullet matched; the entry text is not unique within the section.
-- "refusing memory write: … would shrink content from N to M bytes" — a safety guard blocked a write that would remove more than half of the file. Removing a single entry should not halve a file with real content, so this signals the on-disk copy has diverged (e.g. a stale/truncated server copy). Re-read with vault_get_memory or vault_read_note to confirm current content before retrying.
+- "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.
 
 Returns: Confirmation message.`,
       inputSchema: {
@@ -245,10 +250,17 @@ Returns: Confirmation message.`,
           .describe(
             'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        date: z.string().min(1).describe("ISO YYYY-MM-DD date of the entry"),
+        date: z
+          .string()
+          .min(1)
+          .describe(
+            'ISO YYYY-MM-DD date of the entry (e.g. "2026-05-01"). Must match the date shown by vault_get_memory.',
+          ),
         entry: z
           .string()
-          .describe("Exact entry text (no date prefix or bullet)"),
+          .describe(
+            'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
+          ),
       },
       annotations: {
         readOnlyHint: false,
