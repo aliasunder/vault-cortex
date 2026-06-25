@@ -1174,6 +1174,7 @@ export const createSearchIndex = (dbPath: string) => {
       kind: "note" | "asset"
       bytes: number | null
     }>
+    // Snapshot the closure `let` so TypeScript can narrow it in the callback
     const folder = dailyNotesFolder
     const folderPrefix = folder !== null ? `${folder}/` : null
     const results: OutgoingLinkEntry[] = rows.map((row) => ({
@@ -1244,6 +1245,7 @@ export const createSearchIndex = (dbPath: string) => {
     _params: Record<string, never>,
     logger: Logger,
   ): BrokenLinkResult => {
+    // Snapshot the closure `let` so TypeScript can narrow it after the null check
     const folder = dailyNotesFolder
 
     if (folder === null) {
