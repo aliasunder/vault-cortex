@@ -263,10 +263,14 @@ export const registerPrompts = (params: {
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const brokenLinks = search.brokenLinkCount({}, reqLogger)
+        const brokenLinkResult = search.brokenLinkCount({}, reqLogger)
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
+        const brokenLinkSuffix =
+          brokenLinkResult.excludedCount > 0
+            ? ` (excludes ${brokenLinkResult.excludedCount} forward-ref${brokenLinkResult.excludedCount === 1 ? "" : "s"} in ${brokenLinkResult.excludedFolder}/)`
+            : ""
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
           ...(stats.untaggedNotes > 0
@@ -275,9 +279,13 @@ export const registerPrompts = (params: {
           ...(stats.noPropertiesNotes > 0
             ? [`${stats.noPropertiesNotes} without properties.`]
             : []),
-          ...(brokenLinks > 0
-            ? [`${brokenLinks} broken link${brokenLinks === 1 ? "" : "s"}.`]
-            : []),
+          ...(brokenLinkResult.count > 0
+            ? [
+                `${brokenLinkResult.count} broken link${brokenLinkResult.count === 1 ? "" : "s"}${brokenLinkSuffix}.`,
+              ]
+            : brokenLinkSuffix.length > 0
+              ? [`0 broken links${brokenLinkSuffix}.`]
+              : []),
         ].join(" ")
 
         const foldersSection =
@@ -366,7 +374,7 @@ export const registerPrompts = (params: {
           chars: text.length,
           memoryFiles: memoryFiles.length,
           orphanCount: orphans.length,
-          brokenLinks,
+          brokenLinks: brokenLinkResult.count,
         })
         return textResult(text)
       } catch (err) {

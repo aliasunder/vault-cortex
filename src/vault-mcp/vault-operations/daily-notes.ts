@@ -4,7 +4,6 @@ import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { describeError } from "../../utils/describe-error.js"
-import { readFileOrNull } from "../../utils/fs.js"
 
 // ── Moment.js → Luxon format conversion ────────────────────────
 
@@ -105,46 +104,6 @@ export const readDailyNotesConfig = async (
   }
 
   return cachedConfig
-}
-
-// ── Templater-gated daily note exclusion ────────────────────────
-
-export type DailyNoteExclusion = {
-  folder: string
-  luxonFormat: string
-}
-
-/** Reads .obsidian/community-plugins.json and checks whether the
- *  Templater community plugin is enabled. When it is, returns the
- *  daily note folder and Luxon date format so callers can identify
- *  Templater-generated forward-reference links (e.g. "Tomorrow >>")
- *  and exclude them from broken-link counts. Returns null when
- *  Templater is not enabled or the config cannot be read. */
-export const readDailyNoteExclusion = async (
-  vaultPath: string,
-): Promise<DailyNoteExclusion | null> => {
-  const communityPluginsContent = await readFileOrNull(
-    join(vaultPath, ".obsidian", "community-plugins.json"),
-  )
-  if (communityPluginsContent === null) return null
-
-  try {
-    const enabledPlugins = JSON.parse(communityPluginsContent) as unknown
-    if (
-      !Array.isArray(enabledPlugins) ||
-      !enabledPlugins.includes("templater-obsidian")
-    ) {
-      return null
-    }
-  } catch {
-    return null
-  }
-
-  const config = await readDailyNotesConfig(vaultPath)
-  return {
-    folder: config.folder,
-    luxonFormat: momentToLuxonFormat(config.format),
-  }
 }
 
 // ── Path resolution + read ──────────────────────────────────────
