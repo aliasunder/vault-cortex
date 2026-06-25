@@ -69,6 +69,10 @@ jobs:
           oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
+      # The IP is fetched from AWS rather than exposed as an SST output —
+      # SST prints outputs at the end of every deploy, which on a public
+      # repo means public Actions logs. The static-ip name matches
+      # sst.config.ts (`vault-cortex-ip-${stage}`).
       - name: Fetch Lightsail IP from AWS
         id: sst
         run: |
@@ -115,9 +119,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE }}:phase-2
-            ${{ env.IMAGE }}:latest
+          tags: ${{ env.IMAGE }}:phase-2
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
             index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults — plugin-free, 25 tools + 3 prompts, OAuth 2.1.
