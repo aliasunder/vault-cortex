@@ -616,6 +616,21 @@ describe("memory-review handler", () => {
     expect(closingTagCount).toBe(1)
   })
 
+  it("instruction text outside the data-marker wrapper contains no raw closing tag", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    // Strip the vault-content wrapper (opening through closing tag) to isolate
+    // instruction text — a raw </vault-content> in instructions would create the
+    // same LLM-visible ambiguity an attacker injection does.
+    const instructionText = text.replace(
+      /<vault-content[^>]*>[\s\S]*?<\/vault-content>/g,
+      "",
+    )
+    expect(instructionText).not.toContain("</vault-content>")
+  })
+
   it("returns full memory content when max_chars is omitted", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
@@ -776,6 +791,24 @@ describe("daily-review handler", () => {
     // Only the real wrapper closing tag remains
     const closingTagCount = (text.match(/<\/vault-content>/g) ?? []).length
     expect(closingTagCount).toBe(1)
+  })
+
+  it("instruction text outside the data-marker wrapper contains no raw closing tag", async () => {
+    const { vault, calls } = await setupVault()
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nNormal journal entry.\n",
+      "utf8",
+    )
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    const instructionText = text.replace(
+      /<vault-content[^>]*>[\s\S]*?<\/vault-content>/g,
+      "",
+    )
+    expect(instructionText).not.toContain("</vault-content>")
   })
 
   it("shows outgoing links when daily note has links", async () => {
