@@ -9,6 +9,14 @@
 
 
 
+
+## [0.23.7] — 2026-06-25
+
+### Documentation
+
+- **tools:** Improve TDQS scores for 10 sub-5.0 tools (#204)
+- Update CHANGELOG.md for v0.23.6
+
 ## [0.23.6] — 2026-06-25
 
 ### Documentation
