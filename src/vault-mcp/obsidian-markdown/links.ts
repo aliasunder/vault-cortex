@@ -170,15 +170,15 @@ const extractFromBody = (content: string): string[] => {
   for (const { text, inCode } of classifyLines(content)) {
     if (inCode) continue
 
-    const maskedLine = text
+    const linkExtractableLine = text
       .replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
       .replace(TEMPLATER_RE, (match) => " ".repeat(match.length))
 
-    for (const match of maskedLine.matchAll(WIKILINK_RE)) {
+    for (const match of linkExtractableLine.matchAll(WIKILINK_RE)) {
       const target = stripEscapedPipe(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
-    for (const match of maskedLine.matchAll(MD_LINK_RE)) {
+    for (const match of linkExtractableLine.matchAll(MD_LINK_RE)) {
       const target = safeDecodeURIComponent(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
