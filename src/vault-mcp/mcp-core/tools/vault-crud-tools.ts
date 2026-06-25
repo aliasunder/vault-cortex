@@ -609,18 +609,19 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). Recovery depends on backups or sync history. After deletion, links to it from other notes become broken — use vault_get_backlinks on the deleted path to find the notes that now contain broken links.
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${config.protectedPaths.map((p) => p + "/").join(", ")}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
-Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true })
+Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
-When to use: Removing a note you no longer need.${config.memoryEnabled ? ` Prefer vault_delete_memory for individual dated entries in ${config.memoryDir}/ files.` : ""}
+When to use: Removing a note you no longer need.${config.memoryEnabled ? `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.` : ""}
 
-Parameters:
-- path must be vault-relative and outside protected folders (${config.protectedPaths.map((protectedFolder) => protectedFolder + "/").join(", ")}). A non-existent path returns an error — verify with vault_list_notes first.
-- prune_empty_folders (default false) runs after the delete and walks up from the note's parent toward the vault root, removing each folder left empty. Pruning is best-effort — it never fails the call, so the note is always removed even if a folder can't be pruned.
+Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be.
 
-Errors: "cannot delete protected path"${config.memoryEnabled ? " (use vault_delete_memory for memory entries)" : ""}, "path traversal blocked" (path escapes vault root), or note not found.
+Errors:
+- "cannot delete protected path …" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
+- "path traversal blocked" — path escapes the vault root; use a vault-relative path
+- note does not exist — verify the path with vault_list_notes before deleting
 
 Returns: Confirmation message, noting how many empty folders were pruned when any were.`,
       inputSchema: {
