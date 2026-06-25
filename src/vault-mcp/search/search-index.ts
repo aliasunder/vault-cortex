@@ -9,7 +9,6 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
-
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
@@ -183,6 +182,10 @@ type OutgoingLinkEntry = {
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
   kind: "note" | "asset"
   bytes: number | null
+  /** True when the target is under the daily notes folder and the note
+   *  does not exist yet — a forward-reference ("create on click"
+   *  navigation), not a genuinely broken link. */
+  daily_note_forward_ref: boolean
 }
 
 // ── Link extraction ─────────────────────────────────────────────
@@ -293,6 +296,11 @@ export const createSearchIndex = (dbPath: string) => {
   if (!noteColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`)
   }
+
+  // Daily notes folder for forward-ref exclusion — broken links under
+  // this folder are treated as intentional "create on click" navigation.
+  // Set via setDailyNotesFolder from server.ts config; null until then.
+  let dailyNotesFolder: string | null = null
 
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
@@ -1167,12 +1175,19 @@ export const createSearchIndex = (dbPath: string) => {
       kind: "note" | "asset"
       bytes: number | null
     }>
+    // Snapshot the closure `let` so TypeScript can narrow it in the callback
+    const folder = dailyNotesFolder
+    const folderPrefix = folder !== null ? `${folder}/` : null
     const results: OutgoingLinkEntry[] = rows.map((row) => ({
       path: row.path,
       title: row.title,
       exists: row.exists_flag === 1,
       kind: row.kind,
       bytes: row.bytes ?? null,
+      daily_note_forward_ref:
+        row.exists_flag === 0 &&
+        folderPrefix !== null &&
+        row.path.startsWith(folderPrefix),
     }))
     logger.info("get outgoing links", {
       path: params.path,
@@ -1215,22 +1230,59 @@ export const createSearchIndex = (dbPath: string) => {
 
   // ── Aggregate queries ──────────────────────────────────────────
 
-  /** Counts links whose targets exist in neither the notes table nor the
-   *  non_md_files table — genuinely broken links. Resolved note links and
-   *  resolved asset links are both excluded. */
+  type BrokenLinkResult = {
+    count: number
+    excludedFolder: string | null
+    excludedCount: number
+  }
+
+  /** Counts unique broken link targets — links whose targets exist in
+   *  neither the notes table nor the non_md_files table. When a daily
+   *  notes folder is configured, broken links under that folder are
+   *  excluded — they are forward-references (intentional "create on
+   *  click" navigation), not genuinely broken. Returns the count plus
+   *  exclusion metadata so callers can communicate what was filtered. */
   const brokenLinkCount = (
     _params: Record<string, never>,
     logger: Logger,
-  ): number => {
-    const sql = `
-      SELECT COUNT(*) as count
-      FROM links
-      WHERE target NOT IN (SELECT path FROM notes)
-        AND target NOT IN (SELECT path FROM non_md_files)
-    `
-    const row = db.prepare(sql).get() as { count: number }
-    logger.info("broken link count", { count: row.count })
-    return row.count
+  ): BrokenLinkResult => {
+    // Snapshot the closure `let` so TypeScript can narrow it after the null check
+    const folder = dailyNotesFolder
+
+    if (folder === null) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(DISTINCT target) as count
+           FROM links
+           WHERE target NOT IN (SELECT path FROM notes)
+             AND target NOT IN (SELECT path FROM non_md_files)`,
+        )
+        .get() as { count: number }
+      logger.info("broken link count", { count: row.count })
+      return { count: row.count, excludedFolder: null, excludedCount: 0 }
+    }
+
+    const folderPrefix = `${folder}/`
+    const brokenTargets = db
+      .prepare(
+        `SELECT DISTINCT target
+         FROM links
+         WHERE target NOT IN (SELECT path FROM notes)
+           AND target NOT IN (SELECT path FROM non_md_files)`,
+      )
+      .all() as Array<{ target: string }>
+
+    const count = brokenTargets.filter(
+      (row) => !row.target.startsWith(folderPrefix),
+    ).length
+    const excludedCount = brokenTargets.length - count
+
+    logger.info("broken link count", {
+      count,
+      dailyNotesFolder: folder,
+      excludedForwardRefs: excludedCount,
+    })
+    return { count, excludedFolder: folder, excludedCount }
   }
 
   /** Returns notes whose filesystem mtime falls within a calendar date
@@ -1281,12 +1333,20 @@ export const createSearchIndex = (dbPath: string) => {
     return row
   }
 
+  /** Sets the daily notes folder used by brokenLinkCount and
+   *  getOutgoingLinks to identify forward-reference links. Called
+   *  from server.ts after reading the vault's daily notes config. */
+  const setDailyNotesFolder = (folder: string): void => {
+    dailyNotesFolder = folder
+  }
+
   return {
     upsertNote,
     removeNote,
     rebuildFromVault,
     upsertNonMdFile,
     removeNonMdFile,
+    setDailyNotesFolder,
     fullTextSearch,
     searchByTag,
     searchByFolder,

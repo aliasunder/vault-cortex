@@ -317,6 +317,33 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Real Link"])
   })
 
+  it("skips wikilink-like patterns inside Templater expressions", () => {
+    const content =
+      "[[Real Link]] and <% tp.file.include('[[Daily Template]]') %>"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link"])
+  })
+
+  it("skips links inside <%+ output expressions", () => {
+    const content =
+      "[[Before]] <%+ tp.file.include('[[Template]]') %> [[After]]"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Before", "After"])
+  })
+
+  it("handles multiple Templater expressions on one line", () => {
+    const content =
+      "<% tp.file.include('[[Header]]') %> [[Real]] <% tp.file.include('[[Footer]]') %>"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real"])
+  })
+
+  it("does not suppress links when <% has no closing %>", () => {
+    const content = "<% unclosed expression [[Real Link]]"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link"])
+  })
+
   it("excludes non-.md assets (images, PDFs)", () => {
     const targets = links.extractFromBody(
       "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",

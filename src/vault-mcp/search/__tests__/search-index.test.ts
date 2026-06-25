@@ -1559,7 +1559,7 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "missing-note")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by basename", async () => {
@@ -1582,7 +1582,7 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by exact path", async () => {
@@ -1607,7 +1607,7 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("does not match a folder-qualified target against a same-named file in a different folder", async () => {
@@ -1623,7 +1623,7 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("views/Inventory")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("does not let LIKE wildcards in the target match unrelated files", async () => {
@@ -1636,7 +1636,7 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
     await index.rebuildFromVault(vaultDir)
 
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by relative path", async () => {
@@ -1657,7 +1657,7 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("skips non-md files in hidden directories", async () => {
@@ -1669,7 +1669,7 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
     await index.rebuildFromVault(vaultDir)
 
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves explicit-extension wikilinks against the non-md file index", async () => {
@@ -1688,7 +1688,7 @@ describe("rebuildFromVault", () => {
     expect(asset!.kind).toBe("asset")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves an extensionless target to a note when both note and non-md file share the same base name", async () => {
@@ -1710,7 +1710,7 @@ describe("rebuildFromVault", () => {
     expect(outgoing[0]!.path).toBe("Report.md")
     expect(outgoing[0]!.kind).toBe("note")
     expect(outgoing[0]!.exists).toBe(true)
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 })
 
@@ -1830,6 +1830,33 @@ describe("getOutgoingLinks", () => {
     expect(existing!.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
     expect(broken!.bytes).toBeNull()
+  })
+
+  it("flags daily note forward-refs when exclusion is set", () => {
+    index.setDailyNotesFolder("Daily Notes")
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const links = index.getOutgoingLinks(
+      { path: "Daily Notes/2026-06-24.md" },
+      logger,
+    )
+    const forwardRef = links.find(
+      (link) => link.path === "Daily Notes/2026-06-25",
+    )
+    expect(forwardRef!.exists).toBe(false)
+    expect(forwardRef!.daily_note_forward_ref).toBe(true)
+
+    const genuinelyBroken = links.find((link) => link.path === "missing")
+    expect(genuinelyBroken!.exists).toBe(false)
+    expect(genuinelyBroken!.daily_note_forward_ref).toBe(false)
   })
 
   it("returns empty for notes with no outgoing links", () => {
@@ -2190,6 +2217,7 @@ describe("relative links (path from current file)", () => {
         exists: true,
         kind: "note",
         bytes: 100,
+        daily_note_forward_ref: false,
       },
     ])
   })
@@ -2215,7 +2243,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
   it("counts links to non-existent notes", () => {
@@ -2227,7 +2255,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(2)
+    expect(index.brokenLinkCount({}, logger).count).toBe(2)
   })
 
   it("counts only broken links, not resolved ones", () => {
@@ -2247,7 +2275,7 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("does not count escaped-pipe wikilinks as broken when the target note exists", () => {
@@ -2272,7 +2300,7 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]!.path).toBe("sessions/log-a.md")
     expect(outgoing[0]!.exists).toBe(true)
     expect(outgoing[0]!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
   it("does not count wikilinks to non-note assets as broken when files are registered", () => {
@@ -2298,7 +2326,7 @@ describe("brokenLinkCount", () => {
     const broken = outgoing.find((link) => link.path === "real-note")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
@@ -2319,7 +2347,7 @@ describe("brokenLinkCount", () => {
     const broken = outgoing.find((link) => link.path === "missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("upsertNonMdFile re-resolves previously unresolved links to non-md paths", () => {
@@ -2331,10 +2359,10 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
 
     index.upsertNonMdFile("Route.canvas")
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("Route.canvas")
@@ -2352,14 +2380,84 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger)).toBe(0)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
 
     index.removeNonMdFile("Route.canvas")
-    expect(index.brokenLinkCount({}, logger)).toBe(1)
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.exists).toBe(false)
     expect(outgoing[0]!.kind).toBe("note")
+  })
+
+  it("excludes forward-reference links that are valid dates under the daily note folder", () => {
+    index.setDailyNotesFolder("Daily Notes")
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+
+  it("excludes .md-suffixed forward-reference targets", () => {
+    index.setDailyNotesFolder("Daily Notes")
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25.md|Tomorrow >>]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("still counts broken links outside the daily note folder", () => {
+    index.setDailyNotesFolder("Daily Notes")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(2)
+  })
+
+  it("excludes all broken links under the daily notes folder, not just dates", () => {
+    index.setDailyNotesFolder("Daily Notes")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent:
+          "# Source\n\n[[Daily Notes/random-text]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.brokenLinkCount({}, logger)
+    expect(result.count).toBe(1)
+    expect(result.excludedCount).toBe(1)
+  })
+
+  it("counts all broken links when no daily note exclusion is set", () => {
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(2)
   })
 })
 

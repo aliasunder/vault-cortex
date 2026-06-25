@@ -271,10 +271,23 @@ export const registerPrompts = (params: {
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const brokenLinks = search.brokenLinkCount({}, reqLogger)
+        const brokenLinkResult = search.brokenLinkCount({}, reqLogger)
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
+        const {
+          count: brokenCount,
+          excludedFolder,
+          excludedCount,
+        } = brokenLinkResult
+        const excludedNote =
+          excludedCount > 0
+            ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
+            : ""
+        const brokenLinkSegment =
+          brokenCount > 0 || excludedNote.length > 0
+            ? `${brokenCount} broken link${brokenCount === 1 ? "" : "s"}${excludedNote.length > 0 ? ` (${excludedNote})` : ""}.`
+            : ""
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
           ...(stats.untaggedNotes > 0
@@ -283,9 +296,7 @@ export const registerPrompts = (params: {
           ...(stats.noPropertiesNotes > 0
             ? [`${stats.noPropertiesNotes} without properties.`]
             : []),
-          ...(brokenLinks > 0
-            ? [`${brokenLinks} broken link${brokenLinks === 1 ? "" : "s"}.`]
-            : []),
+          ...(brokenLinkSegment.length > 0 ? [brokenLinkSegment] : []),
         ].join(" ")
 
         const foldersSection =
@@ -374,7 +385,7 @@ export const registerPrompts = (params: {
           chars: text.length,
           memoryFiles: memoryFiles.length,
           orphanCount: orphans.length,
-          brokenLinks,
+          brokenLinks: brokenLinkResult.count,
         })
         return textResult(text)
       } catch (err) {
@@ -621,7 +632,9 @@ export const registerPrompts = (params: {
               )
             : `_No daily note exists at \`${daily.path}\` yet._`
 
-        const brokenLinks = outgoingLinks.filter((link) => !link.exists)
+        const brokenLinks = outgoingLinks.filter(
+          (link) => !link.exists && !link.daily_note_forward_ref,
+        )
         const outgoingSection =
           daily.exists && outgoingLinks.length > 0
             ? [
