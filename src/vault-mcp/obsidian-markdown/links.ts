@@ -174,8 +174,6 @@ const extractFromBody = (content: string): string[] => {
     const withoutInlineCode = text.replace(INLINE_CODE_RE, (match) =>
       " ".repeat(match.length),
     )
-    // Replace Templater expressions with spaces so wikilink-like patterns
-    // inside directives (e.g. tp.file.title) are never extracted as targets.
     const withoutTemplater = withoutInlineCode.replace(TEMPLATER_RE, (match) =>
       " ".repeat(match.length),
     )

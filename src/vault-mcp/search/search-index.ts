@@ -28,11 +28,11 @@ const isDailyNoteDateTarget = (
   const folderPrefix = `${exclusion.folder}/`
   if (!target.startsWith(folderPrefix)) return false
 
-  const afterPrefix = target.slice(folderPrefix.length)
-  const basename = afterPrefix.endsWith(".md")
-    ? afterPrefix.slice(0, -3)
-    : afterPrefix
-  return DateTime.fromFormat(basename, exclusion.luxonFormat).isValid
+  const pathAfterFolder = target.slice(folderPrefix.length)
+  const dateCandidate = pathAfterFolder.endsWith(".md")
+    ? pathAfterFolder.slice(0, -3)
+    : pathAfterFolder
+  return DateTime.fromFormat(dateCandidate, exclusion.luxonFormat).isValid
 }
 
 // ── Type guards ─────────────────────────────────────────────────
