@@ -8,6 +8,15 @@
 
 
 
+
+## [0.23.6] — 2026-06-25
+
+### Documentation
+
+- **arch:** Add SSH hardening cross-reference to Infrastructure section (#203)
+- **tools:** Fix vault_get_backlinks TDQS regression, improve 4 sub-5.0 tools (#202)
+- Update CHANGELOG.md for v0.23.5
+
 ## [0.23.5] — 2026-06-25
 
 ### Features
