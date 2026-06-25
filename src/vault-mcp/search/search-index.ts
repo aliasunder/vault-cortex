@@ -11,9 +11,29 @@ import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
 import {
   readDailyNoteExclusion,
-  isDailyNoteDateTarget,
   type DailyNoteExclusion,
 } from "../vault-operations/daily-notes.js"
+
+// ── Daily note forward-ref detection ────────────────────────────
+
+/** Checks whether a broken link target is a daily note date reference —
+ *  a path under the daily note folder whose basename parses as a valid
+ *  date in the configured format. These targets are Templater-generated
+ *  navigation links (e.g. `[[Daily Notes/2026-06-25|Tomorrow >>]]`)
+ *  pointing to dates where no note was created yet. */
+const isDailyNoteDateTarget = (
+  target: string,
+  exclusion: DailyNoteExclusion,
+): boolean => {
+  const folderPrefix = `${exclusion.folder}/`
+  if (!target.startsWith(folderPrefix)) return false
+
+  const afterPrefix = target.slice(folderPrefix.length)
+  const basename = afterPrefix.endsWith(".md")
+    ? afterPrefix.slice(0, -3)
+    : afterPrefix
+  return DateTime.fromFormat(basename, exclusion.luxonFormat).isValid
+}
 
 // ── Type guards ─────────────────────────────────────────────────
 

@@ -2379,6 +2379,23 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger)).toBe(1)
   })
 
+  it("excludes .md-suffixed forward-reference targets", () => {
+    index.setDailyNoteExclusion({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25.md|Tomorrow >>]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger)).toBe(0)
+  })
+
   it("still counts broken links outside the daily note folder", () => {
     index.setDailyNoteExclusion({
       folder: "Daily Notes",
