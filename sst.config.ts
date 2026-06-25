@@ -122,6 +122,9 @@ export default $config({
 
     // ── Lightsail ─────────────────────────────────────────────────
     // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
+    // Phase 1 runs fine on small_3_0 (2 GB, $12/mo). Phase 2 (hybrid
+    // search with local embeddings) needs the extra RAM. To downgrade,
+    // change bundleId to "small_3_0" — no snapshot needed, just redeploy.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
@@ -172,7 +175,16 @@ export default $config({
         ].join("\n"),
         tags: { Project: "vault-cortex", Stage: $app.stage, ManagedBy: "sst" },
       },
-      { protect: true, retainOnDelete: true },
+      {
+        protect: true,
+        retainOnDelete: true,
+        // Lightsail treats userData and blueprintId as create-time-only
+        // properties. Changing either triggers a full instance replacement
+        // (not an in-place update). After a snapshot-based bundle upgrade
+        // or an in-place OS update, these values in Pulumi state won't
+        // match the config — ignore them so deploys stay clean.
+        ignoreChanges: ["userData", "blueprintId"],
+      },
     )
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {
