@@ -469,18 +469,17 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a single long line (e.g. a wide table row) or a multi-line block (a callout, a run of list items) — where reproducing it exactly as old_text would be error-prone or wasteful. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor; you never paste the block itself.
 Prefer vault_replace_in_note for small in-place edits or renames where sending old_text is fine, and for replacing text (this tool only deletes). To replace a block, delete it here, then vault_patch_note (append/prepend by heading) to add the new content.
 
-Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. An anchor only locates a line; the entire line is removed regardless of where in it the anchor matches — it never cuts mid-line (prefer vault_replace_in_note for character-precise, in-place edits).
-Matching: end_anchor is searched at or after the start line, so the span can never run backward. By default each anchor must match exactly one line; on a tie, pass first_match to take the first. After deletion, runs of blank lines are collapsed so no gap is left. A trailing %% comment block (e.g. kanban:settings) is affected only if your anchors point into it.
+Anchoring: the span covers whole lines — from the line containing start_anchor through the line containing end_anchor (inclusive), or just that one line when end_anchor is omitted. An anchor locates a line; the entire line is removed regardless of where the anchor matches — it never cuts mid-line.
+Matching: end_anchor is searched at or after the start line, so the span can never run backward. By default each anchor must match exactly one line; on a tie, pass first_match to take the first. After deletion, runs of blank lines are collapsed so no gap is left.
 
 Errors:
-- "note not found" — path does not exist; check vault_list_notes for valid paths
-- "start anchor not found" / "end anchor not found ... at or after the start anchor" — the fragment is not on any (qualifying) line; verify exact text with vault_read_note
-- "ambiguous start anchor ... matches N lines" / "ambiguous end anchor ..." — the fragment is on more than one line; use a longer, unique fragment or set first_match: true
-- "start_anchor cannot be empty" / "end_anchor cannot be empty"
+- "note not found" — verify path with vault_list_notes
+- "anchor not found" — fragment not on any line; verify with vault_read_note
+- "ambiguous anchor" — matches multiple lines; use a longer fragment or set first_match: true
 
-Obsidian syntax: Anchors match literal text against the raw Markdown source, never regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear (verify with vault_read_note). This tool only removes content.
+Obsidian syntax: Anchors match literal text, not regex — match #tags, [[wikilinks|aliases]], and %% comments exactly as they appear in the source.
 
-Returns: Confirmation message with lines removed (number) and a truncated preview of the deleted text.`,
+Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
       inputSchema: {
         path: z
           .string()
@@ -782,20 +781,18 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update properties on a single note. Merges with existing properties — new keys are added, matching keys are overwritten, unmentioned keys are preserved. Pass null as a value to delete that key. Body content is never modified.
+      description: `Update a note's frontmatter properties via shallow merge — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Body is never modified.
 
-Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } }) — sets status and deletes the draft key.
+Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 
-Read current properties first with vault_read_note({ properties_only: true }) — merge overwrites each key entirely (arrays are replaced, not appended to). Deleting the last remaining property removes the frontmatter block entirely.
-
-When to use: Changing tags, status, type, or any property without reading/rewriting the full note body. Saves tokens on large notes.
-Prefer vault_write_note when creating a new note or replacing the body.
+When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
+Prefer vault_write_note when creating a new note or replacing the body. Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
 
-Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilink values ("[[Note]]"). Keep property types consistent (mismatches cause silent query failures).
+Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
       inputSchema: {

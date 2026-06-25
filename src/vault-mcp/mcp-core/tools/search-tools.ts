@@ -191,17 +191,14 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with their note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed separately). Each tag is listed as its full string — a hierarchical tag like "project/vault-cortex" appears as one entry, not split into parent segments. Count is unique notes, not occurrences within a note.
+      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences. A vault with no tagged notes returns an empty array.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.
 Prefer vault_search_by_tag once you know which tag to query — it supports hierarchical prefix matching ("project" matches "project/*").
 
-Errors:
-- A vault with no tagged notes returns an empty array, not an error.
-
-Returns: JSON array of { tag (string — without "#" prefix, e.g. "session-log"), count (number — unique notes with this tag) }, sorted by count descending.`,
+Returns: JSON array of { tag, count } sorted by count descending. tag omits the "#" prefix; count is unique notes with this tag.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -249,15 +246,11 @@ Returns: JSON array of { path (string), title (string), tags (string[]), related
         sort_by: z
           .enum(["created", "modified"])
           .optional()
-          .describe(
-            '"created" or "modified" (default). "modified" uses filesystem mtime (any write, including sync, updates it). "created" uses the frontmatter created property — notes without it sort last; pair with a higher limit to include them.',
-          ),
+          .describe('Sort order (default "modified")'),
         limit: z
           .number()
           .optional()
-          .describe(
-            "Max results (default 20, no upper cap). Example: limit: 5 returns the top 5 by chosen timestamp.",
-          ),
+          .describe("Max results (default 20, no upper cap)"),
       },
       annotations: {
         readOnlyHint: true,
@@ -447,7 +440,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags contains "project").
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -455,10 +448,7 @@ Example: vault_search_by_property({ key: "type", value: "session-log", folder: "
 When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
-Errors:
-- No matches returns an empty array, not an error.
-
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified.`,
       inputSchema: {
         key: z
           .string()
@@ -513,23 +503,23 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes that link to a given note via incoming [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; a note that links to itself appears in its own backlinks.
+      description: `Find all notes that link to a given note — captures [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 
-When to use: Understanding what references a note or assessing its connectivity.
+When to use: Understanding what references a note, assessing its connectivity before editing or deleting, or finding related notes via the graph.
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
 
-Errors:
-- A note with no inbound links, or a path not in the index, returns an empty array (count 0), not an error — don't use this as an existence check.
+Parameters:
+- path: exact vault-relative path including .md extension, case-sensitive. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.
 
-Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes }, sorted by title), and count. bytes is the on-disk file size.`,
+Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes } sorted by title), and count.`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (e.g. "Projects/vault-cortex.md")',
+            'Exact vault-relative path including .md extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
       },
       annotations: {
@@ -564,13 +554,13 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 
-When to use: Seeing what a note references, navigating the graph forward, or finding broken links in one note.
+When to use: Navigating the graph forward, auditing broken links in one note, or checking what a note depends on before editing.
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Errors:
 - A note with no outbound links, or a path not in the index, returns an empty array (count 0), not an error.
 
-Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, kind, bytes }, sorted by target path), and count. kind is "note" or "asset". bytes is the on-disk file size (null for broken links and assets).`,
+Returns: JSON with path (the queried note), outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. bytes is null for broken links and assets.`,
       inputSchema: {
         path: z
           .string()
