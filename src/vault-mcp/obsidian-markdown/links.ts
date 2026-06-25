@@ -170,19 +170,15 @@ const extractFromBody = (content: string): string[] => {
   for (const { text, inCode } of classifyLines(content)) {
     if (inCode) continue
 
-    // Replace inline code spans with spaces so links inside backticks are ignored.
-    const withoutInlineCode = text.replace(INLINE_CODE_RE, (match) =>
-      " ".repeat(match.length),
-    )
-    const withoutTemplater = withoutInlineCode.replace(TEMPLATER_RE, (match) =>
-      " ".repeat(match.length),
-    )
+    const maskedLine = text
+      .replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
+      .replace(TEMPLATER_RE, (match) => " ".repeat(match.length))
 
-    for (const match of withoutTemplater.matchAll(WIKILINK_RE)) {
+    for (const match of maskedLine.matchAll(WIKILINK_RE)) {
       const target = stripEscapedPipe(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
-    for (const match of withoutTemplater.matchAll(MD_LINK_RE)) {
+    for (const match of maskedLine.matchAll(MD_LINK_RE)) {
       const target = safeDecodeURIComponent(match[1]!.trim())
       if (target.length > 0) targets.add(target)
     }
