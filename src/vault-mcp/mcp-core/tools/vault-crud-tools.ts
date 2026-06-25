@@ -616,7 +616,7 @@ Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: t
 
 When to use: Removing a note you no longer need.${config.memoryEnabled ? `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.` : ""}
 
-Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be.
+Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.
 
 Errors:
 - "cannot delete protected path …" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
