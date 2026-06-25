@@ -613,7 +613,9 @@ export const registerPrompts = (params: {
               )
             : `_No daily note exists at \`${daily.path}\` yet._`
 
-        const brokenLinks = outgoingLinks.filter((link) => !link.exists)
+        const brokenLinks = outgoingLinks.filter(
+          (link) => !link.exists && !link.daily_note_forward_ref,
+        )
         const outgoingSection =
           daily.exists && outgoingLinks.length > 0
             ? [

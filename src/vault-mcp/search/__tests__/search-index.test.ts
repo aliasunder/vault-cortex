@@ -1836,6 +1836,36 @@ describe("getOutgoingLinks", () => {
     expect(broken!.bytes).toBeNull()
   })
 
+  it("flags daily note forward-refs when exclusion is set", () => {
+    index.setDailyNoteExclusion({
+      folder: "Daily Notes",
+      luxonFormat: "yyyy-MM-dd",
+    })
+    index.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-24.md",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const links = index.getOutgoingLinks(
+      { path: "Daily Notes/2026-06-24.md" },
+      logger,
+    )
+    const forwardRef = links.find(
+      (link) => link.path === "Daily Notes/2026-06-25",
+    )
+    expect(forwardRef!.exists).toBe(false)
+    expect(forwardRef!.daily_note_forward_ref).toBe(true)
+
+    const genuinelyBroken = links.find((link) => link.path === "missing")
+    expect(genuinelyBroken!.exists).toBe(false)
+    expect(genuinelyBroken!.daily_note_forward_ref).toBe(false)
+  })
+
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
       {
@@ -2194,6 +2224,7 @@ describe("relative links (path from current file)", () => {
         exists: true,
         kind: "note",
         bytes: 100,
+        daily_note_forward_ref: false,
       },
     ])
   })

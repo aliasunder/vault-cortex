@@ -4,6 +4,7 @@ import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { describeError } from "../../utils/describe-error.js"
+import { readFileOrNull } from "../../utils/fs.js"
 
 // ── Moment.js → Luxon format conversion ────────────────────────
 
@@ -122,11 +123,12 @@ export type DailyNoteExclusion = {
 export const readDailyNoteExclusion = async (
   vaultPath: string,
 ): Promise<DailyNoteExclusion | null> => {
+  const communityPluginsContent = await readFileOrNull(
+    join(vaultPath, ".obsidian", "community-plugins.json"),
+  )
+  if (communityPluginsContent === null) return null
+
   try {
-    const communityPluginsContent = await readFile(
-      join(vaultPath, ".obsidian", "community-plugins.json"),
-      "utf8",
-    )
     const enabledPlugins = JSON.parse(communityPluginsContent) as unknown
     if (
       !Array.isArray(enabledPlugins) ||

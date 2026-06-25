@@ -208,6 +208,10 @@ type OutgoingLinkEntry = {
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
   kind: "note" | "asset"
   bytes: number | null
+  /** True when the target is a daily note forward-reference — a valid date
+   *  under the daily note folder with no .md file yet (Templater-generated
+   *  "create on click" navigation). Only set when Templater is enabled. */
+  daily_note_forward_ref: boolean
 }
 
 // ── Link extraction ─────────────────────────────────────────────
@@ -1198,12 +1202,17 @@ export const createSearchIndex = (dbPath: string) => {
       kind: "note" | "asset"
       bytes: number | null
     }>
+    const exclusion = dailyNoteExclusion
     const results: OutgoingLinkEntry[] = rows.map((row) => ({
       path: row.path,
       title: row.title,
       exists: row.exists_flag === 1,
       kind: row.kind,
       bytes: row.bytes ?? null,
+      daily_note_forward_ref:
+        row.exists_flag === 0 &&
+        exclusion !== null &&
+        isDailyNoteDateTarget(row.path, exclusion),
     }))
     logger.info("get outgoing links", {
       path: params.path,
