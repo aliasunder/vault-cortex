@@ -417,21 +417,22 @@ const listNotes = async (
   const normalizedVault = resolve(params.vaultPath)
 
   const paths = entries
-    .reduce<string[]>((acc, entry) => {
-      if (
-        (!entry.isFile() && !entry.isSymbolicLink()) ||
-        !entry.name.endsWith(".md")
-      )
-        return acc
-      const rel = relative(normalizedVault, join(entry.parentPath, entry.name))
-      if (rel.split("/").some((seg) => seg.startsWith("."))) return acc
-      acc.push(rel)
-      return acc
-    }, [])
+    .filter(
+      (entry) =>
+        (entry.isFile() || entry.isSymbolicLink()) &&
+        entry.name.endsWith(".md"),
+    )
+    .map((entry) =>
+      relative(normalizedVault, join(entry.parentPath, entry.name)),
+    )
+    .filter(
+      (relativePath) =>
+        !relativePath.split("/").some((segment) => segment.startsWith(".")),
+    )
     .sort()
 
   const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch ? paths.filter((p) => isMatch(p)) : paths
+  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
 }
