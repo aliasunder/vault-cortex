@@ -12,6 +12,23 @@
 
 
 
+
+## [0.23.10] — 2026-06-26
+
+### Features
+
+- **tools:** Require the ".md" extension on note-path tool inputs (#209)
+
+### Documentation
+
+- Fix Remote access bullet anchor to point at Deployment Options (#212)
+- Update CHANGELOG.md for v0.23.9
+
+### Maintenance
+
+- **deps:** Bump node from `156b55f` to `a0b9bf0` (#210)
+- **deps-dev:** Bump the development group with 6 updates (#211)
+
 ## [0.23.9] — 2026-06-25
 
 ### Documentation
