@@ -572,7 +572,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote("Foo.md", "Bar.txt")).rejects.toThrow(
-      'note path must end in ".md" (received "Bar.txt")',
+      'path must end in ".md" (received "Bar.txt")',
     )
   })
 

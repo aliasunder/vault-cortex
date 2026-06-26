@@ -22,7 +22,7 @@ import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
-import { assertMarkdownPath } from "../../utils/assert-markdown-path.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import type { Logger } from "../../logger.js"
 
 /** Canonicalizes a path for the protected-path prefix check: converts Windows
@@ -191,7 +191,7 @@ const readNote = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<string> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
   if (content === null) {
@@ -230,7 +230,7 @@ const readNoteOutline = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<NoteOutline> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
   if (content === null) {
@@ -278,7 +278,7 @@ const readNoteSection = async (
   },
   logger: Logger,
 ): Promise<string> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
   if (content === null) {
@@ -299,7 +299,7 @@ const readNoteProperties = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<Record<string, unknown>> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
   if (content === null) {
@@ -319,7 +319,7 @@ const writeNote = async (
   },
   logger: Logger,
 ): Promise<void> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   await mkdir(dirname(fullPath), { recursive: true })
 
@@ -342,7 +342,7 @@ const updateProperties = async (
   },
   logger: Logger,
 ): Promise<void> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const existing = await readFileOrNull(fullPath)
   if (existing === null) {
@@ -376,7 +376,7 @@ const deleteNote = async (
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
-  assertMarkdownPath(params.path)
+  assertPathHasExtension(params.path, ".md")
   // Normalize before the protected-path check so a traversal path like
   // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
   // into a protected folder.

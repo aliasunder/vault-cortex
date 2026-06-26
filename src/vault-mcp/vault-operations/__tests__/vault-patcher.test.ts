@@ -173,7 +173,7 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("replaceInNote rejects a path without the .md extension", async () => {
@@ -182,7 +182,7 @@ describe("markdown path requirement", () => {
         { vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" },
         logger,
       ),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("deleteSpan rejects a path without the .md extension", async () => {
@@ -191,7 +191,7 @@ describe("markdown path requirement", () => {
         { vaultPath: vault, path: "Projects/Plan", startAnchor: "x" },
         logger,
       ),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 })
 

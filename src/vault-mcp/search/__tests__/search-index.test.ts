@@ -1472,14 +1472,14 @@ describe("searchByProperty", () => {
 describe("markdown path requirement", () => {
   it("getBacklinks rejects a path without the .md extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'note path must end in ".md" (received "Projects/Plan")',
+      'path must end in ".md" (received "Projects/Plan")',
     )
   })
 
   it("getOutgoingLinks rejects a path without the .md extension", () => {
     expect(() =>
       index.getOutgoingLinks({ path: "Projects/Plan" }, logger),
-    ).toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 })
 

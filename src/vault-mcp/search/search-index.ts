@@ -9,7 +9,7 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
-import { assertMarkdownPath } from "../../utils/assert-markdown-path.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
@@ -1121,7 +1121,7 @@ export const createSearchIndex = (dbPath: string) => {
     params: { path: string },
     logger: Logger,
   ): BacklinkEntry[] => {
-    assertMarkdownPath(params.path)
+    assertPathHasExtension(params.path, ".md")
     const sql = `
       SELECT n.path, n.title, n.bytes
       FROM links l
@@ -1154,7 +1154,7 @@ export const createSearchIndex = (dbPath: string) => {
     params: { path: string },
     logger: Logger,
   ): OutgoingLinkEntry[] => {
-    assertMarkdownPath(params.path)
+    assertPathHasExtension(params.path, ".md")
     const sql = `
       SELECT l.target as path,
              n.title,

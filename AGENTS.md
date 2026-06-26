@@ -405,9 +405,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
   `old_path`/`new_path` on move, `path` on backlinks/outgoing_links — require the
   full filename with extension; a bare `Projects/Plan` is rejected. Enforced by
-  the shared `assertMarkdownPath` util (`src/utils/assert-markdown-path.ts`),
-  called in the data-layer function each tool routes through (one rule, every
-  layer). Folder, glob, and memory-file (`file`) inputs are exempt.
+  the generic `assertPathHasExtension(path, ".md")` util
+  (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
+  each tool routes through (one rule, every layer). Folder, glob, and
+  memory-file (`file`) inputs are exempt.
 
 ### Test conventions
 

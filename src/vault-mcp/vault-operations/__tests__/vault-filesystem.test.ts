@@ -175,13 +175,13 @@ describe("markdown path requirement", () => {
   it("readNote rejects a path without the .md extension", async () => {
     await expect(
       readNote({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("writeNote rejects a path without the .md extension", async () => {
     await expect(
       writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("updateProperties rejects a path without the .md extension", async () => {
@@ -190,7 +190,7 @@ describe("markdown path requirement", () => {
         { vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } },
         logger,
       ),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("deleteNote rejects a path without the .md extension", async () => {
@@ -204,7 +204,7 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 })
 

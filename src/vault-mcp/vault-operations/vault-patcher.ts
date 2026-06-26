@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
-import { assertMarkdownPath } from "../../utils/assert-markdown-path.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import {
   parseHeadings,
   findHeading,
@@ -65,7 +65,7 @@ const readNoteForPatch = async (
   /** Raw on-disk file bytes — used for before/after size logging. */
   beforeBytes: number
 }> => {
-  assertMarkdownPath(path)
+  assertPathHasExtension(path, ".md")
   const fullPath = resolveSafePath(vaultPath, path)
   try {
     const fileContent = await readFile(fullPath, "utf8")
