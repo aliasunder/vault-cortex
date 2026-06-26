@@ -254,9 +254,12 @@ work with any vault out of the box.
 ### Privacy
 
 Your vault data stays on your machine (local setup) or your server (remote
-setup). Vault Cortex does not send data to any third party — the only
-external communication is between your MCP client and the vault-cortex
-container, secured by OAuth 2.1 or a static bearer token.
+setup). The vault-mcp container does not send vault content to third
+parties — data flows only between your MCP client and the container,
+secured by OAuth 2.1 or a static bearer token. Remote deployments that use
+Obsidian Sync include a separate obsidian-sync container that communicates
+with Obsidian's sync servers to keep your vault current — this is the same
+sync your Obsidian apps already use.
 
 The search index lives in the container's data volume. Memory files are
 regular notes in your vault folder — visible and editable in Obsidian.
@@ -292,16 +295,18 @@ table.
 
 **Vault CRUD** — `vault_read_note`, `vault_write_note`, `vault_patch_note`,
 `vault_replace_in_note`, `vault_delete_span`, `vault_list_notes`,
-`vault_delete_note`, `vault_move_note`, `vault_update_properties`
+`vault_delete_note`, `vault_move_note`
 
 **Search** — `vault_search`, `vault_search_by_tag`, `vault_search_by_folder`,
-`vault_recent_notes`, `vault_list_tags`, `vault_list_property_keys`,
-`vault_list_property_values`, `vault_search_by_property`
-
-**Links** — `vault_get_backlinks`, `vault_get_outgoing_links`,
-`vault_find_orphans`
+`vault_recent_notes`, `vault_list_tags`
 
 **Memory** — `vault_get_memory`, `vault_update_memory`,
 `vault_list_memory_files`, `vault_delete_memory`
+
+**Properties** — `vault_list_property_keys`, `vault_list_property_values`,
+`vault_search_by_property`, `vault_update_properties`
+
+**Links** — `vault_get_backlinks`, `vault_get_outgoing_links`,
+`vault_find_orphans`
 
 **Daily Notes** — `vault_get_daily_note`
