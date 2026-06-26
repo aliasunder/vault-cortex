@@ -61,7 +61,7 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
           .string()
           .min(1)
           .describe(
-            `Vault-relative path to the note (e.g. "${config.memoryEnabled ? `${config.memoryDir}/Principles.md` : "Projects/plan.md"}")`,
+            `Vault-relative path to the note, including the ".md" extension (e.g. "${config.memoryEnabled ? `${config.memoryDir}/Principles.md` : "Projects/plan.md"}")`,
           ),
         properties_only: z
           .boolean()
@@ -218,7 +218,7 @@ Returns: Confirmation message.`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path (e.g. "Projects/notes.md"). Parent folders are created as needed.',
+            'Vault-relative path including the ".md" extension (e.g. "Projects/notes.md"). Parent folders are created as needed.',
           ),
         body: z
           .string()
@@ -304,7 +304,7 @@ Returns: Confirmation message.`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (e.g. "TASKS.md", "Projects/plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "TASKS.md", "Projects/plan.md")',
           ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
@@ -398,7 +398,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (e.g. "Projects/plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")',
           ),
         old_text: z
           .string()
@@ -487,7 +487,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (e.g. "Tracker.md", "Notes/Plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Tracker.md", "Notes/Plan.md")',
           ),
         start_anchor: z
           .string()
@@ -628,7 +628,9 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
         path: z
           .string()
           .min(1)
-          .describe("Vault-relative path of the note to delete"),
+          .describe(
+            'Vault-relative path of the note to delete, including the ".md" extension',
+          ),
         prune_empty_folders: z
           .boolean()
           .optional()
@@ -798,7 +800,12 @@ Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilin
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().min(1).describe("Vault-relative path to the note"),
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note, including the ".md" extension',
+          ),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(

@@ -31,6 +31,7 @@ import { classifyLines } from "../obsidian-markdown/lines.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
 import { fileExists } from "../../utils/fs.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -408,11 +409,8 @@ const moveNote = async (
   if (oldPath === newPath) {
     throw new Error("source and destination are the same path")
   }
-  if (!oldPath.endsWith(".md") || !newPath.endsWith(".md")) {
-    throw new Error(
-      "vault_move_note only moves .md notes (paths must end in .md)",
-    )
-  }
+  assertPathHasExtension(oldPath, ".md")
+  assertPathHasExtension(newPath, ".md")
   if (isProtected(oldPath, protectedPaths)) {
     throw new Error(`cannot move protected path "${oldPath}"`)
   }
