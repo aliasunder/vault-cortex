@@ -664,6 +664,22 @@ describe("listNotes", () => {
     const files = await listNotes({ vaultPath: vault }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"])
   })
+
+  it("excludes a symlink whose target escapes the vault root", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
+    onTestFinished(async () => rm(outsideDir, { recursive: true }))
+    await writeFile(join(outsideDir, "secret.md"), "leaked", "utf8")
+    await symlink(join(outsideDir, "secret.md"), join(vault, "escape.md"))
+
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+  })
+
+  it("excludes a broken symlink without crashing", async () => {
+    await symlink("nonexistent/target.md", join(vault, "broken.md"))
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+  })
 })
 
 describe("readNoteProperties", () => {

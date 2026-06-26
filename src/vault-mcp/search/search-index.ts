@@ -1,6 +1,6 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-import { readFile, readdir, stat } from "node:fs/promises"
+import { readFile, readdir, realpath, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
@@ -635,10 +635,41 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM non_md_files")
 
     const normalizedVault = resolve(vaultPath)
-    const entries = await readdir(vaultPath, {
+    // Canonical vault root for symlink target comparison — realpath resolves
+    // platform symlinks (e.g. macOS /var → /private/var) that resolve() misses
+    const canonicalVault = await realpath(normalizedVault)
+    const allEntries = await readdir(vaultPath, {
       recursive: true,
       withFileTypes: true,
     })
+
+    // Validate symlink targets: exclude broken symlinks and those whose
+    // resolved target escapes the vault root (prevents directory traversal
+    // via a symlink planted inside the vault pointing to /etc/passwd etc.)
+    const entries = (
+      await Promise.all(
+        allEntries.map(async (entry) => {
+          if (!entry.isSymbolicLink()) return entry
+          const entryPath = join(entry.parentPath, entry.name)
+          try {
+            const targetPath = await realpath(entryPath)
+            if (!targetPath.startsWith(canonicalVault + "/")) {
+              logger.warn("symlink target escapes vault root, skipping", {
+                path: relative(normalizedVault, entryPath),
+              })
+              return null
+            }
+            return entry
+          } catch (error) {
+            logger.warn("broken symlink, skipping", {
+              path: relative(normalizedVault, entryPath),
+              error: describeError(error),
+            })
+            return null
+          }
+        }),
+      )
+    ).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
     // Filter directory entries to visible .md files, then load their content
     const markdownFiles = entries.reduce<

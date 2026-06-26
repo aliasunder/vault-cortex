@@ -7,6 +7,7 @@ import {
   link,
   rm,
   rmdir,
+  realpath,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
@@ -411,10 +412,37 @@ const listNotes = async (
   const searchRoot = params.folder
     ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
-  const entries = await readdirOrNull(searchRoot)
-  if (!entries) return []
+  const allEntries = await readdirOrNull(searchRoot)
+  if (!allEntries) return []
 
   const normalizedVault = resolve(params.vaultPath)
+  const canonicalVault = await realpath(normalizedVault)
+
+  // Validate symlink targets: exclude broken symlinks and those escaping the vault
+  const entries = (
+    await Promise.all(
+      allEntries.map(async (entry) => {
+        if (!entry.isSymbolicLink()) return entry
+        const entryPath = join(entry.parentPath, entry.name)
+        try {
+          const targetPath = await realpath(entryPath)
+          if (!targetPath.startsWith(canonicalVault + "/")) {
+            logger.warn("symlink target escapes vault root, skipping", {
+              path: relative(normalizedVault, entryPath),
+            })
+            return null
+          }
+          return entry
+        } catch (error) {
+          logger.warn("broken symlink, skipping", {
+            path: relative(normalizedVault, entryPath),
+            error: describeError(error),
+          })
+          return null
+        }
+      }),
+    )
+  ).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
   const paths = entries
     .filter(

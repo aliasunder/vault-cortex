@@ -1766,6 +1766,33 @@ describe("rebuildFromVault", () => {
     expect(asset!.exists).toBe(true)
     expect(asset!.kind).toBe("asset")
   })
+
+  it("skips a symlink whose target escapes the vault root", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
+    onTestFinished(async () => rm(outsideDir, { recursive: true }))
+    await writeFile(
+      join(outsideDir, "secret.md"),
+      "# Secret\n\nExternal content.\n",
+      "utf8",
+    )
+    await symlink(join(outsideDir, "secret.md"), join(vaultDir, "escape.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(2)
+
+    const results = index.fullTextSearch({ query: "external content" }, logger)
+    expect(results).toHaveLength(0)
+  })
+
+  it("skips a broken symlink without crashing the rebuild", async () => {
+    await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(2)
+
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(results).toHaveLength(1)
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────
