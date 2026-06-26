@@ -15,6 +15,7 @@ import {
   readFile,
   readdir,
   stat,
+  symlink,
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -656,6 +657,12 @@ describe("listNotes", () => {
     await writeFile(join(vault, "notes/z.md"), "z", "utf8")
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
+  })
+
+  it("includes a symlinked .md file in the listing", async () => {
+    await symlink("notes/a.md", join(vault, "sym.md"))
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"])
   })
 })
 

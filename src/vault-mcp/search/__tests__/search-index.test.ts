@@ -6,7 +6,7 @@ import {
   afterEach,
   onTestFinished,
 } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
@@ -1725,6 +1725,46 @@ describe("rebuildFromVault", () => {
     expect(outgoing[0]!.kind).toBe("note")
     expect(outgoing[0]!.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("indexes a symlinked .md file", async () => {
+    await mkdir(join(vaultDir, "real"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "real/original.md"),
+      "# Original\n\nSymlink target content.\n",
+      "utf8",
+    )
+    await symlink("real/original.md", join(vaultDir, "linked.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(4)
+
+    const results = index.fullTextSearch(
+      { query: "symlink target content" },
+      logger,
+    )
+    expect(results).toHaveLength(2)
+    const paths = results.map((result) => result.path).sort()
+    expect(paths).toEqual(["linked.md", "real/original.md"])
+  })
+
+  it("indexes a symlinked non-.md file for link resolution", async () => {
+    await mkdir(join(vaultDir, "boards"), { recursive: true })
+    await writeFile(join(vaultDir, "boards/real-board.canvas"), "{}", "utf8")
+    await symlink("boards/real-board.canvas", join(vaultDir, "Board.canvas"))
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Board]].\n",
+      "utf8",
+    )
+
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const asset = outgoing.find((link) => link.path === "Board.canvas")
+    expect(asset).toBeDefined()
+    expect(asset!.exists).toBe(true)
+    expect(asset!.kind).toBe("asset")
   })
 })
 

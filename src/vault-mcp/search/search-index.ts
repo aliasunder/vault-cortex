@@ -434,6 +434,7 @@ export const createSearchIndex = (dbPath: string) => {
   const indexNonMarkdownFiles = (
     entries: ReadonlyArray<{
       isFile: () => boolean
+      isSymbolicLink: () => boolean
       name: string
       parentPath: string
     }>,
@@ -441,7 +442,10 @@ export const createSearchIndex = (dbPath: string) => {
   ): number => {
     let filesIndexed = 0
     for (const directoryEntry of entries) {
-      if (!directoryEntry.isFile() || directoryEntry.name.endsWith(".md"))
+      if (
+        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
+        directoryEntry.name.endsWith(".md")
+      )
         continue
       const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
       const relativePath = relative(normalizedVault, absolutePath)
@@ -640,7 +644,10 @@ export const createSearchIndex = (dbPath: string) => {
     const markdownFiles = entries.reduce<
       { relativePath: string; absolutePath: string }[]
     >((filteredFiles, directoryEntry) => {
-      if (!directoryEntry.isFile() || !directoryEntry.name.endsWith(".md"))
+      if (
+        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
+        !directoryEntry.name.endsWith(".md")
+      )
         return filteredFiles
       const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
       const relativePath = relative(normalizedVault, absolutePath)

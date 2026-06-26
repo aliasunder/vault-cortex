@@ -418,7 +418,11 @@ const listNotes = async (
 
   const paths = entries
     .reduce<string[]>((acc, entry) => {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) return acc
+      if (
+        (!entry.isFile() && !entry.isSymbolicLink()) ||
+        !entry.name.endsWith(".md")
+      )
+        return acc
       const rel = relative(normalizedVault, join(entry.parentPath, entry.name))
       if (rel.split("/").some((seg) => seg.startsWith("."))) return acc
       acc.push(rel)
