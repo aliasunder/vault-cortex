@@ -60,6 +60,8 @@ deploy/                                # End-user quickstart (no clone needed)
     README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
+docs/                                  # User-facing guides (post-setup)
+  usage-guide.md                       #   What you can do with your vault through AI
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
