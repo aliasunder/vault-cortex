@@ -1793,6 +1793,19 @@ describe("rebuildFromVault", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
   })
+
+  it("skips a symlink whose target is a directory, not a file", async () => {
+    await mkdir(join(vaultDir, "realdir"), { recursive: true })
+    await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
+    await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(3)
+
+    const results = index.fullTextSearch({ query: "inner" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("realdir/inner.md")
+  })
 })
 
 // ── Link query methods ───────────────────────────────────────────

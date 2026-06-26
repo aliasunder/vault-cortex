@@ -8,6 +8,7 @@ import {
   rm,
   rmdir,
   realpath,
+  stat,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
@@ -409,14 +410,29 @@ const listNotes = async (
   params: { vaultPath: string; folder?: string; glob?: string },
   logger: Logger,
 ): Promise<string[]> => {
+  const normalizedVault = resolve(params.vaultPath)
+  const canonicalVault = await realpath(normalizedVault)
+
+  // Canonicalize the search root so a symlinked folder inside the vault
+  // can't redirect readdirOrNull to a directory outside the vault root.
+  // Validate with canonical paths, but read with the original so
+  // entry.parentPath stays consistent with normalizedVault for relative().
   const searchRoot = params.folder
     ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
+  const canonicalSearchRoot = await realpath(searchRoot).catch(() => searchRoot)
+  if (
+    canonicalSearchRoot !== canonicalVault &&
+    !canonicalSearchRoot.startsWith(canonicalVault + "/")
+  ) {
+    logger.warn("search root escapes vault root, skipping", {
+      folder: params.folder,
+    })
+    return []
+  }
+
   const allEntries = await readdirOrNull(searchRoot)
   if (!allEntries) return []
-
-  const normalizedVault = resolve(params.vaultPath)
-  const canonicalVault = await realpath(normalizedVault)
 
   // Validate symlink targets: exclude broken symlinks and those escaping the vault
   const entries = (
@@ -428,6 +444,13 @@ const listNotes = async (
           const targetPath = await realpath(entryPath)
           if (!targetPath.startsWith(canonicalVault + "/")) {
             logger.warn("symlink target escapes vault root, skipping", {
+              path: relative(normalizedVault, entryPath),
+            })
+            return null
+          }
+          const targetStat = await stat(targetPath)
+          if (!targetStat.isFile()) {
+            logger.warn("symlink target is not a file, skipping", {
               path: relative(normalizedVault, entryPath),
             })
             return null

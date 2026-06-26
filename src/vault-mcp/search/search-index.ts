@@ -659,6 +659,13 @@ export const createSearchIndex = (dbPath: string) => {
               })
               return null
             }
+            const targetStat = await stat(targetPath)
+            if (!targetStat.isFile()) {
+              logger.warn("symlink target is not a file, skipping", {
+                path: relative(normalizedVault, entryPath),
+              })
+              return null
+            }
             return entry
           } catch (error) {
             logger.warn("broken symlink, skipping", {
