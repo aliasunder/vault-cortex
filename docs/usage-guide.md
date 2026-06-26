@@ -258,7 +258,8 @@ setup). Vault Cortex does not send data to any third party — the only
 external communication is between your MCP client and the vault-cortex
 container, secured by OAuth 2.1 or a static bearer token.
 
-The search index and memory layer live inside the container's data volume.
+The search index lives in the container's data volume. Memory files are
+regular notes in your vault folder — visible and editable in Obsidian.
 
 ## Tips for getting better results
 
