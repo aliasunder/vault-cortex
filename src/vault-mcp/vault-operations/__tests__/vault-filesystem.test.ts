@@ -666,26 +666,51 @@ describe("listNotes", () => {
   })
 
   it("excludes a symlink whose target escapes the vault root", async () => {
+    // A valid internal symlink proves symlinks are listed —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("notes/a.md", join(vault, "valid-link.md"))
+
     const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
     onTestFinished(async () => rm(outsideDir, { recursive: true }))
     await writeFile(join(outsideDir, "secret.md"), "leaked", "utf8")
     await symlink(join(outsideDir, "secret.md"), join(vault, "escape.md"))
 
     const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+    expect(files).toEqual([
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+      "valid-link.md",
+    ])
   })
 
   it("excludes a broken symlink without crashing", async () => {
+    // A valid internal symlink proves symlinks are listed —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("notes/a.md", join(vault, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vault, "broken.md"))
     const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+    expect(files).toEqual([
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+      "valid-link.md",
+    ])
   })
 
   it("excludes a symlink whose target is a directory, not a file", async () => {
+    // A valid internal symlink proves symlinks are listed —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("notes/a.md", join(vault, "valid-link.md"))
     await mkdir(join(vault, "realdir"), { recursive: true })
     await symlink(join(vault, "realdir"), join(vault, "dirlink.md"))
     const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+    expect(files).toEqual([
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+      "valid-link.md",
+    ])
   })
 
   it("returns empty when folder is a symlink escaping the vault", async () => {

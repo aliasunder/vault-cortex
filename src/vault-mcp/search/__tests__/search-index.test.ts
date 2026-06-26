@@ -1761,13 +1761,17 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    const asset = outgoing.find((link) => link.path === "Board.canvas")
-    expect(asset).toBeDefined()
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]!.path).toBe("Board.canvas")
+    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]!.kind).toBe("asset")
   })
 
   it("skips a symlink whose target escapes the vault root", async () => {
+    // A valid internal symlink proves the system indexes symlinks —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("root.md", join(vaultDir, "valid-link.md"))
+
     const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
     onTestFinished(async () => rm(outsideDir, { recursive: true }))
     await writeFile(
@@ -1778,29 +1782,35 @@ describe("rebuildFromVault", () => {
     await symlink(join(outsideDir, "secret.md"), join(vaultDir, "escape.md"))
 
     const count = await index.rebuildFromVault(vaultDir)
-    expect(count).toBe(2)
+    expect(count).toBe(3) // 2 baseline + valid-link.md (escape.md filtered)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("skips a broken symlink without crashing the rebuild", async () => {
+    // A valid internal symlink proves the system indexes symlinks —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
     const count = await index.rebuildFromVault(vaultDir)
-    expect(count).toBe(2)
+    expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
   })
 
   it("skips a symlink whose target is a directory, not a file", async () => {
+    // A valid internal symlink proves the system indexes symlinks —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("root.md", join(vaultDir, "valid-link.md"))
     await mkdir(join(vaultDir, "realdir"), { recursive: true })
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
     const count = await index.rebuildFromVault(vaultDir)
-    expect(count).toBe(3)
+    expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
     expect(results).toHaveLength(1)
