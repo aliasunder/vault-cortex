@@ -399,6 +399,16 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   multi-word fields to match the wire format. Single-word fields
   (`path`, `title`, `count`) are the same in both conventions.
 
+### MCP path conventions
+
+- **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
+  note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
+  `old_path`/`new_path` on move, `path` on backlinks/outgoing_links — require the
+  full filename with extension; a bare `Projects/Plan` is rejected. Enforced by
+  the shared `assertMarkdownPath` util (`src/utils/assert-markdown-path.ts`),
+  called in the data-layer function each tool routes through (one rule, every
+  layer). Folder, glob, and memory-file (`file`) inputs are exempt.
+
 ### Test conventions
 
 - Tests read as a behavioral spec. One focused `it()` per

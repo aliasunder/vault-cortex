@@ -161,6 +161,40 @@ kanban-plugin: board
 
 // ── findTrailingCommentBlockStart (direct unit tests) ──────────
 
+describe("markdown path requirement", () => {
+  it("patchNote rejects a path without the .md extension", async () => {
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "Projects/Plan",
+          operation: "append",
+          content: "x",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("replaceInNote rejects a path without the .md extension", async () => {
+    await expect(
+      replaceInNote(
+        { vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" },
+        logger,
+      ),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("deleteSpan rejects a path without the .md extension", async () => {
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "Projects/Plan", startAnchor: "x" },
+        logger,
+      ),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+})
+
 describe("findTrailingCommentBlockStart", () => {
   it("returns 0 for empty input", () => {
     expect(findTrailingCommentBlockStart([])).toBe(0)

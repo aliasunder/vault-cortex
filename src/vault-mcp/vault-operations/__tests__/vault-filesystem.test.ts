@@ -142,7 +142,9 @@ describe("atomicWriteFileExclusive", () => {
 })
 
 describe("path traversal", () => {
-  it.each(["../escape", "../../etc/passwd", "foo/../../escape"])(
+  // Paths carry .md so they clear the markdown-path guard and reach the
+  // traversal check (the behavior under test).
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
     "readNote rejects %s",
     async (path) => {
       await expect(
@@ -151,7 +153,7 @@ describe("path traversal", () => {
     },
   )
 
-  it.each(["../escape", "../../etc/passwd", "foo/../../escape"])(
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
     "deleteNote rejects %s",
     async (path) => {
       await expect(
@@ -167,6 +169,43 @@ describe("path traversal", () => {
       ).rejects.toThrow("path traversal blocked")
     },
   )
+})
+
+describe("markdown path requirement", () => {
+  it("readNote rejects a path without the .md extension", async () => {
+    await expect(
+      readNote({ vaultPath: vault, path: "Projects/Plan" }, logger),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("writeNote rejects a path without the .md extension", async () => {
+    await expect(
+      writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("updateProperties rejects a path without the .md extension", async () => {
+    await expect(
+      updateProperties(
+        { vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } },
+        logger,
+      ),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("deleteNote rejects a path without the .md extension", async () => {
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "Projects/Plan",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow('note path must end in ".md" (received "Projects/Plan")')
+  })
 })
 
 describe("readNote", () => {
