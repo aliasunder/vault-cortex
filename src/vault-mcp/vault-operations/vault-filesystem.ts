@@ -8,12 +8,12 @@ import {
   rm,
   rmdir,
   realpath,
-  stat,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
 import {
   parseNote,
@@ -434,38 +434,14 @@ const listNotes = async (
   const allEntries = await readdirOrNull(searchRoot)
   if (!allEntries) return []
 
-  // Validate symlink targets: exclude broken symlinks and those escaping the vault
-  const entries = (
-    await Promise.all(
-      allEntries.map(async (entry) => {
-        if (!entry.isSymbolicLink()) return entry
-        const entryPath = join(entry.parentPath, entry.name)
-        try {
-          const targetPath = await realpath(entryPath)
-          if (!targetPath.startsWith(canonicalVault + "/")) {
-            logger.warn("symlink target escapes vault root, skipping", {
-              path: relative(normalizedVault, entryPath),
-            })
-            return null
-          }
-          const targetStat = await stat(targetPath)
-          if (!targetStat.isFile()) {
-            logger.warn("symlink target is not a file, skipping", {
-              path: relative(normalizedVault, entryPath),
-            })
-            return null
-          }
-          return entry
-        } catch (error) {
-          logger.warn("broken symlink, skipping", {
-            path: relative(normalizedVault, entryPath),
-            error: describeError(error),
-          })
-          return null
-        }
-      }),
-    )
-  ).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+  // Validate symlink targets: exclude broken symlinks, targets escaping
+  // the vault root, and targets that aren't regular files
+  const entries = await filterValidSymlinks(
+    allEntries,
+    canonicalVault,
+    normalizedVault,
+    logger.warn.bind(logger),
+  )
 
   const paths = entries
     .filter(

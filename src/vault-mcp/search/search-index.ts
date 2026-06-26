@@ -10,6 +10,7 @@ import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
@@ -643,40 +644,14 @@ export const createSearchIndex = (dbPath: string) => {
       withFileTypes: true,
     })
 
-    // Validate symlink targets: exclude broken symlinks and those whose
-    // resolved target escapes the vault root (prevents directory traversal
-    // via a symlink planted inside the vault pointing to /etc/passwd etc.)
-    const entries = (
-      await Promise.all(
-        allEntries.map(async (entry) => {
-          if (!entry.isSymbolicLink()) return entry
-          const entryPath = join(entry.parentPath, entry.name)
-          try {
-            const targetPath = await realpath(entryPath)
-            if (!targetPath.startsWith(canonicalVault + "/")) {
-              logger.warn("symlink target escapes vault root, skipping", {
-                path: relative(normalizedVault, entryPath),
-              })
-              return null
-            }
-            const targetStat = await stat(targetPath)
-            if (!targetStat.isFile()) {
-              logger.warn("symlink target is not a file, skipping", {
-                path: relative(normalizedVault, entryPath),
-              })
-              return null
-            }
-            return entry
-          } catch (error) {
-            logger.warn("broken symlink, skipping", {
-              path: relative(normalizedVault, entryPath),
-              error: describeError(error),
-            })
-            return null
-          }
-        }),
-      )
-    ).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    // Validate symlink targets: exclude broken symlinks, targets escaping
+    // the vault root, and targets that aren't regular files
+    const entries = await filterValidSymlinks(
+      allEntries,
+      canonicalVault,
+      normalizedVault,
+      logger.warn.bind(logger),
+    )
 
     // Filter directory entries to visible .md files, then load their content
     const markdownFiles = entries
