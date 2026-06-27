@@ -641,7 +641,9 @@ export const createSearchIndex = (dbPath: string) => {
       withFileTypes: true,
     })
 
-    // Validate symlink targets: exclude broken symlinks and non-file targets
+    // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
+    // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
+    // follow suit. Only broken symlinks and non-file targets are excluded.
     const entries = await filterValidSymlinks({
       entries: allEntries,
       normalizedRoot: normalizedVault,
