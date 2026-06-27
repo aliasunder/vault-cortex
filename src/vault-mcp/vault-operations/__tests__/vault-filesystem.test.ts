@@ -719,6 +719,10 @@ describe("listNotes", () => {
     await writeFile(join(outsideDir, "secret.md"), "leaked", "utf8")
     await symlink(outsideDir, join(vault, "escape-dir"))
 
+    // Verify the vault itself has notes (the empty result is the guard, not an empty vault)
+    const allNotes = await listNotes({ vaultPath: vault }, logger)
+    expect(allNotes.length).toBeGreaterThan(0)
+
     const files = await listNotes(
       { vaultPath: vault, folder: "escape-dir" },
       logger,

@@ -10,36 +10,36 @@ type SymlinkLogger = {
   warn: (message: string, meta: Record<string, unknown>) => void
 }
 
-export const filterValidSymlinks = async (
-  entries: ReadonlyArray<Dirent>,
-  canonicalRoot: string,
-  normalizedRoot: string,
-  logger: SymlinkLogger,
-): Promise<Dirent[]> =>
-  (
+export const filterValidSymlinks = async (params: {
+  entries: ReadonlyArray<Dirent>
+  roots: { canonical: string; normalized: string }
+  logger: SymlinkLogger
+}): Promise<Dirent[]> => {
+  const { entries, roots, logger } = params
+  return (
     await Promise.all(
       entries.map(async (entry) => {
         if (!entry.isSymbolicLink()) return entry
         const entryPath = join(entry.parentPath, entry.name)
         try {
           const targetPath = await realpath(entryPath)
-          if (!targetPath.startsWith(canonicalRoot + "/")) {
+          if (!targetPath.startsWith(roots.canonical + "/")) {
             logger.warn("symlink target escapes root, skipping", {
-              path: relative(normalizedRoot, entryPath),
+              path: relative(roots.normalized, entryPath),
             })
             return null
           }
           const targetStat = await stat(targetPath)
           if (!targetStat.isFile()) {
             logger.warn("symlink target is not a file, skipping", {
-              path: relative(normalizedRoot, entryPath),
+              path: relative(roots.normalized, entryPath),
             })
             return null
           }
           return entry
         } catch (error) {
           logger.warn("broken symlink, skipping", {
-            path: relative(normalizedRoot, entryPath),
+            path: relative(roots.normalized, entryPath),
             error: describeError(error),
           })
           return null
@@ -47,3 +47,4 @@ export const filterValidSymlinks = async (
       }),
     )
   ).filter((entry): entry is Dirent => entry !== null)
+}

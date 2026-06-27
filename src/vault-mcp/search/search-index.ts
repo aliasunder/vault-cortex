@@ -646,12 +646,11 @@ export const createSearchIndex = (dbPath: string) => {
 
     // Validate symlink targets: exclude broken symlinks, targets escaping
     // the vault root, and targets that aren't regular files
-    const entries = await filterValidSymlinks(
-      allEntries,
-      canonicalVault,
-      normalizedVault,
+    const entries = await filterValidSymlinks({
+      entries: allEntries,
+      roots: { canonical: canonicalVault, normalized: normalizedVault },
       logger,
-    )
+    })
 
     // Filter directory entries to visible .md files, then load their content
     const markdownFiles = entries

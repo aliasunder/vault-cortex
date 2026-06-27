@@ -1761,10 +1761,13 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault(vaultDir)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Board.canvas")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("asset")
+    expect(outgoing).toEqual([
+      expect.objectContaining({
+        path: "Board.canvas",
+        exists: true,
+        kind: "asset",
+      }),
+    ])
   })
 
   it("skips a symlink whose target escapes the vault root", async () => {
@@ -1813,8 +1816,7 @@ describe("rebuildFromVault", () => {
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("realdir/inner.md")
+    expect(results.map((result) => result.path)).toEqual(["realdir/inner.md"])
   })
 })
 
