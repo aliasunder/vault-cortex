@@ -152,7 +152,9 @@ Two rules keep this honest:
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
-bars:
+bars. `import type` from infrastructure modules (`Logger`, config types) is fine —
+type-only imports are erased at compile time and don't create runtime coupling.
+Don't reinvent a type with a structural stand-in when the real type exists:
 
 - **(1) It removes real duplication** — already called from more than one place
   (`describeError`, `readFileOrNull`).
