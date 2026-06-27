@@ -5,6 +5,9 @@ import type { Dirent } from "node:fs"
 import { realpath, stat } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { describeError } from "./describe-error.js"
+import { mapWithConcurrency } from "./map-with-concurrency.js"
+
+const SYMLINK_VALIDATION_CONCURRENCY = 16
 
 type SymlinkLogger = {
   warn: (message: string, meta: Record<string, unknown>) => void
@@ -17,8 +20,10 @@ export const filterValidSymlinks = async (params: {
 }): Promise<Dirent[]> => {
   const { entries, roots, logger } = params
   return (
-    await Promise.all(
-      entries.map(async (entry) => {
+    await mapWithConcurrency({
+      items: [...entries],
+      concurrency: SYMLINK_VALIDATION_CONCURRENCY,
+      mapper: async (entry) => {
         if (!entry.isSymbolicLink()) return entry
         const entryPath = join(entry.parentPath, entry.name)
         try {
@@ -44,7 +49,7 @@ export const filterValidSymlinks = async (params: {
           })
           return null
         }
-      }),
-    )
+      },
+    })
   ).filter((entry): entry is Dirent => entry !== null)
 }
