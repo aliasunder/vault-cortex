@@ -2,6 +2,7 @@ import {
   describe,
   it,
   expect,
+  vi,
   beforeEach,
   afterEach,
   onTestFinished,
@@ -11,7 +12,6 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
@@ -72,13 +72,16 @@ describe("schema creation", () => {
     expect(() => createSearchIndex(":memory:")).not.toThrow()
   })
 
-  it("loads the sqlite-vec extension", () => {
-    const db = new Database(":memory:")
-    sqliteVec.load(db)
-    const row = db.prepare("SELECT vec_version() AS version").get() as {
-      version: string
-    }
-    expect(row.version).toBe("v0.1.9")
+  it("factory calls sqliteVec.load during initialization", async () => {
+    vi.resetModules()
+    const mockLoad = vi.fn()
+    vi.doMock("sqlite-vec", () => ({ load: mockLoad }))
+    const { createSearchIndex: isolatedFactory } =
+      await import("../search-index.js")
+    isolatedFactory(":memory:")
+    expect(mockLoad).toHaveBeenCalledOnce()
+    vi.doUnmock("sqlite-vec")
+    vi.resetModules()
   })
 
   it("creates notes and notes_fts tables", () => {
