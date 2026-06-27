@@ -13,6 +13,17 @@
 
 
 
+
+## [0.23.11] — 2026-06-27
+
+### Bug Fixes
+
+- **search:** Include symlinked files in vault indexing and listing (#213)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.23.10
+
 ## [0.23.10] — 2026-06-26
 
 ### Features
