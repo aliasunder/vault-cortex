@@ -76,12 +76,14 @@ describe("schema creation", () => {
     vi.resetModules()
     const mockLoad = vi.fn()
     vi.doMock("sqlite-vec", () => ({ load: mockLoad }))
+    onTestFinished(() => {
+      vi.doUnmock("sqlite-vec")
+      vi.resetModules()
+    })
     const { createSearchIndex: isolatedFactory } =
       await import("../search-index.js")
     isolatedFactory(":memory:")
     expect(mockLoad).toHaveBeenCalledOnce()
-    vi.doUnmock("sqlite-vec")
-    vi.resetModules()
   })
 
   it("creates notes and notes_fts tables", () => {
