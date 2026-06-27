@@ -1,6 +1,3 @@
-/** Filters directory entries, excluding symlinks whose resolved targets are
- *  broken (dangling), escape the given root directory, or are not regular files. */
-
 import type { Dirent } from "node:fs"
 import { realpath, stat } from "node:fs/promises"
 import { join, relative } from "node:path"
@@ -10,6 +7,8 @@ import { mapWithConcurrency } from "./map-with-concurrency.js"
 
 const SYMLINK_VALIDATION_CONCURRENCY = 16
 
+/** Filters directory entries, excluding symlinks whose resolved targets are
+ *  broken (dangling), escape the given root directory, or are not regular files. */
 export const filterValidSymlinks = async (params: {
   entries: ReadonlyArray<Dirent>
   roots: { canonical: string; normalized: string }
