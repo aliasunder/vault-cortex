@@ -4,19 +4,16 @@
 import type { Dirent } from "node:fs"
 import { realpath, stat } from "node:fs/promises"
 import { join, relative } from "node:path"
+import type { Logger } from "../logger.js"
 import { describeError } from "./describe-error.js"
 import { mapWithConcurrency } from "./map-with-concurrency.js"
 
 const SYMLINK_VALIDATION_CONCURRENCY = 16
 
-type SymlinkLogger = {
-  warn: (message: string, meta: Record<string, unknown>) => void
-}
-
 export const filterValidSymlinks = async (params: {
   entries: ReadonlyArray<Dirent>
   roots: { canonical: string; normalized: string }
-  logger: SymlinkLogger
+  logger: Logger
 }): Promise<Dirent[]> => {
   const { entries, roots, logger } = params
   return (
