@@ -7,7 +7,6 @@ import {
   link,
   rm,
   rmdir,
-  realpath,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
@@ -410,35 +409,20 @@ const listNotes = async (
   params: { vaultPath: string; folder?: string; glob?: string },
   logger: Logger,
 ): Promise<string[]> => {
-  const normalizedVault = resolve(params.vaultPath)
-  const canonicalVault = await realpath(normalizedVault)
-
-  // Canonicalize the search root so a symlinked folder inside the vault
-  // can't redirect readdirOrNull to a directory outside the vault root.
-  // Validate with canonical paths, but read with the original so
-  // entry.parentPath stays consistent with normalizedVault for relative().
   const searchRoot = params.folder
     ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
-  const canonicalSearchRoot = await realpath(searchRoot).catch(() => searchRoot)
-  if (
-    canonicalSearchRoot !== canonicalVault &&
-    !canonicalSearchRoot.startsWith(canonicalVault + "/")
-  ) {
-    logger.warn("search root escapes vault root, skipping", {
-      folder: params.folder,
-    })
-    return []
-  }
-
   const allEntries = await readdirOrNull(searchRoot)
   if (!allEntries) return []
 
-  // Validate symlink targets: exclude broken symlinks, targets escaping
-  // the vault root, and targets that aren't regular files
+  const normalizedVault = resolve(params.vaultPath)
+
+  // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
+  // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
+  // follow suit. Only broken symlinks and non-file targets are excluded.
   const entries = await filterValidSymlinks({
     entries: allEntries,
-    roots: { canonical: canonicalVault, normalized: normalizedVault },
+    normalizedRoot: normalizedVault,
     logger,
   })
 

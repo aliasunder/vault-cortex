@@ -7,7 +7,14 @@ import {
   vi,
   onTestFinished,
 } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, unlink } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  unlink,
+  symlink,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { watch } from "chokidar"
@@ -147,6 +154,27 @@ describe("file-watcher", () => {
 
     const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hiddenResults).toHaveLength(0)
+  })
+
+  it("indexes a symlinked .md file", { timeout: 15000 }, async () => {
+    await writeFile(join(vault, "real.md"), "symlink watcher target\n", "utf8")
+
+    await startFileWatcher(vault, index, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
+
+    await symlink("real.md", join(vault, "linked.md"))
+
+    await waitFor(() =>
+      index
+        .fullTextSearch({ query: "symlink watcher" }, logger)
+        .some((result) => result.path === "linked.md"),
+    )
+    const paths = index
+      .fullTextSearch({ query: "symlink watcher" }, logger)
+      .map((result) => result.path)
+    expect(paths).toContain("linked.md")
   })
 
   // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔

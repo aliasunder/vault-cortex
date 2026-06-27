@@ -1770,25 +1770,26 @@ describe("rebuildFromVault", () => {
     ])
   })
 
-  it("skips a symlink whose target escapes the vault root", async () => {
-    // A valid internal symlink proves the system indexes symlinks —
-    // without it, the test passes trivially even if all symlinks are ignored
-    await symlink("root.md", join(vaultDir, "valid-link.md"))
-
+  it("indexes a symlink whose target is outside the vault root", async () => {
+    // Obsidian supports symlinks to files outside the vault (e.g. repo files
+    // symlinked into the vault for browsing), so vault-cortex follows suit
     const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
     onTestFinished(async () => rm(outsideDir, { recursive: true }))
     await writeFile(
-      join(outsideDir, "secret.md"),
-      "# Secret\n\nExternal content.\n",
+      join(outsideDir, "external.md"),
+      "# External\n\nExternal content.\n",
       "utf8",
     )
-    await symlink(join(outsideDir, "secret.md"), join(vaultDir, "escape.md"))
+    await symlink(
+      join(outsideDir, "external.md"),
+      join(vaultDir, "linked-external.md"),
+    )
 
     const count = await index.rebuildFromVault(vaultDir)
-    expect(count).toBe(3) // 2 baseline + valid-link.md (escape.md filtered)
+    expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results.map((result) => result.path)).toEqual(["linked-external.md"])
   })
 
   it("skips a broken symlink without crashing the rebuild", async () => {

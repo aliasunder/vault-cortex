@@ -8,13 +8,13 @@ import { mapWithConcurrency } from "./map-with-concurrency.js"
 const SYMLINK_VALIDATION_CONCURRENCY = 16
 
 /** Filters directory entries, excluding symlinks whose resolved targets are
- *  broken (dangling), escape the given root directory, or are not regular files. */
+ *  broken (dangling) or are not regular files. */
 export const filterValidSymlinks = async (params: {
   entries: ReadonlyArray<Dirent>
-  roots: { canonical: string; normalized: string }
+  normalizedRoot: string
   logger: Logger
 }): Promise<Dirent[]> => {
-  const { entries, roots, logger } = params
+  const { entries, normalizedRoot, logger } = params
   return (
     await mapWithConcurrency({
       items: [...entries],
@@ -24,23 +24,17 @@ export const filterValidSymlinks = async (params: {
         const entryPath = join(entry.parentPath, entry.name)
         try {
           const targetPath = await realpath(entryPath)
-          if (!targetPath.startsWith(roots.canonical + "/")) {
-            logger.warn("symlink target escapes root, skipping", {
-              path: relative(roots.normalized, entryPath),
-            })
-            return null
-          }
           const targetStat = await stat(targetPath)
           if (!targetStat.isFile()) {
             logger.warn("symlink target is not a file, skipping", {
-              path: relative(roots.normalized, entryPath),
+              path: relative(normalizedRoot, entryPath),
             })
             return null
           }
           return entry
         } catch (error) {
           logger.warn("broken symlink, skipping", {
-            path: relative(roots.normalized, entryPath),
+            path: relative(normalizedRoot, entryPath),
             error: describeError(error),
           })
           return null

@@ -1,6 +1,6 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-import { readFile, readdir, realpath, stat } from "node:fs/promises"
+import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
@@ -636,19 +636,15 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM non_md_files")
 
     const normalizedVault = resolve(vaultPath)
-    // Canonical vault root for symlink target comparison — realpath resolves
-    // platform symlinks (e.g. macOS /var → /private/var) that resolve() misses
-    const canonicalVault = await realpath(normalizedVault)
     const allEntries = await readdir(vaultPath, {
       recursive: true,
       withFileTypes: true,
     })
 
-    // Validate symlink targets: exclude broken symlinks, targets escaping
-    // the vault root, and targets that aren't regular files
+    // Validate symlink targets: exclude broken symlinks and non-file targets
     const entries = await filterValidSymlinks({
       entries: allEntries,
-      roots: { canonical: canonicalVault, normalized: normalizedVault },
+      normalizedRoot: normalizedVault,
       logger,
     })
 

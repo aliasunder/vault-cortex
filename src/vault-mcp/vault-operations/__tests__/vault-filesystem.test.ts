@@ -665,22 +665,23 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"])
   })
 
-  it("excludes a symlink whose target escapes the vault root", async () => {
-    // A valid internal symlink proves symlinks are listed —
-    // without it, the test passes trivially even if all symlinks are ignored
-    await symlink("notes/a.md", join(vault, "valid-link.md"))
-
+  it("includes a symlink whose target is outside the vault root", async () => {
+    // Obsidian supports symlinks to external files (e.g. repo files
+    // symlinked into the vault for browsing) — vault-cortex follows suit
     const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
     onTestFinished(async () => rm(outsideDir, { recursive: true }))
-    await writeFile(join(outsideDir, "secret.md"), "leaked", "utf8")
-    await symlink(join(outsideDir, "secret.md"), join(vault, "escape.md"))
+    await writeFile(join(outsideDir, "external.md"), "external", "utf8")
+    await symlink(
+      join(outsideDir, "external.md"),
+      join(vault, "linked-external.md"),
+    )
 
     const files = await listNotes({ vaultPath: vault }, logger)
     expect(files).toEqual([
+      "linked-external.md",
       "notes/a.md",
       "notes/b.md",
       "root.md",
-      "valid-link.md",
     ])
   })
 
@@ -711,23 +712,6 @@ describe("listNotes", () => {
       "root.md",
       "valid-link.md",
     ])
-  })
-
-  it("returns empty when folder is a symlink escaping the vault", async () => {
-    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
-    onTestFinished(async () => rm(outsideDir, { recursive: true }))
-    await writeFile(join(outsideDir, "secret.md"), "leaked", "utf8")
-    await symlink(outsideDir, join(vault, "escape-dir"))
-
-    // Verify the vault itself has notes (the empty result is the guard, not an empty vault)
-    const allNotes = await listNotes({ vaultPath: vault }, logger)
-    expect(allNotes.length).toBeGreaterThan(0)
-
-    const files = await listNotes(
-      { vaultPath: vault, folder: "escape-dir" },
-      logger,
-    )
-    expect(files).toEqual([])
   })
 })
 
