@@ -1,5 +1,6 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
@@ -11,7 +12,6 @@ import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import * as sqliteVec from "sqlite-vec"
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
