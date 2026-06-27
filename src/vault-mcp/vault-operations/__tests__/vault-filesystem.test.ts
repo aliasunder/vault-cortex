@@ -15,6 +15,7 @@ import {
   readFile,
   readdir,
   stat,
+  symlink,
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -656,6 +657,61 @@ describe("listNotes", () => {
     await writeFile(join(vault, "notes/z.md"), "z", "utf8")
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
+  })
+
+  it("includes a symlinked .md file in the listing", async () => {
+    await symlink("notes/a.md", join(vault, "sym.md"))
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"])
+  })
+
+  it("includes a symlink whose target is outside the vault root", async () => {
+    // Obsidian supports symlinks to external files (e.g. repo files
+    // symlinked into the vault for browsing) — vault-cortex follows suit
+    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
+    onTestFinished(async () => rm(outsideDir, { recursive: true }))
+    await writeFile(join(outsideDir, "external.md"), "external", "utf8")
+    await symlink(
+      join(outsideDir, "external.md"),
+      join(vault, "linked-external.md"),
+    )
+
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual([
+      "linked-external.md",
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+    ])
+  })
+
+  it("excludes a broken symlink without crashing", async () => {
+    // A valid internal symlink proves symlinks are listed —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("notes/a.md", join(vault, "valid-link.md"))
+    await symlink("nonexistent/target.md", join(vault, "broken.md"))
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual([
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+      "valid-link.md",
+    ])
+  })
+
+  it("excludes a symlink whose target is a directory, not a file", async () => {
+    // A valid internal symlink proves symlinks are listed —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("notes/a.md", join(vault, "valid-link.md"))
+    await mkdir(join(vault, "realdir"), { recursive: true })
+    await symlink(join(vault, "realdir"), join(vault, "dirlink.md"))
+    const files = await listNotes({ vaultPath: vault }, logger)
+    expect(files).toEqual([
+      "notes/a.md",
+      "notes/b.md",
+      "root.md",
+      "valid-link.md",
+    ])
   })
 })
 

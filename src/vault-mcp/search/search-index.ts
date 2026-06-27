@@ -10,6 +10,7 @@ import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 // ── Type guards ─────────────────────────────────────────────────
 
 const isString = (value: unknown): value is string => typeof value === "string"
@@ -434,6 +435,7 @@ export const createSearchIndex = (dbPath: string) => {
   const indexNonMarkdownFiles = (
     entries: ReadonlyArray<{
       isFile: () => boolean
+      isSymbolicLink: () => boolean
       name: string
       parentPath: string
     }>,
@@ -441,7 +443,10 @@ export const createSearchIndex = (dbPath: string) => {
   ): number => {
     let filesIndexed = 0
     for (const directoryEntry of entries) {
-      if (!directoryEntry.isFile() || directoryEntry.name.endsWith(".md"))
+      if (
+        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
+        directoryEntry.name.endsWith(".md")
+      )
         continue
       const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
       const relativePath = relative(normalizedVault, absolutePath)
@@ -631,16 +636,28 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM non_md_files")
 
     const normalizedVault = resolve(vaultPath)
-    const entries = await readdir(vaultPath, {
+    const allEntries = await readdir(vaultPath, {
       recursive: true,
       withFileTypes: true,
+    })
+
+    // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
+    // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
+    // follow suit. Only broken symlinks and non-file targets are excluded.
+    const entries = await filterValidSymlinks({
+      entries: allEntries,
+      normalizedRoot: normalizedVault,
+      logger,
     })
 
     // Filter directory entries to visible .md files, then load their content
     const markdownFiles = entries.reduce<
       { relativePath: string; absolutePath: string }[]
     >((filteredFiles, directoryEntry) => {
-      if (!directoryEntry.isFile() || !directoryEntry.name.endsWith(".md"))
+      if (
+        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
+        !directoryEntry.name.endsWith(".md")
+      )
         return filteredFiles
       const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
       const relativePath = relative(normalizedVault, absolutePath)

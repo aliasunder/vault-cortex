@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
 import {
   parseNote,
@@ -411,23 +412,37 @@ const listNotes = async (
   const searchRoot = params.folder
     ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
-  const entries = await readdirOrNull(searchRoot)
-  if (!entries) return []
+  const allEntries = await readdirOrNull(searchRoot)
+  if (!allEntries) return []
 
   const normalizedVault = resolve(params.vaultPath)
 
+  // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
+  // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
+  // follow suit. Only broken symlinks and non-file targets are excluded.
+  const entries = await filterValidSymlinks({
+    entries: allEntries,
+    normalizedRoot: normalizedVault,
+    logger,
+  })
+
   const paths = entries
-    .reduce<string[]>((acc, entry) => {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) return acc
-      const rel = relative(normalizedVault, join(entry.parentPath, entry.name))
-      if (rel.split("/").some((seg) => seg.startsWith("."))) return acc
-      acc.push(rel)
-      return acc
-    }, [])
+    .filter(
+      (entry) =>
+        (entry.isFile() || entry.isSymbolicLink()) &&
+        entry.name.endsWith(".md"),
+    )
+    .map((entry) =>
+      relative(normalizedVault, join(entry.parentPath, entry.name)),
+    )
+    .filter(
+      (relativePath) =>
+        !relativePath.split("/").some((segment) => segment.startsWith(".")),
+    )
     .sort()
 
   const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch ? paths.filter((p) => isMatch(p)) : paths
+  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
 }

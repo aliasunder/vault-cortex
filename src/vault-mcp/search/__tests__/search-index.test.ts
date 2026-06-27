@@ -6,7 +6,7 @@ import {
   afterEach,
   onTestFinished,
 } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
@@ -1725,6 +1725,99 @@ describe("rebuildFromVault", () => {
     expect(outgoing[0]!.kind).toBe("note")
     expect(outgoing[0]!.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("indexes a symlinked .md file", async () => {
+    await mkdir(join(vaultDir, "real"), { recursive: true })
+    await writeFile(
+      join(vaultDir, "real/original.md"),
+      "# Original\n\nSymlink target content.\n",
+      "utf8",
+    )
+    await symlink("real/original.md", join(vaultDir, "linked.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(4)
+
+    const results = index.fullTextSearch(
+      { query: "symlink target content" },
+      logger,
+    )
+    expect(results).toHaveLength(2)
+    const paths = results.map((result) => result.path).sort()
+    expect(paths).toEqual(["linked.md", "real/original.md"])
+  })
+
+  it("indexes a symlinked non-.md file for link resolution", async () => {
+    await mkdir(join(vaultDir, "boards"), { recursive: true })
+    await writeFile(join(vaultDir, "boards/real-board.canvas"), "{}", "utf8")
+    await symlink("boards/real-board.canvas", join(vaultDir, "Board.canvas"))
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Board]].\n",
+      "utf8",
+    )
+
+    await index.rebuildFromVault(vaultDir)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toEqual([
+      expect.objectContaining({
+        path: "Board.canvas",
+        exists: true,
+        kind: "asset",
+      }),
+    ])
+  })
+
+  it("indexes a symlink whose target is outside the vault root", async () => {
+    // Obsidian supports symlinks to files outside the vault (e.g. repo files
+    // symlinked into the vault for browsing), so vault-cortex follows suit
+    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
+    onTestFinished(async () => rm(outsideDir, { recursive: true }))
+    await writeFile(
+      join(outsideDir, "external.md"),
+      "# External\n\nExternal content.\n",
+      "utf8",
+    )
+    await symlink(
+      join(outsideDir, "external.md"),
+      join(vaultDir, "linked-external.md"),
+    )
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(3)
+
+    const results = index.fullTextSearch({ query: "external content" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["linked-external.md"])
+  })
+
+  it("skips a broken symlink without crashing the rebuild", async () => {
+    // A valid internal symlink proves the system indexes symlinks —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("root.md", join(vaultDir, "valid-link.md"))
+    await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
+
+    const results = index.fullTextSearch({ query: "burnout" }, logger)
+    expect(results).toHaveLength(1)
+  })
+
+  it("skips a symlink whose target is a directory, not a file", async () => {
+    // A valid internal symlink proves the system indexes symlinks —
+    // without it, the test passes trivially even if all symlinks are ignored
+    await symlink("root.md", join(vaultDir, "valid-link.md"))
+    await mkdir(join(vaultDir, "realdir"), { recursive: true })
+    await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
+    await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
+
+    const count = await index.rebuildFromVault(vaultDir)
+    expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
+
+    const results = index.fullTextSearch({ query: "inner" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["realdir/inner.md"])
   })
 })
 
