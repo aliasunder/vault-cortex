@@ -650,7 +650,7 @@ export const createSearchIndex = (dbPath: string) => {
       allEntries,
       canonicalVault,
       normalizedVault,
-      logger.warn.bind(logger),
+      logger,
     )
 
     // Filter directory entries to visible .md files, then load their content

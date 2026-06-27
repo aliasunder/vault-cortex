@@ -6,13 +6,15 @@ import { realpath, stat } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { describeError } from "./describe-error.js"
 
-type WarnFn = (message: string, meta: Record<string, unknown>) => void
+type SymlinkLogger = {
+  warn: (message: string, meta: Record<string, unknown>) => void
+}
 
 export const filterValidSymlinks = async (
   entries: ReadonlyArray<Dirent>,
   canonicalRoot: string,
   normalizedRoot: string,
-  warn: WarnFn,
+  logger: SymlinkLogger,
 ): Promise<Dirent[]> =>
   (
     await Promise.all(
@@ -22,21 +24,21 @@ export const filterValidSymlinks = async (
         try {
           const targetPath = await realpath(entryPath)
           if (!targetPath.startsWith(canonicalRoot + "/")) {
-            warn("symlink target escapes root, skipping", {
+            logger.warn("symlink target escapes root, skipping", {
               path: relative(normalizedRoot, entryPath),
             })
             return null
           }
           const targetStat = await stat(targetPath)
           if (!targetStat.isFile()) {
-            warn("symlink target is not a file, skipping", {
+            logger.warn("symlink target is not a file, skipping", {
               path: relative(normalizedRoot, entryPath),
             })
             return null
           }
           return entry
         } catch (error) {
-          warn("broken symlink, skipping", {
+          logger.warn("broken symlink, skipping", {
             path: relative(normalizedRoot, entryPath),
             error: describeError(error),
           })

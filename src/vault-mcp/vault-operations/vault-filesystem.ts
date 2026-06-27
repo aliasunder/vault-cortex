@@ -440,7 +440,7 @@ const listNotes = async (
     allEntries,
     canonicalVault,
     normalizedVault,
-    logger.warn.bind(logger),
+    logger,
   )
 
   const paths = entries
