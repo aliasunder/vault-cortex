@@ -11,6 +11,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
@@ -69,6 +70,15 @@ const testStat = (
 describe("schema creation", () => {
   it("creates without throwing", () => {
     expect(() => createSearchIndex(":memory:")).not.toThrow()
+  })
+
+  it("loads the sqlite-vec extension", () => {
+    const db = new Database(":memory:")
+    sqliteVec.load(db)
+    const row = db.prepare("SELECT vec_version() AS version").get() as {
+      version: string
+    }
+    expect(row.version).toBe("v0.1.9")
   })
 
   it("creates notes and notes_fts tables", () => {

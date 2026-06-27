@@ -29,12 +29,13 @@ tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
 This alone makes any MCP client vault-aware and personalized across
 conversations.
 
-**Phase 2** is in discovery. The leading candidate adds hybrid search
-(FTS5 + sqlite-vec vector search with RRF fusion) to the existing
-`vault_search` tool — embeddings generated locally by a small ONNX model
-running in-process, no external API required. The file watcher would gain
-a second hook for embedding ingestion. Additive, no rewrites. Phase 2
-sections below reflect the current direction but are not finalized.
+**Phase 2** is in progress. It adds hybrid search (FTS5 + sqlite-vec
+vector search with RRF fusion) to the existing `vault_search` tool —
+embeddings generated locally by a small ONNX model running in-process,
+no external API required. The file watcher gains a second hook for
+embedding ingestion. Additive, no rewrites. The Docker image uses Debian
+slim (`node:24-slim`) instead of Alpine because `onnxruntime-node`
+requires glibc.
 
 ## User Requirements
 
@@ -260,7 +261,7 @@ Link queries use a `links` table populated during indexing:
 
 ### Phase 2: Hybrid Search (R8)
 
-Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (all-MiniLM-L6-v2 or bge-small-en-v1.5, 22–33M params, ~23 MB quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
+Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent). The sqlite-vec extension and `@huggingface/transformers` runtime are installed in the base image; the extension is loaded at startup so vec0 tables are available when the embedding pipeline lands.
 
 ## MCP Prompts
 
@@ -444,6 +445,7 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 | 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                  |
 | Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                          |
 | Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                |
+| Debian slim over Alpine             | `onnxruntime-node` (bundled by `@huggingface/transformers` for local embeddings) requires glibc. Alpine uses musl — no musl build exists. Hard architectural constraint, not a preference.                                                                     |
 | SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                                                                                                                                                       |
 | chokidar                            | Node-native, same process as SQLite. Phase 2: adds embedding hook.                                                                                                                                                                                             |
 | Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                                                                                                                                              |
