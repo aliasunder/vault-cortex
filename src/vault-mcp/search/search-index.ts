@@ -651,25 +651,20 @@ export const createSearchIndex = (dbPath: string) => {
     })
 
     // Filter directory entries to visible .md files, then load their content
-    const markdownFiles = entries
-      .filter(
-        (entry) =>
-          (entry.isFile() || entry.isSymbolicLink()) &&
-          entry.name.endsWith(".md"),
+    const markdownFiles = entries.reduce<
+      { relativePath: string; absolutePath: string }[]
+    >((filteredFiles, directoryEntry) => {
+      if (
+        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
+        !directoryEntry.name.endsWith(".md")
       )
-      .map((entry) => {
-        const absolutePath = join(entry.parentPath, entry.name)
-        return {
-          relativePath: relative(normalizedVault, absolutePath),
-          absolutePath,
-        }
-      })
-      .filter(
-        (file) =>
-          !file.relativePath
-            .split("/")
-            .some((segment) => segment.startsWith(".")),
-      )
+        return filteredFiles
+      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
+      const relativePath = relative(normalizedVault, absolutePath)
+      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
+        return filteredFiles
+      return [...filteredFiles, { relativePath, absolutePath }]
+    }, [])
 
     const noteContents = await Promise.all(
       markdownFiles.map(async (file) => {
