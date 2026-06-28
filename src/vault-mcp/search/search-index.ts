@@ -434,6 +434,11 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   const deleteChunksForNoteStmt = embedder
     ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`)
     : null
+  const deleteStaleVectorsStmt = embedder
+    ? db.prepare(
+        `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
+      )
+    : null
 
   /** Strips the file extension from a path, or returns the path unchanged if
    *  it has no extension. Uses the last dot in the filename (not the path). */
@@ -755,7 +760,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       embeddedCount++
     }
 
-    // Delete stale chunks (note now has fewer chunks than before)
+    // Delete stale chunks and their vectors (note now has fewer chunks than before)
+    if (deleteStaleVectorsStmt) {
+      deleteStaleVectorsStmt.run(notePath, chunks.length)
+    }
     deleteStaleChunksStmt.run(notePath, chunks.length)
 
     embedLogger.debug("embedded note", {
