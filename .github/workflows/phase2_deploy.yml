@@ -23,7 +23,6 @@ permissions:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/phase-2'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
