@@ -22,7 +22,7 @@ updates:
       interval: weekly
 
   # Keeps the digest-pinned FROM lines in the Dockerfile current when
-  # upstream node:24-alpine rebuilds (e.g. Alpine security releases).
+  # upstream node:24-slim rebuilds (e.g. Debian security releases).
   - package-ecosystem: docker
     directory: /
     schedule:

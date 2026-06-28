@@ -55,6 +55,7 @@
     ]
   },
   "dependencies": {
+    "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "better-sqlite3": "12.11.1",
     "chokidar": "5.0.0",
@@ -63,11 +64,16 @@
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "picomatch": "4.0.4",
+    "sqlite-vec": "0.1.9",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "overrides": {
-    "js-yaml": "4.2.0"
+    "js-yaml": "4.2.0",
+    "@huggingface/transformers": {
+      "onnxruntime-web": "npm:empty-npm-package@1.0.0",
+      "sharp": "npm:empty-npm-package@1.0.0"
+    }
   },
   "devDependencies": {
     "@clack/prompts": "1.6.0",
