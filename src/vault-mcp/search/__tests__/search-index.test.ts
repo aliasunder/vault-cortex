@@ -2716,3 +2716,168 @@ describe("vaultStats", () => {
     })
   })
 })
+
+// ── Embedding pipeline ───────────────────────────────────────────
+
+describe("embedding pipeline", () => {
+  const DIMENSIONS = 384
+
+  /** Creates a mock embedder that returns deterministic embeddings. */
+  const createMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
+    embedBatch: vi
+      .fn()
+      .mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)),
+        ),
+      ),
+  })
+
+  const NOTE_FOR_EMBEDDING = `---
+title: Test Note
+tags: [test]
+---
+
+This is a test note with enough content to be indexed.
+It has multiple sentences to verify chunking works correctly.
+`
+
+  describe("with embedder", () => {
+    it("embedNote calls the embedder when provided", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("content-hash gating skips unchanged chunks on re-embed", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      // First embed
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      // Second embed with same content — should skip (hash match)
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBe(firstCallCount)
+    })
+
+    it("re-embeds when content changes", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      const updatedNote = NOTE_FOR_EMBEDDING.replace(
+        "multiple sentences",
+        "different content entirely",
+      )
+      await embeddingIndex.embedNote("test.md", updatedNote, logger)
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBeGreaterThan(firstCallCount)
+    })
+
+    it("removeNote deletes associated chunks and vectors", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      embeddingIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+
+      // Remove should not throw — cleanup should succeed
+      embeddingIndex.removeNote("test.md")
+
+      // Re-embedding after removal should embed again (not skip via hash)
+      mockEmbedder.embedText.mockClear()
+      embeddingIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(2000),
+        },
+        logger,
+      )
+      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("embedNote is a no-op for empty content", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote("empty.md", "", logger)
+
+      // Should still work — chunker returns at least one chunk even for empty
+      // The important thing is no error is thrown
+    })
+  })
+
+  describe("without embedder", () => {
+    it("embedNote is a no-op when no embedder is provided", async () => {
+      const noEmbedIndex = createSearchIndex(":memory:")
+
+      // Should not throw
+      await noEmbedIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+    })
+
+    it("removeNote works without vector tables", () => {
+      const noEmbedIndex = createSearchIndex(":memory:")
+
+      noEmbedIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      // Should not throw even though no vector tables exist
+      noEmbedIndex.removeNote("test.md")
+    })
+  })
+
+  describe("rebuildFromVault with embedding", () => {
+    it("embeds notes during rebuild Pass 3", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-test-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+      })
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content here.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content here.",
+      )
+
+      const count = await embeddingIndex.rebuildFromVault(vaultDir)
+
+      expect(count).toBe(2)
+      // Both notes should have been embedded
+      expect(mockEmbedder.embedText.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+})

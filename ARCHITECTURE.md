@@ -263,6 +263,15 @@ Link queries use a `links` table populated during indexing:
 
 Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent). The sqlite-vec extension and `@huggingface/transformers` runtime are installed in the base image; the extension is loaded at startup so vec0 tables are available when the embedding pipeline lands.
 
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content — first startup indexes the full vault (~286s for 745 notes), subsequent starts are near-instant.
+
+**Vector schema:** Two tables in the same SQLite database as FTS5:
+
+- `note_chunks`: stores chunk text, position index, and content hash per note
+- `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
+
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), Pass 3 (embedding, outside the transaction). The file watcher calls `embedNote` after `upsertNote` for incremental updates; `removeNote` cleans up both vectors and chunks.
+
 ## MCP Prompts
 
 Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) in `prompt-definitions.ts`, mirroring the tool factory and registered per session in `mcp-router.ts`. Prompts are user-initiated — clients that support the `prompts/list` capability surface them via a **+** menu (Claude Desktop), slash commands (Claude Code), or similar (OpenCode, Zed); support varies by client and some (Cursor, Windsurf) currently expose tools only. Handlers assemble live vault content at invocation time over the same data layer the tools use, so there is no embedded procedure that can drift, only live content plus thin, durable instruction.

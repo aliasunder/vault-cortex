@@ -1,4 +1,4 @@
-/** File watcher — keeps the SQLite FTS5 index current via chokidar. */
+/** File watcher — keeps the SQLite FTS5 index and vector embeddings current via chokidar. */
 
 import { watch } from "chokidar"
 import { readFile, stat } from "node:fs/promises"
@@ -52,6 +52,7 @@ export const startFileWatcher = (
         },
         logger,
       )
+      await search.embedNote(relativePath, content, logger)
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
