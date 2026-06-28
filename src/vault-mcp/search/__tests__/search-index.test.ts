@@ -2750,7 +2750,10 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
 
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
@@ -2760,11 +2763,17 @@ It has multiple sentences to verify chunking works correctly.
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       // First embed
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       const firstCallCount = mockEmbedder.embedText.mock.calls.length
 
       // Second embed with same content — should skip (hash match)
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       const secondCallCount = mockEmbedder.embedText.mock.calls.length
 
       expect(secondCallCount).toBe(firstCallCount)
@@ -2774,14 +2783,20 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       const firstCallCount = mockEmbedder.embedText.mock.calls.length
 
       const updatedNote = NOTE_FOR_EMBEDDING.replace(
         "multiple sentences",
         "different content entirely",
       )
-      await embeddingIndex.embedNote("test.md", updatedNote, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: updatedNote },
+        logger,
+      )
       const secondCallCount = mockEmbedder.embedText.mock.calls.length
 
       expect(secondCallCount).toBeGreaterThan(firstCallCount)
@@ -2799,7 +2814,10 @@ It has multiple sentences to verify chunking works correctly.
         },
         logger,
       )
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
 
       // Remove should not throw — cleanup should succeed
       embeddingIndex.removeNote("test.md")
@@ -2814,7 +2832,10 @@ It has multiple sentences to verify chunking works correctly.
         },
         logger,
       )
-      await embeddingIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
 
@@ -2822,7 +2843,10 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote("empty.md", "", logger)
+      await embeddingIndex.embedNote(
+        { notePath: "empty.md", rawContent: "" },
+        logger,
+      )
 
       // Should still work — chunker returns at least one chunk even for empty
       // The important thing is no error is thrown
@@ -2834,7 +2858,10 @@ It has multiple sentences to verify chunking works correctly.
       const noEmbedIndex = createSearchIndex(":memory:")
 
       // Should not throw
-      await noEmbedIndex.embedNote("test.md", NOTE_FOR_EMBEDDING, logger)
+      await noEmbedIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
     })
 
     it("removeNote works without vector tables", () => {

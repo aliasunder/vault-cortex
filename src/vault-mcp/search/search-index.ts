@@ -695,10 +695,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  gating skips chunks whose text hasn't changed since the last embedding.
    *  Returns the number of chunks that were actually embedded (0 = all cached). */
   const embedAndStoreChunks = async (
-    notePath: string,
-    rawContent: string,
+    params: { notePath: string; rawContent: string },
     embedLogger: Logger,
   ): Promise<number> => {
+    const { notePath, rawContent } = params
     if (
       !embedder ||
       !upsertChunkStmt ||
@@ -777,12 +777,11 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   /** Embed a note's content into vector storage. No-op when the embedding
    *  pipeline is disabled (no embedder provided). Safe to call unconditionally. */
   const embedNote = async (
-    notePath: string,
-    rawContent: string,
+    params: { notePath: string; rawContent: string },
     embedLogger: Logger,
   ): Promise<void> => {
     if (!embedder) return
-    await embedAndStoreChunks(notePath, rawContent, embedLogger)
+    await embedAndStoreChunks(params, embedLogger)
   }
 
   /** Removes a note from the notes table, FTS index, links, and vectors. */
@@ -911,8 +910,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       let chunksEmbedded = 0
       for (const note of noteContents) {
         chunksEmbedded += await embedAndStoreChunks(
-          note.relativePath,
-          note.content,
+          { notePath: note.relativePath, rawContent: note.content },
           logger,
         )
       }

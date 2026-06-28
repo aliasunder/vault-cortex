@@ -52,7 +52,10 @@ export const startFileWatcher = (
         },
         logger,
       )
-      await search.embedNote(relativePath, content, logger)
+      await search.embedNote(
+        { notePath: relativePath, rawContent: content },
+        logger,
+      )
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
