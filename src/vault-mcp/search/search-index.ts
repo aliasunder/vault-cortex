@@ -1,5 +1,6 @@
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { logger, type Logger } from "../../logger.js"
@@ -232,6 +233,7 @@ export const createSearchIndex = (dbPath: string) => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
+  sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
   // that lacks the metadata column, drop the table so the CREATE below rebuilds

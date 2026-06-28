@@ -1,7 +1,7 @@
 name: Trivy
 
 # Scans the Docker image for OS-layer and dependency CVEs — the one gap
-# gitleaks/CodeQL/Dependabot leave open: alpine base-image packages and
+# gitleaks/CodeQL/Dependabot leave open: Debian base-image packages and
 # post-release CVE drift live only in the published image.
 #
 # Two targets:
@@ -48,7 +48,7 @@ jobs:
       - name: Scan published image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
-          # Manifest list resolves per-runner (amd64 here); the alpine OS
+          # Manifest list resolves per-runner (amd64 here); the Debian OS
           # package set is identical across arches, so amd64-only is fine.
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp:latest
           scanners: vuln
