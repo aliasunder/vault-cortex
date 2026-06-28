@@ -12,6 +12,8 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import * as sqliteVec from "sqlite-vec"
+vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
@@ -68,31 +70,26 @@ const testStat = (
 })
 
 describe("schema creation", () => {
-  it("creates without throwing", () => {
-    expect(() => createSearchIndex(":memory:")).not.toThrow()
-  })
-
-  it("factory calls sqliteVec.load during initialization", async () => {
-    vi.resetModules()
-    const mockLoad = vi.fn()
-    vi.doMock("sqlite-vec", () => ({ load: mockLoad }))
-    onTestFinished(() => {
-      vi.doUnmock("sqlite-vec")
-      vi.resetModules()
-    })
-    const { createSearchIndex: isolatedFactory } =
-      await import("../search-index.js")
-    isolatedFactory(":memory:")
-    expect(mockLoad).toHaveBeenCalledOnce()
-  })
-
-  it("creates notes and notes_fts tables", () => {
-    index.upsertNote(
+  it("creates a searchable index with notes and FTS tables", () => {
+    const isolatedIndex = createSearchIndex(":memory:")
+    isolatedIndex.upsertNote(
       { filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) },
       logger,
     )
-    const results = index.fullTextSearch({ query: "Test" }, logger)
+    const results = isolatedIndex.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
+  })
+
+  it("loads the sqlite-vec extension during construction", () => {
+    createSearchIndex(":memory:")
+    expect(sqliteVec.load).toHaveBeenCalled()
+  })
+
+  it("sqlite-vec native binary loads on this platform", () => {
+    const db = new Database(":memory:")
+    sqliteVec.load(db)
+    const row = db.prepare("SELECT vec_version() AS version").get()
+    expect(row).toHaveProperty("version")
   })
 })
 
