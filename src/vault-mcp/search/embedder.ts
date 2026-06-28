@@ -25,19 +25,27 @@ export const createEmbedder = (logger: Logger) => {
   >
 
   let pipelineInstance: TransformersPipeline | null = null
+  // Guards against concurrent callers both triggering a model download —
+  // the second caller awaits the first's promise instead of loading again.
+  let pipelineLoading: Promise<TransformersPipeline> | null = null
 
   const getPipeline = async (): Promise<TransformersPipeline> => {
     if (pipelineInstance) return pipelineInstance
+    if (pipelineLoading) return pipelineLoading
 
-    const startMs = performance.now()
-    const { pipeline } = await import("@huggingface/transformers")
-    pipelineInstance = await pipeline("feature-extraction", MODEL_NAME, {
-      dtype: "q8",
-    })
-    const elapsedMs = Math.round(performance.now() - startMs)
-    logger.info("embedding model loaded", { model: MODEL_NAME, elapsedMs })
+    pipelineLoading = (async () => {
+      const startMs = performance.now()
+      const { pipeline } = await import("@huggingface/transformers")
+      const instance = await pipeline("feature-extraction", MODEL_NAME, {
+        dtype: "q8",
+      })
+      const elapsedMs = Math.round(performance.now() - startMs)
+      logger.info("embedding model loaded", { model: MODEL_NAME, elapsedMs })
+      pipelineInstance = instance
+      return instance
+    })()
 
-    return pipelineInstance
+    return pipelineLoading
   }
 
   /** The transformers pipeline returns a Tensor whose `.data` is typed as
