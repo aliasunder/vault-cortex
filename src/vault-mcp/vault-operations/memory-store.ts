@@ -614,17 +614,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       }
 
       // Build the exact bullet string and find matching lines within the section
-      const needle = `- **${params.date}**: ${params.entry}`
-      const matchingIndices = lines.reduce<number[]>((acc, line, index) => {
-        if (
-          index >= match.bodyStartLine &&
-          index < match.bodyEndLine &&
-          line === needle
-        ) {
-          acc.push(index)
-        }
-        return acc
-      }, [])
+      const targetBullet = `- **${params.date}**: ${params.entry}`
+      const matchingIndices = lines.flatMap((line, index) =>
+        index >= match.bodyStartLine &&
+        index < match.bodyEndLine &&
+        line === targetBullet
+          ? [index]
+          : [],
+      )
 
       if (matchingIndices.length === 0) {
         throw new Error(
