@@ -56,19 +56,19 @@ export const startFileWatcher = (
         },
         logger,
       )
-      const prev = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-      const next = prev.then(() =>
+      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const currentEmbed = previousEmbed.then(() =>
         search.embedNote(
           { notePath: relativePath, rawContent: content },
           logger,
         ),
       )
-      pendingEmbeds.set(relativePath, next)
-      next.finally(() => {
-        if (pendingEmbeds.get(relativePath) === next)
+      pendingEmbeds.set(relativePath, currentEmbed)
+      currentEmbed.finally(() => {
+        if (pendingEmbeds.get(relativePath) === currentEmbed)
           pendingEmbeds.delete(relativePath)
       })
-      await next
+      await currentEmbed
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
