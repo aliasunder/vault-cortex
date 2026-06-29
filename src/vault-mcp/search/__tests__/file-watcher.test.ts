@@ -199,7 +199,7 @@ describe("file-watcher", () => {
           notePath: "embed-test.md",
           rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
         },
-        expect.anything(),
+        expect.anything(), // logger — runtime child logger, not deterministic
       )
     },
   )
