@@ -56,14 +56,14 @@ export const withFileLock = <T>(
 /** Fail-fast lock — rejects immediately when a write is already in progress
  *  on the same file rather than queuing behind it. This prevents a write
  *  planned against stale state from silently executing after the in-flight
- *  write changes the file. The caller should re-read the note and retry. */
+ *  write changes the file. The caller should re-read the file and retry. */
 export const withExclusiveFileLock = <T>(
   filePath: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
   const key = resolve(filePath)
   if (fileWriteLocks.has(key)) {
-    throw new Error("concurrent write in progress — re-read the note and retry")
+    throw new Error("concurrent write in progress")
   }
   const thisWrite = operation()
   fileWriteLocks.set(key, thisWrite)
