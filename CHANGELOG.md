@@ -14,22 +14,6 @@
 
 
 
-
-## [0.23.12] — 2026-06-29
-
-### Bug Fixes
-
-- Serialize concurrent writes to prevent TOCTOU lost updates (#220)
-- Pass MEMORY_ENABLED through docker-compose to container (#219)
-
-### Documentation
-
-- Update CHANGELOG.md for v0.23.11
-
-### CI / Infrastructure
-
-- Add skip_deploy escape hatch to manual release workflow (#221)
-
 ## [0.23.11] — 2026-06-27
 
 ### Bug Fixes
