@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, onTestFinished } from "vitest"
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
-import { withFileLock } from "../file-write-lock.js"
+import { withFileLock, withExclusiveFileLock } from "../file-write-lock.js"
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -149,5 +149,158 @@ describe("withFileLock", () => {
     } finally {
       await teardown()
     }
+  })
+})
+
+describe("withExclusiveFileLock", () => {
+  const testDir = join(
+    import.meta.dirname,
+    "__fixtures__",
+    `exclusive-lock-${randomUUID()}`,
+  )
+
+  it("rejects immediately when a write is already in progress on the same file", async () => {
+    const filePath = join(testDir, "busy.txt")
+
+    // Hold the lock for 50ms so the second call arrives while it's held.
+    const firstWrite = withExclusiveFileLock(filePath, async () => {
+      await delay(50)
+      return "first"
+    })
+
+    // The second call should throw synchronously — no waiting.
+    expect(() => withExclusiveFileLock(filePath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
+
+    // The first write should still complete successfully.
+    const result = await firstWrite
+    expect(result).toBe("first")
+  })
+
+  it("allows a write after the previous one completes", async () => {
+    const filePath = join(testDir, "sequential.txt")
+
+    const first = await withExclusiveFileLock(filePath, async () => "first")
+    expect(first).toBe("first")
+
+    const second = await withExclusiveFileLock(filePath, async () => "second")
+    expect(second).toBe("second")
+  })
+
+  it("allows concurrent writes to different files", async () => {
+    const pathA = join(testDir, "a.txt")
+    const pathB = join(testDir, "b.txt")
+
+    const [resultA, resultB] = await Promise.all([
+      withExclusiveFileLock(pathA, async () => {
+        await delay(20)
+        return "a"
+      }),
+      withExclusiveFileLock(pathB, async () => {
+        await delay(20)
+        return "b"
+      }),
+    ])
+
+    expect(resultA).toBe("a")
+    expect(resultB).toBe("b")
+  })
+
+  it("releases the lock when the operation fails", async () => {
+    const filePath = join(testDir, "fail-release.txt")
+
+    await expect(
+      withExclusiveFileLock(filePath, async () => {
+        throw new Error("boom")
+      }),
+    ).rejects.toThrow("boom")
+
+    // Lock should be released — a new write should succeed.
+    const result = await withExclusiveFileLock(
+      filePath,
+      async () => "recovered",
+    )
+    expect(result).toBe("recovered")
+  })
+
+  it("returns the operation result", async () => {
+    const filePath = join(testDir, "result.txt")
+    const result = await withExclusiveFileLock(filePath, async () => 42)
+    expect(result).toBe(42)
+  })
+
+  it("canonicalizes paths so equivalent paths share the same lock", async () => {
+    const filePath = join(testDir, "canon.txt")
+    const redundantPath = `${testDir}/phantom/../canon.txt`
+
+    const firstWrite = withExclusiveFileLock(filePath, async () => {
+      await delay(50)
+      return "first"
+    })
+
+    // The redundant path resolves to the same file — should fail.
+    expect(() =>
+      withExclusiveFileLock(redundantPath, async () => "second"),
+    ).toThrow("concurrent write in progress")
+
+    await firstWrite
+  })
+})
+
+describe("cross-mode interaction", () => {
+  const testDir = join(
+    import.meta.dirname,
+    "__fixtures__",
+    `cross-mode-${randomUUID()}`,
+  )
+
+  it("exclusive lock rejects when a serializing lock is held on the same file", async () => {
+    const filePath = join(testDir, "cross.txt")
+
+    const serializingWrite = withFileLock(filePath, async () => {
+      await delay(50)
+      return "serialized"
+    })
+
+    // Exclusive call should see the serializing lock and reject.
+    expect(() =>
+      withExclusiveFileLock(filePath, async () => "exclusive"),
+    ).toThrow("concurrent write in progress")
+
+    await serializingWrite
+  })
+
+  it("serializing lock queues behind an exclusive lock on the same file", async () => {
+    const fixtureDir = join(
+      import.meta.dirname,
+      "__fixtures__",
+      `cross-queue-${randomUUID()}`,
+    )
+    await mkdir(fixtureDir, { recursive: true })
+    onTestFinished(async () => {
+      await rm(fixtureDir, { recursive: true, force: true })
+    })
+
+    const counterPath = join(fixtureDir, "cross-queue.txt")
+    await writeFile(counterPath, "0", "utf8")
+
+    const filePath = join(fixtureDir, "cross-queue.txt")
+
+    const exclusiveWrite = withExclusiveFileLock(filePath, async () => {
+      const current = Number(await readFile(counterPath, "utf8"))
+      await writeFile(counterPath, String(current + 1), "utf8")
+    })
+
+    // Serializing call should queue behind the exclusive lock and run after.
+    const serializingWrite = withFileLock(filePath, async () => {
+      const current = Number(await readFile(counterPath, "utf8"))
+      await writeFile(counterPath, String(current + 1), "utf8")
+    })
+
+    await Promise.all([exclusiveWrite, serializingWrite])
+
+    const finalValue = await readFile(counterPath, "utf8")
+    expect(finalValue).toBe("2")
   })
 })

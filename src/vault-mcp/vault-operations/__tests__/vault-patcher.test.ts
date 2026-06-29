@@ -2682,14 +2682,16 @@ START unique
 
 // ── Concurrent writes ─────────────────────────────────────────
 
-describe("concurrent writes", () => {
-  it("does not lose content when two patchNote appends race on the same note", async () => {
+describe("concurrent writes (exclusive lock)", () => {
+  it("rejects the second write when two patchNote calls target the same note", async () => {
     await writeTestNote(
       "board.md",
       "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n",
     )
 
-    await Promise.all([
+    // Promise.allSettled preserves input order; withExclusiveFileLock throws
+    // synchronously, so the first call acquires the lock and the second rejects.
+    const [first, second] = await Promise.allSettled([
       patchNote(
         {
           vaultPath: vault,
@@ -2712,19 +2714,24 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const result = await readTestNote("board.md")
-    expect(result).toContain("- [ ] Existing task")
-    expect(result).toContain("- [ ] Task A")
-    expect(result).toContain("- [ ] Task B")
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
   })
 
-  it("does not lose content when replaceInNote and patchNote race on the same note", async () => {
+  it("rejects the second write when replaceInNote and patchNote target the same note", async () => {
     await writeTestNote(
       "note.md",
       "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n",
     )
 
-    await Promise.all([
+    const [first, second] = await Promise.allSettled([
       replaceInNote(
         {
           vaultPath: vault,
@@ -2746,19 +2753,24 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const result = await readTestNote("note.md")
-    expect(result).toContain("Updated text.")
-    expect(result).toContain("- Item one")
-    expect(result).toContain("- Item two")
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
   })
 
-  it("does not lose content when deleteSpan and patchNote race on the same note", async () => {
+  it("rejects the second write when deleteSpan and patchNote target the same note", async () => {
     await writeTestNote(
       "mixed.md",
       "---\ntitle: Mixed\n---\n\n## Tasks\n\n- [ ] Keep this\n- [ ] Remove this\n- [ ] Also keep\n",
     )
 
-    await Promise.all([
+    const [first, second] = await Promise.allSettled([
       deleteSpan(
         {
           vaultPath: vault,
@@ -2779,10 +2791,14 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const result = await readTestNote("mixed.md")
-    expect(result).toContain("- [ ] Keep this")
-    expect(result).not.toContain("Remove this")
-    expect(result).toContain("- [ ] Also keep")
-    expect(result).toContain("- [ ] New task")
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
   })
 })

@@ -1223,15 +1223,17 @@ describe("readNoteSection", () => {
 
 // ── Concurrent writes ─────────────────────────────────────────
 
-describe("concurrent writes", () => {
-  it("does not lose properties when two writeNote calls race on the same file", async () => {
+describe("concurrent writes (exclusive lock)", () => {
+  it("rejects the second write when two writeNote calls target the same file", async () => {
     await writeFile(
       join(vault, "race.md"),
       "---\ntitle: Race\n---\n\nBody.\n",
       "utf8",
     )
 
-    await Promise.all([
+    // Promise.allSettled preserves input order; withExclusiveFileLock throws
+    // synchronously, so the first call acquires the lock and the second rejects.
+    const [first, second] = await Promise.allSettled([
       vaultFs.writeNote(
         {
           vaultPath: vault,
@@ -1252,21 +1254,25 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const content = await readFile(join(vault, "race.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.data).toHaveProperty("title", "Race")
-    expect(parsed.data).toHaveProperty("alpha", "a")
-    expect(parsed.data).toHaveProperty("beta", "b")
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
   })
 
-  it("does not lose properties when two updateProperties calls race on the same note", async () => {
+  it("rejects the second write when two updateProperties calls target the same note", async () => {
     await writeFile(
       join(vault, "props.md"),
       "---\ntitle: Props\n---\n\nBody.\n",
       "utf8",
     )
 
-    await Promise.all([
+    const [first, second] = await Promise.allSettled([
       vaultFs.updateProperties(
         {
           vaultPath: vault,
@@ -1285,10 +1291,14 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const content = await readFile(join(vault, "props.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.data).toHaveProperty("title", "Props")
-    expect(parsed.data).toHaveProperty("one", 1)
-    expect(parsed.data).toHaveProperty("two", 2)
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
   })
 })

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
-import { withFileLock } from "../../utils/file-write-lock.js"
+import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
   findHeading,
@@ -157,7 +157,7 @@ const patchNote = async (
 ): Promise<string> => {
   const { path, operation, content, heading, headingLevel } = params
   const lockPath = resolveSafePath(params.vaultPath, path)
-  return withFileLock(lockPath, async () => {
+  return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
@@ -246,7 +246,7 @@ const replaceInNote = async (
   }
 
   const lockPath = resolveSafePath(params.vaultPath, path)
-  return withFileLock(lockPath, async () => {
+  return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
@@ -315,7 +315,7 @@ const deleteSpan = async (
   }
 
   const lockPath = resolveSafePath(params.vaultPath, path)
-  return withFileLock(lockPath, async () => {
+  return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
