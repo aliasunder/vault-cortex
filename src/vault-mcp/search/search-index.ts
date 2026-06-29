@@ -922,6 +922,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     const notesForEmbedding = noteContents.map((note) => ({
       relativePath: note.relativePath,
       content: note.content,
+      snapshotMtimeMs: note.modifiedAtMs,
     }))
 
     // Pass 3 runs in the background — the server can start accepting requests
@@ -956,10 +957,26 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
             })
           }
 
+          // Guard against the file watcher having processed a newer version
+          // of a note (or removed it entirely) while Pass 3 was running. The
+          // notes table mtime is updated by upsertNote (file watcher) and
+          // removeNote deletes the row — so a mismatch or absence means this
+          // snapshot entry is stale and should be skipped.
+          const selectNoteMtimeStmt = db.prepare(
+            "SELECT mtime FROM notes WHERE path = ?",
+          )
+
           // Running totals accumulated across the sequential embedding loop
           let chunksEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
+            const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
+              | { mtime: number }
+              | undefined
+            if (!currentNote || currentNote.mtime !== note.snapshotMtimeMs) {
+              continue
+            }
+
             try {
               chunksEmbedded += await embedAndStoreChunks(
                 { notePath: note.relativePath, rawContent: note.content },

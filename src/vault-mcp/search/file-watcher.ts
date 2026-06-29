@@ -84,7 +84,7 @@ export const startFileWatcher = (
       })
       await currentEmbed
     } catch (err) {
-      logger.error("failed to index file", {
+      logger.error("failed to process file change", {
         path: relativePath,
         error: describeError(err),
       })
