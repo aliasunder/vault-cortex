@@ -3,7 +3,7 @@ import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
-import { logger, type Logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -696,7 +696,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  Returns the number of chunks that were actually embedded (0 = all cached). */
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string },
-    embedLogger: Logger,
+    logger: Logger,
   ): Promise<number> => {
     const { notePath, rawContent } = params
     if (
@@ -770,7 +770,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     }
     deleteStaleChunksStmt.run(notePath, chunks.length)
 
-    embedLogger.debug("embedded note", {
+    logger.debug("embedded note", {
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
@@ -782,10 +782,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  pipeline is disabled (no embedder provided). Safe to call unconditionally. */
   const embedNote = async (
     params: { notePath: string; rawContent: string },
-    embedLogger: Logger,
+    logger: Logger,
   ): Promise<void> => {
     if (!embedder) return
-    await embedAndStoreChunks(params, embedLogger)
+    await embedAndStoreChunks(params, logger)
   }
 
   /** Removes a note from the notes table, FTS index, links, and vectors. */
@@ -799,16 +799,21 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     }
   }
 
-  /** Drops the entire index and re-indexes every .md file in the vault. */
-  const rebuildFromVault = async (vaultPath: string): Promise<number> => {
+  /** Drops the entire index and re-indexes every .md file in the vault.
+   *  Returns the note count and a background embedding promise. The server
+   *  can start accepting requests immediately — embedding is progressive. */
+  const rebuildFromVault = async (
+    params: { vaultPath: string },
+    logger: Logger,
+  ): Promise<{ count: number; embedding: Promise<void> }> => {
+    const { vaultPath } = params
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
-    if (embedder) {
-      db.exec("DELETE FROM note_vectors")
-      db.exec("DELETE FROM note_chunks")
-    }
+    // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
+    // gating to skip unchanged chunks, so only new/modified notes re-embed.
+    // Deleted notes are cleaned up in Pass 3 before embedding starts.
 
     const normalizedVault = resolve(vaultPath)
     const allEntries = await readdir(vaultPath, {
@@ -906,39 +911,101 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       }
     })()
 
-    // Pass 3: embed all notes (outside the transaction — embedding is async
-    // and doesn't need transactional consistency with FTS). Errors are caught
-    // per-note so one bad note doesn't crash the server — FTS search still works.
-    if (embedder) {
-      let chunksEmbedded = 0
-      let embedErrors = 0
-      for (const note of noteContents) {
-        try {
-          chunksEmbedded += await embedAndStoreChunks(
-            { notePath: note.relativePath, rawContent: note.content },
-            logger,
-          )
-        } catch (err) {
-          embedErrors++
-          logger.warn("failed to embed note", {
-            path: note.relativePath,
-            error: describeError(err),
-          })
-        }
-      }
-      logger.info("embedding pass complete", {
-        notes: noteContents.length,
-        chunksEmbedded,
-        ...(embedErrors > 0 ? { embedErrors } : {}),
-      })
-    }
-
     const totalBytes = noteContents.reduce(
       (sum, note) => sum + note.sizeBytes,
       0,
     )
     logger.info("rebuilt index", { count: noteContents.length, totalBytes })
-    return noteContents.length
+
+    // Extract only what Pass 3 needs so the full noteContents array (with
+    // every note's body + stats) can be garbage-collected during embedding.
+    const notesForEmbedding = noteContents.map((note) => ({
+      relativePath: note.relativePath,
+      content: note.content,
+      snapshotMtimeMs: note.modifiedAtMs,
+    }))
+
+    // Pass 3 runs in the background — the server can start accepting requests
+    // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
+    // progressive enhancement: search works with FTS-only until vectors are ready.
+    const embeddingPromise = embedder
+      ? (async () => {
+          // Clean up vectors for notes that no longer exist on disk
+          const currentPaths = new Set(
+            notesForEmbedding.map((note) => note.relativePath),
+          )
+          const indexedChunkPaths = (
+            db
+              .prepare("SELECT DISTINCT note_path FROM note_chunks")
+              .all() as Array<{ note_path: string }>
+          ).map((row) => row.note_path)
+
+          const deletedPaths = indexedChunkPaths.filter(
+            (path) => !currentPaths.has(path),
+          )
+          const hasDeletedNotes =
+            deletedPaths.length > 0 &&
+            deleteVectorsForNoteStmt &&
+            deleteChunksForNoteStmt
+          if (hasDeletedNotes) {
+            for (const path of deletedPaths) {
+              deleteVectorsForNoteStmt.run(path)
+              deleteChunksForNoteStmt.run(path)
+            }
+            logger.info("cleaned up vectors for deleted notes", {
+              count: deletedPaths.length,
+            })
+          }
+
+          // Guard against the file watcher having processed a newer version
+          // of a note (or removed it entirely) while Pass 3 was running. The
+          // notes table mtime is updated by upsertNote (file watcher) and
+          // removeNote deletes the row — so a mismatch or absence means this
+          // snapshot entry is stale and should be skipped.
+          const selectNoteMtimeStmt = db.prepare(
+            "SELECT mtime FROM notes WHERE path = ?",
+          )
+
+          // Running totals accumulated across the sequential embedding loop
+          let chunksEmbedded = 0
+          let embedErrors = 0
+          for (const note of notesForEmbedding) {
+            const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
+              | { mtime: number }
+              | undefined
+            const noteIsStale =
+              !currentNote || currentNote.mtime !== note.snapshotMtimeMs
+            if (noteIsStale) {
+              continue
+            }
+
+            try {
+              chunksEmbedded += await embedAndStoreChunks(
+                { notePath: note.relativePath, rawContent: note.content },
+                logger,
+              )
+            } catch (err) {
+              embedErrors++
+              logger.warn("failed to embed note", {
+                path: note.relativePath,
+                error: describeError(err),
+              })
+            }
+          }
+          logger.info("embedding pass complete", {
+            notes: notesForEmbedding.length,
+            chunksEmbedded,
+            ...(embedErrors > 0 ? { embedErrors } : {}),
+          })
+        })()
+      : Promise.resolve()
+
+    // Log but don't crash on unhandled embedding errors
+    embeddingPromise.catch((err) => {
+      logger.error("embedding pass failed", { error: describeError(err) })
+    })
+
+    return { count: noteContents.length, embedding: embeddingPromise }
   }
 
   // ── Query methods ──────────────────────────────────────────────

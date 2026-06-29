@@ -20,6 +20,7 @@ services:
       MCP_AUTH_TOKEN: local-dev-token
       PUBLIC_URL: http://localhost:8000
       LOG_LEVEL: debug
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       TZ: ${TZ:-UTC}

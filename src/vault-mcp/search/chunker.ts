@@ -48,6 +48,7 @@ const splitLargeText = (text: string): string[] => {
 
   const paragraphs = text.split(/\n\n+/)
   const subChunks: string[] = []
+  // Accumulates paragraphs until the combined token count exceeds the limit
   let currentChunk = ""
 
   for (const paragraph of paragraphs) {
@@ -113,6 +114,8 @@ export const chunkNoteContent = (
     rawSections.push(preambleText)
   }
 
+  // Merges undersized sections with the next until the combined text is
+  // large enough to stand as its own chunk
   let pendingText =
     preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS
       ? preambleText

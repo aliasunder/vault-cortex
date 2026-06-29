@@ -263,14 +263,14 @@ Link queries use a `links` table populated during indexing:
 
 Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent). The sqlite-vec extension and `@huggingface/transformers` runtime are installed in the base image; the extension is loaded at startup so vec0 tables are available when the embedding pipeline lands.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on incremental file-watcher updates. Full rebuilds re-embed everything (the rebuild clears vector tables first).
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
 
 **Vector schema:** Two tables in the same SQLite database as FTS5:
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), Pass 3 (embedding, outside the transaction). The file watcher calls `embedNote` after `upsertNote` for incremental updates; `removeNote` cleans up both vectors and chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
 ## MCP Prompts
 

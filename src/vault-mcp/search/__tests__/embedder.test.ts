@@ -61,6 +61,50 @@ describe("createEmbedder", () => {
       )
       infoSpy.mockRestore()
     })
+
+    it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+      // Override the pipeline factory to return a function that produces
+      // Float64Array instead of Float32Array — triggers the toFloat32Array guard
+      // The pipeline type is a complex 24-member union that vi.fn() can't satisfy —
+      // cast through unknown since this is a test-only mock and the production
+      // code has a runtime toFloat32Array guard that catches the wrong type.
+      const badPipeline = vi.fn().mockResolvedValue({
+        data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
+      }) as unknown as Awaited<ReturnType<typeof mockedPipeline>>
+      mockedPipeline.mockResolvedValueOnce(badPipeline)
+
+      const embedder = await loadEmbedder()
+      await expect(embedder.embedText("test")).rejects.toThrow(
+        "expected Float32Array from embedding pipeline",
+      )
+    })
+
+    it("retries after a pipeline load failure", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+      mockedPipeline.mockRejectedValueOnce(new Error("model download failed"))
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      const embedder = await loadEmbedder()
+
+      await expect(embedder.embedText("test")).rejects.toThrow(
+        "model download failed",
+      )
+      expect(warnSpy).toHaveBeenCalledWith(
+        "embedding model failed to load",
+        expect.objectContaining({ model: "Xenova/bge-small-en-v1.5" }),
+      )
+
+      // pipelineLoading was reset in the catch block, allowing retry.
+      // The pipeline mock reverts to its default (success), proving retry works.
+      const result = await embedder.embedText("retry text")
+      expect(result).toBeInstanceOf(Float32Array)
+      expect(result).toHaveLength(EMBEDDING_DIMENSIONS)
+
+      warnSpy.mockRestore()
+    })
   })
 
   describe("embedBatch", () => {
@@ -86,10 +130,10 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       const results = await embedder.embedBatch(["a", "b"])
 
-      const expectedFirst = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
-      const expectedSecond = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.2)
-      expect(results[0]).toEqual(expectedFirst)
-      expect(results[1]).toEqual(expectedSecond)
+      expect(results).toEqual([
+        new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1),
+        new Float32Array(EMBEDDING_DIMENSIONS).fill(0.2),
+      ])
     })
   })
 })

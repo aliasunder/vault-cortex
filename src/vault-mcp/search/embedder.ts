@@ -6,6 +6,7 @@
 
 import { createHash } from "node:crypto"
 import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
 const MODEL_NAME = "Xenova/bge-small-en-v1.5"
 
@@ -47,7 +48,7 @@ export const createEmbedder = (logger: Logger) => {
       } catch (error) {
         logger.warn("embedding model failed to load", {
           model: MODEL_NAME,
-          error: error instanceof Error ? error.message : String(error),
+          error: describeError(error),
         })
         // Allow retry on next call (e.g. transient network failure during download)
         pipelineLoading = null

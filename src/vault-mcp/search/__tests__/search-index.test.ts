@@ -1516,12 +1516,18 @@ describe("rebuildFromVault", () => {
   })
 
   it("indexes all visible .md files", async () => {
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(2)
   })
 
   it("skips hidden directories", async () => {
-    const indexedCount = await index.rebuildFromVault(vaultDir)
+    const { count: indexedCount } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
@@ -1536,13 +1542,13 @@ describe("rebuildFromVault", () => {
       },
       logger,
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const results = index.fullTextSearch({ query: "stale" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("makes indexed notes searchable", async () => {
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
@@ -1562,7 +1568,7 @@ describe("rebuildFromVault", () => {
       "# Z Target\n\nBody.\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("a-source.md")
@@ -1575,7 +1581,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1596,7 +1602,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1623,7 +1629,7 @@ describe("rebuildFromVault", () => {
       "filters: []\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1644,7 +1650,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -1660,7 +1666,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -1673,7 +1679,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1693,7 +1699,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -1705,7 +1711,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1729,7 +1735,7 @@ describe("rebuildFromVault", () => {
       "# Source\n\nSee [[Report]].\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -1748,7 +1754,10 @@ describe("rebuildFromVault", () => {
     )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(4)
 
     const results = index.fullTextSearch(
@@ -1770,7 +1779,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
 
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toEqual([
@@ -1797,7 +1806,10 @@ describe("rebuildFromVault", () => {
       join(vaultDir, "linked-external.md"),
     )
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
@@ -1810,7 +1822,10 @@ describe("rebuildFromVault", () => {
     await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -1825,7 +1840,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
@@ -2852,6 +2870,21 @@ It has multiple sentences to verify chunking works correctly.
       // embedText is called even for empty content
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
+
+    it("embedNote propagates embedder errors to the caller", async () => {
+      const mockEmbedder = createMockEmbedder()
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await expect(
+        embeddingIndex.embedNote(
+          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
+      ).rejects.toThrow("embedding failed")
+    })
   })
 
   describe("without embedder", () => {
@@ -2908,11 +2941,55 @@ It has multiple sentences to verify chunking works correctly.
         "---\ntitle: Note 2\n---\nSecond note content here.",
       )
 
-      const count = await embeddingIndex.rebuildFromVault(vaultDir)
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await embedding
 
       expect(count).toBe(2)
       // Both notes are short → 1 chunk each → exactly 2 embedText calls
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+    })
+
+    it("continues embedding remaining notes when one fails during rebuild", async () => {
+      const mockEmbedder = createMockEmbedder()
+      // First embedText call rejects, subsequent calls use the default (resolve)
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-err-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+      })
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content.",
+      )
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await embedding
+
+      expect(count).toBe(2)
+      // One note failed, warn logged with the specific error
+      expect(warnSpy).toHaveBeenCalledWith(
+        "failed to embed note",
+        expect.objectContaining({ error: "embedding failed" }),
+      )
+      // Both notes attempted embedding (first failed, second succeeded)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+      warnSpy.mockRestore()
     })
   })
 })

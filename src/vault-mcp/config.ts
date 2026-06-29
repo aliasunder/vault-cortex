@@ -26,11 +26,10 @@ const vaultFolderName = z
 /** Splits a comma-separated string into an array of folder names.
  *  Trims each entry; empty entries (from trailing commas) are filtered out. */
 const splitCommaSeparatedFolders = (raw: string): string[] =>
-  raw.split(",").reduce<string[]>((acc, entry) => {
-    const trimmed = entry.trim()
-    if (trimmed.length > 0) acc.push(trimmed)
-    return acc
-  }, [])
+  raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
 
 // ── Config type ────────────────────────────────────────────────
 
