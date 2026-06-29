@@ -809,10 +809,9 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
-    if (embedder) {
-      db.exec("DELETE FROM note_vectors")
-      db.exec("DELETE FROM note_chunks")
-    }
+    // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
+    // gating to skip unchanged chunks, so only new/modified notes re-embed.
+    // Deleted notes are cleaned up in Pass 3 before embedding starts.
 
     const normalizedVault = resolve(vaultPath)
     const allEntries = await readdir(vaultPath, {
@@ -921,6 +920,33 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     // progressive enhancement: search works with FTS-only until vectors are ready.
     const embeddingPromise = embedder
       ? (async () => {
+          // Clean up vectors for notes that no longer exist on disk
+          const currentPaths = new Set(
+            noteContents.map((note) => note.relativePath),
+          )
+          const indexedChunkPaths = (
+            db
+              .prepare("SELECT DISTINCT note_path FROM note_chunks")
+              .all() as Array<{ note_path: string }>
+          ).map((row) => row.note_path)
+
+          const deletedPaths = indexedChunkPaths.filter(
+            (path) => !currentPaths.has(path),
+          )
+          if (
+            deletedPaths.length > 0 &&
+            deleteVectorsForNoteStmt &&
+            deleteChunksForNoteStmt
+          ) {
+            for (const path of deletedPaths) {
+              deleteVectorsForNoteStmt.run(path)
+              deleteChunksForNoteStmt.run(path)
+            }
+            logger.info("cleaned up vectors for deleted notes", {
+              count: deletedPaths.length,
+            })
+          }
+
           let chunksEmbedded = 0
           let embedErrors = 0
           for (const note of noteContents) {
