@@ -707,8 +707,9 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       !deleteStaleChunksStmt ||
       !insertVectorStmt ||
       !deleteVectorByChunkIdStmt
-    )
+    ) {
       return 0
+    }
 
     const parsed = parseNote(rawContent)
     const noteTitle =
