@@ -14,6 +14,7 @@ import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
+import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   parseNote,
   stringifyNote,
@@ -322,15 +323,17 @@ const writeNote = async (
 ): Promise<void> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  await mkdir(dirname(fullPath), { recursive: true })
+  return withFileLock(fullPath, async () => {
+    await mkdir(dirname(fullPath), { recursive: true })
 
-  const existing = await readFileOrNull(fullPath)
-  const serialized = serializeNote(existing, params.body, params.properties)
-  await atomicWriteFile(fullPath, serialized)
-  logger.info("wrote note", {
-    path: params.path,
-    beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
-    afterBytes: Buffer.byteLength(serialized, "utf8"),
+    const existing = await readFileOrNull(fullPath)
+    const serialized = serializeNote(existing, params.body, params.properties)
+    await atomicWriteFile(fullPath, serialized)
+    logger.info("wrote note", {
+      path: params.path,
+      beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
+      afterBytes: Buffer.byteLength(serialized, "utf8"),
+    })
   })
 }
 
@@ -345,18 +348,20 @@ const updateProperties = async (
 ): Promise<void> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const existing = await readFileOrNull(fullPath)
-  if (existing === null) {
-    throw new Error(`note not found: "${params.path}"`)
-  }
-  const parsed = parseNote(existing)
-  const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
-  const serialized = stringifyNote(parsed.content, mergedProperties)
-  await atomicWriteFile(fullPath, serialized)
-  logger.info("updated properties", {
-    path: params.path,
-    beforeBytes: Buffer.byteLength(existing, "utf8"),
-    afterBytes: Buffer.byteLength(serialized, "utf8"),
+  return withFileLock(fullPath, async () => {
+    const existing = await readFileOrNull(fullPath)
+    if (existing === null) {
+      throw new Error(`note not found: "${params.path}"`)
+    }
+    const parsed = parseNote(existing)
+    const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
+    const serialized = stringifyNote(parsed.content, mergedProperties)
+    await atomicWriteFile(fullPath, serialized)
+    logger.info("updated properties", {
+      path: params.path,
+      beforeBytes: Buffer.byteLength(existing, "utf8"),
+      afterBytes: Buffer.byteLength(serialized, "utf8"),
+    })
   })
 }
 

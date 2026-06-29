@@ -65,6 +65,7 @@ src/
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
   jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   utils/                               # Cross-cutting helpers (no domain logic)
+    file-write-lock.ts                 # Per-file async write serializer (TOCTOU prevention)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
     fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)

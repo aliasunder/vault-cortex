@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
   findHeading,
@@ -155,73 +156,76 @@ const patchNote = async (
   logger: Logger,
 ): Promise<string> => {
   const { path, operation, content, heading, headingLevel } = params
-  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-    params.vaultPath,
-    path,
-  )
-  const contentLines = content.split("\n")
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
+    const contentLines = content.split("\n")
 
-  // File-level operation (no heading target)
-  if (!heading) {
-    if (operation === "replace" || operation === "insert_before") {
-      throw new Error(`operation "${operation}" requires a heading target`)
+    // File-level operation (no heading target)
+    if (!heading) {
+      if (operation === "replace" || operation === "insert_before") {
+        throw new Error(`operation "${operation}" requires a heading target`)
+      }
+      const updatedLines =
+        operation === "append"
+          ? [...lines, ...contentLines]
+          : [...contentLines, ...lines]
+      const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+      logger.info("patched note", {
+        path,
+        operation,
+        target: "file body",
+        beforeBytes,
+        afterBytes,
+      })
+      return `Applied ${operation} to ${path} → file body`
     }
-    const updatedLines =
-      operation === "append"
-        ? [...lines, ...contentLines]
-        : [...contentLines, ...lines]
+
+    // Section-level operation
+    const headings = parseHeadings(lines)
+    const target = findHeading(headings, heading, headingLevel)
+    const targetDesc = `${"#".repeat(target.level)} ${target.text}`
+
+    // Heading-targeted ops keep the matched heading, so a content that begins
+    // with that same heading would duplicate it. Reject with remediation rather
+    // than silently doubling it.
+    const firstContentLineIndex = contentLines.findIndex(
+      (line) => line.trim() !== "",
+    )
+    const leadingContentHeading = parseHeadings(contentLines).find(
+      (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+    )
+    const contentRepeatsTargetHeading =
+      leadingContentHeading !== undefined &&
+      leadingContentHeading.level === target.level &&
+      leadingContentHeading.text === target.text
+    if (contentRepeatsTargetHeading) {
+      throw new Error(
+        `content begins with the heading "${targetDesc}", which would duplicate it — ` +
+          `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
+      )
+    }
+
+    const updatedLines = applySectionOperation(
+      lines,
+      contentLines,
+      target,
+      operation,
+    )
+
     const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
     logger.info("patched note", {
       path,
       operation,
-      target: "file body",
+      target: targetDesc,
       beforeBytes,
       afterBytes,
     })
-    return `Applied ${operation} to ${path} → file body`
-  }
-
-  // Section-level operation
-  const headings = parseHeadings(lines)
-  const target = findHeading(headings, heading, headingLevel)
-  const targetDesc = `${"#".repeat(target.level)} ${target.text}`
-
-  // Heading-targeted ops keep the matched heading, so a content that begins
-  // with that same heading would duplicate it. Reject with remediation rather
-  // than silently doubling it.
-  const firstContentLineIndex = contentLines.findIndex(
-    (line) => line.trim() !== "",
-  )
-  const leadingContentHeading = parseHeadings(contentLines).find(
-    (contentHeading) => contentHeading.startLine === firstContentLineIndex,
-  )
-  const contentRepeatsTargetHeading =
-    leadingContentHeading !== undefined &&
-    leadingContentHeading.level === target.level &&
-    leadingContentHeading.text === target.text
-  if (contentRepeatsTargetHeading) {
-    throw new Error(
-      `content begins with the heading "${targetDesc}", which would duplicate it — ` +
-        `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
-    )
-  }
-
-  const updatedLines = applySectionOperation(
-    lines,
-    contentLines,
-    target,
-    operation,
-  )
-
-  const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
-  logger.info("patched note", {
-    path,
-    operation,
-    target: targetDesc,
-    beforeBytes,
-    afterBytes,
+    return `Applied ${operation} to ${path} → ${targetDesc}`
   })
-  return `Applied ${operation} to ${path} → ${targetDesc}`
 }
 
 /** Find-and-replace within a note's body. */
@@ -241,43 +245,46 @@ const replaceInNote = async (
     throw new Error("old_text cannot be empty")
   }
 
-  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-    params.vaultPath,
-    path,
-  )
-
-  const body = lines.join("\n")
-
-  if (!body.includes(oldText)) {
-    throw new Error(
-      `text not found in "${path}": "${truncateForMessage(oldText)}"`,
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
     )
-  }
 
-  const idx = body.indexOf(oldText)
-  const { updatedBody, count } = replaceAllOccurrences
-    ? {
-        count: body.split(oldText).length - 1,
-        updatedBody: body.split(oldText).join(newText),
-      }
-    : {
-        count: 1,
-        updatedBody:
-          body.slice(0, idx) + newText + body.slice(idx + oldText.length),
-      }
+    const body = lines.join("\n")
 
-  // When deleting text (newText is empty), collapse runs of 3+ blank
-  // lines down to 1 blank line so removals don't leave visible gaps.
-  const normalizedBody =
-    newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
+    if (!body.includes(oldText)) {
+      throw new Error(
+        `text not found in "${path}": "${truncateForMessage(oldText)}"`,
+      )
+    }
 
-  const updatedLines = normalizedBody.split("\n")
-  const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
-  logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
-  return {
-    message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
-    count,
-  }
+    const idx = body.indexOf(oldText)
+    const { updatedBody, count } = replaceAllOccurrences
+      ? {
+          count: body.split(oldText).length - 1,
+          updatedBody: body.split(oldText).join(newText),
+        }
+      : {
+          count: 1,
+          updatedBody:
+            body.slice(0, idx) + newText + body.slice(idx + oldText.length),
+        }
+
+    // When deleting text (newText is empty), collapse runs of 3+ blank
+    // lines down to 1 blank line so removals don't leave visible gaps.
+    const normalizedBody =
+      newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
+
+    const updatedLines = normalizedBody.split("\n")
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+    logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
+    return {
+      message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
+      count,
+    }
+  })
 }
 
 /** Deletes a contiguous block of whole lines from a note's body, identified by
@@ -307,55 +314,58 @@ const deleteSpan = async (
     throw new Error("end_anchor cannot be empty")
   }
 
-  const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-    params.vaultPath,
-    path,
-  )
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
 
-  const startLine = resolveAnchorLine({
-    lines,
-    anchor: startAnchor,
-    fromLine: 0,
-    firstMatch,
-    path,
-    role: "start",
+    const startLine = resolveAnchorLine({
+      lines,
+      anchor: startAnchor,
+      fromLine: 0,
+      firstMatch,
+      path,
+      role: "start",
+    })
+    // Omitting end_anchor deletes just the start line; otherwise the span runs
+    // through the end anchor's line, searched at or after the start.
+    const endLine =
+      endAnchor === undefined
+        ? startLine
+        : resolveAnchorLine({
+            lines,
+            anchor: endAnchor,
+            fromLine: startLine,
+            firstMatch,
+            path,
+            role: "end",
+          })
+
+    const removedLines = lines.slice(startLine, endLine + 1)
+    const remainingLines = [
+      ...lines.slice(0, startLine),
+      ...lines.slice(endLine + 1),
+    ]
+    const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      normalizedBody.split("\n"),
+    )
+
+    logger.info("deleted span", {
+      path,
+      startAnchor: truncateForMessage(startAnchor),
+      endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
+      removedLines: removedLines.length,
+      beforeBytes,
+      afterBytes,
+    })
+    const lineWord = removedLines.length === 1 ? "line" : "lines"
+    return `Deleted ${removedLines.length} ${lineWord} from ${path}: "${truncateForMessage(removedLines.join("\n"))}"`
   })
-  // Omitting end_anchor deletes just the start line; otherwise the span runs
-  // through the end anchor's line, searched at or after the start.
-  const endLine =
-    endAnchor === undefined
-      ? startLine
-      : resolveAnchorLine({
-          lines,
-          anchor: endAnchor,
-          fromLine: startLine,
-          firstMatch,
-          path,
-          role: "end",
-        })
-
-  const removedLines = lines.slice(startLine, endLine + 1)
-  const remainingLines = [
-    ...lines.slice(0, startLine),
-    ...lines.slice(endLine + 1),
-  ]
-  const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
-  const afterBytes = await writePatchedNote(
-    fullPath,
-    data,
-    normalizedBody.split("\n"),
-  )
-
-  logger.info("deleted span", {
-    path,
-    startAnchor: truncateForMessage(startAnchor),
-    endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
-    removedLines: removedLines.length,
-    beforeBytes,
-    afterBytes,
-  })
-  const lineWord = removedLines.length === 1 ? "line" : "lines"
-  return `Deleted ${removedLines.length} ${lineWord} from ${path}: "${truncateForMessage(removedLines.join("\n"))}"`
 }
 
 export const vaultPatcher = {

@@ -6,6 +6,7 @@ import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
+import { withFileLock } from "../../utils/file-write-lock.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -35,41 +36,6 @@ const guardAgainstShrink = (
       `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction); re-read with vault_get_memory to confirm current content before retrying`,
     )
   }
-}
-
-// Serialize writes to each memory file. vault-mcp runs as a single Node process,
-// so two concurrent updateMemory/deleteMemory calls can otherwise interleave
-// their read-modify-write and silently drop an entry. We remember one promise
-// per file — that file's most recent write — so the next write can wait for it.
-// Writes to different files never block each other. Entries are removed once a
-// file's writes settle (see withFileLock), so the map only holds files that
-// currently have a write in flight.
-const fileWriteLocks = new Map<string, Promise<unknown>>()
-
-// Run `operation` only after the previous write to the same file has finished,
-// keeping writes to one file strictly one-at-a-time. Passing `operation` as both
-// `.then` handlers runs it whether the previous write resolved or threw, so one
-// failed write can't make later ones skip their turn. The operation's own result
-// and errors still propagate to its caller.
-const withFileLock = <T>(
-  filePath: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  const previousWrite = fileWriteLocks.get(filePath) ?? Promise.resolve()
-  const thisWrite = previousWrite.then(operation, operation)
-  fileWriteLocks.set(filePath, thisWrite)
-
-  // Once this write settles, forget it — but only if no later write has queued
-  // behind it (i.e. we're still the tail), so we never evict an in-flight chain.
-  // This keeps the map from retaining a promise per file path indefinitely.
-  const forgetIfStillTail = (): void => {
-    if (fileWriteLocks.get(filePath) === thisWrite) {
-      fileWriteLocks.delete(filePath)
-    }
-  }
-  void thisWrite.then(forgetIfStillTail, forgetIfStillTail)
-
-  return thisWrite
 }
 
 // Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
@@ -648,17 +614,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       }
 
       // Build the exact bullet string and find matching lines within the section
-      const needle = `- **${params.date}**: ${params.entry}`
-      const matchingIndices = lines.reduce<number[]>((acc, line, index) => {
-        if (
-          index >= match.bodyStartLine &&
-          index < match.bodyEndLine &&
-          line === needle
-        ) {
-          acc.push(index)
-        }
-        return acc
-      }, [])
+      const targetBullet = `- **${params.date}**: ${params.entry}`
+      const matchingIndices = lines.flatMap((line, index) =>
+        index >= match.bodyStartLine &&
+        index < match.bodyEndLine &&
+        line === targetBullet
+          ? [index]
+          : [],
+      )
 
       if (matchingIndices.length === 0) {
         throw new Error(
