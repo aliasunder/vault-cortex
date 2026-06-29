@@ -903,20 +903,29 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     })()
 
     // Pass 3: embed all notes (outside the transaction — embedding is async
-    // and doesn't need transactional consistency with FTS. Content-hash gating
-    // provides crash recovery: if the server restarts mid-pass, unchanged chunks
-    // are skipped on the next rebuild).
+    // and doesn't need transactional consistency with FTS). Errors are caught
+    // per-note so one bad note doesn't crash the server — FTS search still works.
     if (embedder) {
       let chunksEmbedded = 0
+      let embedErrors = 0
       for (const note of noteContents) {
-        chunksEmbedded += await embedAndStoreChunks(
-          { notePath: note.relativePath, rawContent: note.content },
-          logger,
-        )
+        try {
+          chunksEmbedded += await embedAndStoreChunks(
+            { notePath: note.relativePath, rawContent: note.content },
+            logger,
+          )
+        } catch (err) {
+          embedErrors++
+          logger.warn("failed to embed note", {
+            path: note.relativePath,
+            error: describeError(err),
+          })
+        }
       }
       logger.info("embedding pass complete", {
         notes: noteContents.length,
         chunksEmbedded,
+        ...(embedErrors > 0 ? { embedErrors } : {}),
       })
     }
 
