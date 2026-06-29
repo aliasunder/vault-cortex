@@ -345,6 +345,11 @@ undefined) return`) or schema validation to narrow types instead.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`.
+- Extract multi-clause conditionals into a named boolean when the `if`
+  condition spans more than one line or combines unrelated checks. A
+  reader should understand the guard's intent from the variable name
+  without parsing the expression: `if (hasDeletedNotes) {` over
+  `if (deletedPaths.length > 0 && deleteVectorsForNoteStmt && ...) {`.
 - Name booleans (params, flags, locals) for the affirmative state, and
   let the value carry the negation: `hardLinksSupported: false` reads
   clearer than `hardLinksUnsupported: true`, and a double negative like

@@ -64,7 +64,12 @@ export const startFileWatcher = (
       // block that note from re-embedding.
       const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
       const currentEmbed = previousEmbed
-        .catch(() => {})
+        .catch((previousError) => {
+          logger.debug("previous embed failed, proceeding with current", {
+            path: relativePath,
+            error: describeError(previousError),
+          })
+        })
         .then(() =>
           search.embedNote(
             { notePath: relativePath, rawContent: content },

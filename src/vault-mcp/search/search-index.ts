@@ -942,11 +942,11 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
           const deletedPaths = indexedChunkPaths.filter(
             (path) => !currentPaths.has(path),
           )
-          if (
+          const hasDeletedNotes =
             deletedPaths.length > 0 &&
             deleteVectorsForNoteStmt &&
             deleteChunksForNoteStmt
-          ) {
+          if (hasDeletedNotes) {
             for (const path of deletedPaths) {
               deleteVectorsForNoteStmt.run(path)
               deleteChunksForNoteStmt.run(path)
@@ -956,6 +956,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
             })
           }
 
+          // Running totals accumulated across the sequential embedding loop
           let chunksEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
