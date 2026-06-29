@@ -10,10 +10,9 @@ describe("chunkNoteContent", () => {
     it("returns a single chunk for a short note", () => {
       const chunks = chunkNoteContent("My Note", "Short body text here.")
 
-      expect(chunks).toHaveLength(1)
-      expect(chunks[0].index).toBe(0)
-      expect(chunks[0].text).toContain("My Note")
-      expect(chunks[0].text).toContain("Short body text here.")
+      expect(chunks).toEqual([
+        { index: 0, text: "My Note\n\nShort body text here." },
+      ])
     })
 
     it("prefixes the chunk with the note title", () => {
@@ -46,7 +45,7 @@ describe("chunkNoteContent", () => {
 
       const chunks = chunkNoteContent("My Note", body)
 
-      expect(chunks.length).toBeGreaterThanOrEqual(3)
+      expect(chunks).toHaveLength(3)
       for (const chunk of chunks) {
         expect(chunk.text).toContain("My Note")
       }
@@ -61,28 +60,35 @@ describe("chunkNoteContent", () => {
     })
 
     it("preserves preamble content before the first heading", () => {
-      const preamble = generateTokens(100)
-      const section = generateTokens(200)
+      // Use unique token names so preamble content is distinguishable from section content
+      const preamble = Array.from(
+        { length: 300 },
+        (_, i) => `preamble${i}`,
+      ).join(" ")
+      const section = generateTokens(300)
       const body = `${preamble}\n\n## Section\n${section}`
 
       const chunks = chunkNoteContent("Note", body)
-      const allText = chunks.map((chunk) => chunk.text).join("\n")
 
-      expect(allText).toContain("word0")
+      // Total tokens > 500 → heading-based path, preamble becomes its own chunk
+      expect(chunks).toHaveLength(2)
+      expect(chunks[0].text).toContain("preamble0")
+      expect(chunks[0].text).toContain("preamble299")
     })
   })
 
   describe("tiny section merging", () => {
     it("merges a tiny section with its neighbor", () => {
       const tinySection = generateTokens(20)
-      const normalSection = generateTokens(200)
-      const body = `## Tiny\n${tinySection}\n\n## Normal\n${normalSection}\n\n## Another\n${generateTokens(200)}`
+      const normalSection = generateTokens(250)
+      // Total tokens > 500 so heading-based path is entered
+      const body = `## Tiny\n${tinySection}\n\n## Normal\n${normalSection}\n\n## Another\n${generateTokens(250)}`
 
       const chunks = chunkNoteContent("Note", body)
 
-      // The tiny section should be merged — fewer chunks than sections
-      const totalSections = 3
-      expect(chunks.length).toBeLessThanOrEqual(totalSections)
+      // 3 heading sections, but the tiny one (20 tokens < MIN_CHUNK_TOKENS)
+      // merges with its neighbor — result is 2, not 3
+      expect(chunks).toHaveLength(2)
     })
   })
 
@@ -97,11 +103,11 @@ describe("chunkNoteContent", () => {
 
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks.length).toBeGreaterThan(1)
-      // Each chunk should be within the max token limit (approximately)
+      // 6 paragraphs of ~152 tokens in a single section → 3 sub-chunks
+      expect(chunks).toHaveLength(3)
       for (const chunk of chunks) {
         const tokenCount = chunk.text.split(/\s+/).filter(Boolean).length
-        // Allow some tolerance — title prefix adds tokens
+        // Each chunk (including title prefix) stays within the budget
         expect(tokenCount).toBeLessThanOrEqual(500)
       }
     })
@@ -117,7 +123,8 @@ describe("chunkNoteContent", () => {
 
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks.length).toBeGreaterThan(1)
+      // 8 paragraphs of ~102 tokens each, no headings → paragraph-boundary split into 2 chunks
+      expect(chunks).toHaveLength(2)
     })
   })
 
@@ -155,17 +162,12 @@ describe("chunkNoteContent", () => {
     it("returns NoteChunk objects with index and text", () => {
       const chunks = chunkNoteContent("Note", "Body text")
 
-      for (const chunk of chunks) {
-        expect(chunk).toHaveProperty("index")
-        expect(chunk).toHaveProperty("text")
-        expect(typeof chunk.index).toBe("number")
-        expect(typeof chunk.text).toBe("string")
-      }
+      expect(chunks).toEqual([{ index: 0, text: "Note\n\nBody text" }])
     })
 
     it("always returns at least one chunk", () => {
       const chunks = chunkNoteContent("Note", "")
-      expect(chunks.length).toBeGreaterThanOrEqual(1)
+      expect(chunks).toHaveLength(1)
     })
   })
 })

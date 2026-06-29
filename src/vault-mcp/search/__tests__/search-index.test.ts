@@ -2839,7 +2839,7 @@ It has multiple sentences to verify chunking works correctly.
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
 
-    it("embedNote is a no-op for empty content", async () => {
+    it("embedNote produces a chunk even for empty content", async () => {
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
@@ -2848,8 +2848,9 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
 
-      // Should still work — chunker returns at least one chunk even for empty
-      // The important thing is no error is thrown
+      // chunker returns at least one chunk (the title-only fallback), so
+      // embedText is called even for empty content
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
   })
 
@@ -2857,11 +2858,12 @@ It has multiple sentences to verify chunking works correctly.
     it("embedNote is a no-op when no embedder is provided", async () => {
       const noEmbedIndex = createSearchIndex(":memory:")
 
-      // Should not throw
-      await noEmbedIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
-        logger,
-      )
+      await expect(
+        noEmbedIndex.embedNote(
+          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
+      ).resolves.toBeUndefined()
     })
 
     it("removeNote works without vector tables", () => {
@@ -2876,8 +2878,14 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
 
-      // Should not throw even though no vector tables exist
       noEmbedIndex.removeNote("test.md")
+
+      // Verify the note was actually removed from the FTS index
+      const results = noEmbedIndex.fullTextSearch(
+        { query: "test note" },
+        logger,
+      )
+      expect(results).toHaveLength(0)
     })
   })
 
@@ -2903,8 +2911,8 @@ It has multiple sentences to verify chunking works correctly.
       const count = await embeddingIndex.rebuildFromVault(vaultDir)
 
       expect(count).toBe(2)
-      // Both notes should have been embedded
-      expect(mockEmbedder.embedText.mock.calls.length).toBeGreaterThanOrEqual(2)
+      // Both notes are short → 1 chunk each → exactly 2 embedText calls
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
   })
 })
