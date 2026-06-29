@@ -63,9 +63,7 @@ export const withExclusiveFileLock = <T>(
 ): Promise<T> => {
   const key = resolve(filePath)
   if (fileWriteLocks.has(key)) {
-    throw new Error(
-      `concurrent write in progress for "${filePath}" — re-read the note and retry`,
-    )
+    throw new Error("concurrent write in progress — re-read the note and retry")
   }
   const thisWrite = operation()
   fileWriteLocks.set(key, thisWrite)

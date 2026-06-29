@@ -210,6 +210,9 @@ Prefer vault_update_properties for property-only edits (no body round-trip).${co
 
 Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
+Errors:
+- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
 Returns: Confirmation message.`,
@@ -294,6 +297,7 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
+- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
 Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
@@ -389,6 +393,7 @@ Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "old_text cannot be empty" — old_text must be at least one character
+- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Obsidian syntax: new_text is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in replacement text.
 
@@ -480,6 +485,7 @@ Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous anchor" — matches multiple lines; use a longer fragment or set first_match: true
+- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
       inputSchema: {
@@ -795,6 +801,7 @@ Prefer vault_write_note when creating a new note or replacing the body. Read cur
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
+- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 
