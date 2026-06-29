@@ -80,7 +80,7 @@ const startServer = async (): Promise<void> => {
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
   const search = createSearchIndex(searchDbPath, embedder)
-  const { count } = await search.rebuildFromVault(vaultPath)
+  const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
   const dailyNotesConfig = await readDailyNotesConfig(vaultPath)

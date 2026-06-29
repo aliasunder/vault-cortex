@@ -59,6 +59,7 @@ services:
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-}
+      MEMORY_ENABLED: ${MEMORY_ENABLED:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):

@@ -21,6 +21,7 @@ services:
       PUBLIC_URL: http://localhost:8000
       LOG_LEVEL: debug
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-}
+      MEMORY_ENABLED: ${MEMORY_ENABLED:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true when developing against a vault on a C: drive

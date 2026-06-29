@@ -3,7 +3,7 @@ import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import { join, basename, posix, relative, resolve } from "node:path"
-import { logger, type Logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -803,8 +803,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  Returns the note count and a background embedding promise. The server
    *  can start accepting requests immediately — embedding is progressive. */
   const rebuildFromVault = async (
-    vaultPath: string,
+    params: { vaultPath: string },
+    logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
+    const { vaultPath } = params
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -915,6 +917,13 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     )
     logger.info("rebuilt index", { count: noteContents.length, totalBytes })
 
+    // Extract only what Pass 3 needs so the full noteContents array (with
+    // every note's body + stats) can be garbage-collected during embedding.
+    const notesForEmbedding = noteContents.map((note) => ({
+      relativePath: note.relativePath,
+      content: note.content,
+    }))
+
     // Pass 3 runs in the background — the server can start accepting requests
     // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
     // progressive enhancement: search works with FTS-only until vectors are ready.
@@ -922,7 +931,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       ? (async () => {
           // Clean up vectors for notes that no longer exist on disk
           const currentPaths = new Set(
-            noteContents.map((note) => note.relativePath),
+            notesForEmbedding.map((note) => note.relativePath),
           )
           const indexedChunkPaths = (
             db
@@ -949,7 +958,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
           let chunksEmbedded = 0
           let embedErrors = 0
-          for (const note of noteContents) {
+          for (const note of notesForEmbedding) {
             try {
               chunksEmbedded += await embedAndStoreChunks(
                 { notePath: note.relativePath, rawContent: note.content },
@@ -964,7 +973,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
             }
           }
           logger.info("embedding pass complete", {
-            notes: noteContents.length,
+            notes: notesForEmbedding.length,
             chunksEmbedded,
             ...(embedErrors > 0 ? { embedErrors } : {}),
           })
