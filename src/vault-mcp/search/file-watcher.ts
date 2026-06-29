@@ -30,6 +30,10 @@ export const startFileWatcher = (
   search: SearchIndex,
   options?: FileWatcherOptions,
 ): Promise<void> => {
+  // Serializes embedding per note path so overlapping chokidar events for the
+  // same file can't interleave and overwrite vectors with stale content.
+  const pendingEmbeds = new Map<string, Promise<void>>()
+
   const handleChange = async (filePath: string): Promise<void> => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -52,10 +56,19 @@ export const startFileWatcher = (
         },
         logger,
       )
-      await search.embedNote(
-        { notePath: relativePath, rawContent: content },
-        logger,
+      const prev = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const next = prev.then(() =>
+        search.embedNote(
+          { notePath: relativePath, rawContent: content },
+          logger,
+        ),
       )
+      pendingEmbeds.set(relativePath, next)
+      next.finally(() => {
+        if (pendingEmbeds.get(relativePath) === next)
+          pendingEmbeds.delete(relativePath)
+      })
+      await next
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
