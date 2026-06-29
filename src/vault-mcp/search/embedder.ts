@@ -34,15 +34,21 @@ export const createEmbedder = (logger: Logger) => {
     if (pipelineLoading) return pipelineLoading
 
     pipelineLoading = (async () => {
-      const startMs = performance.now()
-      const { pipeline } = await import("@huggingface/transformers")
-      const instance = await pipeline("feature-extraction", MODEL_NAME, {
-        dtype: "q8",
-      })
-      const elapsedMs = Math.round(performance.now() - startMs)
-      logger.info("embedding model loaded", { model: MODEL_NAME, elapsedMs })
-      pipelineInstance = instance
-      return instance
+      try {
+        const startMs = performance.now()
+        const { pipeline } = await import("@huggingface/transformers")
+        const instance = await pipeline("feature-extraction", MODEL_NAME, {
+          dtype: "q8",
+        })
+        const elapsedMs = Math.round(performance.now() - startMs)
+        logger.info("embedding model loaded", { model: MODEL_NAME, elapsedMs })
+        pipelineInstance = instance
+        return instance
+      } catch (error) {
+        // Allow retry on next call (e.g. transient network failure during download)
+        pipelineLoading = null
+        throw error
+      }
     })()
 
     return pipelineLoading
