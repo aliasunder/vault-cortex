@@ -61,6 +61,31 @@ describe("createEmbedder", () => {
       )
       infoSpy.mockRestore()
     })
+
+    it("retries after a pipeline load failure", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+      mockedPipeline.mockRejectedValueOnce(new Error("model download failed"))
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      const embedder = await loadEmbedder()
+
+      await expect(embedder.embedText("test")).rejects.toThrow(
+        "model download failed",
+      )
+      expect(warnSpy).toHaveBeenCalledWith(
+        "embedding model failed to load",
+        expect.objectContaining({ model: "Xenova/bge-small-en-v1.5" }),
+      )
+
+      // pipelineLoading was reset in the catch block, allowing retry.
+      // The pipeline mock reverts to its default (success), proving retry works.
+      const result = await embedder.embedText("retry text")
+      expect(result).toBeInstanceOf(Float32Array)
+      expect(result).toHaveLength(EMBEDDING_DIMENSIONS)
+
+      warnSpy.mockRestore()
+    })
   })
 
   describe("embedBatch", () => {

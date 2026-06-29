@@ -2852,6 +2852,21 @@ It has multiple sentences to verify chunking works correctly.
       // embedText is called even for empty content
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
+
+    it("embedNote propagates embedder errors to the caller", async () => {
+      const mockEmbedder = createMockEmbedder()
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await expect(
+        embeddingIndex.embedNote(
+          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
+      ).rejects.toThrow("embedding failed")
+    })
   })
 
   describe("without embedder", () => {
@@ -2915,6 +2930,44 @@ It has multiple sentences to verify chunking works correctly.
       expect(count).toBe(2)
       // Both notes are short → 1 chunk each → exactly 2 embedText calls
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+    })
+
+    it("continues embedding remaining notes when one fails during rebuild", async () => {
+      const mockEmbedder = createMockEmbedder()
+      // First embedText call rejects, subsequent calls use the default (resolve)
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-err-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+      })
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content.",
+      )
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      const { count, embedding } =
+        await embeddingIndex.rebuildFromVault(vaultDir)
+      await embedding
+
+      expect(count).toBe(2)
+      // One note failed, warn logged with the specific error
+      expect(warnSpy).toHaveBeenCalledWith(
+        "failed to embed note",
+        expect.objectContaining({ error: "embedding failed" }),
+      )
+      // Both notes attempted embedding (first failed, second succeeded)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+      warnSpy.mockRestore()
     })
   })
 })

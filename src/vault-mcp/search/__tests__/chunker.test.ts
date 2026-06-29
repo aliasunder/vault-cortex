@@ -28,6 +28,15 @@ describe("chunkNoteContent", () => {
       expect(chunks).toHaveLength(1)
     })
 
+    it("enters the splitting path at exactly 500 tokens (the threshold)", () => {
+      const body = generateTokens(500)
+      const chunks = chunkNoteContent("Note", body)
+
+      // 500 tokens is NOT < CHUNK_THRESHOLD_TOKENS (500), so the splitting
+      // path activates (contrast with 499 tokens above which stays single)
+      expect(chunks.length).toBeGreaterThan(1)
+    })
+
     it("handles empty body", () => {
       const chunks = chunkNoteContent("Title", "")
 
