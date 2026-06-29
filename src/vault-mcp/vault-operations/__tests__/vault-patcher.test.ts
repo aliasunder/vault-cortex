@@ -2712,12 +2712,18 @@ describe("concurrent writes (exclusive lock)", () => {
       ),
     ])
 
-    const fulfilled = results.filter((result) => result.status === "fulfilled")
-    const rejected = results.filter((result) => result.status === "rejected")
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain(
-      "concurrent write in progress",
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1)
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "rejected",
+          reason: expect.objectContaining({
+            message: expect.stringContaining("concurrent write in progress"),
+          }),
+        }),
+      ]),
     )
   })
 
@@ -2749,12 +2755,18 @@ describe("concurrent writes (exclusive lock)", () => {
       ),
     ])
 
-    const fulfilled = results.filter((result) => result.status === "fulfilled")
-    const rejected = results.filter((result) => result.status === "rejected")
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain(
-      "concurrent write in progress",
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1)
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "rejected",
+          reason: expect.objectContaining({
+            message: expect.stringContaining("concurrent write in progress"),
+          }),
+        }),
+      ]),
     )
   })
 
@@ -2785,12 +2797,18 @@ describe("concurrent writes (exclusive lock)", () => {
       ),
     ])
 
-    const fulfilled = results.filter((result) => result.status === "fulfilled")
-    const rejected = results.filter((result) => result.status === "rejected")
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain(
-      "concurrent write in progress",
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1)
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "rejected",
+          reason: expect.objectContaining({
+            message: expect.stringContaining("concurrent write in progress"),
+          }),
+        }),
+      ]),
     )
   })
 })
