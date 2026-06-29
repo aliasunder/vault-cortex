@@ -94,11 +94,14 @@ describe("createEmbedder", () => {
   })
 })
 
+/** Matches a 64-character lowercase hex string (SHA-256 digest). */
+const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/
+
 describe("contentHash", () => {
   it("returns a hex SHA-256 hash", () => {
     const hash = contentHash("hello world")
 
-    expect(hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(hash).toMatch(SHA256_HEX_REGEX)
   })
 
   it("returns the same hash for the same input", () => {
