@@ -696,7 +696,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  Returns the number of chunks that were actually embedded (0 = all cached). */
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string },
-    embedLogger: Logger,
+    logger: Logger,
   ): Promise<number> => {
     const { notePath, rawContent } = params
     if (
@@ -770,7 +770,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     }
     deleteStaleChunksStmt.run(notePath, chunks.length)
 
-    embedLogger.debug("embedded note", {
+    logger.debug("embedded note", {
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
@@ -782,10 +782,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
    *  pipeline is disabled (no embedder provided). Safe to call unconditionally. */
   const embedNote = async (
     params: { notePath: string; rawContent: string },
-    embedLogger: Logger,
+    logger: Logger,
   ): Promise<void> => {
     if (!embedder) return
-    await embedAndStoreChunks(params, embedLogger)
+    await embedAndStoreChunks(params, logger)
   }
 
   /** Removes a note from the notes table, FTS index, links, and vectors. */
