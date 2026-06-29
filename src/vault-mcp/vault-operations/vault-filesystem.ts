@@ -14,7 +14,7 @@ import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
-import { withFileLock } from "../../utils/file-write-lock.js"
+import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseNote,
   stringifyNote,
@@ -323,7 +323,7 @@ const writeNote = async (
 ): Promise<void> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  return withFileLock(fullPath, async () => {
+  return withExclusiveFileLock(fullPath, async () => {
     await mkdir(dirname(fullPath), { recursive: true })
 
     const existing = await readFileOrNull(fullPath)
@@ -348,7 +348,7 @@ const updateProperties = async (
 ): Promise<void> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  return withFileLock(fullPath, async () => {
+  return withExclusiveFileLock(fullPath, async () => {
     const existing = await readFileOrNull(fullPath)
     if (existing === null) {
       throw new Error(`note not found: "${params.path}"`)

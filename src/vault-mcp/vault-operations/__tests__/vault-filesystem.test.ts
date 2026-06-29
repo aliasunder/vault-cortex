@@ -1223,15 +1223,15 @@ describe("readNoteSection", () => {
 
 // ── Concurrent writes ─────────────────────────────────────────
 
-describe("concurrent writes", () => {
-  it("does not lose properties when two writeNote calls race on the same file", async () => {
+describe("concurrent writes (exclusive lock)", () => {
+  it("rejects the second write when two writeNote calls target the same file", async () => {
     await writeFile(
       join(vault, "race.md"),
       "---\ntitle: Race\n---\n\nBody.\n",
       "utf8",
     )
 
-    await Promise.all([
+    const results = await Promise.allSettled([
       vaultFs.writeNote(
         {
           vaultPath: vault,
@@ -1252,21 +1252,23 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const content = await readFile(join(vault, "race.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.data).toHaveProperty("title", "Race")
-    expect(parsed.data).toHaveProperty("alpha", "a")
-    expect(parsed.data).toHaveProperty("beta", "b")
+    const fulfilled = results.filter((result) => result.status === "fulfilled")
+    const rejected = results.filter((result) => result.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain(
+      "concurrent write in progress",
+    )
   })
 
-  it("does not lose properties when two updateProperties calls race on the same note", async () => {
+  it("rejects the second write when two updateProperties calls target the same note", async () => {
     await writeFile(
       join(vault, "props.md"),
       "---\ntitle: Props\n---\n\nBody.\n",
       "utf8",
     )
 
-    await Promise.all([
+    const results = await Promise.allSettled([
       vaultFs.updateProperties(
         {
           vaultPath: vault,
@@ -1285,10 +1287,12 @@ describe("concurrent writes", () => {
       ),
     ])
 
-    const content = await readFile(join(vault, "props.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.data).toHaveProperty("title", "Props")
-    expect(parsed.data).toHaveProperty("one", 1)
-    expect(parsed.data).toHaveProperty("two", 2)
+    const fulfilled = results.filter((result) => result.status === "fulfilled")
+    const rejected = results.filter((result) => result.status === "rejected")
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain(
+      "concurrent write in progress",
+    )
   })
 })
