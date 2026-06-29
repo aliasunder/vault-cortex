@@ -294,7 +294,9 @@ throughout the codebase.
 - No `any`. No `as` or `!` (non-null assertion) — both are type
   assertions that bypass the compiler. Use runtime guards (`if (x ===
 undefined) return`) or schema validation to narrow types instead.
-  Prefer `async/await` over `.then()`/`.catch()`.
+  Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
+  `.finally()` is the natural idiom (e.g. promise-chain serialization
+  queues), use it with a comment explaining the pattern.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and
