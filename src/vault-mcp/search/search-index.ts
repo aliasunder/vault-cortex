@@ -973,7 +973,9 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
               | { mtime: number }
               | undefined
-            if (!currentNote || currentNote.mtime !== note.snapshotMtimeMs) {
+            const noteIsStale =
+              !currentNote || currentNote.mtime !== note.snapshotMtimeMs
+            if (noteIsStale) {
               continue
             }
 
