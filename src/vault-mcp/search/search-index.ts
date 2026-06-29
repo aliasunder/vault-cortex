@@ -799,8 +799,12 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     }
   }
 
-  /** Drops the entire index and re-indexes every .md file in the vault. */
-  const rebuildFromVault = async (vaultPath: string): Promise<number> => {
+  /** Drops the entire index and re-indexes every .md file in the vault.
+   *  Returns the note count and a background embedding promise. The server
+   *  can start accepting requests immediately — embedding is progressive. */
+  const rebuildFromVault = async (
+    vaultPath: string,
+  ): Promise<{ count: number; embedding: Promise<void> }> => {
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -906,39 +910,47 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       }
     })()
 
-    // Pass 3: embed all notes (outside the transaction — embedding is async
-    // and doesn't need transactional consistency with FTS). Errors are caught
-    // per-note so one bad note doesn't crash the server — FTS search still works.
-    if (embedder) {
-      let chunksEmbedded = 0
-      let embedErrors = 0
-      for (const note of noteContents) {
-        try {
-          chunksEmbedded += await embedAndStoreChunks(
-            { notePath: note.relativePath, rawContent: note.content },
-            logger,
-          )
-        } catch (err) {
-          embedErrors++
-          logger.warn("failed to embed note", {
-            path: note.relativePath,
-            error: describeError(err),
-          })
-        }
-      }
-      logger.info("embedding pass complete", {
-        notes: noteContents.length,
-        chunksEmbedded,
-        ...(embedErrors > 0 ? { embedErrors } : {}),
-      })
-    }
-
     const totalBytes = noteContents.reduce(
       (sum, note) => sum + note.sizeBytes,
       0,
     )
     logger.info("rebuilt index", { count: noteContents.length, totalBytes })
-    return noteContents.length
+
+    // Pass 3 runs in the background — the server can start accepting requests
+    // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
+    // progressive enhancement: search works with FTS-only until vectors are ready.
+    const embeddingPromise = embedder
+      ? (async () => {
+          let chunksEmbedded = 0
+          let embedErrors = 0
+          for (const note of noteContents) {
+            try {
+              chunksEmbedded += await embedAndStoreChunks(
+                { notePath: note.relativePath, rawContent: note.content },
+                logger,
+              )
+            } catch (err) {
+              embedErrors++
+              logger.warn("failed to embed note", {
+                path: note.relativePath,
+                error: describeError(err),
+              })
+            }
+          }
+          logger.info("embedding pass complete", {
+            notes: noteContents.length,
+            chunksEmbedded,
+            ...(embedErrors > 0 ? { embedErrors } : {}),
+          })
+        })()
+      : Promise.resolve()
+
+    // Log but don't crash on unhandled embedding errors
+    embeddingPromise.catch((err) => {
+      logger.error("embedding pass failed", { error: describeError(err) })
+    })
+
+    return { count: noteContents.length, embedding: embeddingPromise }
   }
 
   // ── Query methods ──────────────────────────────────────────────

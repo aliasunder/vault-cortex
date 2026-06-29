@@ -1516,12 +1516,12 @@ describe("rebuildFromVault", () => {
   })
 
   it("indexes all visible .md files", async () => {
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(vaultDir)
     expect(count).toBe(2)
   })
 
   it("skips hidden directories", async () => {
-    const indexedCount = await index.rebuildFromVault(vaultDir)
+    const { count: indexedCount } = await index.rebuildFromVault(vaultDir)
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
@@ -1748,7 +1748,7 @@ describe("rebuildFromVault", () => {
     )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(vaultDir)
     expect(count).toBe(4)
 
     const results = index.fullTextSearch(
@@ -1797,7 +1797,7 @@ describe("rebuildFromVault", () => {
       join(vaultDir, "linked-external.md"),
     )
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(vaultDir)
     expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
@@ -1810,7 +1810,7 @@ describe("rebuildFromVault", () => {
     await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(vaultDir)
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -1825,7 +1825,7 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(vaultDir)
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
@@ -2908,7 +2908,9 @@ It has multiple sentences to verify chunking works correctly.
         "---\ntitle: Note 2\n---\nSecond note content here.",
       )
 
-      const count = await embeddingIndex.rebuildFromVault(vaultDir)
+      const { count, embedding } =
+        await embeddingIndex.rebuildFromVault(vaultDir)
+      await embedding
 
       expect(count).toBe(2)
       // Both notes are short → 1 chunk each → exactly 2 embedText calls
