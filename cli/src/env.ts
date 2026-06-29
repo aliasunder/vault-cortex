@@ -25,6 +25,9 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
+# Enable or disable the memory layer (default: true).
+# Set to false to hide memory tools and skip About Me/ creation.
+# MEMORY_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 # MEMORY_DIR=About Me
 
@@ -50,6 +53,9 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
+# Enable or disable the memory layer (default: true).
+# Set to false to hide memory tools and skip About Me/ creation.
+# MEMORY_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 # MEMORY_DIR=About Me
 

@@ -58,6 +58,7 @@ services:
       LOG_DIR: /data/logs
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
+      MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
