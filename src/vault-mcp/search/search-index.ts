@@ -9,6 +9,8 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { contentHash, type Embedder } from "./embedder.js"
+import { chunkNoteContent } from "./chunker.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -229,7 +231,7 @@ const extractAllLinks = (
 
 // ── Factory ─────────────────────────────────────────────────────
 
-export const createSearchIndex = (dbPath: string) => {
+export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -285,6 +287,28 @@ export const createSearchIndex = (dbPath: string) => {
     CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
+
+  // ── Vector tables (embedding pipeline) ────────────────────────
+  // Created only when an embedder is provided — otherwise the search index
+  // operates in FTS5-only mode with no model download or vector storage.
+  if (embedder) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS note_chunks (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_path    TEXT NOT NULL,
+        chunk_index  INTEGER NOT NULL,
+        chunk_text   TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        UNIQUE(note_path, chunk_index)
+      );
+      CREATE INDEX IF NOT EXISTS idx_note_chunks_path ON note_chunks(note_path);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS note_vectors USING vec0(
+        chunk_id  INTEGER PRIMARY KEY,
+        embedding float[384]
+      );
+    `)
+  }
 
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
   // database from before the `leading_callout` column was added would lack it
@@ -373,6 +397,48 @@ export const createSearchIndex = (dbPath: string) => {
    *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
   const escapeLikeWildcards = (value: string): string =>
     value.replace(/[\\%_]/g, (character) => `\\${character}`)
+
+  // ── Vector prepared statements (conditional on embedder) ──────
+  const upsertChunkStmt = embedder
+    ? db.prepare(
+        `INSERT OR REPLACE INTO note_chunks (note_path, chunk_index, chunk_text, content_hash)
+         VALUES (@note_path, @chunk_index, @chunk_text, @content_hash)`,
+      )
+    : null
+  const selectChunkHashesStmt = embedder
+    ? db.prepare(
+        `SELECT chunk_index, content_hash FROM note_chunks WHERE note_path = ?`,
+      )
+    : null
+  const selectChunkIdStmt = embedder
+    ? db.prepare(
+        `SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`,
+      )
+    : null
+  const deleteStaleChunksStmt = embedder
+    ? db.prepare(
+        `DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`,
+      )
+    : null
+  const insertVectorStmt = embedder
+    ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
+    : null
+  const deleteVectorByChunkIdStmt = embedder
+    ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id = ?`)
+    : null
+  const deleteVectorsForNoteStmt = embedder
+    ? db.prepare(
+        `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ?)`,
+      )
+    : null
+  const deleteChunksForNoteStmt = embedder
+    ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`)
+    : null
+  const deleteStaleVectorsStmt = embedder
+    ? db.prepare(
+        `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
+      )
+    : null
 
   /** Strips the file extension from a path, or returns the path unchanged if
    *  it has no extension. Uses the last dot in the filename (not the path). */
@@ -623,11 +689,114 @@ export const createSearchIndex = (dbPath: string) => {
     }
   }
 
-  /** Removes a note from the notes table, FTS index, and links. */
+  // ── Embedding pipeline ─────────────────────────────────────────
+
+  /** Chunk, hash, embed, and store vectors for a single note. Content-hash
+   *  gating skips chunks whose text hasn't changed since the last embedding.
+   *  Returns the number of chunks that were actually embedded (0 = all cached). */
+  const embedAndStoreChunks = async (
+    params: { notePath: string; rawContent: string },
+    embedLogger: Logger,
+  ): Promise<number> => {
+    const { notePath, rawContent } = params
+    if (
+      !embedder ||
+      !upsertChunkStmt ||
+      !selectChunkHashesStmt ||
+      !selectChunkIdStmt ||
+      !deleteStaleChunksStmt ||
+      !insertVectorStmt ||
+      !deleteVectorByChunkIdStmt
+    ) {
+      return 0
+    }
+
+    const parsed = parseNote(rawContent)
+    const noteTitle =
+      (isString(parsed.data.title) ? parsed.data.title : null) ??
+      basename(notePath, ".md")
+    const chunks = chunkNoteContent(noteTitle, parsed.content)
+
+    // Load existing hashes for content-hash gating
+    const existingHashes = new Map(
+      (
+        selectChunkHashesStmt.all(notePath) as Array<{
+          chunk_index: number
+          content_hash: string
+        }>
+      ).map((row) => [row.chunk_index, row.content_hash]),
+    )
+
+    let embeddedCount = 0
+
+    for (const chunk of chunks) {
+      const hash = contentHash(chunk.text)
+
+      // Skip if content hasn't changed
+      if (existingHashes.get(chunk.index) === hash) continue
+
+      const embedding = await embedder.embedText(chunk.text)
+
+      // Wrap the DB writes in a transaction so the content hash is never
+      // saved without its corresponding vector — prevents a crash between
+      // chunk upsert and vector insert from permanently marking the chunk
+      // as "already embedded" while its vector is missing.
+      db.transaction(() => {
+        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
+          | { id: number }
+          | undefined
+        if (existingChunk) {
+          deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+        }
+
+        upsertChunkStmt.run({
+          note_path: notePath,
+          chunk_index: chunk.index,
+          chunk_text: chunk.text,
+          content_hash: hash,
+        })
+
+        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index) as {
+          id: number
+        }
+        insertVectorStmt.run(BigInt(chunkRow.id), Buffer.from(embedding.buffer))
+      })()
+      embeddedCount++
+    }
+
+    // Delete stale chunks and their vectors (note now has fewer chunks than before)
+    if (deleteStaleVectorsStmt) {
+      deleteStaleVectorsStmt.run(notePath, chunks.length)
+    }
+    deleteStaleChunksStmt.run(notePath, chunks.length)
+
+    embedLogger.debug("embedded note", {
+      path: notePath,
+      totalChunks: chunks.length,
+      embeddedCount,
+    })
+    return embeddedCount
+  }
+
+  /** Embed a note's content into vector storage. No-op when the embedding
+   *  pipeline is disabled (no embedder provided). Safe to call unconditionally. */
+  const embedNote = async (
+    params: { notePath: string; rawContent: string },
+    embedLogger: Logger,
+  ): Promise<void> => {
+    if (!embedder) return
+    await embedAndStoreChunks(params, embedLogger)
+  }
+
+  /** Removes a note from the notes table, FTS index, links, and vectors. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
     removeNotesStmt.run(filePath)
     deleteLinksStmt.run(filePath)
+    if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
+      deleteVectorsForNoteStmt.run(filePath)
+      deleteChunksForNoteStmt.run(filePath)
+    }
   }
 
   /** Drops the entire index and re-indexes every .md file in the vault. */
@@ -636,6 +805,10 @@ export const createSearchIndex = (dbPath: string) => {
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
+    if (embedder) {
+      db.exec("DELETE FROM note_vectors")
+      db.exec("DELETE FROM note_chunks")
+    }
 
     const normalizedVault = resolve(vaultPath)
     const allEntries = await readdir(vaultPath, {
@@ -732,6 +905,33 @@ export const createSearchIndex = (dbPath: string) => {
         }
       }
     })()
+
+    // Pass 3: embed all notes (outside the transaction — embedding is async
+    // and doesn't need transactional consistency with FTS). Errors are caught
+    // per-note so one bad note doesn't crash the server — FTS search still works.
+    if (embedder) {
+      let chunksEmbedded = 0
+      let embedErrors = 0
+      for (const note of noteContents) {
+        try {
+          chunksEmbedded += await embedAndStoreChunks(
+            { notePath: note.relativePath, rawContent: note.content },
+            logger,
+          )
+        } catch (err) {
+          embedErrors++
+          logger.warn("failed to embed note", {
+            path: note.relativePath,
+            error: describeError(err),
+          })
+        }
+      }
+      logger.info("embedding pass complete", {
+        notes: noteContents.length,
+        chunksEmbedded,
+        ...(embedErrors > 0 ? { embedErrors } : {}),
+      })
+    }
 
     const totalBytes = noteContents.reduce(
       (sum, note) => sum + note.sizeBytes,
@@ -1364,6 +1564,7 @@ export const createSearchIndex = (dbPath: string) => {
 
   return {
     upsertNote,
+    embedNote,
     removeNote,
     rebuildFromVault,
     upsertNonMdFile,

@@ -81,6 +81,7 @@ src/
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+      plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
@@ -97,10 +98,11 @@ src/
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
-    search/                            # SQLite FTS5 indexing + file watching
-      search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
-      file-watcher.ts                  # chokidar -> keeps index current
-                                       # Phase 2: gains a semantic-ingestion hook
+    search/                            # SQLite FTS5 indexing + file watching + embedding
+      search-index.ts                  # SQLite FTS5 + vec0 factory (tags, folders, vectors)
+      embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
+      chunker.ts                       # Heading-aware chunking for embedding
+      file-watcher.ts                  # chokidar → keeps FTS + vector index current
     oauth/                             # OAuth 2.1 (provider, routes, consent)
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
@@ -138,8 +140,9 @@ on**, not just its topic:
   register function, and data-layer imports. Shared helpers (`safeHandler`,
   `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
   `prompt-definitions.ts` registers the MCP prompts (not yet split into groups).
-- **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
-  server (distinct from the shared `src/auth.ts` token utilities).
+- **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
+- **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
+  token utilities).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
@@ -292,7 +295,9 @@ throughout the codebase.
 - No `any`. No `as` or `!` (non-null assertion) — both are type
   assertions that bypass the compiler. Use runtime guards (`if (x ===
 undefined) return`) or schema validation to narrow types instead.
-  Prefer `async/await` over `.then()`/`.catch()`.
+  Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
+  `.finally()` is the natural idiom (e.g. promise-chain serialization
+  queues), use it with a comment explaining the pattern.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and

@@ -59,7 +59,7 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                                              |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                                               |
 
-The [`.env.example`](./.env.example) file also includes optional configuration for the memory system (`MEMORY_ENABLED`, `MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see the [Configuration](./README.md#configuration) section in the README.
+The [`.env.example`](./.env.example) file also includes optional configuration for the embedding pipeline (`EMBEDDING_ENABLED`), the memory system (`MEMORY_ENABLED`, `MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see the [Configuration](./README.md#configuration) section in the README.
 
 ```bash
 docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
@@ -216,6 +216,7 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
 | `SST_STAGE`                 | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
 | `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
+| `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, and embedding passes. Search uses FTS5 only. Default: `true`.                                                      |
 | `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                             |
 | `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). Ignored when `MEMORY_ENABLED` is `false`. See the [Configuration](./README.md#configuration) section.                                            |
 | `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                                          |

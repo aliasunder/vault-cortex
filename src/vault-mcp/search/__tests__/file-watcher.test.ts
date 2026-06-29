@@ -177,6 +177,33 @@ describe("file-watcher", () => {
     expect(paths).toContain("linked.md")
   })
 
+  it(
+    "calls embedNote when indexing a .md file",
+    { timeout: 15000 },
+    async () => {
+      const embedNoteSpy = vi.spyOn(index, "embedNote")
+      await startFileWatcher(vault, index, {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      })
+
+      await writeFile(
+        join(vault, "embed-test.md"),
+        "---\ntitle: Embed\n---\n\nEmbed this content\n",
+        "utf8",
+      )
+
+      await waitFor(() => embedNoteSpy.mock.calls.length > 0)
+      expect(embedNoteSpy).toHaveBeenCalledWith(
+        {
+          notePath: "embed-test.md",
+          rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
+        },
+        expect.anything(), // logger — runtime child logger, not deterministic
+      )
+    },
+  )
+
   // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔
   // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
   // option is wired through and indexing still happens under polling.
