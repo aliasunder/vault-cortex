@@ -5,6 +5,8 @@
  *  so a vault_update_memory and a vault_replace_in_note targeting the same
  *  file also serialize correctly. */
 
+import { resolve } from "node:path"
+
 // One promise per file path — that file's most recent write. Entries are
 // removed once a file's writes settle and no later write is queued (see
 // forgetIfStillTail), so the map only holds files with a write in flight.
@@ -24,15 +26,17 @@ export const withFileLock = <T>(
   filePath: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
-  const previousWrite = fileWriteLocks.get(filePath) ?? Promise.resolve()
+  // Canonicalize so callers using resolve() and join() converge on the same key.
+  const key = resolve(filePath)
+  const previousWrite = fileWriteLocks.get(key) ?? Promise.resolve()
   const thisWrite = previousWrite.then(operation, operation)
-  fileWriteLocks.set(filePath, thisWrite)
+  fileWriteLocks.set(key, thisWrite)
 
   // Once this write settles, forget it — but only if no later write has
   // queued behind it (i.e. we're still the tail of the chain).
   const forgetIfStillTail = (): void => {
-    if (fileWriteLocks.get(filePath) === thisWrite) {
-      fileWriteLocks.delete(filePath)
+    if (fileWriteLocks.get(key) === thisWrite) {
+      fileWriteLocks.delete(key)
     }
   }
   void thisWrite.then(forgetIfStillTail, forgetIfStillTail)
