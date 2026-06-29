@@ -62,6 +62,23 @@ describe("createEmbedder", () => {
       infoSpy.mockRestore()
     })
 
+    it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+      // Override the pipeline factory to return a function that produces
+      // Float64Array instead of Float32Array — triggers the toFloat32Array guard
+      mockedPipeline.mockResolvedValueOnce(
+        vi.fn().mockResolvedValue({
+          data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
+        }) as ReturnType<typeof mockedPipeline>,
+      )
+
+      const embedder = await loadEmbedder()
+      await expect(embedder.embedText("test")).rejects.toThrow(
+        "expected Float32Array from embedding pipeline",
+      )
+    })
+
     it("retries after a pipeline load failure", async () => {
       const transformers = await import("@huggingface/transformers")
       const mockedPipeline = vi.mocked(transformers.pipeline)
@@ -111,10 +128,10 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       const results = await embedder.embedBatch(["a", "b"])
 
-      const expectedFirst = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
-      const expectedSecond = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.2)
-      expect(results[0]).toEqual(expectedFirst)
-      expect(results[1]).toEqual(expectedSecond)
+      expect(results).toEqual([
+        new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1),
+        new Float32Array(EMBEDDING_DIMENSIONS).fill(0.2),
+      ])
     })
   })
 })
