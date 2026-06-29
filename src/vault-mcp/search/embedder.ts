@@ -45,6 +45,10 @@ export const createEmbedder = (logger: Logger) => {
         pipelineInstance = instance
         return instance
       } catch (error) {
+        logger.warn("embedding model failed to load", {
+          model: MODEL_NAME,
+          error: error instanceof Error ? error.message : String(error),
+        })
         // Allow retry on next call (e.g. transient network failure during download)
         pipelineLoading = null
         throw error
