@@ -56,26 +56,24 @@ export const startFileWatcher = (
         },
         logger,
       )
+      // Promise chain serializes embedding per path — if two events arrive for
+      // the same note, the second waits for the first to finish. .finally()
+      // clears the map entry on success OR failure so a rejected promise can't
+      // permanently block that note from re-embedding.
       const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-      const embedAfterPrevious = async (): Promise<void> => {
-        await previousEmbed
-        await search.embedNote(
+      const currentEmbed = previousEmbed.then(() =>
+        search.embedNote(
           { notePath: relativePath, rawContent: content },
           logger,
-        )
-      }
-      const currentEmbed = embedAfterPrevious()
+        ),
+      )
       pendingEmbeds.set(relativePath, currentEmbed)
-      try {
-        await currentEmbed
-      } finally {
-        // Clean up on success OR failure — without this, a failed embed leaves
-        // a rejected promise in the map and every subsequent event for the same
-        // path chains off it, permanently blocking that note from re-embedding.
+      currentEmbed.finally(() => {
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
           pendingEmbeds.delete(relativePath)
         }
-      }
+      })
+      await currentEmbed
     } catch (err) {
       logger.error("failed to index file", {
         path: relativePath,
