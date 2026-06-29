@@ -76,6 +76,11 @@
           "default": "http://localhost:8000"
         },
         {
+          "name": "EMBEDDING_ENABLED",
+          "description": "Enable or disable the embedding pipeline. When false, no ONNX model is downloaded, no vector tables are created, and search uses FTS5 only.",
+          "default": "true"
+        },
+        {
           "name": "MEMORY_ENABLED",
           "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
           "default": "true"
