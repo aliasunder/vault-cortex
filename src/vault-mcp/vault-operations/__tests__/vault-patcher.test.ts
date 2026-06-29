@@ -2751,4 +2751,38 @@ describe("concurrent writes", () => {
     expect(result).toContain("- Item one")
     expect(result).toContain("- Item two")
   })
+
+  it("does not lose content when deleteSpan and patchNote race on the same note", async () => {
+    await writeTestNote(
+      "mixed.md",
+      "---\ntitle: Mixed\n---\n\n## Tasks\n\n- [ ] Keep this\n- [ ] Remove this\n- [ ] Also keep\n",
+    )
+
+    await Promise.all([
+      deleteSpan(
+        {
+          vaultPath: vault,
+          path: "mixed.md",
+          startAnchor: "Remove this",
+        },
+        logger,
+      ),
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "mixed.md",
+          operation: "append",
+          heading: "Tasks",
+          content: "- [ ] New task",
+        },
+        logger,
+      ),
+    ])
+
+    const result = await readTestNote("mixed.md")
+    expect(result).toContain("- [ ] Keep this")
+    expect(result).not.toContain("Remove this")
+    expect(result).toContain("- [ ] Also keep")
+    expect(result).toContain("- [ ] New task")
+  })
 })
