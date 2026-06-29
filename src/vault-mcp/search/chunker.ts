@@ -27,8 +27,22 @@ const MIN_CHUNK_TOKENS = 50
 const approximateTokenCount = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length
 
+/** Split a single oversized paragraph at word boundaries when it exceeds
+ *  MAX_CHUNK_TOKENS and can't be split at paragraph boundaries. */
+const splitOversizedParagraph = (paragraph: string): string[] => {
+  const words = paragraph.split(/\s+/).filter(Boolean)
+  if (words.length <= MAX_CHUNK_TOKENS) return [paragraph]
+
+  const fragments: string[] = []
+  for (let start = 0; start < words.length; start += MAX_CHUNK_TOKENS) {
+    fragments.push(words.slice(start, start + MAX_CHUNK_TOKENS).join(" "))
+  }
+  return fragments
+}
+
 /** Split oversized text into sub-chunks at paragraph boundaries,
- *  keeping each under MAX_CHUNK_TOKENS. */
+ *  keeping each under MAX_CHUNK_TOKENS. Falls back to word-boundary
+ *  splitting for single paragraphs that exceed the limit. */
 const splitLargeText = (text: string): string[] => {
   if (approximateTokenCount(text) <= MAX_CHUNK_TOKENS) return [text]
 
@@ -53,7 +67,12 @@ const splitLargeText = (text: string): string[] => {
     subChunks.push(currentChunk)
   }
 
-  return subChunks
+  // Word-boundary split for any chunks still over the limit
+  return subChunks.flatMap((chunk) =>
+    approximateTokenCount(chunk) > MAX_CHUNK_TOKENS
+      ? splitOversizedParagraph(chunk)
+      : [chunk],
+  )
 }
 
 /** Prefix each text fragment with the note title and assign sequential indices. */

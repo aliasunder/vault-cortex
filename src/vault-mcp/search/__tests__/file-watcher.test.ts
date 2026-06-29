@@ -195,7 +195,10 @@ describe("file-watcher", () => {
 
       await waitFor(() => embedNoteSpy.mock.calls.length > 0)
       expect(embedNoteSpy).toHaveBeenCalledWith(
-        { notePath: "embed-test.md", rawContent: expect.any(String) },
+        {
+          notePath: "embed-test.md",
+          rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
+        },
         expect.anything(),
       )
     },

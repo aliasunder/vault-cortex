@@ -2,15 +2,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { contentHash, EMBEDDING_DIMENSIONS } from "../embedder.js"
 import { logger } from "../../../logger.js"
 
-const MOCK_EMBEDDING = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.5)
+// First input gets fill 0.1, second gets 0.2, etc.
+const MOCK_EMBEDDING_FIRST = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
 
+// Each input gets a distinct fill value (0.1 * (inputIndex + 1)) so batch
+// slicing can be verified — identical fills would mask offset errors.
 vi.mock("@huggingface/transformers", () => ({
   pipeline: vi.fn().mockResolvedValue(
     vi.fn().mockImplementation((texts: string | string[]) => {
       const count = Array.isArray(texts) ? texts.length : 1
       const data = new Float32Array(count * EMBEDDING_DIMENSIONS)
-      for (let i = 0; i < count * EMBEDDING_DIMENSIONS; i++) {
-        data[i] = 0.5
+      for (let inputIndex = 0; inputIndex < count; inputIndex++) {
+        const fillValue = 0.1 * (inputIndex + 1)
+        for (let dim = 0; dim < EMBEDDING_DIMENSIONS; dim++) {
+          data[inputIndex * EMBEDDING_DIMENSIONS + dim] = fillValue
+        }
       }
       return Promise.resolve({ data })
     }),
@@ -41,7 +47,7 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       const result = await embedder.embedText("hello world")
 
-      expect(result).toEqual(MOCK_EMBEDDING)
+      expect(result).toEqual(MOCK_EMBEDDING_FIRST)
     })
 
     it("logs model load time on first call", async () => {
@@ -80,8 +86,10 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       const results = await embedder.embedBatch(["a", "b"])
 
-      expect(results[0]).toEqual(MOCK_EMBEDDING)
-      expect(results[1]).toEqual(MOCK_EMBEDDING)
+      const expectedFirst = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
+      const expectedSecond = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.2)
+      expect(results[0]).toEqual(expectedFirst)
+      expect(results[1]).toEqual(expectedSecond)
     })
   })
 })

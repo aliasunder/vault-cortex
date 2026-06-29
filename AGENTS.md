@@ -139,8 +139,9 @@ on**, not just its topic:
   register function, and data-layer imports. Shared helpers (`safeHandler`,
   `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
   `prompt-definitions.ts` registers the MCP prompts (not yet split into groups).
-- **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher. **`oauth/`** — the OAuth 2.1
-  server (distinct from the shared `src/auth.ts` token utilities).
+- **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
+- **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
+  token utilities).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
