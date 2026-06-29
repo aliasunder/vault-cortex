@@ -111,6 +111,12 @@ jobs:
 
   publish-registry:
     needs: [bump-and-tag, deploy]
+    # Runs even when deploy is skipped — the registry manifest (server.json)
+    # doesn't depend on the Docker image or Lightsail.
+    if: |-
+      always() &&
+      needs.bump-and-tag.result == 'success' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     # Ceiling for the reusable workflow: MCP Registry OIDC.
     permissions:
       id-token: write
