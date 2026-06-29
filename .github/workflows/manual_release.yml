@@ -14,10 +14,10 @@ on:
           - major
       skip_deploy:
         description: >-
-          Skip image build, SST deploy, Lightsail restart, and registry
-          publish. Use when Lightsail runs a different branch (e.g. Phase 2)
-          and deploying main would overwrite it. The version bump, tag,
-          GitHub release, and changelog still run normally.
+          Skip image build, SST deploy, and Lightsail restart. Use when
+          Lightsail runs a different branch (e.g. Phase 2) and deploying
+          main would overwrite it. The version bump, tag, GitHub release,
+          changelog, and registry publish still run normally.
         required: false
         type: boolean
         default: false
