@@ -85,6 +85,8 @@ export const createEmbedder = (logger: Logger) => {
     const output = await pipe([...texts], { pooling: "mean", normalize: true })
     const data = toFloat32Array(output.data)
 
+    // The pipeline returns all embeddings concatenated in a single flat array
+    // (e.g. 3 inputs × 384 dims = 1152 floats). Slice out each input's embedding.
     return texts.map(
       (_text, index) =>
         new Float32Array(
