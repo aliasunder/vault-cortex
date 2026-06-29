@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, onTestFinished } from "vitest"
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
@@ -272,39 +272,35 @@ describe("cross-mode interaction", () => {
   })
 
   it("serializing lock queues behind an exclusive lock on the same file", async () => {
-    const filePath = join(testDir, "cross-queue.txt")
+    const fixtureDir = join(
+      import.meta.dirname,
+      "__fixtures__",
+      `cross-queue-${randomUUID()}`,
+    )
+    await mkdir(fixtureDir, { recursive: true })
+    onTestFinished(async () => {
+      await rm(fixtureDir, { recursive: true, force: true })
+    })
 
-    await mkdir(testDir, { recursive: true })
-    await writeFile(join(testDir, "cross-queue.txt"), "0", "utf8")
+    const counterPath = join(fixtureDir, "cross-queue.txt")
+    await writeFile(counterPath, "0", "utf8")
+
+    const filePath = join(fixtureDir, "cross-queue.txt")
 
     const exclusiveWrite = withExclusiveFileLock(filePath, async () => {
-      const current = Number(
-        await readFile(join(testDir, "cross-queue.txt"), "utf8"),
-      )
-      await writeFile(
-        join(testDir, "cross-queue.txt"),
-        String(current + 1),
-        "utf8",
-      )
+      const current = Number(await readFile(counterPath, "utf8"))
+      await writeFile(counterPath, String(current + 1), "utf8")
     })
 
     // Serializing call should queue behind the exclusive lock and run after.
     const serializingWrite = withFileLock(filePath, async () => {
-      const current = Number(
-        await readFile(join(testDir, "cross-queue.txt"), "utf8"),
-      )
-      await writeFile(
-        join(testDir, "cross-queue.txt"),
-        String(current + 1),
-        "utf8",
-      )
+      const current = Number(await readFile(counterPath, "utf8"))
+      await writeFile(counterPath, String(current + 1), "utf8")
     })
 
     await Promise.all([exclusiveWrite, serializingWrite])
 
-    const finalValue = await readFile(join(testDir, "cross-queue.txt"), "utf8")
+    const finalValue = await readFile(counterPath, "utf8")
     expect(finalValue).toBe("2")
-
-    await rm(testDir, { recursive: true, force: true })
   })
 })

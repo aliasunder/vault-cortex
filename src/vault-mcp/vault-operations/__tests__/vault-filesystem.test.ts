@@ -1231,7 +1231,9 @@ describe("concurrent writes (exclusive lock)", () => {
       "utf8",
     )
 
-    const results = await Promise.allSettled([
+    // Promise.allSettled preserves input order; withExclusiveFileLock throws
+    // synchronously, so the first call acquires the lock and the second rejects.
+    const [first, second] = await Promise.allSettled([
       vaultFs.writeNote(
         {
           vaultPath: vault,
@@ -1252,18 +1254,14 @@ describe("concurrent writes (exclusive lock)", () => {
       ),
     ])
 
-    expect(
-      results.filter((result) => result.status === "fulfilled"),
-    ).toHaveLength(1)
-    expect(results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: "rejected",
-          reason: expect.objectContaining({
-            message: expect.stringContaining("concurrent write in progress"),
-          }),
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
         }),
-      ]),
+      }),
     )
   })
 
@@ -1274,7 +1272,7 @@ describe("concurrent writes (exclusive lock)", () => {
       "utf8",
     )
 
-    const results = await Promise.allSettled([
+    const [first, second] = await Promise.allSettled([
       vaultFs.updateProperties(
         {
           vaultPath: vault,
@@ -1293,18 +1291,14 @@ describe("concurrent writes (exclusive lock)", () => {
       ),
     ])
 
-    expect(
-      results.filter((result) => result.status === "fulfilled"),
-    ).toHaveLength(1)
-    expect(results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: "rejected",
-          reason: expect.objectContaining({
-            message: expect.stringContaining("concurrent write in progress"),
-          }),
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
         }),
-      ]),
+      }),
     )
   })
 })
