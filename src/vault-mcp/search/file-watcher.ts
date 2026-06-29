@@ -57,13 +57,14 @@ export const startFileWatcher = (
         logger,
       )
       const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-      const currentEmbed = (async () => {
+      const embedAfterPrevious = async (): Promise<void> => {
         await previousEmbed
         await search.embedNote(
           { notePath: relativePath, rawContent: content },
           logger,
         )
-      })()
+      }
+      const currentEmbed = embedAfterPrevious()
       pendingEmbeds.set(relativePath, currentEmbed)
       try {
         await currentEmbed
