@@ -1220,3 +1220,75 @@ describe("readNoteSection", () => {
     ).rejects.toThrow("heading cannot be empty")
   })
 })
+
+// ── Concurrent writes ─────────────────────────────────────────
+
+describe("concurrent writes", () => {
+  it("does not lose properties when two writeNote calls race on the same file", async () => {
+    await writeFile(
+      join(vault, "race.md"),
+      "---\ntitle: Race\n---\n\nBody.\n",
+      "utf8",
+    )
+
+    await Promise.all([
+      vaultFs.writeNote(
+        {
+          vaultPath: vault,
+          path: "race.md",
+          body: "Body.",
+          properties: { alpha: "a" },
+        },
+        logger,
+      ),
+      vaultFs.writeNote(
+        {
+          vaultPath: vault,
+          path: "race.md",
+          body: "Body.",
+          properties: { beta: "b" },
+        },
+        logger,
+      ),
+    ])
+
+    const content = await readFile(join(vault, "race.md"), "utf8")
+    const parsed = parseNote(content)
+    expect(parsed.data).toHaveProperty("title", "Race")
+    expect(parsed.data).toHaveProperty("alpha", "a")
+    expect(parsed.data).toHaveProperty("beta", "b")
+  })
+
+  it("does not lose properties when two updateProperties calls race on the same note", async () => {
+    await writeFile(
+      join(vault, "props.md"),
+      "---\ntitle: Props\n---\n\nBody.\n",
+      "utf8",
+    )
+
+    await Promise.all([
+      vaultFs.updateProperties(
+        {
+          vaultPath: vault,
+          path: "props.md",
+          properties: { one: 1 },
+        },
+        logger,
+      ),
+      vaultFs.updateProperties(
+        {
+          vaultPath: vault,
+          path: "props.md",
+          properties: { two: 2 },
+        },
+        logger,
+      ),
+    ])
+
+    const content = await readFile(join(vault, "props.md"), "utf8")
+    const parsed = parseNote(content)
+    expect(parsed.data).toHaveProperty("title", "Props")
+    expect(parsed.data).toHaveProperty("one", 1)
+    expect(parsed.data).toHaveProperty("two", 2)
+  })
+})

@@ -2679,3 +2679,76 @@ START unique
     ).rejects.toThrow("path traversal blocked")
   })
 })
+
+// ── Concurrent writes ─────────────────────────────────────────
+
+describe("concurrent writes", () => {
+  it("does not lose content when two patchNote appends race on the same note", async () => {
+    await writeTestNote(
+      "board.md",
+      "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n",
+    )
+
+    await Promise.all([
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          operation: "append",
+          heading: "Active",
+          content: "- [ ] Task A",
+        },
+        logger,
+      ),
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          operation: "append",
+          heading: "Active",
+          content: "- [ ] Task B",
+        },
+        logger,
+      ),
+    ])
+
+    const result = await readTestNote("board.md")
+    expect(result).toContain("- [ ] Existing task")
+    expect(result).toContain("- [ ] Task A")
+    expect(result).toContain("- [ ] Task B")
+  })
+
+  it("does not lose content when replaceInNote and patchNote race on the same note", async () => {
+    await writeTestNote(
+      "note.md",
+      "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n",
+    )
+
+    await Promise.all([
+      replaceInNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          oldText: "Original text.",
+          newText: "Updated text.",
+        },
+        logger,
+      ),
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "append",
+          heading: "Section",
+          content: "- Item two",
+        },
+        logger,
+      ),
+    ])
+
+    const result = await readTestNote("note.md")
+    expect(result).toContain("Updated text.")
+    expect(result).toContain("- Item one")
+    expect(result).toContain("- Item two")
+  })
+})
