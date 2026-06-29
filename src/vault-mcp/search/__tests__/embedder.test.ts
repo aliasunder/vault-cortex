@@ -67,11 +67,13 @@ describe("createEmbedder", () => {
       const mockedPipeline = vi.mocked(transformers.pipeline)
       // Override the pipeline factory to return a function that produces
       // Float64Array instead of Float32Array — triggers the toFloat32Array guard
-      mockedPipeline.mockResolvedValueOnce(
-        vi.fn().mockResolvedValue({
-          data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
-        }) as ReturnType<typeof mockedPipeline>,
-      )
+      // The pipeline type is a complex 24-member union that vi.fn() can't satisfy —
+      // cast through unknown since this is a test-only mock and the production
+      // code has a runtime toFloat32Array guard that catches the wrong type.
+      const badPipeline = vi.fn().mockResolvedValue({
+        data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
+      }) as unknown as Awaited<ReturnType<typeof mockedPipeline>>
+      mockedPipeline.mockResolvedValueOnce(badPipeline)
 
       const embedder = await loadEmbedder()
       await expect(embedder.embedText("test")).rejects.toThrow(
