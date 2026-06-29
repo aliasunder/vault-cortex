@@ -69,6 +69,9 @@ export const startFileWatcher = (
       try {
         await currentEmbed
       } finally {
+        // Clean up on success OR failure — without this, a failed embed leaves
+        // a rejected promise in the map and every subsequent event for the same
+        // path chains off it, permanently blocking that note from re-embedding.
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
           pendingEmbeds.delete(relativePath)
         }
