@@ -736,27 +736,30 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
       const embedding = await embedder.embedText(chunk.text)
 
-      // Delete old vector for this chunk position if it exists
-      const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-        | { id: number }
-        | undefined
-      if (existingChunk) {
-        deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
-      }
+      // Wrap the DB writes in a transaction so the content hash is never
+      // saved without its corresponding vector — prevents a crash between
+      // chunk upsert and vector insert from permanently marking the chunk
+      // as "already embedded" while its vector is missing.
+      db.transaction(() => {
+        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
+          | { id: number }
+          | undefined
+        if (existingChunk) {
+          deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+        }
 
-      // Upsert the chunk text + hash
-      upsertChunkStmt.run({
-        note_path: notePath,
-        chunk_index: chunk.index,
-        chunk_text: chunk.text,
-        content_hash: hash,
-      })
+        upsertChunkStmt.run({
+          note_path: notePath,
+          chunk_index: chunk.index,
+          chunk_text: chunk.text,
+          content_hash: hash,
+        })
 
-      // Get the chunk's rowid for the vector table
-      const chunkRow = selectChunkIdStmt.get(notePath, chunk.index) as {
-        id: number
-      }
-      insertVectorStmt.run(BigInt(chunkRow.id), Buffer.from(embedding.buffer))
+        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index) as {
+          id: number
+        }
+        insertVectorStmt.run(BigInt(chunkRow.id), Buffer.from(embedding.buffer))
+      })()
       embeddedCount++
     }
 
