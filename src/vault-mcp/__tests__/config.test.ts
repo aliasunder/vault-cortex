@@ -218,6 +218,29 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("EMBEDDING_ENABLED", () => {
+    it("defaults to true when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.embeddingEnabled).toBe(true)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ EMBEDDING_ENABLED: "true" })
+      expect(config.embeddingEnabled).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ EMBEDDING_ENABLED: "false" })
+      expect(config.embeddingEnabled).toBe(false)
+    })
+
+    it("rejects a non-boolean value", () => {
+      expect(() => loadConfig({ EMBEDDING_ENABLED: "yes" })).toThrow(
+        /EMBEDDING_ENABLED/,
+      )
+    })
+  })
+
   describe("MEMORY_ENABLED", () => {
     it("defaults to true when unset", () => {
       const config = loadConfig(EMPTY_ENV)

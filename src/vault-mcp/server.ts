@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from "express"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
+import { createEmbedder } from "./search/embedder.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
@@ -73,10 +74,12 @@ const startServer = async (): Promise<void> => {
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,
     memoryDir: config.memoryDir,
+    embeddingEnabled: config.embeddingEnabled,
     windowsBindMount: config.windowsBindMount,
   })
 
-  const search = createSearchIndex(searchDbPath)
+  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
+  const search = createSearchIndex(searchDbPath, embedder)
   const count = await search.rebuildFromVault(vaultPath)
   logger.info("initial index built", { count })
 
