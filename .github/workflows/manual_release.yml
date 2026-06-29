@@ -14,10 +14,10 @@ on:
           - major
       skip_deploy:
         description: >-
-          Skip image build, SST deploy, and Lightsail restart. Use when
-          Lightsail runs a different branch (e.g. Phase 2) and deploying
-          main would overwrite it. The version bump, tag, GitHub release,
-          changelog, and registry publish still run normally.
+          Skip SST deploy and Lightsail restart — the Docker image is
+          still built and pushed to GHCR. Use when the instance runs a
+          different branch (e.g. Phase 2) and restarting compose would
+          overwrite it.
         required: false
         type: boolean
         default: false
@@ -98,7 +98,6 @@ jobs:
 
   deploy:
     needs: bump-and-tag
-    if: ${{ !inputs.skip_deploy }}
     # Ceiling for the reusable workflow: AWS OIDC + GHCR push.
     permissions:
       id-token: write
@@ -107,16 +106,11 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       version: ${{ needs.bump-and-tag.outputs.version }}
+      skip_instance: ${{ inputs.skip_deploy }}
     secrets: inherit
 
   publish-registry:
     needs: [bump-and-tag, deploy]
-    # Runs even when deploy is skipped — the registry manifest (server.json)
-    # doesn't depend on the Docker image or Lightsail.
-    if: |-
-      always() &&
-      needs.bump-and-tag.result == 'success' &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     # Ceiling for the reusable workflow: MCP Registry OIDC.
     permissions:
       id-token: write
@@ -127,12 +121,6 @@ jobs:
 
   release:
     needs: [bump-and-tag, deploy]
-    # When deploy is skipped (skip_deploy), release still runs — the GitHub
-    # release and changelog don't depend on the Docker image or Lightsail.
-    if: |-
-      always() &&
-      needs.bump-and-tag.result == 'success' &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     runs-on: ubuntu-latest
     # gh release create uses GITHUB_TOKEN; the CHANGELOG push to main
     # authenticates as the release App, not this token. generate-notes.sh
