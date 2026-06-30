@@ -27,7 +27,7 @@ services:
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true when developing against a vault on a C: drive
       # (polling watcher + rename-based moves across the Docker Desktop/WSL2 bridge).
-      WINDOWS_MODE: ${WINDOWS_MODE:-}
+      WINDOWS_MODE: ${WINDOWS_MODE:-false}
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes"
