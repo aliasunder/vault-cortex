@@ -76,8 +76,7 @@ graph TB
             OB_HEADLESS["obsidian-sync<br/>ob sync --continuous"]
             VAULT_FS[("/vault<br/>SOURCE OF TRUTH")]
             MCP_SERVER["vault-mcp :8000<br/>MCP streamable-http"]
-            SQLITE[("SQLite FTS5")]
-            VEC["sqlite-vec"]
+            SQLITE[("SQLite\nFTS5 + sqlite-vec")]
             WATCHER["chokidar watcher"]
         end
     end
@@ -93,11 +92,9 @@ graph TB
     SYNC <-->|bidirectional| OB_HEADLESS
     OB_HEADLESS -->|read/write .md| VAULT_FS
     VAULT_FS -->|watch| WATCHER
-    WATCHER -->|index| SQLITE
-    WATCHER -->|embed| VEC
+    WATCHER -->|index + embed| SQLITE
     MCP_SERVER -->|read/write| VAULT_FS
-    MCP_SERVER -->|query| SQLITE
-    MCP_SERVER -->|hybrid query| VEC
+    MCP_SERVER -->|FTS5 + vector| SQLITE
     CC -->|OAuth 2.1 / Bearer token| APIGW
     CD -->|OAuth 2.1| APIGW
     CU -->|OAuth 2.1 / Bearer token| APIGW
@@ -327,13 +324,13 @@ flowchart TD
 
 **Search module decomposition:** The search layer is split into five modules:
 
-| Module              | Responsibility                                                                                                                                                                                                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`), embedder wiring                                                                                                                                                          |
-| `search-queries.ts` | 15 query methods — `fullTextSearch`, `hybridSearch`, `vectorSearch`, `searchByTag`, `searchByFolder`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
-| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `noteRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                                              |
-| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                           |
-| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                        |
+| Module              | Responsibility                                                                                                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`), embedder wiring                                                                                                                                          |
+| `search-queries.ts` | 15 query methods — `fullTextSearch`, `hybridSearch`, `searchByTag`, `searchByFolder`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
+| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `noteRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                              |
+| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                           |
+| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                        |
 
 Write concerns (index mutations) are separated from read concerns (queries) and pure logic (helpers, RRF). `search-index.ts` remains the factory — it binds query functions to the database via a `SearchQueryContext` closure.
 
