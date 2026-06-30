@@ -312,7 +312,7 @@ export const hybridSearch = async (
       : null
 
   const finalResults = rerankedResult?.results ?? rerankCandidates
-  const reranked = rerankedResult !== null
+  const reranked = Boolean(rerankedResult)
 
   logger.info("hybrid search", {
     query: params.query,
