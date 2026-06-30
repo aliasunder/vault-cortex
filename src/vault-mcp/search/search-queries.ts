@@ -367,6 +367,14 @@ const tryRerank = async (params: {
       documentTexts,
     )
 
+    if (rerankScores.length !== params.mergedResults.length) {
+      params.logger.warn("reranker returned mismatched score count", {
+        expected: params.mergedResults.length,
+        received: rerankScores.length,
+      })
+      return null
+    }
+
     const rrfScores = params.mergedResults.map((result) => result.score)
     const rrfRanks = params.mergedResults.map((_result, index) => index + 1)
 
