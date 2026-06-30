@@ -22,8 +22,9 @@ includes a second hook for embedding ingestion. Additive — not a
 rewrite. The Docker image uses Debian slim (`node:24-slim`) because
 `onnxruntime-node` requires glibc.
 
-**Phase 2b** (in progress) will add cross-encoder reranking and
-position-aware score blending to refine hybrid search result ordering.
+**Phase 2b** adds cross-encoder reranking (ms-marco-MiniLM-L-6-v2) with
+position-aware score blending to refine hybrid search result ordering
+after RRF fusion.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
@@ -108,6 +109,7 @@ src/
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
       embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
+      reranker.ts                      # Cross-encoder reranker factory (ms-marco-MiniLM, ONNX)
       chunker.ts                       # Heading-aware chunking for embedding
       file-watcher.ts                  # chokidar → keeps FTS + vector index current
     oauth/                             # OAuth 2.1 (provider, routes, consent)

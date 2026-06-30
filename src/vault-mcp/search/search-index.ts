@@ -10,6 +10,7 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { contentHash, type Embedder } from "./embedder.js"
+import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -47,6 +48,7 @@ export type SearchResult = {
 export type HybridSearchResult = {
   results: SearchResult[]
   search_mode: "hybrid" | "fts"
+  reranked: boolean
 }
 
 export type NoteMetadata = {
@@ -151,7 +153,11 @@ export type OutgoingLinkEntry = {
 
 // ── Factory ─────────────────────────────────────────────────────
 
-export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
+export const createSearchIndex = (
+  dbPath: string,
+  embedder?: Embedder,
+  reranker?: Reranker,
+) => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -368,6 +374,14 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       )
     : null
 
+  /** First chunk text for a note — used by the reranker to score FTS-only
+   *  results that have no vector hit. Chunk 0 contains the title + intro. */
+  const selectFirstChunkStmt = embedder
+    ? db.prepare(
+        `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
+      )
+    : null
+
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare(
     `SELECT path, title, tags, related, folder, type, created, mtime,
@@ -398,19 +412,22 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     // base_path column strips the extension, so "photo.png" wouldn't match
     // base_path "photo".
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
     const exactMatch = resolveNonMdByBasePathStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
       const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
-        { path: string } | undefined
+        | { path: string }
+        | undefined
       if (relativeMatch) return relativeMatch.path
     }
 
@@ -425,7 +442,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       return suffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     return basenameMatch?.path ?? null
   }
 
@@ -653,7 +671,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-          { id: number } | undefined
+          | { id: number }
+          | undefined
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -887,7 +906,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
           let embedErrors = 0
           for (const note of notesForEmbedding) {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
-              { mtime: number } | undefined
+              | { mtime: number }
+              | undefined
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
             if (noteIsStale) {
@@ -933,6 +953,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       knnSearchStmt,
       selectNoteMetadataStmt,
     },
+    reranker,
+    selectFirstChunkStmt,
   }
 
   /** Binds the query context as the first argument of a query function,

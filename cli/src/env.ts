@@ -33,6 +33,13 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Set to false to disable model download and use FTS5 search only.
 # EMBEDDING_ENABLED=true
 
+# Reranking mode for hybrid search results (default: blended).
+# "blended" uses a cross-encoder to refine result ordering with
+# position-aware score blending (~200ms added latency).
+# "none" skips reranking for lower latency.
+# Only takes effect when EMBEDDING_ENABLED=true.
+# RERANK_MODE=blended
+
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 # MEMORY_ENABLED=true
@@ -68,6 +75,13 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # subsequent starts are fast via content-hash caching.
 # Set to false to disable model download and use FTS5 search only.
 # EMBEDDING_ENABLED=true
+
+# Reranking mode for hybrid search results (default: blended).
+# "blended" uses a cross-encoder to refine result ordering with
+# position-aware score blending (~200ms added latency).
+# "none" skips reranking for lower latency.
+# Only takes effect when EMBEDDING_ENABLED=true.
+# RERANK_MODE=blended
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.

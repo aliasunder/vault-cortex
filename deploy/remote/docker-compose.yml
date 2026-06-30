@@ -54,6 +54,7 @@ services:
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env — see .env.example}"
       PUBLIC_URL: "${PUBLIC_URL:?Set PUBLIC_URL to your server's public URL}"
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
+      RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}

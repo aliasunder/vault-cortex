@@ -7,6 +7,8 @@ import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { sanitizeFtsQuery } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
+import { blendScores } from "./reranker.js"
+import type { Reranker } from "./reranker.js"
 import {
   rowToMetadata,
   noteRowToSearchResult,
@@ -41,6 +43,8 @@ export type SearchQueryContext = {
     readonly knnSearchStmt: Database.Statement | null
     readonly selectNoteMetadataStmt: Database.Statement
   }
+  readonly reranker: Reranker | undefined
+  readonly selectFirstChunkStmt: Database.Statement | null
 }
 
 // ── Vector search (internal) ───────────────────────────────────
@@ -243,7 +247,7 @@ export const hybridSearch = async (
       searchMode: "fts",
       resultCount: fallbackResults.length,
     })
-    return { results: fallbackResults, search_mode: "fts" }
+    return { results: fallbackResults, search_mode: "fts", reranked: false }
   }
 
   // Compute RRF scores from both ranked lists
@@ -270,7 +274,8 @@ export const hybridSearch = async (
 
     // Vector-only result — look up metadata from the notes table
     const noteRow = context.vector.selectNoteMetadataStmt.get(path) as
-      NoteRow | undefined
+      | NoteRow
+      | undefined
     if (!noteRow) continue
 
     // Apply filters that FTS would have applied via SQL
@@ -292,17 +297,96 @@ export const hybridSearch = async (
     )
   }
 
+  // Apply cross-encoder reranking with position-aware score blending
+  const rerankedResult =
+    context.reranker && mergedResults.length > 1
+      ? await tryRerank({
+          reranker: context.reranker,
+          query: params.query,
+          mergedResults,
+          vectorHitsByPath,
+          selectFirstChunkStmt: context.selectFirstChunkStmt,
+          logger,
+        })
+      : null
+
+  const finalResults = rerankedResult?.results ?? mergedResults
+  const reranked = rerankedResult !== null
+
   logger.info("hybrid search", {
     query: params.query,
     searchMode: "hybrid",
+    reranked,
     ftsResults: ftsResults.length,
     vectorHits: vectorHits.length,
     mergedResults: mergedResults.length,
-    returnedResults: Math.min(mergedResults.length, userLimit),
+    returnedResults: Math.min(finalResults.length, userLimit),
   })
   return {
-    results: mergedResults.slice(0, userLimit),
+    results: finalResults.slice(0, userLimit),
     search_mode: "hybrid",
+    reranked,
+  }
+}
+
+// ── Reranking helper ──────────────────────────────────────────
+
+/** Attempts cross-encoder reranking with position-aware blending.
+ *  Returns null on failure — the caller falls back to RRF-only ordering. */
+const tryRerank = async (params: {
+  reranker: Reranker
+  query: string
+  mergedResults: readonly SearchResult[]
+  vectorHitsByPath: ReadonlyMap<string, VectorHit>
+  selectFirstChunkStmt: Database.Statement | null
+  logger: Logger
+}): Promise<{ results: SearchResult[] } | null> => {
+  try {
+    // Collect document text for each candidate
+    const documentTexts = params.mergedResults.map((result) => {
+      // Prefer vector chunk text (best semantic match for this note)
+      const vectorHit = params.vectorHitsByPath.get(result.path)
+      if (vectorHit) return vectorHit.chunkText
+
+      // FTS-only note: use chunk index 0 (title + intro) from note_chunks
+      if (params.selectFirstChunkStmt) {
+        const chunkRow = params.selectFirstChunkStmt.get(result.path) as
+          | { chunk_text: string }
+          | undefined
+        if (chunkRow) return chunkRow.chunk_text
+      }
+
+      // Fallback: use the snippet (truncated, but better than nothing —
+      // covers the edge case where chunks aren't yet indexed during
+      // background embedding startup)
+      return result.snippet
+    })
+
+    const rerankScores = await params.reranker.rerankPairs(
+      params.query,
+      documentTexts,
+    )
+
+    const rrfScores = params.mergedResults.map((result) => result.score)
+    const rrfRanks = params.mergedResults.map((_result, index) => index + 1)
+
+    const blendedScores = blendScores({ rrfScores, rerankScores, rrfRanks })
+
+    const scoredResults = params.mergedResults.map((result, index) => ({
+      ...result,
+      score: Number(blendedScores[index].toPrecision(4)),
+    }))
+
+    return {
+      results: [...scoredResults].sort(
+        (resultA, resultB) => resultB.score - resultA.score,
+      ),
+    }
+  } catch (error) {
+    params.logger.warn("reranker failed, using RRF-only ordering", {
+      error: describeError(error),
+    })
+    return null
   }
 }
 

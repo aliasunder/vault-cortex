@@ -176,9 +176,11 @@ Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHI
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
 - **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
 
-Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
+A cross-encoder reranker ([ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), ~20MB ONNX) refines result ordering after RRF fusion using position-aware score blending — top RRF hits are protected (75% retrieval weight), while lower-ranked results let the reranker rescue demoted notes (60% reranker weight). This fixes intent-heavy queries like "how I feel about AI tools" where the bi-encoder can't distinguish opinions from expertise. Set `RERANK_MODE=none` to skip reranking for lower latency (~200ms savings).
 
-See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
+Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) and `reranked` boolean tell clients which ranking was used.
+
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, cross-encoder reranking, vector persistence, and search module decomposition.
 
 ## Tools (25)
 
@@ -252,6 +254,7 @@ All settings are environment variables with sensible defaults.
 | `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                           |
 | `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                           |
 | `EMBEDDING_ENABLED`         | —           | `true`                               | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                             |
+| `RERANK_MODE`               | —           | `blended`                            | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                |
 | `MEMORY_ENABLED`            | —           | `true`                               | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                     |
 | `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                          |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                 |
@@ -325,11 +328,11 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase  | What                                                               | Status      |
-| ------ | ------------------------------------------------------------------ | ----------- |
-| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1       | Complete    |
-| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking | Complete    |
-| **2b** | Reranker — cross-encoder reranking, position-aware score blending  | In progress |
+| Phase  | What                                                               | Status   |
+| ------ | ------------------------------------------------------------------ | -------- |
+| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1       | Complete |
+| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking | Complete |
+| **2b** | Reranker — cross-encoder reranking, position-aware score blending  | Complete |
 
 ## Acknowledgments
 
