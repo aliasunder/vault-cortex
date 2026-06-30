@@ -195,6 +195,18 @@ describe("noteMatchesSearchFilters", () => {
       }),
     ).toBe(false)
   })
+
+  it("strips trailing slashes from folder filter before matching", () => {
+    expect(
+      noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha/" }),
+    ).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/" })).toBe(
+      true,
+    )
+    expect(
+      noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" }),
+    ).toBe(false)
+  })
 })
 
 // ── buildSnippetFromChunkText ─────────────────────────────────
