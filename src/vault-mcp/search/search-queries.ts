@@ -700,7 +700,9 @@ export const findOrphans = (
   const limit = Math.max(0, params.limit ?? 50)
 
   // One exclusion clause per folder, each bound to a positional parameter
-  const escapedExcludeFolders = excludeFolders.map(escapeLikeWildcards)
+  const escapedExcludeFolders = excludeFolders.map((folder) =>
+    escapeLikeWildcards(stripTrailingSlashes(folder)),
+  )
   const folderExclusions = Array(escapedExcludeFolders.length)
     .fill("path NOT LIKE ? || '/%' ESCAPE '\\'")
     .join(" AND ")

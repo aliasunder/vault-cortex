@@ -132,7 +132,10 @@ export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
 ): boolean => {
-  if (filters.folder && !note.path.startsWith(filters.folder + "/"))
+  if (
+    filters.folder &&
+    !note.path.startsWith(stripTrailingSlashes(filters.folder) + "/")
+  )
     return false
 
   if (filters.tags) {
