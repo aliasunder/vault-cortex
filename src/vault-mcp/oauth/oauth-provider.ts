@@ -198,8 +198,7 @@ export const createOAuthProvider = ({
         "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
       )
       .get(token) as
-      | { client_id: string; scopes: string; expires_at: number }
-      | undefined
+      { client_id: string; scopes: string; expires_at: number } | undefined
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
     if (row.expires_at < DateTime.now().toUnixInteger()) return null

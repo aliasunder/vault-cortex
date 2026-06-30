@@ -398,22 +398,19 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     // base_path column strips the extension, so "photo.png" wouldn't match
     // base_path "photo".
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
     const exactMatch = resolveNonMdByBasePathStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
       const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
-        | { path: string }
-        | undefined
+        { path: string } | undefined
       if (relativeMatch) return relativeMatch.path
     }
 
@@ -428,8 +425,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       return suffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     return basenameMatch?.path ?? null
   }
 
@@ -657,8 +653,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-          | { id: number }
-          | undefined
+          { id: number } | undefined
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -892,8 +887,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
           let embedErrors = 0
           for (const note of notesForEmbedding) {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
-              | { mtime: number }
-              | undefined
+              { mtime: number } | undefined
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
             if (noteIsStale) {
