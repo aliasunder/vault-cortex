@@ -270,7 +270,8 @@ export const hybridSearch = async (
 
     // Vector-only result — look up metadata from the notes table
     const noteRow = context.vector.selectNoteMetadataStmt.get(path) as
-      NoteRow | undefined
+      | NoteRow
+      | undefined
     if (!noteRow) continue
 
     // Apply filters that FTS would have applied via SQL
@@ -729,7 +730,7 @@ export const findOrphans = (
 
 // ── Aggregate queries ──────────────────────────────────────────
 
-export type BrokenLinkResult = {
+type BrokenLinkResult = {
   count: number
   excludedFolder: string | null
   excludedCount: number

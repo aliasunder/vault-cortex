@@ -63,7 +63,7 @@ convention:
    Contradictions are natural; the timeline tells the story. An entry from six
    months ago saying "prefers tabs" followed by a recent one saying "switched to
    spaces" is more useful than a single overwritten value
-3. **Semantic retrieval (Phase 2)** — dated entries become the corpus for
+3. **Semantic retrieval (hybrid search)** — dated entries become the corpus for
    semantic/vector search, enabling temporal queries ("how has the user's
    stance on X evolved?", "what did they believe about Y last month?")
 

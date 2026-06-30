@@ -1,6 +1,6 @@
 /** Minimal HTML consent page for OAuth authorization flow. */
 
-export type ConsentPageParams = {
+type ConsentPageParams = {
   clientName: string
   clientId: string
   scopes: string[]

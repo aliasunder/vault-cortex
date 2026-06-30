@@ -14,7 +14,7 @@ import { registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
 import { logger } from "../../logger.js"
 
-export type McpRouterOptions = {
+type McpRouterOptions = {
   vaultPath: string
   search: SearchIndex
   provider: OAuthServerProvider

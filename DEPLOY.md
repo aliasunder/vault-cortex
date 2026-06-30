@@ -551,7 +551,7 @@ curl https://<api-gateway-url>/healthz
 
 ### Fresh VM bootstrap
 
-If the VM is replaced (bundle upgrade for Phase 2, key rotation) and `MCP_PORT_CIDRS=none`, port 8000 is closed — but `cloudflared` isn't running on the new VM yet. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is closed — but `cloudflared` isn't running on the new VM yet. Recovery:
 
 1. Temporarily open both ports and disable tunnel routing:
    ```bash
