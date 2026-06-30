@@ -537,6 +537,7 @@ changed:
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
+| `cli/README.md`                      | Feature description, tool/prompt count, or search capability changes — this is the npmjs.com landing page                                                |
 | `cli/src/env.ts`                     | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
 | `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
