@@ -1886,7 +1886,7 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   folder: row.folder,
   type: row.type,
   created: row.created,
-  modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
+  modified: DateTime.fromMillis(Math.round(row.mtime)).toISO() ?? "",
   bytes: row.bytes ?? 0,
   properties: JSON.parse(row.properties) as Record<string, unknown>,
   leading_callout: row.leading_callout
