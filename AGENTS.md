@@ -99,7 +99,11 @@ src/
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
-      search-index.ts                  # FTS5 + vec0 + hybrid search (RRF fusion) factory
+      search-index.ts                  # Factory: schema, write ops, types, context wiring
+      search-queries.ts                # All 15 query methods (FTS, hybrid, tags, links, etc.)
+      search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
+      fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
+      rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
       embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
       chunker.ts                       # Heading-aware chunking for embedding
       file-watcher.ts                  # chokidar → keeps FTS + vector index current

@@ -12,151 +12,28 @@ import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import { chunkNoteContent } from "./chunker.js"
 import { describeError } from "../../utils/describe-error.js"
-import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-// ── Type guards ─────────────────────────────────────────────────
+import {
+  isString,
+  coerceToArray,
+  extractAllLinks,
+  buildFtsMetadataText,
+} from "./search-helpers.js"
+import * as queries from "./search-queries.js"
 
-const isString = (value: unknown): value is string => typeof value === "string"
-
-/** Coerces a YAML frontmatter field to a string array.
- *  gray-matter may parse multi-value YAML fields as a single string
- *  or an array depending on syntax (flow vs block). */
-const coerceToArray = (value: unknown): string[] =>
-  Array.isArray(value) ? value : value ? [String(value)] : []
-
-// ── FTS5 query sanitization ─────────────────────────────────────
-
-const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
-
-/** One FTS5 bareword character: anything except whitespace and ASCII
- *  punctuation. Covers letters, digits, underscore, and all non-ASCII
- *  characters (FTS5 treats code points ≥ 0x80 as bareword characters). */
-const BAREWORD_CHARACTER = "[^\\s!-/:-@[-^`{-~]"
-
-/** One compound-joiner character: ASCII punctuation that glues segments of a
- *  single term together (the dot in mcpservers.org, the hyphen in
- *  vault-cortex, the slash in deploy/local). Excludes the FTS5 metacharacters
- *  " * ^ ( ) : (stripped outright, never joiners) and underscore (a bareword
- *  character). */
-const COMPOUND_JOINER_CHARACTER = "[!#-'+-/;-@[-\\]`{-~]"
-
-/** Matches compound terms — two or more bareword segments joined by
- *  punctuation — which FTS5 would otherwise reject as a syntax error
- *  (e.g. "fts5: syntax error near '.'" for mcpservers.org). */
-const COMPOUND_TERM_REGEX = new RegExp(
-  `${BAREWORD_CHARACTER}+(?:${COMPOUND_JOINER_CHARACTER}+${BAREWORD_CHARACTER}+)+`,
-  "g",
-)
-
-/** Matches a run of joiner punctuation inside a compound term, for
- *  replacement with a single space when the compound becomes a phrase. */
-const COMPOUND_JOINER_RUN_REGEX = new RegExp(
-  `${COMPOUND_JOINER_CHARACTER}+`,
-  "g",
-)
-
-/** Matches every ASCII punctuation character except underscore. Used as the
- *  final sweep that turns stray punctuation (word-edge dots, unbalanced
- *  quotes, lone operators) into token separators so it never reaches FTS5. */
-const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
-
-/** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
- *  for exact-phrase matching. Punctuated compound terms (vault-cortex,
- *  mcpservers.org, deploy/local) are converted to quoted phrases for
- *  adjacent-token matching — the unicode61 tokenizer splits the indexed text
- *  at the same punctuation, so the phrase matches the original term exactly.
- *  Remaining unquoted terms are left bare to preserve porter stemming. FTS5
- *  metacharacters, stray punctuation, and reserved words are stripped, so
- *  literal text can never produce an FTS5 syntax error. */
-export const sanitizeFtsQuery = (raw: string): string => {
-  const phrases: string[] = []
-
-  // Extract "quoted phrases", strip FTS5 metacharacters inside them,
-  // and collect into phrases[]. Other punctuation inside quotes is left
-  // alone — the unicode61 tokenizer splits it correctly in phrase queries.
-  const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
-    const cleaned = phrase.replace(/[*^():]/g, "").trim()
-    if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
-    return " "
-  })
-
-  // Convert bare punctuated compounds (vault-cortex → "vault cortex",
-  // mcpservers.org → "mcpservers org") so FTS5 doesn't interpret the
-  // punctuation as an operator or reject it as a syntax error.
-  const afterCompounds = remaining.replace(COMPOUND_TERM_REGEX, (match) => {
-    phrases.push(`"${match.replace(COMPOUND_JOINER_RUN_REGEX, " ")}"`)
-    return " "
-  })
-
-  // Strip all remaining ASCII punctuation (metacharacters, word-edge dots,
-  // stray/leading hyphens), split into tokens, and drop reserved words
-  // (AND, OR, NOT, NEAR).
-  const tokens = afterCompounds
-    .replace(ASCII_PUNCTUATION_REGEX, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 0 && !FTS5_RESERVED.has(t.toUpperCase()))
-
-  const parts = [...phrases, ...tokens]
-  return parts.length === 0 ? '""' : parts.join(" ")
-}
-
-// ── RRF fusion ─────────────────────────────────────────────────
-
-/** Reciprocal Rank Fusion (RRF) — merges two independently ranked result
- *  lists (FTS keyword + vector semantic) into a single relevance score.
- *
- *  Algorithm:
- *  1. For each result in each list, compute 1 / (k + rank) where rank is
- *     1-indexed and k (default 60) dampens the influence of low ranks
- *  2. Sum scores per path across both lists — a path in both gets a higher
- *     combined score than one appearing in only one list
- *  3. Add top-rank bonuses: +0.05 for rank 1, +0.02 for ranks 2–3 in either
- *     list, rewarding results that either system placed highly
- *  4. Sort by combined score descending
- *
- *  Reference: Cormack, Clarke & Butt (2009) "Reciprocal Rank Fusion
- *  outperforms Condorcet and individual Rank Learning Methods"
- *  https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf */
-export const computeRrfScores = (params: {
-  ftsRanked: readonly { path: string }[]
-  vectorRanked: readonly { path: string }[]
-  k?: number
-}): { path: string; score: number }[] => {
-  const k = params.k ?? 60
-
-  const scoresByPath = new Map<string, number>()
-
-  const accumulateScores = (rankedItems: readonly { path: string }[]): void => {
-    for (const [index, item] of rankedItems.entries()) {
-      const rank = index + 1
-      const rrfScore = 1 / (k + rank)
-      const bonus = rank === 1 ? 0.05 : rank <= 3 ? 0.02 : 0
-      const previousScore = scoresByPath.get(item.path) ?? 0
-      scoresByPath.set(item.path, previousScore + rrfScore + bonus)
-    }
-  }
-
-  accumulateScores(params.ftsRanked)
-  accumulateScores(params.vectorRanked)
-
-  return [...scoresByPath.entries()]
-    .sort(([, scoreA], [, scoreB]) => scoreB - scoreA)
-    .map(([path, score]) => ({
-      path,
-      score: Number(score.toPrecision(4)),
-    }))
-}
+export { sanitizeFtsQuery } from "./fts-query.js"
+export { computeRrfScores } from "./rrf.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
 /** A note path with its best-chunk distance from a vector KNN query. */
-type VectorHit = Readonly<{
+export type VectorHit = Readonly<{
   path: string
   distance: number
   chunkText: string
 }>
 
-type SearchResult = {
+export type SearchResult = {
   path: string
   title: string
   snippet: string
@@ -170,12 +47,12 @@ type SearchResult = {
   leading_callout?: LeadingCallout
 }
 
-type HybridSearchResult = {
+export type HybridSearchResult = {
   results: SearchResult[]
   search_mode: "hybrid" | "fts"
 }
 
-type NoteMetadata = {
+export type NoteMetadata = {
   path: string
   title: string
   tags: string[]
@@ -189,29 +66,29 @@ type NoteMetadata = {
   leading_callout: LeadingCallout | null
 }
 
-type TagCount = {
+export type TagCount = {
   tag: string
   count: number
 }
 
-type PropertyKeyInfo = {
+export type PropertyKeyInfo = {
   key: string
   count: number
   sample_values: string[]
 }
 
-type PropertyValueCount = {
+export type PropertyValueCount = {
   value: string
   count: number
 }
 
-type VaultStats = {
+export type VaultStats = {
   totalNotes: number
   untaggedNotes: number
   noPropertiesNotes: number
 }
 
-type SearchFilters = {
+export type SearchFilters = {
   folder?: string
   tags?: string[]
   related?: string[]
@@ -222,7 +99,7 @@ type SearchFilters = {
   include_leading_callout?: boolean
 }
 
-type NoteRow = {
+export type NoteRow = {
   path: string
   title: string
   tags: string
@@ -236,9 +113,9 @@ type NoteRow = {
   bytes: number
 }
 
-type BacklinkEntry = { path: string; title: string; bytes: number }
+export type BacklinkEntry = { path: string; title: string; bytes: number }
 
-type OutgoingLinkEntry = {
+export type OutgoingLinkEntry = {
   path: string
   title: string | null
   exists: boolean
@@ -274,19 +151,6 @@ type OutgoingLinkEntry = {
 //   5. rebuildFromVault uses a two-pass approach: Pass 1 indexes all
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
-
-/** A note's complete link set — body links unioned with frontmatter wikilinks,
- *  deduplicated. Single source of truth for "what does this note link to",
- *  shared by incremental upsert and full rebuild so the two can't diverge. */
-const extractAllLinks = (
-  content: string,
-  data: Record<string, unknown>,
-): string[] => [
-  ...new Set([
-    ...links.extractFromBody(content),
-    ...links.extractFromFrontmatter(data),
-  ]),
-]
 
 // ── Factory ─────────────────────────────────────────────────────
 
@@ -647,29 +511,6 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
-  /** Flattens frontmatter into a searchable text block for the FTS metadata column.
-   *  Keys are included (so "lifecycle" is findable), title is excluded (separate FTS column). */
-  const buildFtsMetadataText = (
-    frontmatter: Record<string, unknown>,
-  ): string => {
-    const lines: string[] = []
-    for (const [key, value] of Object.entries(frontmatter)) {
-      if (key === "title") continue
-      if (value == null) continue
-      if (Array.isArray(value)) {
-        const primitiveElements = value
-          .filter((element) => element != null && typeof element !== "object")
-          .map(String)
-        if (primitiveElements.length > 0) {
-          lines.push(`${key}: ${primitiveElements.join(" ")}`)
-        }
-      } else if (typeof value !== "object") {
-        lines.push(`${key}: ${String(value)}`)
-      }
-    }
-    return lines.join("\n")
-  }
-
   /** Parses a note's content and frontmatter, then indexes it for search. */
   const upsertNote = (
     params: {
@@ -872,53 +713,6 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   ): Promise<void> => {
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
-  }
-
-  /** Embed a query and find the nearest notes via sqlite-vec KNN. Deduplicates
-   *  to the best (closest) chunk per note. Returns [] silently on any failure
-   *  so hybrid search degrades to FTS-only. */
-  const vectorSearch = async (
-    params: { query: string; limit: number },
-    logger: Logger,
-  ): Promise<VectorHit[]> => {
-    if (!embedder || !knnSearchStmt) return []
-
-    try {
-      const queryEmbedding = await embedder.embedText(params.query)
-      const rows = knnSearchStmt.all(
-        Buffer.from(
-          queryEmbedding.buffer,
-          queryEmbedding.byteOffset,
-          queryEmbedding.byteLength,
-        ),
-        params.limit,
-      ) as Array<{ note_path: string; chunk_text: string; distance: number }>
-
-      // Deduplicate to best chunk per note — rows are ordered by distance
-      // ascending, so the first occurrence of each path is the closest match.
-      const bestChunkPerNote = new Map<string, VectorHit>()
-      for (const row of rows) {
-        if (!bestChunkPerNote.has(row.note_path)) {
-          bestChunkPerNote.set(row.note_path, {
-            path: row.note_path,
-            distance: row.distance,
-            chunkText: row.chunk_text,
-          })
-        }
-      }
-
-      logger.info("vector search", {
-        query: params.query,
-        knnHits: rows.length,
-        uniqueNotes: bestChunkPerNote.size,
-      })
-      return [...bestChunkPerNote.values()]
-    } catch (error) {
-      logger.warn("vector search failed, falling back to FTS-only", {
-        error: describeError(error),
-      })
-      return []
-    }
   }
 
   /** Removes a note from the notes table, FTS index, links, and vectors. */
@@ -1141,705 +935,24 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     return { count: noteContents.length, embedding: embeddingPromise }
   }
 
-  // ── Query methods ──────────────────────────────────────────────
+  // ── Query context + delegation ───────────────────────────────
 
-  /** Full-text search with BM25 ranking. Supports folder, tag, type, and property filters. */
-  const fullTextSearch = (
-    params: { query: string; filters?: SearchFilters },
-    logger: Logger,
-  ): SearchResult[] => {
-    // Build WHERE clause dynamically: each filter appends a condition + its bind params
-    const conditions: string[] = []
-    const queryParams: unknown[] = []
-
-    conditions.push("notes_fts MATCH ?")
-    queryParams.push(sanitizeFtsQuery(params.query))
-
-    if (params.filters?.folder) {
-      conditions.push("n.path LIKE ?")
-      queryParams.push(`${params.filters.folder}/%`)
-    }
-
-    if (params.filters?.tags) {
-      for (const tag of params.filters.tags) {
-        conditions.push(
-          "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)",
-        )
-        queryParams.push(tag)
-      }
-    }
-
-    if (params.filters?.related) {
-      for (const relatedNote of params.filters.related) {
-        conditions.push(
-          "EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)",
-        )
-        queryParams.push(relatedNote)
-      }
-    }
-
-    if (params.filters?.type) {
-      conditions.push("n.type = ?")
-      queryParams.push(params.filters.type)
-    }
-
-    if (params.filters?.properties) {
-      for (const [key, value] of Object.entries(params.filters.properties)) {
-        conditions.push(`json_extract(n.properties, '$.' || ?) = ?`)
-        queryParams.push(key, value)
-      }
-    }
-
-    const limit = params.filters?.limit ?? 20
-    const snippetTokens = params.filters?.snippet_tokens ?? 30
-    // Opt-in: the leading callout is omitted by default to keep this hot-path
-    // result lean; callers triaging which note to open can request it.
-    const includeLeadingCallout =
-      params.filters?.include_leading_callout ?? false
-    queryParams.push(limit)
-
-    const sql = `
-      SELECT n.path, n.title,
-             snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-             rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime,
-             n.bytes${includeLeadingCallout ? ", n.leading_callout" : ""}
-      FROM notes_fts
-      JOIN notes n ON n.path = notes_fts.path
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY rank
-      LIMIT ?
-    `
-    // rank * -1: FTS5 rank is negative (lower = better), negated for human-friendly scoring
-
-    try {
-      const rows = db.prepare(sql).all(...queryParams) as Array<
-        Pick<
-          NoteRow,
-          | "path"
-          | "title"
-          | "tags"
-          | "folder"
-          | "type"
-          | "created"
-          | "mtime"
-          | "bytes"
-        > & {
-          snippet: string
-          score: number
-          leading_callout?: string | null
-        }
-      >
-
-      const results: SearchResult[] = rows.map((row) =>
-        noteRowToSearchResult({
-          row,
-          snippet: row.snippet,
-          score: Number(row.score.toPrecision(4)),
-          includeLeadingCallout,
-        }),
-      )
-      logger.info("full text search", {
-        query: params.query,
-        resultCount: results.length,
-      })
-      return results
-    } catch (error) {
-      logger.warn("full text search failed", {
-        query: params.query,
-        error: describeError(error),
-      })
-      return []
-    }
+  const queryCtx: queries.SearchQueryContext = {
+    db,
+    getDailyNotesFolder: () => dailyNotesFolder,
+    vector: {
+      embedder,
+      knnSearchStmt,
+      selectNoteMetadataStmt,
+    },
   }
 
-  /** Hybrid search — combines FTS5 keyword search with sqlite-vec vector
-   *  similarity via RRF fusion. Falls back to FTS-only silently when no
-   *  embeddings are available. */
-  const hybridSearch = async (
-    params: { query: string; filters?: SearchFilters },
-    logger: Logger,
-  ): Promise<HybridSearchResult> => {
-    const userLimit = params.filters?.limit ?? 20
-    const snippetTokens = params.filters?.snippet_tokens ?? 30
-    const includeLeadingCallout =
-      params.filters?.include_leading_callout ?? false
-    const candidateLimit = Math.min(userLimit * 3, 100)
-
-    // Run FTS with inflated limit to give RRF enough candidates
-    const ftsResults = fullTextSearch(
-      {
-        query: params.query,
-        filters: { ...params.filters, limit: candidateLimit },
-      },
-      logger,
-    )
-
-    // Attempt vector search — returns [] on any failure
-    const vectorHits = await vectorSearch(
-      { query: params.query, limit: candidateLimit },
-      logger,
-    )
-
-    // FTS-only fallback when no vectors are available
-    if (vectorHits.length === 0) {
-      const fallbackResults = ftsResults.slice(0, userLimit)
-      logger.info("hybrid search", {
-        query: params.query,
-        searchMode: "fts",
-        resultCount: fallbackResults.length,
-      })
-      return { results: fallbackResults, search_mode: "fts" }
-    }
-
-    // Compute RRF scores from both ranked lists
-    const rrfScores = computeRrfScores({
-      ftsRanked: ftsResults,
-      vectorRanked: vectorHits,
-    })
-
-    // Index FTS results and vector hits by path for O(1) lookup
-    const ftsResultsByPath = new Map(
-      ftsResults.map((result) => [result.path, result]),
-    )
-    const vectorHitsByPath = new Map(vectorHits.map((hit) => [hit.path, hit]))
-
-    // Build the merged result set, ordered by RRF score
-    const mergedResults: SearchResult[] = []
-    for (const { path, score } of rrfScores) {
-      const ftsResult = ftsResultsByPath.get(path)
-      if (ftsResult) {
-        // Path found via FTS — use its metadata and snippet, replace score
-        mergedResults.push({ ...ftsResult, score })
-        continue
-      }
-
-      // Vector-only result — look up metadata from the notes table
-      const noteRow = selectNoteMetadataStmt.get(path) as NoteRow | undefined
-      if (!noteRow) continue
-
-      // Apply filters that FTS would have applied via SQL
-      if (params.filters && !notePassesFilters(noteRow, params.filters))
-        continue
-
-      const vectorHit = vectorHitsByPath.get(path)
-      const snippet = vectorHit
-        ? buildSnippetFromChunkText(vectorHit.chunkText, snippetTokens)
-        : ""
-
-      mergedResults.push(
-        noteRowToSearchResult({
-          row: noteRow,
-          snippet,
-          score,
-          includeLeadingCallout,
-        }),
-      )
-    }
-
-    logger.info("hybrid search", {
-      query: params.query,
-      searchMode: "hybrid",
-      ftsResults: ftsResults.length,
-      vectorHits: vectorHits.length,
-      mergedResults: mergedResults.length,
-      returnedResults: Math.min(mergedResults.length, userLimit),
-    })
-    return {
-      results: mergedResults.slice(0, userLimit),
-      search_mode: "hybrid",
-    }
-  }
-
-  /** Finds notes with a specific tag. Supports hierarchical prefix matching. */
-  const searchByTag = (
-    params: { tag: string; exactMatch?: boolean; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const limit = params.limit ?? 20
-
-    const condition = params.exactMatch
-      ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-      : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%')"
-
-    const queryParams: unknown[] = params.exactMatch
-      ? [params.tag, limit]
-      : [params.tag, params.tag, limit]
-
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes n
-      WHERE ${condition}
-      ORDER BY mtime DESC
-      LIMIT ?
-    `
-
-    const rows = db.prepare(sql).all(...queryParams) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("search by tag", {
-      tag: params.tag,
-      resultCount: results.length,
-    })
-    return results
-  }
-
-  /** Lists notes in a folder, optionally including subfolders. */
-  const searchByFolder = (
-    params: { folder: string; recursive?: boolean; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const recursive = params.recursive ?? true
-    const limit = params.limit ?? 20
-
-    const condition = recursive
-      ? "path LIKE ? || '/%'"
-      : "path LIKE ? || '/%' AND path NOT LIKE ? || '/%/%'"
-
-    const queryParams: unknown[] = recursive
-      ? [params.folder, limit]
-      : [params.folder, params.folder, limit]
-
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes
-      WHERE ${condition}
-      ORDER BY mtime DESC
-      LIMIT ?
-    `
-
-    const rows = db.prepare(sql).all(...queryParams) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("search by folder", {
-      folder: params.folder,
-      resultCount: results.length,
-    })
-    return results
-  }
-
-  /** Returns all tags in the vault with their note counts. */
-  const listAllTags = (
-    _params: Record<string, never>,
-    logger: Logger,
-  ): TagCount[] => {
-    const sql = `
-      SELECT value as tag, COUNT(DISTINCT notes.path) as count
-      FROM notes, json_each(notes.tags)
-      GROUP BY value
-      ORDER BY count DESC
-    `
-    const results = db.prepare(sql).all() as TagCount[]
-    logger.info("listed all tags", { count: results.length })
-    return results
-  }
-
-  /** Returns recently modified or created notes, sorted by chosen timestamp. */
-  const recentNotes = (
-    params: { sort_by?: "created" | "modified"; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const sortBy = params.sort_by ?? "modified"
-    const limit = params.limit ?? 20
-
-    // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
-    const orderClause =
-      sortBy === "created"
-        ? "ORDER BY created IS NULL, created DESC"
-        : "ORDER BY mtime DESC" // SQL column is still `mtime`
-
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes
-      ${orderClause}
-      LIMIT ?
-    `
-
-    const rows = db.prepare(sql).all(limit) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("recent notes", { sortBy, resultCount: results.length })
-    return results
-  }
-
-  /** Returns all frontmatter property keys with note counts and top 3 sample values. */
-  const listPropertyKeys = (
-    params: { folder?: string },
-    logger: Logger,
-  ): PropertyKeyInfo[] => {
-    const folderCondition = params.folder
-      ? "WHERE n.path LIKE @folder || '/%'"
-      : ""
-
-    const keySql = `
-      SELECT property.key, COUNT(DISTINCT n.path) as count
-      FROM notes n, json_each(n.properties) property
-      ${folderCondition}
-      GROUP BY property.key
-      ORDER BY count DESC
-    `
-    const keySqlParams: Record<string, string> = {}
-    if (params.folder) keySqlParams.folder = params.folder
-    const keyRows = db.prepare(keySql).all(keySqlParams) as Array<{
-      key: string
-      count: number
-    }>
-
-    const sampleFolderCondition = params.folder
-      ? "AND path LIKE @folder || '/%'"
-      : ""
-
-    // For each key, fetch the 3 most common values as samples.
-    // json_array() wraps scalars so json_each works uniformly for
-    // both scalar ("active") and array (["a","b"]) property values.
-    const sampleSql = `
-      SELECT element.value, COUNT(*) as count
-      FROM (
-        SELECT properties FROM notes
-        WHERE json_type(properties, '$.' || @key) IS NOT NULL
-        ${sampleFolderCondition}
-      ) filtered, json_each(
-        CASE json_type(filtered.properties, '$.' || @key)
-          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
-          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
-        END
-      ) element
-      WHERE typeof(element.value) IN ('text', 'integer', 'real')
-      GROUP BY element.value
-      ORDER BY count DESC
-      LIMIT 3
-    `
-    const sampleStmt = db.prepare(sampleSql)
-
-    const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
-      const sqlParams: Record<string, string> = { key: keyRow.key }
-      if (params.folder) sqlParams.folder = params.folder
-      const sampleRows = sampleStmt.all(sqlParams) as Array<{
-        value: string
-      }>
-      return {
-        key: keyRow.key,
-        count: keyRow.count,
-        sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
-      }
-    })
-
-    logger.info("listed property keys", { count: results.length })
-    return results
-  }
-
-  /** Returns distinct values for a given property key with note counts. */
-  const listPropertyValues = (
-    params: { key: string; folder?: string; limit?: number },
-    logger: Logger,
-  ): PropertyValueCount[] => {
-    const limit = params.limit ?? 50
-    const folderCondition = params.folder ? "AND path LIKE @folder || '/%'" : ""
-
-    // json_array() wraps scalars so json_each works uniformly for
-    // both scalar ("active") and array (["a","b"]) property values.
-    const sql = `
-      SELECT element.value, COUNT(*) as count
-      FROM (
-        SELECT properties FROM notes
-        WHERE json_type(properties, '$.' || @key) IS NOT NULL
-        ${folderCondition}
-      ) filtered, json_each(
-        CASE json_type(filtered.properties, '$.' || @key)
-          WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
-          ELSE json_array(json_extract(filtered.properties, '$.' || @key))
-        END
-      ) element
-      WHERE typeof(element.value) IN ('text', 'integer', 'real')
-      GROUP BY element.value
-      ORDER BY count DESC
-      LIMIT @limit
-    `
-
-    const sqlParams: Record<string, unknown> = { key: params.key, limit }
-    if (params.folder) sqlParams.folder = params.folder
-
-    const rows = db.prepare(sql).all(sqlParams) as Array<{
-      value: string | number
-      count: number
-    }>
-    const results = rows.map((row) => ({
-      value: String(row.value),
-      count: row.count,
-    }))
-    logger.info("listed property values", {
-      key: params.key,
-      count: results.length,
-    })
-    return results
-  }
-
-  /** Finds notes where a frontmatter property matches a value (exact match). */
-  const searchByProperty = (
-    params: { key: string; value: string; folder?: string; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const limit = params.limit ?? 20
-    const folderCondition = params.folder
-      ? "AND n.path LIKE @folder || '/%'"
-      : ""
-
-    // Two branches handle different property shapes:
-    // - Array properties (tags: ["a","b"]): check if @value is IN the array
-    // - Scalar properties (status: "active"): check direct equality
-    // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes n
-      WHERE (
-        (json_type(n.properties, '$.' || @key) = 'array'
-         AND EXISTS (
-           SELECT 1 FROM json_each(json_extract(n.properties, '$.' || @key))
-           WHERE CAST(value AS TEXT) = @value
-         ))
-        OR
-        (json_type(n.properties, '$.' || @key) IS NOT NULL
-         AND json_type(n.properties, '$.' || @key) != 'array'
-         AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
-      )
-      ${folderCondition}
-      ORDER BY mtime DESC
-      LIMIT @limit
-    `
-
-    const sqlParams: Record<string, unknown> = {
-      key: params.key,
-      value: params.value,
-      limit,
-    }
-    if (params.folder) sqlParams.folder = params.folder
-
-    const rows = db.prepare(sql).all(sqlParams) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("search by property", {
-      key: params.key,
-      value: params.value,
-      resultCount: results.length,
-    })
-    return results
-  }
-
-  // ── Link queries ────────────────────────────────────────────────
-
-  /** Returns notes that link TO the given path (incoming links / backlinks). */
-  const getBacklinks = (
-    params: { path: string },
-    logger: Logger,
-  ): BacklinkEntry[] => {
-    assertPathHasExtension(params.path, ".md")
-    const sql = `
-      SELECT n.path, n.title, n.bytes
-      FROM links l
-      JOIN notes n ON n.path = l.source
-      WHERE l.target = ?
-      ORDER BY n.title
-    `
-    const rows = db.prepare(sql).all(params.path) as Array<{
-      path: string
-      title: string
-      bytes: number
-    }>
-    const results: BacklinkEntry[] = rows.map((row) => ({
-      path: row.path,
-      title: row.title,
-      bytes: row.bytes ?? 0,
-    }))
-    logger.info("get backlinks", {
-      path: params.path,
-      count: results.length,
-    })
-    return results
-  }
-
-  /** Returns notes and assets that the given path links TO (outgoing links).
-   *  Each entry carries a `kind` discriminator: "note" for .md targets,
-   *  "asset" for resolved non-markdown files (.canvas, .base, images, etc.),
-   *  defaulting to "note" for unresolved (broken) links. */
-  const getOutgoingLinks = (
-    params: { path: string },
-    logger: Logger,
-  ): OutgoingLinkEntry[] => {
-    assertPathHasExtension(params.path, ".md")
-    const sql = `
-      SELECT l.target as path,
-             n.title,
-             CASE WHEN n.path IS NOT NULL THEN 1
-                  WHEN f.path IS NOT NULL THEN 1
-                  ELSE 0 END as exists_flag,
-             CASE WHEN n.path IS NOT NULL THEN 'note'
-                  WHEN f.path IS NOT NULL THEN 'asset'
-                  ELSE 'note' END as kind,
-             n.bytes
-      FROM links l
-      LEFT JOIN notes n ON n.path = l.target
-      LEFT JOIN non_md_files f ON f.path = l.target
-      WHERE l.source = ?
-      ORDER BY l.target
-    `
-    const rows = db.prepare(sql).all(params.path) as Array<{
-      path: string
-      title: string | null
-      exists_flag: number
-      kind: "note" | "asset"
-      bytes: number | null
-    }>
-    // Snapshot the closure `let` so TypeScript can narrow it in the callback
-    const folder = dailyNotesFolder
-    const folderPrefix = folder !== null ? `${folder}/` : null
-    const results: OutgoingLinkEntry[] = rows.map((row) => ({
-      path: row.path,
-      title: row.title,
-      exists: row.exists_flag === 1,
-      kind: row.kind,
-      bytes: row.bytes ?? null,
-      daily_note_forward_ref:
-        row.exists_flag === 0 &&
-        folderPrefix !== null &&
-        row.path.startsWith(folderPrefix),
-    }))
-    logger.info("get outgoing links", {
-      path: params.path,
-      count: results.length,
-    })
-    return results
-  }
-
-  /** Finds notes with no incoming links (orphans). */
-  const findOrphans = (
-    params: { excludeFolders?: string[]; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const excludeFolders = params.excludeFolders ?? []
-    const limit = params.limit ?? 50
-
-    // One exclusion clause per folder, each bound to a positional parameter
-    const folderExclusions = Array(excludeFolders.length)
-      .fill("path NOT LIKE ? || '/%'")
-      .join(" AND ")
-    const whereClause =
-      excludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
-
-    // Self-links (source = target) are excluded from the backlink subquery
-    // so a note that only links to itself is still considered an orphan.
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes
-      WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
-        ${whereClause}
-      ORDER BY mtime DESC
-      LIMIT ?
-    `
-
-    const rows = db.prepare(sql).all(...excludeFolders, limit) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("find orphans", { count: results.length })
-    return results
-  }
-
-  // ── Aggregate queries ──────────────────────────────────────────
-
-  type BrokenLinkResult = {
-    count: number
-    excludedFolder: string | null
-    excludedCount: number
-  }
-
-  /** Counts unique broken link targets — links whose targets exist in
-   *  neither the notes table nor the non_md_files table. When a daily
-   *  notes folder is configured, broken links under that folder are
-   *  excluded — they are forward-references (intentional "create on
-   *  click" navigation), not genuinely broken. Returns the count plus
-   *  exclusion metadata so callers can communicate what was filtered. */
-  const brokenLinkCount = (
-    _params: Record<string, never>,
-    logger: Logger,
-  ): BrokenLinkResult => {
-    // Snapshot the closure `let` so TypeScript can narrow it after the null check
-    const folder = dailyNotesFolder
-
-    if (folder === null) {
-      const row = db
-        .prepare(
-          `SELECT COUNT(DISTINCT target) as count
-           FROM links
-           WHERE target NOT IN (SELECT path FROM notes)
-             AND target NOT IN (SELECT path FROM non_md_files)`,
-        )
-        .get() as { count: number }
-      logger.info("broken link count", { count: row.count })
-      return { count: row.count, excludedFolder: null, excludedCount: 0 }
-    }
-
-    const folderPrefix = `${folder}/`
-    const brokenTargets = db
-      .prepare(
-        `SELECT DISTINCT target
-         FROM links
-         WHERE target NOT IN (SELECT path FROM notes)
-           AND target NOT IN (SELECT path FROM non_md_files)`,
-      )
-      .all() as Array<{ target: string }>
-
-    const count = brokenTargets.filter(
-      (row) => !row.target.startsWith(folderPrefix),
-    ).length
-    const excludedCount = brokenTargets.length - count
-
-    logger.info("broken link count", {
-      count,
-      dailyNotesFolder: folder,
-      excludedForwardRefs: excludedCount,
-    })
-    return { count, excludedFolder: folder, excludedCount }
-  }
-
-  /** Returns notes whose filesystem mtime falls within a calendar date
-   *  (server-local day boundaries, governed by the TZ env var). */
-  const modifiedOnDate = (
-    params: { date: string; limit?: number },
-    logger: Logger,
-  ): NoteMetadata[] => {
-    const limit = params.limit ?? 50
-    const dayStart = DateTime.fromISO(params.date)
-    const dayEnd = dayStart.plus({ days: 1 })
-
-    const sql = `
-      SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
-      FROM notes
-      WHERE mtime >= ? AND mtime < ?
-      ORDER BY mtime DESC
-      LIMIT ?
-    `
-    const rows = db
-      .prepare(sql)
-      .all(dayStart.toMillis(), dayEnd.toMillis(), limit) as NoteRow[]
-    const results = rows.map(rowToMetadata)
-    logger.info("modified on date", {
-      date: params.date,
-      resultCount: results.length,
-    })
-    return results
-  }
-
-  /** Lightweight aggregate counts — total notes, untagged notes, notes without
-   *  frontmatter properties. Single SQL to avoid multiple round-trips. */
-  const vaultStats = (
-    _params: Record<string, never>,
-    logger: Logger,
-  ): VaultStats => {
-    // Conditional aggregation: count all rows, then conditionally count rows
-    // whose tags/properties are the empty-JSON sentinel set by upsertNote.
-    const sql = `
-      SELECT
-        COUNT(*) as totalNotes,
-        COALESCE(SUM(CASE WHEN tags = '[]' THEN 1 ELSE 0 END), 0) as untaggedNotes,
-        COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
-      FROM notes
-    `
-    const row = db.prepare(sql).get() as VaultStats
-    logger.info("vault stats", row)
-    return row
+  /** Binds the query context as the first argument of a query function,
+   *  producing the two-arg (params, logger) signature the factory exposes. */
+  const bind = <P, R>(
+    fn: (ctx: queries.SearchQueryContext, params: P, logger: Logger) => R,
+  ): ((params: P, logger: Logger) => R) => {
+    return (params, logger) => fn(queryCtx, params, logger)
   }
 
   /** Sets the daily notes folder used by brokenLinkCount and
@@ -1857,130 +970,22 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     upsertNonMdFile,
     removeNonMdFile,
     setDailyNotesFolder,
-    fullTextSearch,
-    hybridSearch,
-    searchByTag,
-    searchByFolder,
-    listAllTags,
-    recentNotes,
-    listPropertyKeys,
-    listPropertyValues,
-    searchByProperty,
-    getBacklinks,
-    getOutgoingLinks,
-    findOrphans,
-    brokenLinkCount,
-    modifiedOnDate,
-    vaultStats,
+    fullTextSearch: bind(queries.fullTextSearch),
+    hybridSearch: bind(queries.hybridSearch),
+    searchByTag: bind(queries.searchByTag),
+    searchByFolder: bind(queries.searchByFolder),
+    listAllTags: bind(queries.listAllTags),
+    recentNotes: bind(queries.recentNotes),
+    listPropertyKeys: bind(queries.listPropertyKeys),
+    listPropertyValues: bind(queries.listPropertyValues),
+    searchByProperty: bind(queries.searchByProperty),
+    getBacklinks: bind(queries.getBacklinks),
+    getOutgoingLinks: bind(queries.getOutgoingLinks),
+    findOrphans: bind(queries.findOrphans),
+    brokenLinkCount: bind(queries.brokenLinkCount),
+    modifiedOnDate: bind(queries.modifiedOnDate),
+    vaultStats: bind(queries.vaultStats),
   }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────
-
-/** Converts mtime (epoch ms) to an ISO string, throwing if the value is
- *  invalid — mtime comes from stat().mtimeMs during indexing, so null
- *  indicates data corruption rather than an expected edge case. */
-const mtimeToIso = (mtime: number): string => {
-  const iso = DateTime.fromMillis(Math.round(mtime)).toISO()
-  if (iso === null) throw new Error(`invalid mtime: ${mtime}`)
-  return iso
-}
-
-/** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
-const rowToMetadata = (row: NoteRow): NoteMetadata => ({
-  path: row.path,
-  title: row.title,
-  tags: JSON.parse(row.tags) as string[],
-  related: JSON.parse(row.related) as string[],
-  folder: row.folder,
-  type: row.type,
-  created: row.created,
-  modified: mtimeToIso(row.mtime),
-  bytes: row.bytes ?? 0,
-  properties: JSON.parse(row.properties) as Record<string, unknown>,
-  leading_callout: row.leading_callout
-    ? (JSON.parse(row.leading_callout) as LeadingCallout)
-    : null,
-})
-
-/** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
- *  Shared by fullTextSearch (FTS rows) and hybridSearch (vector-only rows). */
-const noteRowToSearchResult = (params: {
-  row: Pick<
-    NoteRow,
-    | "path"
-    | "title"
-    | "tags"
-    | "folder"
-    | "type"
-    | "created"
-    | "mtime"
-    | "bytes"
-  > & { leading_callout?: string | null }
-  snippet: string
-  score: number
-  includeLeadingCallout: boolean
-}): SearchResult => ({
-  path: params.row.path,
-  title: params.row.title,
-  snippet: params.snippet,
-  score: params.score,
-  tags: JSON.parse(params.row.tags) as string[],
-  folder: params.row.folder,
-  type: params.row.type,
-  ...(params.row.created !== null ? { created: params.row.created } : {}),
-  modified: mtimeToIso(params.row.mtime),
-  bytes: params.row.bytes ?? 0,
-  ...(params.includeLeadingCallout && params.row.leading_callout
-    ? {
-        leading_callout: JSON.parse(
-          params.row.leading_callout,
-        ) as LeadingCallout,
-      }
-    : {}),
-})
-
-/** Applies the same filter logic as fullTextSearch's SQL WHERE clause, but in
- *  TypeScript — used for vector-only results that bypassed the FTS query. */
-const notePassesFilters = (note: NoteRow, filters: SearchFilters): boolean => {
-  if (filters.folder && !note.path.startsWith(filters.folder + "/"))
-    return false
-
-  if (filters.tags) {
-    const noteTags = JSON.parse(note.tags) as string[]
-    if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
-  }
-
-  if (filters.type && note.type !== filters.type) return false
-
-  if (filters.related) {
-    const noteRelated = JSON.parse(note.related) as string[]
-    if (!filters.related.every((link) => noteRelated.includes(link)))
-      return false
-  }
-
-  if (filters.properties) {
-    const noteProperties = JSON.parse(note.properties) as Record<
-      string,
-      unknown
-    >
-    for (const [key, value] of Object.entries(filters.properties)) {
-      if (noteProperties[key] !== value) return false
-    }
-  }
-
-  return true
-}
-
-/** Truncates chunk text to the first N words for snippet display —
- *  used for vector-only results that have no FTS5 snippet available. */
-const buildSnippetFromChunkText = (
-  chunkText: string,
-  snippetTokens: number,
-): string => {
-  const words = chunkText.split(/\s+/).filter((word) => word.length > 0)
-  if (words.length <= snippetTokens) return words.join(" ")
-  return words.slice(0, snippetTokens).join(" ") + "..."
 }
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>
