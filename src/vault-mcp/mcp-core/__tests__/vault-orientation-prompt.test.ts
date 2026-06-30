@@ -315,7 +315,7 @@ describe("vault-orientation full prompt output", () => {
         "",
         "---",
         "Go deeper with the vault tools:",
-        "- `vault_search` — full-text search across all notes",
+        "- `vault_search` — hybrid search across all notes",
         "- `vault_search_by_tag` — explore notes by tag",
         "- `vault_list_property_values` — explore values for any property key",
         "- `vault_find_orphans` — full orphan list with exclusion control",

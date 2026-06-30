@@ -241,7 +241,7 @@ export const registerVaultOrientationPrompt = ({
           ? "- `vault_get_memory` — read memory files in detail"
           : ""
         const goDeeper = [
-          "- `vault_search` — full-text search across all notes",
+          `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
           "- `vault_search_by_tag` — explore notes by tag",
           "- `vault_list_property_values` — explore values for any property key",
           orphanTools,
