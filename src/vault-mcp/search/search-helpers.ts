@@ -25,7 +25,7 @@ export const coerceToArray = (value: unknown): string[] =>
 
 /** A note's complete link set — body links unioned with frontmatter wikilinks,
  *  deduplicated. Single source of truth for "what does this note link to",
- *  used by upsertNote for indexing the links table. */
+ *  shared by incremental upsert and full rebuild — must not diverge. */
 export const extractAllLinks = (
   content: string,
   data: Record<string, unknown>,
