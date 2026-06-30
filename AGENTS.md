@@ -16,11 +16,14 @@ endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.
 
-**Phase 2** (in progress) adds hybrid search — FTS5 + sqlite-vec vector
-search with RRF fusion — to the existing `vault_search` tool. The file
-watcher gains a second hook for embedding ingestion. Additive — not a
+**Phase 2a** adds hybrid search — FTS5 + sqlite-vec vector search with
+RRF fusion — to the existing `vault_search` tool. The file watcher
+includes a second hook for embedding ingestion. Additive — not a
 rewrite. The Docker image uses Debian slim (`node:24-slim`) because
 `onnxruntime-node` requires glibc.
+
+**Phase 2b** (in progress) will add cross-encoder reranking and
+position-aware score blending to refine hybrid search result ordering.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
