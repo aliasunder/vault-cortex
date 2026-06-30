@@ -176,7 +176,7 @@ Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHI
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
 - **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
 
-Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, search starts FTS-only while the vector index builds on first startup, then switches to hybrid automatically — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
+Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
 
