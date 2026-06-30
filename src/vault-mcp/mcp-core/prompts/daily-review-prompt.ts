@@ -190,7 +190,7 @@ export const registerDailyReviewPrompt = ({
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
         return textResult(
-          `Could not load the daily note (${message}). Try vault_get_daily_note to fetch it directly.`,
+          `Could not assemble the daily review (${message}). Try vault_get_daily_note to fetch the note directly.`,
         )
       }
     },

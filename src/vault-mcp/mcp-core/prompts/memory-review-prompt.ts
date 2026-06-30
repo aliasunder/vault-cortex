@@ -36,19 +36,17 @@ const formatMemoryStructuralOverview = (
 
   const fileDetails = outlines
     .map((outline) => {
-      const scopeLines = outline.leading_callout?.body
-        ? outline.leading_callout.body.split("\n").map((line) => `  ${line}`)
-        : []
+      const scopeLines = (outline.leading_callout?.body ?? "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => `  ${line}`)
       const sections = outline.headings
         .filter((heading) => heading.level === 2)
-        .map(
-          (heading) =>
-            `  - ${heading.text}${
-              typeof heading.entryCount === "number"
-                ? ` (${heading.entryCount} entries)`
-                : ""
-            }`,
-        )
+        .map((heading) => {
+          const count =
+            heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
+          return `  - ${heading.text}${count}`
+        })
       return [
         `- **${outline.file}** (${outline.bytes} bytes)`,
         ...scopeLines,
@@ -136,10 +134,9 @@ export const registerMemoryReviewPrompt = ({
 
         // A bad file name degrades to a friendly "valid names" message rather
         // than throwing through to the client. Bad client input → warn.
-        if (
-          args.file &&
-          !outlines.some((outline) => outline.file === args.file)
-        ) {
+        const isUnknownFile =
+          args.file && !outlines.some((outline) => outline.file === args.file)
+        if (isUnknownFile) {
           reqLogger.warn("prompt_bad_argument", {
             argument: "file",
             value: args.file,
