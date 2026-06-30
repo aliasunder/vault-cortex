@@ -95,13 +95,18 @@ src/
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
-      prompt-definitions.ts            # MCP prompt registrations + Zod arg schemas
+      prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
+      prompts/                         # Prompt group modules (one per prompt)
+        prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
+        vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey
+        memory-review-prompt.ts        # 1 prompt: memory layer reflection
+        daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
       search-queries.ts                # All 15 query methods (FTS, hybrid, tags, links, etc.)
@@ -148,7 +153,11 @@ on**, not just its topic:
   is `false`. Each group module is self-contained: its own tool name constants,
   register function, and data-layer imports. Shared helpers (`safeHandler`,
   `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
-  `prompt-definitions.ts` registers the MCP prompts (not yet split into groups).
+  `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from
+  three group modules under `mcp-core/prompts/` (vault-orientation, memory-review,
+  daily-review) — mirroring the `tools/` pattern. Shared helpers
+  (`PromptRegistrationContext` type, `textResult`, `wrapWithDataMarkers`) live in
+  `prompt-helpers.ts`.
 - **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
@@ -385,7 +394,7 @@ undefined) return`) or schema validation to narrow types instead.
 
 ### MCP prompt conventions
 
-Prompts (`prompt-definitions.ts`) are user-initiated workflows, distinct
+Prompts (`mcp-core/prompts/`) are user-initiated workflows, distinct
 from tools:
 
 - **Kebab-case names** (`vault-orientation`, `memory-review`), exported
