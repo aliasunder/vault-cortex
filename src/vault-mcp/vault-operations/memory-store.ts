@@ -77,9 +77,7 @@ export type MemoryFileOutline = Readonly<{
 /** What an updateMemory call did — lets the tool layer tailor its confirmation
  *  (e.g. nudge the caller to fill in a new file's scope callout). */
 export type UpdateMemoryOutcome =
-  | "created-file"
-  | "created-section"
-  | "appended"
+  "created-file" | "created-section" | "appended"
 
 type ParsedSection = Readonly<{
   heading: string
