@@ -3608,7 +3608,7 @@ This is a note with many words that should be truncated when using a small snipp
       )
 
       expect(reranked).toBe(false)
-      expect(results.length).toBeGreaterThan(0)
+      expect(results).toHaveLength(2)
       expect(warnSpy).toHaveBeenCalledWith(
         "reranker failed, using RRF-only ordering",
         expect.objectContaining({ error: "model failed to load" }),
@@ -3643,11 +3643,109 @@ This is a note with many words that should be truncated when using a small snipp
 
       await rerankIndex.hybridSearch({ query: "career goals" }, logger)
 
-      expect(mockReranker.rerankPairs).toHaveBeenCalledWith(
-        "career goals",
-        expect.arrayContaining([expect.any(String)]),
+      expect(mockReranker.rerankPairs).toHaveBeenCalledOnce()
+      const [query, documents] = mockReranker.rerankPairs.mock.calls[0]
+      expect(query).toBe("career goals")
+      expect(documents).toHaveLength(2)
+      // Each document text should be non-empty (chunk text from vector hits)
+      expect(documents.every((document: string) => document.length > 0)).toBe(
+        true,
       )
-      expect(mockReranker.rerankPairs.mock.calls[0][1]).toHaveLength(2)
+    })
+
+    it("modifies result scores compared to RRF-only ordering", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      // Reranker strongly favors b.md (index 1) over a.md (index 0)
+      const mockReranker = createMockReranker([0.1, 0.9])
+      const rerankIndex = createSearchIndex(
+        ":memory:",
+        mockEmbedder,
+        mockReranker,
+      )
+      rerankIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      rerankIndex.upsertNote(
+        { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
+        logger,
+      )
+      await rerankIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rerankIndex.embedNote(
+        { notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+
+      // Get RRF-only scores (no reranker)
+      const rrfOnlyIndex = createSearchIndex(":memory:", mockEmbedder)
+      rrfOnlyIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      rrfOnlyIndex.upsertNote(
+        { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
+        logger,
+      )
+      await rrfOnlyIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rrfOnlyIndex.embedNote(
+        { notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+
+      const { results: rrfResults } = await rrfOnlyIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+      const { results: rerankedResults, reranked } =
+        await rerankIndex.hybridSearch({ query: "career goals" }, logger)
+
+      expect(reranked).toBe(true)
+
+      // Reranking must produce different scores from RRF-only — proves
+      // tryRerank actually modified the results, not just set the flag
+      const rrfScoreForA = rrfResults.find(
+        (result) => result.path === "a.md",
+      )?.score
+      const rerankedScoreForA = rerankedResults.find(
+        (result) => result.path === "a.md",
+      )?.score
+      expect(rerankedScoreForA).not.toBe(rrfScoreForA)
+    })
+
+    it("skips reranking when only one result in merged set", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const mockReranker = createMockReranker([0.9])
+      const singleResultIndex = createSearchIndex(
+        ":memory:",
+        mockEmbedder,
+        mockReranker,
+      )
+
+      // Only index one note so only one result can appear
+      singleResultIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      await singleResultIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+
+      const { reranked, results } = await singleResultIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+
+      expect(results).toHaveLength(1)
+      expect(reranked).toBe(false)
+      // The reranker should not have been called — mergedResults.length <= 1
+      expect(mockReranker.rerankPairs).not.toHaveBeenCalled()
     })
   })
 })

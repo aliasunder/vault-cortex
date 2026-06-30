@@ -235,7 +235,9 @@ describe("loadConfig", () => {
     })
 
     it("rejects an invalid value", () => {
-      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow()
+      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(
+        /Invalid option/,
+      )
     })
   })
 
