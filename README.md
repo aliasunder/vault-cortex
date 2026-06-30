@@ -14,7 +14,7 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
 **Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
 
@@ -158,11 +158,11 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 graph LR
     Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
     Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|query| SQLite[("SQLite FTS5")]
+    Server -->|FTS5 + vector| SQLite[("SQLite\nFTS5 + sqlite-vec")]
     Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
 ```
 
-The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
+The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
 
@@ -311,10 +311,11 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase | What                                                         | Status      |
-| ----- | ------------------------------------------------------------ | ----------- |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete    |
-| **2** | Hybrid search (FTS5 + vector + RRF fusion)                   | In progress |
+| Phase  | What                                                               | Status      |
+| ------ | ------------------------------------------------------------------ | ----------- |
+| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1       | Complete    |
+| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking | Complete    |
+| **2b** | Reranker — cross-encoder reranking, position-aware score blending  | In progress |
 
 ## Acknowledgments
 
