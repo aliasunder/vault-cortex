@@ -12,9 +12,7 @@
  *     list, rewarding results that either system placed highly
  *  4. Sort by combined score descending
  *
- *  Reference: Cormack, Clarke & Butt (2009) "Reciprocal Rank Fusion
- *  outperforms Condorcet and individual Rank Learning Methods"
- *  https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf */
+ *  Pattern borrowed from qmd: https://github.com/tobi/qmd#score-normalization--fusion */
 export const computeRrfScores = (params: {
   ftsRanked: readonly { path: string }[]
   vectorRanked: readonly { path: string }[]
