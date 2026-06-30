@@ -130,6 +130,8 @@ export const normalizeScores = (scores: readonly number[]): number[] => {
 /** Position-aware score blending — combines RRF retrieval scores with
  *  cross-encoder reranker scores using rank-dependent weights.
  *
+ *  Inspired by qmd: https://github.com/tobi/qmd
+ *
  *  Weight tiers (by 1-indexed RRF rank):
  *  - Ranks 1–3:  75% RRF / 25% reranker — protect strong retrieval hits
  *  - Ranks 4–10: 50% RRF / 50% reranker — even blend in the middle

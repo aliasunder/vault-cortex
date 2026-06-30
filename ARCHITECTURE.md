@@ -276,7 +276,7 @@ Link queries use a `links` table populated during indexing:
 4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
 5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
 
-**Cross-encoder reranking:** After RRF fusion, a cross-encoder model ([ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), 22M params, INT8 quantized) rescores the top candidates by evaluating each (query, document) pair jointly — unlike the bi-encoder, it captures query-document interaction and distinguishes intent ("how I feel about") from topic ("uses of"). Results are reordered via position-aware score blending:
+**Cross-encoder reranking:** After RRF fusion, a cross-encoder model ([ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), 22M params, INT8 quantized) rescores the top candidates by evaluating each (query, document) pair jointly — unlike the bi-encoder, it captures query-document interaction and distinguishes intent ("how I feel about") from topic ("uses of"). Results are reordered via position-aware score blending (inspired by [qmd](https://github.com/tobi/qmd)):
 
 - **Ranks 1–3:** 75% RRF / 25% reranker — protect strong retrieval hits
 - **Ranks 4–10:** 50% / 50% — even blend in the middle

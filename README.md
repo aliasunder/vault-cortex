@@ -339,7 +339,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 Vault Cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible. The remote stack runs a small [fork](https://github.com/aliasunder/obsidian-headless-sync-docker) that adds a build-time config `chown` and `--device-name` on the initial Sync registration ([upstream PR #8](https://github.com/Belphemur/obsidian-headless-sync-docker/pull/8) remains open).
 
-The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, content-hash gating, and heading-aware chunking.
+The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, position-aware score blending for cross-encoder reranking, content-hash gating, and heading-aware chunking.
 
 ## Contributing
 
