@@ -1310,7 +1310,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
         folder: noteRow.folder,
         type: noteRow.type,
         ...(noteRow.created !== null ? { created: noteRow.created } : {}),
-        modified: DateTime.fromMillis(Math.round(noteRow.mtime)).toISO()!,
+        modified: DateTime.fromMillis(Math.round(noteRow.mtime)).toISO() ?? "",
         bytes: noteRow.bytes ?? 0,
         ...(includeLeadingCallout && noteRow.leading_callout
           ? {
@@ -1908,8 +1908,8 @@ const notePassesFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   return true
 }
 
-/** Truncates chunk text to a token-limited snippet, mirroring FTS5's
- *  snippet() behavior for vector-only results. */
+/** Truncates chunk text to the first N words for snippet display —
+ *  used for vector-only results that have no FTS5 snippet available. */
 const buildSnippetFromChunkText = (
   chunkText: string,
   snippetTokens: number,

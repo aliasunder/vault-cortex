@@ -1,4 +1,4 @@
-/** Search tool registrations — full-text, tag, property, folder, and graph queries. */
+/** Search tool registrations — hybrid (FTS + vector), tag, property, folder, and graph queries. */
 
 import { z } from "zod"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
