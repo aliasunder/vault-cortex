@@ -60,6 +60,8 @@ deploy/                                # End-user quickstart (no clone needed)
     README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
+docs/                                  # User-facing guides (post-setup)
+  usage-guide.md                       #   What you can do with your vault through AI
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
@@ -520,6 +522,7 @@ changed:
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
+| `docs/usage-guide.md`                | New tool, tool behavior change, new prompt, new workflow pattern, or memory layer change                                                                 |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
 
 Not every PR touches these — a new tool in an existing category needs

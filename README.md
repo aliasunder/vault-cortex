@@ -16,7 +16,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Usage Guide](docs/usage-guide.md) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -209,6 +209,8 @@ Tools are model-driven — the assistant calls them. **Prompts** are workflows _
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
 > **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
+
+**Using your vault through AI:** Once you're connected, the [Usage Guide](docs/usage-guide.md) covers what you can ask your AI to do — searching, reading, editing, the memory layer, daily notes, and practical tips.
 
 ## Properties
 

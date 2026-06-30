@@ -196,3 +196,9 @@ Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 If you want to modify vault-cortex and build from source, clone the repo and
 use `docker-compose.local.yml` in the repo root instead. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full development setup.
+
+## What's next
+
+You're connected — the [Usage Guide](../../docs/usage-guide.md) covers what
+you can ask your AI to do with your vault, how the memory layer works, and
+practical tips for getting the most out of it.

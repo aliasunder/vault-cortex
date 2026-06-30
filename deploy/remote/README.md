@@ -225,3 +225,9 @@ via `vault_update_memory` — no manual setup needed.
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. For optional settings (memory folder, protected paths, timezone), see
 the [Configuration](../../README.md#configuration) section in the main README.
+
+## What's next
+
+You're connected — the [Usage Guide](../../docs/usage-guide.md) covers what
+you can ask your AI to do with your vault, how the memory layer works, and
+practical tips for getting the most out of it.
