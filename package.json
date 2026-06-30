@@ -2,7 +2,7 @@
   "name": "vault-cortex",
   "version": "0.23.12",
   "private": true,
-  "description": "Standalone MCP server for Obsidian vaults — plugin-free search, memory, link graph, and daily notes over Streamable HTTP",
+  "description": "Standalone MCP server for Obsidian vaults — hybrid search, structured memory, link graph, and daily notes over Streamable HTTP",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,10 +14,15 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "obsidian",
-    "vault",
-    "remote-mcp-server"
+    "obsidian-vault",
+    "hybrid-search",
+    "semantic-search",
+    "sqlite-vec",
+    "ai-memory",
+    "docker"
   ],
   "type": "module",
   "engines": {
