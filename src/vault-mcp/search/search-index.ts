@@ -1230,25 +1230,14 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
         }
       >
 
-      const results: SearchResult[] = rows.map((row) => ({
-        path: row.path,
-        title: row.title,
-        snippet: row.snippet,
-        score: Number(row.score.toPrecision(4)),
-        tags: JSON.parse(row.tags) as string[],
-        folder: row.folder,
-        type: row.type,
-        ...(row.created !== null ? { created: row.created } : {}),
-        modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
-        bytes: row.bytes ?? 0,
-        ...(includeLeadingCallout && row.leading_callout
-          ? {
-              leading_callout: JSON.parse(
-                row.leading_callout,
-              ) as LeadingCallout,
-            }
-          : {}),
-      }))
+      const results: SearchResult[] = rows.map((row) =>
+        noteRowToSearchResult({
+          row,
+          snippet: row.snippet,
+          score: Number(row.score.toPrecision(4)),
+          includeLeadingCallout,
+        }),
+      )
       logger.info("full text search", {
         query: params.query,
         resultCount: results.length,
@@ -1337,25 +1326,14 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
         ? buildSnippetFromChunkText(vectorHit.chunkText, snippetTokens)
         : ""
 
-      mergedResults.push({
-        path: noteRow.path,
-        title: noteRow.title,
-        snippet,
-        score,
-        tags: JSON.parse(noteRow.tags) as string[],
-        folder: noteRow.folder,
-        type: noteRow.type,
-        ...(noteRow.created !== null ? { created: noteRow.created } : {}),
-        modified: DateTime.fromMillis(Math.round(noteRow.mtime)).toISO() ?? "",
-        bytes: noteRow.bytes ?? 0,
-        ...(includeLeadingCallout && noteRow.leading_callout
-          ? {
-              leading_callout: JSON.parse(
-                noteRow.leading_callout,
-              ) as LeadingCallout,
-            }
-          : {}),
-      })
+      mergedResults.push(
+        noteRowToSearchResult({
+          row: noteRow,
+          snippet,
+          score,
+          includeLeadingCallout,
+        }),
+      )
     }
 
     logger.info("hybrid search", {
@@ -1914,6 +1892,43 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   leading_callout: row.leading_callout
     ? (JSON.parse(row.leading_callout) as LeadingCallout)
     : null,
+})
+
+/** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
+ *  Shared by fullTextSearch (FTS rows) and hybridSearch (vector-only rows). */
+const noteRowToSearchResult = (params: {
+  row: Pick<
+    NoteRow,
+    | "path"
+    | "title"
+    | "tags"
+    | "folder"
+    | "type"
+    | "created"
+    | "mtime"
+    | "bytes"
+  > & { leading_callout?: string | null }
+  snippet: string
+  score: number
+  includeLeadingCallout: boolean
+}): SearchResult => ({
+  path: params.row.path,
+  title: params.row.title,
+  snippet: params.snippet,
+  score: params.score,
+  tags: JSON.parse(params.row.tags) as string[],
+  folder: params.row.folder,
+  type: params.row.type,
+  ...(params.row.created !== null ? { created: params.row.created } : {}),
+  modified: DateTime.fromMillis(Math.round(params.row.mtime)).toISO() ?? "",
+  bytes: params.row.bytes ?? 0,
+  ...(params.includeLeadingCallout && params.row.leading_callout
+    ? {
+        leading_callout: JSON.parse(
+          params.row.leading_callout,
+        ) as LeadingCallout,
+      }
+    : {}),
 })
 
 /** Applies the same filter logic as fullTextSearch's SQL WHERE clause, but in
