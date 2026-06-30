@@ -36,7 +36,8 @@
     "knowledge-base",
     "note-taking",
     "second-brain",
-    "full-text-search",
+    "hybrid-search",
+    "semantic-search",
     "cli"
   ],
   "dependencies": {
