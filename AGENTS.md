@@ -532,7 +532,7 @@ changed:
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `README.md`                          | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
 | `ARCHITECTURE.md`                    | New component, requirement, or design decision; component diagram changes                                                                                |
-| `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields)                                                                                             |
+| `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields), description changes. `description` has a 100-character limit per the MCP registry schema.  |
 | `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits                                                                               |
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
