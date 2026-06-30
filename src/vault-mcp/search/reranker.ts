@@ -50,6 +50,9 @@ export const createReranker = (logger: Logger) => {
           await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
+          // INT8 quantization — halves model size (~20MB vs ~80MB) with
+          // negligible quality loss for cross-encoders (full-attention
+          // pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
           }),
