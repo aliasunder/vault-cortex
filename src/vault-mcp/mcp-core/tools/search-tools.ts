@@ -30,7 +30,8 @@ export const registerSearchTools = ({
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
-      description: `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance. When the embedding pipeline is active, results are ranked using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. When embeddings are unavailable, falls back to keyword-only (FTS5 BM25) transparently. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+      description: config.embeddingEnabled
+        ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: path prefix (e.g. "Projects")
@@ -43,14 +44,35 @@ Example: vault_search({ query: "kubernetes networking", filters: { tags: ["refer
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
 Example: vault_search({ query: "career aspirations", filters: { folder: "About Me" } })
 
-When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets".
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
 
 Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+        : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+
+Filters — all conditions AND-combine with each other and the text query:
+- folder: path prefix (e.g. "Projects")
+- tags: require all listed tags (AND)
+- type: exact match on frontmatter type (e.g. "person", "session-log")
+- related: require all listed related links (AND)
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" })
+
+Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
+Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
+Example: vault_search({ query: "deployment", filters: { properties: { status: "active" } } })
+
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
+Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
+
+Errors:
+- No matches returns { results: [], total: 0 }, not an error
+- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
+
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
