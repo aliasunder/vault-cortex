@@ -472,6 +472,15 @@ describe("fullTextSearch", () => {
     expect(results[0].path).toBe("Projects/notes.md")
   })
 
+  it("strips trailing slashes from folder filter before matching", () => {
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects/" } },
+      logger,
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].path).toBe("Projects/notes.md")
+  })
+
   it("respects tags filter", () => {
     const results = index.fullTextSearch(
       { query: "notes", filters: { tags: ["project"] } },
