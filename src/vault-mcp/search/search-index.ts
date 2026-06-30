@@ -100,7 +100,49 @@ export const sanitizeFtsQuery = (raw: string): string => {
   return parts.length === 0 ? '""' : parts.join(" ")
 }
 
+// ── RRF fusion ─────────────────────────────────────────────────
+
+/** Reciprocal Rank Fusion (RRF) — combines two ranked result lists into a
+ *  single scored ranking. Top-rank bonuses reward results that either system
+ *  placed highly: +0.05 for rank 1, +0.02 for ranks 2–3. */
+export const computeRrfScores = (params: {
+  ftsRanked: readonly { path: string }[]
+  vectorRanked: readonly { path: string }[]
+  k?: number
+}): { path: string; score: number }[] => {
+  const k = params.k ?? 60
+
+  const scoresByPath = new Map<string, number>()
+
+  const accumulateScores = (rankedItems: readonly { path: string }[]): void => {
+    for (const [index, item] of rankedItems.entries()) {
+      const rank = index + 1
+      const rrfScore = 1 / (k + rank)
+      const bonus = rank === 1 ? 0.05 : rank <= 3 ? 0.02 : 0
+      const previousScore = scoresByPath.get(item.path) ?? 0
+      scoresByPath.set(item.path, previousScore + rrfScore + bonus)
+    }
+  }
+
+  accumulateScores(params.ftsRanked)
+  accumulateScores(params.vectorRanked)
+
+  return [...scoresByPath.entries()]
+    .sort(([, scoreA], [, scoreB]) => scoreB - scoreA)
+    .map(([path, score]) => ({
+      path,
+      score: Number(score.toPrecision(4)),
+    }))
+}
+
 // ── Types ───────────────────────────────────────────────────────
+
+/** A note path with its best-chunk distance from a vector KNN query. */
+type VectorHit = Readonly<{
+  path: string
+  distance: number
+  chunkText: string
+}>
 
 type SearchResult = {
   path: string
@@ -439,6 +481,26 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
     : null
+
+  // ── Vector query statements ─────────────────────────────────────
+  /** KNN search — finds the k nearest chunks to a query embedding. */
+  const knnSearchStmt = embedder
+    ? db.prepare(
+        `SELECT nc.note_path, nc.chunk_text, nv.distance
+         FROM note_vectors nv
+         JOIN note_chunks nc ON nc.id = nv.chunk_id
+         WHERE nv.embedding MATCH ?
+           AND nv.k = ?
+         ORDER BY nv.distance`,
+      )
+    : null
+
+  /** Metadata lookup for notes found only via vector search. */
+  const selectNoteMetadataStmt = db.prepare(
+    `SELECT path, title, tags, related, folder, type, created, mtime,
+            properties, leading_callout, bytes
+     FROM notes WHERE path = ?`,
+  )
 
   /** Strips the file extension from a path, or returns the path unchanged if
    *  it has no extension. Uses the last dot in the filename (not the path). */
@@ -788,6 +850,49 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     await embedAndStoreChunks(params, logger)
   }
 
+  /** Embed a query and find the nearest notes via sqlite-vec KNN. Deduplicates
+   *  to the best (closest) chunk per note. Returns [] silently on any failure
+   *  so hybrid search degrades to FTS-only. */
+  const vectorSearch = async (
+    params: { query: string; limit: number },
+    logger: Logger,
+  ): Promise<VectorHit[]> => {
+    if (!embedder || !knnSearchStmt) return []
+
+    try {
+      const queryEmbedding = await embedder.embedText(params.query)
+      const rows = knnSearchStmt.all(
+        Buffer.from(queryEmbedding.buffer),
+        params.limit,
+      ) as Array<{ note_path: string; chunk_text: string; distance: number }>
+
+      // Deduplicate to best chunk per note — rows are ordered by distance
+      // ascending, so the first occurrence of each path is the closest match.
+      const bestPerNote = new Map<string, VectorHit>()
+      for (const row of rows) {
+        if (!bestPerNote.has(row.note_path)) {
+          bestPerNote.set(row.note_path, {
+            path: row.note_path,
+            distance: row.distance,
+            chunkText: row.chunk_text,
+          })
+        }
+      }
+
+      logger.info("vector search", {
+        query: params.query,
+        knnHits: rows.length,
+        uniqueNotes: bestPerNote.size,
+      })
+      return [...bestPerNote.values()]
+    } catch (error) {
+      logger.warn("vector search failed, falling back to FTS-only", {
+        error: describeError(error),
+      })
+      return []
+    }
+  }
+
   /** Removes a note from the notes table, FTS index, links, and vectors. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
@@ -1128,6 +1233,103 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       })
       return []
     }
+  }
+
+  /** Hybrid search — combines FTS5 keyword search with sqlite-vec vector
+   *  similarity via RRF fusion. Falls back to FTS-only silently when no
+   *  embeddings are available. */
+  const hybridSearch = async (
+    params: { query: string; filters?: SearchFilters },
+    logger: Logger,
+  ): Promise<SearchResult[]> => {
+    const userLimit = params.filters?.limit ?? 20
+    const snippetTokens = params.filters?.snippet_tokens ?? 30
+    const includeLeadingCallout =
+      params.filters?.include_leading_callout ?? false
+    const candidateLimit = Math.min(userLimit * 3, 100)
+
+    // Run FTS with inflated limit to give RRF enough candidates
+    const ftsResults = fullTextSearch(
+      {
+        query: params.query,
+        filters: { ...params.filters, limit: candidateLimit },
+      },
+      logger,
+    )
+
+    // Attempt vector search — returns [] on any failure
+    const vectorHits = await vectorSearch(
+      { query: params.query, limit: candidateLimit },
+      logger,
+    )
+
+    // FTS-only fallback when no vectors are available
+    if (vectorHits.length === 0) return ftsResults.slice(0, userLimit)
+
+    // Compute RRF scores from both ranked lists
+    const rrfScores = computeRrfScores({
+      ftsRanked: ftsResults,
+      vectorRanked: vectorHits,
+    })
+
+    // Index FTS results and vector hits by path for O(1) lookup
+    const ftsResultsByPath = new Map(
+      ftsResults.map((result) => [result.path, result]),
+    )
+    const vectorHitsByPath = new Map(vectorHits.map((hit) => [hit.path, hit]))
+
+    // Build the merged result set, ordered by RRF score
+    const mergedResults: SearchResult[] = []
+    for (const { path, score } of rrfScores) {
+      const ftsResult = ftsResultsByPath.get(path)
+      if (ftsResult) {
+        // Path found via FTS — use its metadata and snippet, replace score
+        mergedResults.push({ ...ftsResult, score })
+        continue
+      }
+
+      // Vector-only result — look up metadata from the notes table
+      const noteRow = selectNoteMetadataStmt.get(path) as NoteRow | undefined
+      if (!noteRow) continue
+
+      // Apply filters that FTS would have applied via SQL
+      if (params.filters && !notePassesFilters(noteRow, params.filters))
+        continue
+
+      const vectorHit = vectorHitsByPath.get(path)
+      const snippet = vectorHit
+        ? buildSnippetFromChunkText(vectorHit.chunkText, snippetTokens)
+        : ""
+
+      mergedResults.push({
+        path: noteRow.path,
+        title: noteRow.title,
+        snippet,
+        score,
+        tags: JSON.parse(noteRow.tags) as string[],
+        folder: noteRow.folder,
+        type: noteRow.type,
+        ...(noteRow.created !== null ? { created: noteRow.created } : {}),
+        modified: DateTime.fromMillis(Math.round(noteRow.mtime)).toISO()!,
+        bytes: noteRow.bytes ?? 0,
+        ...(includeLeadingCallout && noteRow.leading_callout
+          ? {
+              leading_callout: JSON.parse(
+                noteRow.leading_callout,
+              ) as LeadingCallout,
+            }
+          : {}),
+      })
+    }
+
+    logger.info("hybrid search", {
+      query: params.query,
+      ftsResults: ftsResults.length,
+      vectorHits: vectorHits.length,
+      mergedResults: mergedResults.length,
+      returnedResults: Math.min(mergedResults.length, userLimit),
+    })
+    return mergedResults.slice(0, userLimit)
   }
 
   /** Finds notes with a specific tag. Supports hierarchical prefix matching. */
@@ -1638,6 +1840,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     removeNonMdFile,
     setDailyNotesFolder,
     fullTextSearch,
+    hybridSearch,
     searchByTag,
     searchByFolder,
     listAllTags,
@@ -1672,5 +1875,48 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
     ? (JSON.parse(row.leading_callout) as LeadingCallout)
     : null,
 })
+
+/** Applies the same filter logic as fullTextSearch's SQL WHERE clause, but in
+ *  TypeScript — used for vector-only results that bypassed the FTS query. */
+const notePassesFilters = (note: NoteRow, filters: SearchFilters): boolean => {
+  if (filters.folder && !note.path.startsWith(filters.folder + "/"))
+    return false
+
+  if (filters.tags) {
+    const noteTags = JSON.parse(note.tags) as string[]
+    if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
+  }
+
+  if (filters.type && note.type !== filters.type) return false
+
+  if (filters.related) {
+    const noteRelated = JSON.parse(note.related) as string[]
+    if (!filters.related.every((link) => noteRelated.includes(link)))
+      return false
+  }
+
+  if (filters.properties) {
+    const noteProperties = JSON.parse(note.properties) as Record<
+      string,
+      unknown
+    >
+    for (const [key, value] of Object.entries(filters.properties)) {
+      if (noteProperties[key] !== value) return false
+    }
+  }
+
+  return true
+}
+
+/** Truncates chunk text to a token-limited snippet, mirroring FTS5's
+ *  snippet() behavior for vector-only results. */
+const buildSnippetFromChunkText = (
+  chunkText: string,
+  snippetTokens: number,
+): string => {
+  const words = chunkText.split(/\s+/).filter((word) => word.length > 0)
+  if (words.length <= snippetTokens) return words.join(" ")
+  return words.slice(0, snippetTokens).join(" ") + "..."
+}
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>
