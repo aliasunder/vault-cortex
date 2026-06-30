@@ -3095,10 +3095,12 @@ describe("computeRrfScores", () => {
       vectorRanked: [{ path: "a.md" }],
     })
 
-    // "a.md" appears in both lists → higher combined score → first
-    expect(result[0].path).toBe("a.md")
-    expect(result[0].score).toBeGreaterThan(result[1].score)
-    expect(result[1].path).toBe("b.md")
+    // a.md: rank 1 in both → 2 * (1/61 + 0.05)
+    // b.md: rank 2 in FTS only → 1/62 + 0.02
+    expect(result).toEqual([
+      { path: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) },
+      { path: "b.md", score: Number((1 / 62 + 0.02).toPrecision(4)) },
+    ])
   })
 
   it("accepts a custom k value", () => {
@@ -3186,8 +3188,7 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results).toHaveLength(1)
-      expect(results[0].path).toBe("a.md")
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
       expect(search_mode).toBe("fts")
     })
 
@@ -3205,8 +3206,7 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results).toHaveLength(1)
-      expect(results[0].path).toBe("a.md")
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
       expect(search_mode).toBe("fts")
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
@@ -3227,8 +3227,7 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results).toHaveLength(1)
-      expect(results[0].path).toBe("a.md")
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
       expect(search_mode).toBe("fts")
       expect(warnSpy).toHaveBeenCalledWith(
         "vector search failed, falling back to FTS-only",
@@ -3268,7 +3267,7 @@ the Lightsail budget estimates for next quarter.
       )
 
       expect(search_mode).toBe("hybrid")
-      expect(results.length).toBeGreaterThanOrEqual(2)
+      expect(results).toHaveLength(2)
       // a.md appears in both FTS and vector → higher RRF score → ranked first
       expect(results[0].path).toBe("a.md")
       expect(results[0].score).toBeGreaterThan(results[1].score)
@@ -3302,14 +3301,14 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results.length).toBeGreaterThanOrEqual(2)
-      const paths = results.map((result) => result.path)
-      expect(paths).toContain("a.md")
-      expect(paths).toContain("b.md")
+      expect(results).toHaveLength(2)
+      // b.md matches both FTS + vector → ranked first; a.md is vector-only
+      expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
 
       // Vector-only result (a.md — no FTS match for "project ideas CLI")
       // should carry full metadata from the notes table
       const vectorOnlyResult = results.find((result) => result.path === "a.md")
+      if (!vectorOnlyResult) throw new Error("expected a.md in results")
       expect(vectorOnlyResult).toEqual(
         expect.objectContaining({
           path: "a.md",
@@ -3317,11 +3316,11 @@ the Lightsail budget estimates for next quarter.
           tags: ["personal", "career"],
           folder: "",
           type: "reflection",
+          bytes: 100,
+          modified: DateTime.fromMillis(1000).toISO(),
         }),
       )
-      expect(vectorOnlyResult?.score).toBeGreaterThan(0)
-      expect(vectorOnlyResult?.modified).toBeTruthy()
-      expect(typeof vectorOnlyResult?.bytes).toBe("number")
+      expect(vectorOnlyResult.score).toBeGreaterThan(0)
     })
 
     it("generates snippets from chunk text for vector-only results", async () => {
@@ -3363,10 +3362,13 @@ the Lightsail budget estimates for next quarter.
       )
 
       // a.md should appear (closest vector match) with a snippet from its chunk
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      const noteA = results.find((r) => r.path === "a.md")
-      expect(noteA).toBeDefined()
-      expect(noteA!.snippet).toContain("aspire")
+      const noteA = results.find((result) => result.path === "a.md")
+      if (!noteA) throw new Error("expected a.md in results")
+      // Default snippet_tokens is 30 — chunk text is title-prefixed body,
+      // well under 30 words, so no truncation
+      expect(noteA.snippet).toBe(
+        "Career Goals I aspire to build meaningful products and grow as a technical leader. My targets include shipping a major open source project.",
+      )
     })
   })
 
@@ -3614,8 +3616,8 @@ The main content discusses RESTful API design and GraphQL alternatives.
       )
 
       const refResult = results.find((result) => result.path === "ref.md")
-      expect(refResult).toBeDefined()
-      expect(refResult?.leading_callout).toEqual({
+      if (!refResult) throw new Error("expected ref.md in results")
+      expect(refResult.leading_callout).toEqual({
         type: "info",
         title: "Quick reference",
         body: "This is a reference document about API design patterns.",
@@ -3757,10 +3759,10 @@ This is a note with many words that should be truncated when using a small snipp
       const verboseResult = results.find(
         (result) => result.path === "verbose.md",
       )
-      expect(verboseResult).toBeDefined()
+      if (!verboseResult) throw new Error("expected verbose.md in results")
       // buildSnippetFromChunkText takes first 5 words of the chunk text
       // (title-prefixed body) and appends "..."
-      expect(verboseResult!.snippet).toBe("Verbose Note This is a...")
+      expect(verboseResult.snippet).toBe("Verbose Note This is a...")
     })
   })
 })
