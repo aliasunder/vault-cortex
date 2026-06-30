@@ -107,17 +107,15 @@ describe("computeRrfScores", () => {
   })
 
   it("accepts a custom k value", () => {
-    const defaultResult = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }],
-      vectorRanked: [],
-    })
-    const customResult = computeRrfScores({
+    const result = computeRrfScores({
       ftsRanked: [{ path: "a.md" }],
       vectorRanked: [],
       k: 10,
     })
 
-    // k=10 → 1/(10+1) + 0.05 vs k=60 → 1/(60+1) + 0.05
-    expect(customResult[0].score).toBeGreaterThan(defaultResult[0].score)
+    // k=10, rank=1: 1/(10+1) + top-rank bonus 0.05 = 0.1409
+    expect(result).toEqual([
+      { path: "a.md", score: Number((1 / 11 + 0.05).toPrecision(4)) },
+    ])
   })
 })
