@@ -77,14 +77,17 @@ export const createMcpRouter = ({
             })
           }
         }
+        const searchDescription = config.embeddingEnabled
+          ? "hybrid search"
+          : "full-text search"
         const server = new McpServer(
           {
             name: "vault-cortex",
             title: "Vault Cortex",
             version: "1.0.0",
             description: config.memoryEnabled
-              ? `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
-              : `Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and property-based filtering.`,
+              ? `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
+              : `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`,
             icons: SERVER_ICONS,
             websiteUrl: SERVER_WEBSITE_URL,
           },
