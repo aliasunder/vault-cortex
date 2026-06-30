@@ -352,8 +352,7 @@ const tryRerank = async (params: {
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          | { chunk_text: string }
-          | undefined
+          { chunk_text: string } | undefined
         if (chunkRow) return chunkRow.chunk_text
       }
 
