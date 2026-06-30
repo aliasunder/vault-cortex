@@ -7,6 +7,7 @@ import {
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
+  stripTrailingSlashes,
 } from "../search-helpers.js"
 import type { NoteRow } from "../search-index.js"
 
@@ -194,6 +195,18 @@ describe("noteMatchesSearchFilters", () => {
       }),
     ).toBe(false)
   })
+
+  it("strips trailing slashes from folder filter before matching", () => {
+    expect(
+      noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha/" }),
+    ).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/" })).toBe(
+      true,
+    )
+    expect(
+      noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" }),
+    ).toBe(false)
+  })
 })
 
 // ── buildSnippetFromChunkText ─────────────────────────────────
@@ -237,5 +250,31 @@ describe("escapeLikeWildcards", () => {
 
   it("leaves normal text unchanged", () => {
     expect(escapeLikeWildcards("Projects/Alpha")).toBe("Projects/Alpha")
+  })
+})
+
+// ── stripTrailingSlashes ──────────────────────────────────────
+
+describe("stripTrailingSlashes", () => {
+  it("strips a single trailing slash", () => {
+    expect(stripTrailingSlashes("Projects/")).toBe("Projects")
+  })
+
+  it("strips multiple trailing slashes", () => {
+    expect(stripTrailingSlashes("Projects///")).toBe("Projects")
+  })
+
+  it("leaves paths without trailing slashes unchanged", () => {
+    expect(stripTrailingSlashes("Projects/Alpha")).toBe("Projects/Alpha")
+  })
+
+  it("preserves internal slashes", () => {
+    expect(stripTrailingSlashes("Projects/Alpha/Beta/")).toBe(
+      "Projects/Alpha/Beta",
+    )
+  })
+
+  it("handles a bare folder name", () => {
+    expect(stripTrailingSlashes("Projects")).toBe("Projects")
   })
 })

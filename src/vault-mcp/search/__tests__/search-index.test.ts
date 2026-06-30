@@ -872,6 +872,14 @@ describe("searchByFolder", () => {
       "About Me/Principles.md",
     ])
   })
+
+  it("strips trailing slashes from folder before matching", () => {
+    const results = index.searchByFolder({ folder: "About Me/" }, logger)
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
+  })
 })
 
 describe("listAllTags", () => {
@@ -1912,6 +1920,16 @@ describe("findOrphans", () => {
     )
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
+  })
+
+  it("strips trailing slashes from excludeFolders before matching", () => {
+    const orphans = index.findOrphans(
+      { excludeFolders: ["Daily Notes/"] },
+      logger,
+    )
+    const orphanPaths = orphans.map((orphan) => orphan.path)
+    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
+    expect(orphanPaths).toContain("Projects/orphan.md")
   })
 
   it("respects limit", () => {

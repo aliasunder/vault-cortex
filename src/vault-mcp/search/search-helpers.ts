@@ -22,6 +22,11 @@ export const coerceToArray = (value: unknown): string[] =>
 
 // ── LIKE escaping ─────────────────────────────────────────────
 
+/** Strips trailing slashes so folder paths produce clean LIKE patterns
+ *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
+export const stripTrailingSlashes = (folder: string): string =>
+  folder.replace(/\/+$/, "")
+
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
 export const escapeLikeWildcards = (value: string): string =>
@@ -127,7 +132,10 @@ export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
 ): boolean => {
-  if (filters.folder && !note.path.startsWith(filters.folder + "/"))
+  if (
+    filters.folder &&
+    !note.path.startsWith(stripTrailingSlashes(filters.folder) + "/")
+  )
     return false
 
   if (filters.tags) {
