@@ -493,14 +493,14 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ## Cost
 
-| Component                          | Phase 1                                    | Phase 2       |
-| ---------------------------------- | ------------------------------------------ | ------------- |
-| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB) |
-| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same          |
-| API Gateway                        | ~$0                                        | ~$0           |
-| Obsidian Sync                      | existing                                   | same          |
-| Local embeddings (in-process ONNX) | —                                          | $0 (no API)   |
-| **Total**                          | **~$13/mo**                                | **~$25/mo**   |
+| Component                          | Phase 1 (full-text search)                 | Phase 2 (hybrid search) |
+| ---------------------------------- | ------------------------------------------ | ----------------------- |
+| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB)           |
+| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same                    |
+| API Gateway                        | ~$0                                        | ~$0                     |
+| Obsidian Sync                      | existing                                   | same                    |
+| Local embeddings (in-process ONNX) | —                                          | $0 (no API)             |
+| **Total**                          | **~$13/mo**                                | **~$25/mo**             |
 
 ## Key Decisions
 
