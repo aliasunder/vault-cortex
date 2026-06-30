@@ -322,7 +322,7 @@ flowchart TD
     style SK fill:#dfd,stroke:#333
 ```
 
-**Search module decomposition:** The search layer is split into five modules:
+**Search module decomposition:** The search query and indexing layer is split into five modules (the embedding pipeline and file watcher are described above):
 
 | Module              | Responsibility                                                                                                                                                                                                                                                                         |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
