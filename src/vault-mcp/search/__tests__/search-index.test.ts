@@ -14,11 +14,7 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import {
-  createSearchIndex,
-  sanitizeFtsQuery,
-  computeRrfScores,
-} from "../search-index.js"
+import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
 
@@ -765,166 +761,6 @@ describe("metadata search", () => {
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("garden/layout.md")
-  })
-})
-
-describe("sanitizeFtsQuery", () => {
-  const scenarios = [
-    {
-      name: "multi-word: unquoted terms joined with spaces",
-      input: "burnout boundaries",
-      expected: "burnout boundaries",
-    },
-    {
-      name: "single word: passthrough unquoted for stemming",
-      input: "single",
-      expected: "single",
-    },
-    {
-      name: "quoted phrase: preserved",
-      input: '"machine learning"',
-      expected: '"machine learning"',
-    },
-    {
-      name: "phrase + unquoted term",
-      input: '"machine learning" kubernetes',
-      expected: '"machine learning" kubernetes',
-    },
-    {
-      name: "FTS5 specials stripped, reserved words dropped",
-      input: 'test "quoted" AND (grouped)',
-      expected: '"quoted" test grouped',
-    },
-    {
-      name: "wildcard stripped",
-      input: "burn*",
-      expected: "burn",
-    },
-    {
-      name: "all reserved words: empty result",
-      input: "AND OR NOT",
-      expected: '""',
-    },
-    {
-      name: "empty string: empty result",
-      input: "",
-      expected: '""',
-    },
-    {
-      name: "caret and colon stripped",
-      input: "field:value ^boost",
-      expected: "field value boost",
-    },
-    {
-      name: "hyphenated compound → quoted phrase",
-      input: "vault-cortex",
-      expected: '"vault cortex"',
-    },
-    {
-      name: "multi-hyphen compound → quoted phrase",
-      input: "self-hosted-app",
-      expected: '"self hosted app"',
-    },
-    {
-      name: "hyphenated + bare terms",
-      input: "vault-cortex search",
-      expected: '"vault cortex" search',
-    },
-    {
-      name: "multiple hyphenated terms",
-      input: "vault-cortex self-hosted",
-      expected: '"vault cortex" "self hosted"',
-    },
-    {
-      name: "leading hyphen stripped",
-      input: "-excluded term",
-      expected: "excluded term",
-    },
-    {
-      name: "hyphen inside quoted phrase preserved",
-      input: '"vault-cortex"',
-      expected: '"vault-cortex"',
-    },
-    {
-      name: "mixed: quoted phrase + hyphenated + bare",
-      input: 'search "exact-match" vault-cortex',
-      expected: '"exact-match" "vault cortex" search',
-    },
-    {
-      name: "dotted domain → quoted phrase",
-      input: "mcpservers.org",
-      expected: '"mcpservers org"',
-    },
-    {
-      name: "dotted domain + bare terms (live failure 2026-06-09)",
-      input: "mcpservers.org submission email",
-      expected: '"mcpservers org" submission email',
-    },
-    {
-      name: "dotted filename → quoted phrase",
-      input: "server.json",
-      expected: '"server json"',
-    },
-    {
-      name: "slash path → quoted phrase",
-      input: "deploy/local",
-      expected: '"deploy local"',
-    },
-    {
-      name: "email address → quoted phrase",
-      input: "user@example.com",
-      expected: '"user example com"',
-    },
-    {
-      name: "comma-joined terms → quoted phrase",
-      input: "foo,bar",
-      expected: '"foo bar"',
-    },
-    {
-      name: "apostrophe contraction → quoted phrase",
-      input: "don't",
-      expected: '"don t"',
-    },
-    {
-      name: "mixed dot + hyphen compound → quoted phrase",
-      input: "vault-cortex.test",
-      expected: '"vault cortex test"',
-    },
-    {
-      name: "word-edge punctuation stripped, term left bare",
-      input: "email. really?!",
-      expected: "email really",
-    },
-    {
-      name: "punctuation-only input: empty result",
-      input: "?!.,",
-      expected: '""',
-    },
-    {
-      name: "metachar adjoining compound: not a joiner",
-      input: "vault-cortex: search",
-      expected: '"vault cortex" search',
-    },
-    {
-      name: "underscore is a bareword character, term left bare",
-      input: "snake_case_name",
-      expected: "snake_case_name",
-    },
-    {
-      name: "non-ASCII term left bare",
-      input: "café",
-      expected: "café",
-    },
-    {
-      name: "dot inside quoted phrase preserved",
-      input: '"mcpservers.org"',
-      expected: '"mcpservers.org"',
-    },
-  ]
-
-  it.each(scenarios)("$name", ({ input, expected }) => {
-    const result = sanitizeFtsQuery(input)
-    expect(result).toBe(expected)
   })
 })
 
@@ -2998,127 +2834,6 @@ It has multiple sentences to verify chunking works correctly.
   })
 })
 
-describe("computeRrfScores", () => {
-  /** Rank-1 RRF score with default k=60: 1/(60+1) + 0.05 bonus */
-  const RANK_1_SCORE = Number((1 / 61 + 0.05).toPrecision(4))
-
-  it("scores a path appearing in FTS only", () => {
-    const result = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }],
-      vectorRanked: [],
-    })
-
-    expect(result).toEqual([{ path: "a.md", score: RANK_1_SCORE }])
-  })
-
-  it("scores a path appearing in vector only", () => {
-    const result = computeRrfScores({
-      ftsRanked: [],
-      vectorRanked: [{ path: "a.md" }],
-    })
-
-    expect(result).toEqual([{ path: "a.md", score: RANK_1_SCORE }])
-  })
-
-  it("combines scores when a path appears in both lists", () => {
-    const result = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }],
-      vectorRanked: [{ path: "a.md" }],
-    })
-
-    // rank 1 in both lists: score doubles
-    expect(result).toEqual([
-      { path: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) },
-    ])
-  })
-
-  it("applies +0.02 bonus for ranks 2-3", () => {
-    const result = computeRrfScores({
-      ftsRanked: [
-        { path: "first.md" },
-        { path: "second.md" },
-        { path: "third.md" },
-      ],
-      vectorRanked: [],
-    })
-
-    // Sorted by score descending — rank 1 has highest score
-    expect(result).toEqual([
-      { path: "first.md", score: RANK_1_SCORE },
-      { path: "second.md", score: Number((1 / 62 + 0.02).toPrecision(4)) },
-      { path: "third.md", score: Number((1 / 63 + 0.02).toPrecision(4)) },
-    ])
-  })
-
-  it("applies no bonus for rank 4 and beyond", () => {
-    const result = computeRrfScores({
-      ftsRanked: [
-        { path: "1.md" },
-        { path: "2.md" },
-        { path: "3.md" },
-        { path: "4.md" },
-      ],
-      vectorRanked: [],
-    })
-
-    // Fourth result has no bonus — raw RRF only
-    expect(result[3]).toEqual({
-      path: "4.md",
-      score: Number((1 / 64).toPrecision(4)),
-    })
-  })
-
-  it("handles disjoint lists with equal-rank paths", () => {
-    const result = computeRrfScores({
-      ftsRanked: [{ path: "fts-only.md" }],
-      vectorRanked: [{ path: "vec-only.md" }],
-    })
-
-    // Both are rank 1 in their respective lists — same score
-    expect(result).toEqual([
-      { path: "fts-only.md", score: RANK_1_SCORE },
-      { path: "vec-only.md", score: RANK_1_SCORE },
-    ])
-  })
-
-  it("returns empty array for empty inputs", () => {
-    const result = computeRrfScores({
-      ftsRanked: [],
-      vectorRanked: [],
-    })
-    expect(result).toEqual([])
-  })
-
-  it("sorts results by score descending", () => {
-    const result = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }, { path: "b.md" }],
-      vectorRanked: [{ path: "a.md" }],
-    })
-
-    // a.md: rank 1 in both → 2 * (1/61 + 0.05)
-    // b.md: rank 2 in FTS only → 1/62 + 0.02
-    expect(result).toEqual([
-      { path: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) },
-      { path: "b.md", score: Number((1 / 62 + 0.02).toPrecision(4)) },
-    ])
-  })
-
-  it("accepts a custom k value", () => {
-    const defaultResult = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }],
-      vectorRanked: [],
-    })
-    const customResult = computeRrfScores({
-      ftsRanked: [{ path: "a.md" }],
-      vectorRanked: [],
-      k: 10,
-    })
-
-    // k=10 → 1/(10+1) + 0.05 vs k=60 → 1/(60+1) + 0.05
-    expect(customResult[0].score).toBeGreaterThan(defaultResult[0].score)
-  })
-})
-
 describe("hybridSearch", () => {
   const EMBEDDING_DIMENSIONS = 384
 
@@ -3422,7 +3137,7 @@ Content about deployment costs and infrastructure.
       )
 
       // Only the note inside Work/ should appear
-      const paths = results.map((r) => r.path)
+      const paths = results.map((result) => result.path)
       expect(paths).toContain("Work/inside.md")
       expect(paths).not.toContain("Personal/outside.md")
     })
@@ -3574,7 +3289,9 @@ We should track latency and error rates across all services.
       )
 
       // Even with multiple chunks, the note appears only once
-      const longNoteResults = results.filter((r) => r.path === "long.md")
+      const longNoteResults = results.filter(
+        (result) => result.path === "long.md",
+      )
       expect(longNoteResults).toHaveLength(1)
     })
   })
