@@ -10,7 +10,7 @@
   "pages": [
     {
       "title": "Overview",
-      "purpose": "What Vault Cortex is, why it exists (replacing the 3-part Obsidian + REST API plugin + MCP server chain), the architecture diagram, Phase 1 (current) vs Phase 2 (semantic search) scope, and the key differentiators: plugin-free, Docker-based, remote-capable, owns its own search engine, OAuth 2.1 authentication (rare in the MCP ecosystem — most servers have no auth, which is a trust concern for read/write access to personal notes), TDQS-optimized tool descriptions for efficient agent use, and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
+      "purpose": "What Vault Cortex is, why it exists (replacing the 3-part Obsidian + REST API plugin + MCP server chain), the architecture diagram, Phase 1 / Phase 2a (hybrid search, complete) / Phase 2b (reranking, in progress) scope, and the key differentiators: plugin-free, Docker-based, remote-capable, owns its own search engine, OAuth 2.1 authentication (rare in the MCP ecosystem — most servers have no auth, which is a trust concern for read/write access to personal notes), TDQS-optimized tool descriptions for efficient agent use, and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
     },
     {
       "title": "Getting Started",
