@@ -377,7 +377,7 @@ export const createSearchIndex = (
   /** First chunk text for a note — used by the reranker to score FTS-only
    *  results that have no vector hit. Chunk 0 contains the title + intro. */
   const selectFirstChunkStmt = embedder
-    ? db.prepare(
+    ? db.prepare<[string], { chunk_text: string }>(
         `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
       )
     : null

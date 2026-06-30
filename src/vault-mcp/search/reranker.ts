@@ -51,7 +51,7 @@ export const createReranker = (logger: Logger) => {
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
-            dtype: "q8" as const,
+            dtype: "q8",
           }),
         ])
         const elapsedMs = Math.round(performance.now() - startMs)
