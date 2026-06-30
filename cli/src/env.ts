@@ -25,6 +25,14 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
+# Enable or disable the embedding pipeline (default: true).
+# When true, notes are chunked and embedded via a local ONNX model
+# (bge-small-en-v1.5) for hybrid search — FTS5 keyword + vector semantic
+# similarity fused via RRF. First startup is slow (~5min for 700 notes);
+# subsequent starts are fast via content-hash caching.
+# Set to false to disable model download and use FTS5 search only.
+# EMBEDDING_ENABLED=true
+
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 # MEMORY_ENABLED=true
@@ -52,6 +60,14 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
+
+# Enable or disable the embedding pipeline (default: true).
+# When true, notes are chunked and embedded via a local ONNX model
+# (bge-small-en-v1.5) for hybrid search — FTS5 keyword + vector semantic
+# similarity fused via RRF. First startup is slow (~5min for 700 notes);
+# subsequent starts are fast via content-hash caching.
+# Set to false to disable model download and use FTS5 search only.
+# EMBEDDING_ENABLED=true
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
