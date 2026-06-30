@@ -295,20 +295,23 @@ export const hybridSearch = async (
     )
   }
 
-  // Apply cross-encoder reranking with position-aware score blending
+  // Apply cross-encoder reranking with position-aware score blending.
+  // Cap the rerank window at userLimit — results beyond that are sliced
+  // off anyway, and the cross-encoder scores sequentially (~10ms/pair).
+  const rerankCandidates = mergedResults.slice(0, userLimit)
   const rerankedResult =
-    context.reranker && mergedResults.length > 1
+    context.reranker && rerankCandidates.length > 1
       ? await tryRerank({
           reranker: context.reranker,
           query: params.query,
-          mergedResults,
+          mergedResults: rerankCandidates,
           vectorHitsByPath,
           selectFirstChunkStmt: context.selectFirstChunkStmt,
           logger,
         })
       : null
 
-  const finalResults = rerankedResult?.results ?? mergedResults
+  const finalResults = rerankedResult?.results ?? rerankCandidates
   const reranked = rerankedResult !== null
 
   logger.info("hybrid search", {
