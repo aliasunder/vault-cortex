@@ -86,16 +86,16 @@ export const createReranker = (logger: Logger) => {
   ): Promise<number[]> => {
     if (documents.length === 0) return []
 
-    const { tokenizer: tok, model: mod } = await getModel()
+    const crossEncoder = await getModel()
 
     const scores: number[] = []
     for (const document of documents) {
-      const inputs = tok(query, {
+      const inputs = crossEncoder.tokenizer(query, {
         text_pair: document,
         padding: true,
         truncation: true,
       })
-      const output = await mod(inputs)
+      const output = await crossEncoder.model(inputs)
       // Cross-encoder logit: output.logits is a Tensor with shape [1, 1]
       // (single input, single output score for relevance).
       const logit = Number(output.logits.data[0])
