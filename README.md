@@ -37,7 +37,7 @@
 
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Hybrid search](#tools-25)** — FTS5 keyword matching + vector semantic similarity via RRF fusion. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
+- **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -165,6 +165,16 @@ graph LR
 The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
+
+## Hybrid Search
+
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results.
+
+Hybrid search combines FTS5 keyword ranking with vector semantic similarity, fused via Reciprocal Rank Fusion (RRF). Keywords handle exact terms and technical jargon; vectors bridge the vocabulary gap by matching on meaning. Both run against a single SQLite database — a small ONNX model ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5), ~25MB) generates embeddings in-process with no external API, adding ~8ms to query latency.
+
+Set `EMBEDDING_ENABLED=false` to run keyword-only search with no model download. When embeddings are enabled, search works with FTS-only while the index builds on first startup, then switches to hybrid automatically. The response includes a `search_mode` field (`"hybrid"` or `"fts"`) so clients always know which ranking produced the results.
+
+See [ARCHITECTURE.md → Phase 2](./ARCHITECTURE.md#phase-2-hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
 
 ## Tools (25)
 
