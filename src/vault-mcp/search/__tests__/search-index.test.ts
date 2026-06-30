@@ -2,6 +2,7 @@ import {
   describe,
   it,
   expect,
+  vi,
   beforeEach,
   afterEach,
   onTestFinished,
@@ -11,7 +12,9 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-import { createSearchIndex, sanitizeFtsQuery } from "../search-index.js"
+import * as sqliteVec from "sqlite-vec"
+vi.mock("sqlite-vec", { spy: true })
+import { createSearchIndex } from "../search-index.js"
 import type { SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
 
@@ -67,17 +70,26 @@ const testStat = (
 })
 
 describe("schema creation", () => {
-  it("creates without throwing", () => {
-    expect(() => createSearchIndex(":memory:")).not.toThrow()
-  })
-
-  it("creates notes and notes_fts tables", () => {
-    index.upsertNote(
+  it("creates a searchable index with notes and FTS tables", () => {
+    const isolatedIndex = createSearchIndex(":memory:")
+    isolatedIndex.upsertNote(
       { filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) },
       logger,
     )
-    const results = index.fullTextSearch({ query: "Test" }, logger)
+    const results = isolatedIndex.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
+  })
+
+  it("loads the sqlite-vec extension during construction", () => {
+    createSearchIndex(":memory:")
+    expect(sqliteVec.load).toHaveBeenCalled()
+  })
+
+  it("sqlite-vec native binary loads on this platform", () => {
+    const db = new Database(":memory:")
+    sqliteVec.load(db)
+    const row = db.prepare("SELECT vec_version() AS version").get()
+    expect(row).toHaveProperty("version")
   })
 })
 
@@ -752,166 +764,6 @@ describe("metadata search", () => {
   })
 })
 
-describe("sanitizeFtsQuery", () => {
-  const scenarios = [
-    {
-      name: "multi-word: unquoted terms joined with spaces",
-      input: "burnout boundaries",
-      expected: "burnout boundaries",
-    },
-    {
-      name: "single word: passthrough unquoted for stemming",
-      input: "single",
-      expected: "single",
-    },
-    {
-      name: "quoted phrase: preserved",
-      input: '"machine learning"',
-      expected: '"machine learning"',
-    },
-    {
-      name: "phrase + unquoted term",
-      input: '"machine learning" kubernetes',
-      expected: '"machine learning" kubernetes',
-    },
-    {
-      name: "FTS5 specials stripped, reserved words dropped",
-      input: 'test "quoted" AND (grouped)',
-      expected: '"quoted" test grouped',
-    },
-    {
-      name: "wildcard stripped",
-      input: "burn*",
-      expected: "burn",
-    },
-    {
-      name: "all reserved words: empty result",
-      input: "AND OR NOT",
-      expected: '""',
-    },
-    {
-      name: "empty string: empty result",
-      input: "",
-      expected: '""',
-    },
-    {
-      name: "caret and colon stripped",
-      input: "field:value ^boost",
-      expected: "field value boost",
-    },
-    {
-      name: "hyphenated compound → quoted phrase",
-      input: "vault-cortex",
-      expected: '"vault cortex"',
-    },
-    {
-      name: "multi-hyphen compound → quoted phrase",
-      input: "self-hosted-app",
-      expected: '"self hosted app"',
-    },
-    {
-      name: "hyphenated + bare terms",
-      input: "vault-cortex search",
-      expected: '"vault cortex" search',
-    },
-    {
-      name: "multiple hyphenated terms",
-      input: "vault-cortex self-hosted",
-      expected: '"vault cortex" "self hosted"',
-    },
-    {
-      name: "leading hyphen stripped",
-      input: "-excluded term",
-      expected: "excluded term",
-    },
-    {
-      name: "hyphen inside quoted phrase preserved",
-      input: '"vault-cortex"',
-      expected: '"vault-cortex"',
-    },
-    {
-      name: "mixed: quoted phrase + hyphenated + bare",
-      input: 'search "exact-match" vault-cortex',
-      expected: '"exact-match" "vault cortex" search',
-    },
-    {
-      name: "dotted domain → quoted phrase",
-      input: "mcpservers.org",
-      expected: '"mcpservers org"',
-    },
-    {
-      name: "dotted domain + bare terms (live failure 2026-06-09)",
-      input: "mcpservers.org submission email",
-      expected: '"mcpservers org" submission email',
-    },
-    {
-      name: "dotted filename → quoted phrase",
-      input: "server.json",
-      expected: '"server json"',
-    },
-    {
-      name: "slash path → quoted phrase",
-      input: "deploy/local",
-      expected: '"deploy local"',
-    },
-    {
-      name: "email address → quoted phrase",
-      input: "user@example.com",
-      expected: '"user example com"',
-    },
-    {
-      name: "comma-joined terms → quoted phrase",
-      input: "foo,bar",
-      expected: '"foo bar"',
-    },
-    {
-      name: "apostrophe contraction → quoted phrase",
-      input: "don't",
-      expected: '"don t"',
-    },
-    {
-      name: "mixed dot + hyphen compound → quoted phrase",
-      input: "vault-cortex.test",
-      expected: '"vault cortex test"',
-    },
-    {
-      name: "word-edge punctuation stripped, term left bare",
-      input: "email. really?!",
-      expected: "email really",
-    },
-    {
-      name: "punctuation-only input: empty result",
-      input: "?!.,",
-      expected: '""',
-    },
-    {
-      name: "metachar adjoining compound: not a joiner",
-      input: "vault-cortex: search",
-      expected: '"vault cortex" search',
-    },
-    {
-      name: "underscore is a bareword character, term left bare",
-      input: "snake_case_name",
-      expected: "snake_case_name",
-    },
-    {
-      name: "non-ASCII term left bare",
-      input: "café",
-      expected: "café",
-    },
-    {
-      name: "dot inside quoted phrase preserved",
-      input: '"mcpservers.org"',
-      expected: '"mcpservers.org"',
-    },
-  ]
-
-  it.each(scenarios)("$name", ({ input, expected }) => {
-    const result = sanitizeFtsQuery(input)
-    expect(result).toBe(expected)
-  })
-})
-
 describe("searchByTag", () => {
   beforeEach(() => {
     index.upsertNote(
@@ -1504,12 +1356,18 @@ describe("rebuildFromVault", () => {
   })
 
   it("indexes all visible .md files", async () => {
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(2)
   })
 
   it("skips hidden directories", async () => {
-    const indexedCount = await index.rebuildFromVault(vaultDir)
+    const { count: indexedCount } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
@@ -1524,13 +1382,13 @@ describe("rebuildFromVault", () => {
       },
       logger,
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const results = index.fullTextSearch({ query: "stale" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("makes indexed notes searchable", async () => {
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0].path).toBe("About Me/Principles.md")
@@ -1550,7 +1408,7 @@ describe("rebuildFromVault", () => {
       "# Z Target\n\nBody.\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0].path).toBe("a-source.md")
@@ -1563,7 +1421,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1584,7 +1442,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1611,7 +1469,7 @@ describe("rebuildFromVault", () => {
       "filters: []\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1632,7 +1490,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -1648,7 +1506,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -1661,7 +1519,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1681,7 +1539,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -1693,7 +1551,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -1717,7 +1575,7 @@ describe("rebuildFromVault", () => {
       "# Source\n\nSee [[Report]].\n",
       "utf8",
     )
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -1736,7 +1594,10 @@ describe("rebuildFromVault", () => {
     )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(4)
 
     const results = index.fullTextSearch(
@@ -1758,7 +1619,7 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
 
-    await index.rebuildFromVault(vaultDir)
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toEqual([
@@ -1785,7 +1646,10 @@ describe("rebuildFromVault", () => {
       join(vaultDir, "linked-external.md"),
     )
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
@@ -1798,7 +1662,10 @@ describe("rebuildFromVault", () => {
     await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -1813,7 +1680,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
-    const count = await index.rebuildFromVault(vaultDir)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
@@ -2701,6 +2571,915 @@ describe("vaultStats", () => {
       totalNotes: 0,
       untaggedNotes: 0,
       noPropertiesNotes: 0,
+    })
+  })
+})
+
+// ── Embedding pipeline ───────────────────────────────────────────
+
+describe("embedding pipeline", () => {
+  const DIMENSIONS = 384
+
+  /** Creates a mock embedder that returns deterministic embeddings. */
+  const createMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
+    embedBatch: vi
+      .fn()
+      .mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)),
+        ),
+      ),
+  })
+
+  const NOTE_FOR_EMBEDDING = `---
+title: Test Note
+tags: [test]
+---
+
+This is a test note with enough content to be indexed.
+It has multiple sentences to verify chunking works correctly.
+`
+
+  describe("with embedder", () => {
+    it("embedNote calls the embedder when provided", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("content-hash gating skips unchanged chunks on re-embed", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      // First embed
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      // Second embed with same content — should skip (hash match)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBe(firstCallCount)
+    })
+
+    it("re-embeds when content changes", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      const updatedNote = NOTE_FOR_EMBEDDING.replace(
+        "multiple sentences",
+        "different content entirely",
+      )
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: updatedNote },
+        logger,
+      )
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBeGreaterThan(firstCallCount)
+    })
+
+    it("removeNote deletes associated chunks and vectors", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      embeddingIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+
+      // Remove should not throw — cleanup should succeed
+      embeddingIndex.removeNote("test.md")
+
+      // Re-embedding after removal should embed again (not skip via hash)
+      mockEmbedder.embedText.mockClear()
+      embeddingIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(2000),
+        },
+        logger,
+      )
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("embedNote produces a chunk even for empty content", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await embeddingIndex.embedNote(
+        { notePath: "empty.md", rawContent: "" },
+        logger,
+      )
+
+      // chunker returns at least one chunk (the title-only fallback), so
+      // embedText is called even for empty content
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("embedNote propagates embedder errors to the caller", async () => {
+      const mockEmbedder = createMockEmbedder()
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await expect(
+        embeddingIndex.embedNote(
+          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
+      ).rejects.toThrow("embedding failed")
+    })
+  })
+
+  describe("without embedder", () => {
+    it("embedNote is a no-op when no embedder is provided", async () => {
+      const noEmbedIndex = createSearchIndex(":memory:")
+
+      await expect(
+        noEmbedIndex.embedNote(
+          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
+      ).resolves.toBeUndefined()
+    })
+
+    it("removeNote works without vector tables", () => {
+      const noEmbedIndex = createSearchIndex(":memory:")
+
+      noEmbedIndex.upsertNote(
+        {
+          filePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      noEmbedIndex.removeNote("test.md")
+
+      // Verify the note was actually removed from the FTS index
+      const results = noEmbedIndex.fullTextSearch(
+        { query: "test note" },
+        logger,
+      )
+      expect(results).toHaveLength(0)
+    })
+  })
+
+  describe("rebuildFromVault with embedding", () => {
+    it("embeds notes during rebuild Pass 3", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-test-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+      })
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content here.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content here.",
+      )
+
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await embedding
+
+      expect(count).toBe(2)
+      // Both notes are short → 1 chunk each → exactly 2 embedText calls
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+    })
+
+    it("continues embedding remaining notes when one fails during rebuild", async () => {
+      const mockEmbedder = createMockEmbedder()
+      // First embedText call rejects, subsequent calls use the default (resolve)
+      mockEmbedder.embedText.mockRejectedValueOnce(
+        new Error("embedding failed"),
+      )
+      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-err-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+      })
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content.",
+      )
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await embedding
+
+      expect(count).toBe(2)
+      // One note failed, warn logged with the specific error
+      expect(warnSpy).toHaveBeenCalledWith(
+        "failed to embed note",
+        expect.objectContaining({ error: "embedding failed" }),
+      )
+      // Both notes attempted embedding (first failed, second succeeded)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
+      warnSpy.mockRestore()
+    })
+  })
+})
+
+describe("hybridSearch", () => {
+  const EMBEDDING_DIMENSIONS = 384
+
+  /** Creates a mock embedder where all texts get the same embedding (distance 0
+   *  between any two notes). For tests that need differentiated distances, override
+   *  embedText after creation. */
+  const createHybridMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+    embedBatch: vi
+      .fn()
+      .mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+        ),
+      ),
+  })
+
+  /** Generates a unique embedding by setting one dimension to 1.0 based on seed. */
+  const seededEmbedding = (seed: number): Float32Array => {
+    const embedding = new Float32Array(EMBEDDING_DIMENSIONS).fill(0)
+    embedding[seed % EMBEDDING_DIMENSIONS] = 1.0
+    return embedding
+  }
+
+  const NOTE_A = `---
+title: Career Goals
+tags: [personal, career]
+type: reflection
+---
+
+I aspire to build meaningful products and grow as a technical leader.
+My targets include shipping a major open source project.
+`
+
+  const NOTE_B = `---
+title: Project Ideas
+tags: [ideas]
+type: brainstorm
+---
+
+Some project ideas for the next quarter. Build a CLI tool for vault management.
+`
+
+  const NOTE_C = `---
+title: Meeting Notes
+tags: [work, meetings]
+type: meeting
+related: ["[[Projects/alpha.md]]"]
+---
+
+Discussed the deployment timeline and infrastructure costs. Need to follow up on
+the Lightsail budget estimates for next quarter.
+`
+
+  describe("fallback to FTS-only", () => {
+    it("returns FTS results when no embedder is provided", async () => {
+      const ftsIndex = createSearchIndex(":memory:")
+      ftsIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+
+      const { results, search_mode } = await ftsIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
+      expect(search_mode).toBe("fts")
+    })
+
+    it("returns FTS results when embedder exists but no vectors indexed", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      // upsertNote doesn't embed — vectors are empty
+
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
+      expect(search_mode).toBe("fts")
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("returns FTS results when embedder fails", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      mockEmbedder.embedText.mockRejectedValue(new Error("model unavailable"))
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+
+      expect(results.map((result) => result.path)).toEqual(["a.md"])
+      expect(search_mode).toBe("fts")
+      expect(warnSpy).toHaveBeenCalledWith(
+        "vector search failed, falling back to FTS-only",
+        expect.objectContaining({ error: "model unavailable" }),
+      )
+    })
+  })
+
+  describe("hybrid ranking", () => {
+    it("boosts results that appear in both FTS and vector search", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
+        logger,
+      )
+
+      // Embed both notes (same embedding = both match any query equally)
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+
+      // Query that matches NOTE_A via FTS ("career goals") and both via vector
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "career goals" },
+        logger,
+      )
+
+      expect(search_mode).toBe("hybrid")
+      expect(results).toHaveLength(2)
+      // a.md appears in both FTS and vector → higher RRF score → ranked first
+      expect(results[0].path).toBe("a.md")
+      expect(results[0].score).toBeGreaterThan(results[1].score)
+    })
+
+    it("includes vector-only results with full metadata", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+
+      // Query that matches b.md via FTS ("project ideas CLI") and both via vector
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "project ideas CLI" },
+        logger,
+      )
+
+      expect(results).toHaveLength(2)
+      // b.md matches both FTS + vector → ranked first; a.md is vector-only
+      expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
+
+      // Vector-only result (a.md — no FTS match for "project ideas CLI")
+      // should carry full metadata from the notes table
+      const vectorOnlyResult = results.find((result) => result.path === "a.md")
+      if (!vectorOnlyResult) throw new Error("expected a.md in results")
+      expect(vectorOnlyResult).toEqual(
+        expect.objectContaining({
+          path: "a.md",
+          title: "Career Goals",
+          tags: ["personal", "career"],
+          folder: "",
+          type: "reflection",
+          bytes: 100,
+          modified: DateTime.fromMillis(1000).toISO(),
+        }),
+      )
+      expect(vectorOnlyResult.score).toBeGreaterThan(0)
+    })
+
+    it("generates snippets from chunk text for vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      // Embed call 1 (a.md chunk): seed 0
+      // Embed call 2 (c.md chunk): seed 1
+      // Embed call 3+ (query): seed 0 — matches a.md exactly (distance 0)
+      let embedCallIndex = 0
+      mockEmbedder.embedText.mockImplementation(() => {
+        const seed = embedCallIndex === 1 ? 1 : 0
+        embedCallIndex++
+        return Promise.resolve(seededEmbedding(seed))
+      })
+
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      // Query that doesn't match any note via FTS — results are vector-only
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "zzz_no_fts_match" },
+        logger,
+      )
+
+      // a.md should appear (closest vector match) with a snippet from its chunk
+      const noteA = results.find((result) => result.path === "a.md")
+      if (!noteA) throw new Error("expected a.md in results")
+      // Default snippet_tokens is 30 — chunk text is title-prefixed body,
+      // well under 30 words, so no truncation
+      expect(noteA.snippet).toBe(
+        "Career Goals I aspire to build meaningful products and grow as a technical leader. My targets include shipping a major open source project.",
+      )
+    })
+  })
+
+  describe("filters", () => {
+    it("applies folder filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteInFolder = `---
+title: Inside Folder
+tags: [test]
+---
+Content about deployment costs and infrastructure.
+`
+      const noteOutsideFolder = `---
+title: Outside Folder
+tags: [test]
+---
+Content about deployment costs and infrastructure.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "Work/inside.md",
+          rawContent: noteInFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        {
+          filePath: "Personal/outside.md",
+          rawContent: noteOutsideFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "Work/inside.md", rawContent: noteInFolder },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "Personal/outside.md", rawContent: noteOutsideFolder },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "deployment costs", filters: { folder: "Work" } },
+        logger,
+      )
+
+      // Only the note inside Work/ should appear
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("Work/inside.md")
+      expect(paths).not.toContain("Personal/outside.md")
+    })
+
+    it("applies tag filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "deployment infrastructure", filters: { tags: ["work"] } },
+        logger,
+      )
+
+      // Only c.md has the "work" tag — a.md (tags: personal, career) excluded
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
+      expect(paths).not.toContain("a.md")
+    })
+
+    it("applies type filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "deployment timeline", filters: { type: "meeting" } },
+        logger,
+      )
+
+      // Only c.md is type "meeting" — a.md (type: reflection) excluded
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
+      expect(paths).not.toContain("a.md")
+    })
+  })
+
+  describe("limit and deduplication", () => {
+    it("respects the user limit after fusion", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "project", filters: { limit: 1 } },
+        logger,
+      )
+
+      expect(results).toHaveLength(1)
+    })
+
+    it("deduplicates to one result per note", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      // A long note produces multiple chunks — each could match in KNN
+      const longNote = `---
+title: Long Document
+tags: [test]
+---
+
+## Section One
+
+This section discusses project management and team coordination.
+We need to ensure all stakeholders are aligned on the timeline.
+
+## Section Two
+
+This section covers deployment strategies and infrastructure.
+The deployment pipeline should be automated for efficiency.
+
+## Section Three
+
+This section is about monitoring and observability patterns.
+We should track latency and error rates across all services.
+`
+
+      hybridIndex.upsertNote(
+        { filePath: "long.md", rawContent: longNote, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "long.md", rawContent: longNote },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "deployment" },
+        logger,
+      )
+
+      // Even with multiple chunks, the note appears only once
+      const longNoteResults = results.filter(
+        (result) => result.path === "long.md",
+      )
+      expect(longNoteResults).toHaveLength(1)
+    })
+  })
+
+  describe("include_leading_callout", () => {
+    it("includes leading callout for vector-only results when requested", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteWithCallout = `---
+title: Reference Doc
+tags: [reference]
+---
+
+> [!info] Quick reference
+> This is a reference document about API design patterns.
+
+The main content discusses RESTful API design and GraphQL alternatives.
+`
+      hybridIndex.upsertNote(
+        {
+          filePath: "ref.md",
+          rawContent: noteWithCallout,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "ref.md", rawContent: noteWithCallout },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        {
+          query: "API design patterns",
+          filters: { include_leading_callout: true },
+        },
+        logger,
+      )
+
+      const refResult = results.find((result) => result.path === "ref.md")
+      if (!refResult) throw new Error("expected ref.md in results")
+      expect(refResult.leading_callout).toEqual({
+        type: "info",
+        title: "Quick reference",
+        body: "This is a reference document about API design patterns.",
+      })
+    })
+  })
+
+  describe("filters — related and properties", () => {
+    it("applies related filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        {
+          query: "deployment infrastructure",
+          filters: { related: ["[[Projects/alpha.md]]"] },
+        },
+        logger,
+      )
+
+      // Only c.md has the related link — a.md has no related field
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
+      expect(paths).not.toContain("a.md")
+    })
+
+    it("applies properties filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteWithProperty = `---
+title: Active Project
+tags: [project]
+status: active
+---
+
+This project is currently in development with active deployment work.
+`
+      const noteWithoutProperty = `---
+title: Archived Project
+tags: [project]
+status: archived
+---
+
+This project is no longer maintained but had deployment infrastructure.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "active.md",
+          rawContent: noteWithProperty,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        {
+          filePath: "archived.md",
+          rawContent: noteWithoutProperty,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "active.md", rawContent: noteWithProperty },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "archived.md", rawContent: noteWithoutProperty },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        {
+          query: "deployment",
+          filters: { properties: { status: "active" } },
+        },
+        logger,
+      )
+
+      // Only active.md has status: active
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("active.md")
+      expect(paths).not.toContain("archived.md")
+    })
+  })
+
+  describe("snippet_tokens", () => {
+    it("truncates vector-only snippets to the specified token count", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const verboseNote = `---
+title: Verbose Note
+tags: [test]
+---
+
+This is a note with many words that should be truncated when using a small snippet token limit for vector-only results.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "verbose.md",
+          rawContent: verboseNote,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "verbose.md", rawContent: verboseNote },
+        logger,
+      )
+
+      // Query that won't match via FTS — forces vector-only result path
+      const { results } = await hybridIndex.hybridSearch(
+        { query: "zzz_no_fts_match", filters: { snippet_tokens: 5 } },
+        logger,
+      )
+
+      const verboseResult = results.find(
+        (result) => result.path === "verbose.md",
+      )
+      if (!verboseResult) throw new Error("expected verbose.md in results")
+      // buildSnippetFromChunkText takes first 5 words of the chunk text
+      // (title-prefixed body) and appends "..."
+      expect(verboseResult.snippet).toBe("Verbose Note This is a...")
     })
   })
 })

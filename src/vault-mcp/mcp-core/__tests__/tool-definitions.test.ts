@@ -374,6 +374,56 @@ describe("error handling", () => {
   })
 })
 
+describe("vault_search description reflects EMBEDDING_ENABLED", () => {
+  const registerWithConfig = (
+    env: Record<string, string>,
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig(env),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    return registeredCalls
+  }
+
+  const findSearchDescription = (
+    registeredCalls: RegisterToolCall[],
+  ): string => {
+    const searchCall = registeredCalls.find(
+      ([name]) => name === TOOL_NAMES.VAULT_SEARCH,
+    )
+    if (!searchCall) throw new Error("vault_search not registered")
+    const description = searchCall[1].description
+    if (!description) throw new Error("vault_search has no description")
+    return description
+  }
+
+  it("describes hybrid search when EMBEDDING_ENABLED=true", () => {
+    const description = findSearchDescription(registerWithConfig({}))
+    expect(description).toContain("Hybrid search")
+    expect(description).toContain("Reciprocal Rank Fusion")
+    expect(description).toContain("semantic")
+    expect(description).toContain("career aspirations")
+    expect(description).toContain("search_mode")
+  })
+
+  it("describes keyword-only search when EMBEDDING_ENABLED=false", () => {
+    const description = findSearchDescription(
+      registerWithConfig({ EMBEDDING_ENABLED: "false" }),
+    )
+    expect(description).toContain("Full-text search")
+    expect(description).not.toContain("Hybrid")
+    expect(description).not.toContain("Reciprocal Rank Fusion")
+    expect(description).not.toContain("semantic")
+    expect(description).not.toContain("career aspirations")
+    expect(description).toContain("search_mode")
+  })
+})
+
 describe("MEMORY_ENABLED=false", () => {
   const MEMORY_TOOLS = [
     TOOL_NAMES.VAULT_GET_MEMORY,

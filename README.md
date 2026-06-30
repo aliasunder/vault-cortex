@@ -14,9 +14,9 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI assistant **full-text search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -36,8 +36,8 @@
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
-- **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
+- **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
+- **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -158,13 +158,27 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 graph LR
     Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
     Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|query| SQLite[("SQLite FTS5")]
+    Server -->|FTS5 + vector| SQLite[("SQLite\nFTS5 + sqlite-vec")]
     Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
 ```
 
-The vault `.md` files are the source of truth. SQLite FTS5 is rebuildable derived state — the index is built on startup and kept current by a file watcher. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
+The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
+
+## Hybrid Search
+
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results.
+
+Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search-r8):
+
+- **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
+- **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
+- **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
+
+Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
+
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
 
 ## Tools (25)
 
@@ -178,7 +192,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                |
 |                 | `vault_delete_note`          | Delete a note (protected paths enforced)                   |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault    |
-| **Search**      | `vault_search`               | Full-text search with tag/folder/property filters          |
+| **Search**      | `vault_search`               | Hybrid search with tag/folder/property filters             |
 |                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                  |
 |                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                     |
 |                 | `vault_recent_notes`         | Recently modified or created notes                         |
@@ -237,6 +251,7 @@ All settings are environment variables with sensible defaults.
 | `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                        |
 | `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                           |
 | `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                           |
+| `EMBEDDING_ENABLED`         | —           | `true`                               | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                             |
 | `MEMORY_ENABLED`            | —           | `true`                               | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                     |
 | `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                          |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                 |
@@ -310,14 +325,17 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase | What                                                         | Status       |
-| ----- | ------------------------------------------------------------ | ------------ |
-| **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete     |
-| **2** | Hybrid search (FTS5 + vector)                                | In discovery |
+| Phase  | What                                                               | Status      |
+| ------ | ------------------------------------------------------------------ | ----------- |
+| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1       | Complete    |
+| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking | Complete    |
+| **2b** | Reranker — cross-encoder reranking, position-aware score blending  | In progress |
 
 ## Acknowledgments
 
 Vault Cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible. The remote stack runs a small [fork](https://github.com/aliasunder/obsidian-headless-sync-docker) that adds a build-time config `chown` and `--device-name` on the initial Sync registration ([upstream PR #8](https://github.com/Belphemur/obsidian-headless-sync-docker/pull/8) remains open).
+
+The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, content-hash gating, and heading-aware chunking.
 
 ## Contributing
 

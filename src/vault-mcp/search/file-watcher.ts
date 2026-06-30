@@ -1,4 +1,4 @@
-/** File watcher — keeps the SQLite FTS5 index current via chokidar. */
+/** File watcher — keeps the SQLite FTS5 index and vector embeddings current via chokidar. */
 
 import { watch } from "chokidar"
 import { readFile, stat } from "node:fs/promises"
@@ -30,6 +30,10 @@ export const startFileWatcher = (
   search: SearchIndex,
   options?: FileWatcherOptions,
 ): Promise<void> => {
+  // Serializes embedding per note path so overlapping chokidar events for the
+  // same file can't interleave and overwrite vectors with stale content.
+  const pendingEmbeds = new Map<string, Promise<void>>()
+
   const handleChange = async (filePath: string): Promise<void> => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -52,8 +56,35 @@ export const startFileWatcher = (
         },
         logger,
       )
+      // Promise chain serializes embedding per path — if two events arrive for
+      // the same note, the second waits for the first to finish. .catch()
+      // swallows the previous rejection so a transient failure can't cascade
+      // and block subsequent embeds for this path. .finally() clears the map
+      // entry on success OR failure so a rejected promise can't permanently
+      // block that note from re-embedding.
+      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const currentEmbed = previousEmbed
+        .catch((previousError) => {
+          logger.debug("previous embed failed, proceeding with current", {
+            path: relativePath,
+            error: describeError(previousError),
+          })
+        })
+        .then(() =>
+          search.embedNote(
+            { notePath: relativePath, rawContent: content },
+            logger,
+          ),
+        )
+      pendingEmbeds.set(relativePath, currentEmbed)
+      currentEmbed.finally(() => {
+        if (pendingEmbeds.get(relativePath) === currentEmbed) {
+          pendingEmbeds.delete(relativePath)
+        }
+      })
+      await currentEmbed
     } catch (err) {
-      logger.error("failed to index file", {
+      logger.error("failed to process file change", {
         path: relativePath,
         error: describeError(err),
       })

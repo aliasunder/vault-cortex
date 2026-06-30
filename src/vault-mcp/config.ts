@@ -26,11 +26,10 @@ const vaultFolderName = z
 /** Splits a comma-separated string into an array of folder names.
  *  Trims each entry; empty entries (from trailing commas) are filtered out. */
 const splitCommaSeparatedFolders = (raw: string): string[] =>
-  raw.split(",").reduce<string[]>((acc, entry) => {
-    const trimmed = entry.trim()
-    if (trimmed.length > 0) acc.push(trimmed)
-    return acc
-  }, [])
+  raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
 
 // ── Config type ────────────────────────────────────────────────
 
@@ -42,6 +41,11 @@ export type VaultConfig = Readonly<{
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
+  /** When true, the embedding pipeline is active — notes are chunked, embedded
+   *  via a local ONNX model (bge-small-en-v1.5), and stored in sqlite-vec for
+   *  vector search. When false, no model is loaded, no vector tables are created,
+   *  and search uses FTS5 only. */
+  embeddingEnabled: boolean
   /** "Windows mode": the vault is bind-mounted from a Windows drive into Docker
    *  Desktop, so it crosses the Docker Desktop ↔ WSL2 bridge. Enables filesystem
    *  polling for the watcher (inotify doesn't cross the bridge) and a
@@ -86,6 +90,12 @@ export const loadConfig = (
     .default("true")
     .asBool()
 
+  const embeddingEnabled = envVar
+    .from(env)
+    .get("EMBEDDING_ENABLED")
+    .default("true")
+    .asBool()
+
   const windowsBindMount = envVar
     .from(env)
     .get("WINDOWS_MODE")
@@ -98,6 +108,7 @@ export const loadConfig = (
     protectedPaths,
     orphanExcludeFolders,
     serviceDocumentationUrl,
+    embeddingEnabled,
     windowsBindMount,
   })
 }

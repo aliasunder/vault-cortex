@@ -273,6 +273,16 @@ const resolve = (
   return null
 }
 
+/** A note's complete link set — body links unioned with frontmatter wikilinks,
+ *  deduplicated. Single source of truth for "what does this note link to",
+ *  shared by incremental upsert and full rebuild — must not diverge. */
+const extractAll = (
+  content: string,
+  data: Record<string, unknown>,
+): string[] => [
+  ...new Set([...extractFromBody(content), ...extractFromFrontmatter(data)]),
+]
+
 /** The link domain — grammar recognition, traversal, parsing, extraction, and
  *  resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
@@ -282,5 +292,6 @@ export const links = {
   splitMarkdownLink,
   extractFromBody,
   extractFromFrontmatter,
+  extractAll,
   resolve,
 }

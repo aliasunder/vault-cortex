@@ -16,10 +16,14 @@ endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 **Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
 About Me/ memory layer — enough to make any MCP client personalized.
 
-**Phase 2** (in discovery) adds hybrid search — FTS5 + sqlite-vec vector
-search with RRF fusion — to the existing `vault_search` tool. The file
-watcher gains a second hook for embedding ingestion. Additive — not a
-rewrite.
+**Phase 2a** adds hybrid search — FTS5 + sqlite-vec vector search with
+RRF fusion — to the existing `vault_search` tool. The file watcher
+includes a second hook for embedding ingestion. Additive — not a
+rewrite. The Docker image uses Debian slim (`node:24-slim`) because
+`onnxruntime-node` requires glibc.
+
+**Phase 2b** (in progress) will add cross-encoder reranking and
+position-aware score blending to refine hybrid search result ordering.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
@@ -80,6 +84,7 @@ src/
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+      plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
@@ -96,10 +101,15 @@ src/
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
-    search/                            # SQLite FTS5 indexing + file watching
-      search-index.ts                  # SQLite FTS5 factory (tags, folders, etc)
-      file-watcher.ts                  # chokidar -> keeps index current
-                                       # Phase 2: gains a semantic-ingestion hook
+    search/                            # SQLite FTS5 + hybrid search + file watching + embedding
+      search-index.ts                  # Factory: schema, write ops, types, context wiring
+      search-queries.ts                # All 15 query methods (FTS, hybrid, tags, links, etc.)
+      search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
+      fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
+      rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
+      embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
+      chunker.ts                       # Heading-aware chunking for embedding
+      file-watcher.ts                  # chokidar → keeps FTS + vector index current
     oauth/                             # OAuth 2.1 (provider, routes, consent)
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
@@ -137,8 +147,9 @@ on**, not just its topic:
   register function, and data-layer imports. Shared helpers (`safeHandler`,
   `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
   `prompt-definitions.ts` registers the MCP prompts (not yet split into groups).
-- **`search/`** — SQLite FTS5 index + file watcher. **`oauth/`** — the OAuth 2.1
-  server (distinct from the shared `src/auth.ts` token utilities).
+- **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
+- **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
+  token utilities).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
@@ -291,7 +302,9 @@ throughout the codebase.
 - No `any`. No `as` or `!` (non-null assertion) — both are type
   assertions that bypass the compiler. Use runtime guards (`if (x ===
 undefined) return`) or schema validation to narrow types instead.
-  Prefer `async/await` over `.then()`/`.catch()`.
+  Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
+  `.finally()` is the natural idiom (e.g. promise-chain serialization
+  queues), use it with a comment explaining the pattern.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and
@@ -340,6 +353,11 @@ undefined) return`) or schema validation to narrow types instead.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`.
+- Extract multi-clause conditionals into a named boolean when the `if`
+  condition spans more than one line or combines unrelated checks. A
+  reader should understand the guard's intent from the variable name
+  without parsing the expression: `if (hasDeletedNotes) {` over
+  `if (deletedPaths.length > 0 && deleteVectorsForNoteStmt && ...) {`.
 - Name booleans (params, flags, locals) for the affirmative state, and
   let the value carry the negation: `hardLinksSupported: false` reads
   clearer than `hardLinksUnsupported: true`, and a double negative like
@@ -519,6 +537,8 @@ changed:
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
+| `cli/src/env.ts`                     | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
+| `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
 

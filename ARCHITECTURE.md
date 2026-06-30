@@ -29,12 +29,15 @@ tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
 This alone makes any MCP client vault-aware and personalized across
 conversations.
 
-**Phase 2** is in discovery. The leading candidate adds hybrid search
-(FTS5 + sqlite-vec vector search with RRF fusion) to the existing
-`vault_search` tool — embeddings generated locally by a small ONNX model
-running in-process, no external API required. The file watcher would gain
-a second hook for embedding ingestion. Additive, no rewrites. Phase 2
-sections below reflect the current direction but are not finalized.
+**Phase 2a** adds hybrid search (FTS5 + sqlite-vec vector search with
+RRF fusion) to `vault_search` — embeddings generated
+locally by a small ONNX model running in-process, no external API
+required. The file watcher includes a second hook for embedding ingestion.
+Additive, no rewrites. The Docker image uses Debian slim (`node:24-slim`)
+instead of Alpine because `onnxruntime-node` requires glibc.
+
+**Phase 2b** will add cross-encoder reranking and position-aware score
+blending to refine hybrid search result ordering.
 
 ## User Requirements
 
@@ -46,7 +49,7 @@ sections below reflect the current direction but are not finalized.
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                 |
 | R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.                                  |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                               |
 | R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
 
 ## Component Diagram
@@ -68,18 +71,14 @@ graph TB
         APIGW -->|validate| AUTH_FN
     end
 
-    subgraph lightsail ["AWS — Lightsail $12/mo"]
+    subgraph lightsail ["AWS — Lightsail $12–24/mo"]
         subgraph compose ["Docker Compose"]
             OB_HEADLESS["obsidian-sync<br/>ob sync --continuous"]
             VAULT_FS[("/vault<br/>SOURCE OF TRUTH")]
             MCP_SERVER["vault-mcp :8000<br/>MCP streamable-http"]
-            SQLITE[("SQLite FTS5")]
+            SQLITE[("SQLite\nFTS5 + sqlite-vec")]
             WATCHER["chokidar watcher"]
         end
-    end
-
-    subgraph phase2 ["Phase 2"]
-        HYBRID["sqlite-vec<br/>hybrid search (FTS5 + vector)"]
     end
 
     subgraph clients ["MCP Clients"]
@@ -93,11 +92,9 @@ graph TB
     SYNC <-->|bidirectional| OB_HEADLESS
     OB_HEADLESS -->|read/write .md| VAULT_FS
     VAULT_FS -->|watch| WATCHER
-    WATCHER -->|index| SQLITE
-    WATCHER -.->|Phase 2: embed| HYBRID
+    WATCHER -->|index + embed| SQLITE
     MCP_SERVER -->|read/write| VAULT_FS
-    MCP_SERVER -->|query| SQLITE
-    MCP_SERVER -.->|Phase 2: hybrid query| HYBRID
+    MCP_SERVER -->|FTS5 + vector| SQLITE
     CC -->|OAuth 2.1 / Bearer token| APIGW
     CD -->|OAuth 2.1| APIGW
     CU -->|OAuth 2.1 / Bearer token| APIGW
@@ -171,15 +168,15 @@ graph LR
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → obsidian-headless → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Hybrid query (Phase 2):** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
+**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
 
 ## Invariant: Vault Is Source of Truth
 
-The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. This extends to Phase 2: the vector embeddings in sqlite-vec are also derived from vault files, not the other way around.
+The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The vector embeddings in sqlite-vec are also derived from vault files, not the other way around.
 
 ## MCP Tools
 
-### Phase 1: Vault Read/Write (R2, R3)
+### Vault Read/Write (R2, R3)
 
 | Tool                      | Input                                                        | Annotation      |
 | ------------------------- | ------------------------------------------------------------ | --------------- |
@@ -201,7 +198,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links — mirroring Obsidian's built-in rename. It reuses the same link-resolution logic as the link-graph tools, only rewrites a link when leaving it would break it, and refuses to overwrite an existing destination or touch `PROTECTED_PATHS`. Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
-### Phase 1: Search (R4)
+### Search (R4)
 
 | Tool                     | Input                        | Annotation   |
 | ------------------------ | ---------------------------- | ------------ |
@@ -213,9 +210,9 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
-**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-definitions.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
+**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
 
-### Phase 1: Property Discovery + Daily Notes
+### Property Discovery + Daily Notes
 
 | Tool                         | Input                         | Annotation   |
 | ---------------------------- | ----------------------------- | ------------ |
@@ -226,7 +223,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
 
-### Phase 1: Memory (R5)
+### Memory (R5)
 
 | Tool                      | Input                            | Annotation       |
 | ------------------------- | -------------------------------- | ---------------- |
@@ -239,7 +236,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 **Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. The vault CRUD and search layers continue to work normally.
 
-### Phase 1: Link Queries
+### Link Queries
 
 | Tool                       | Input                      | Annotation   |
 | -------------------------- | -------------------------- | ------------ |
@@ -258,9 +255,84 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
-### Phase 2: Hybrid Search (R8)
+### Hybrid Search (R8)
 
-Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (all-MiniLM-L6-v2 or bge-small-en-v1.5, 22–33M params, ~23 MB quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
+`vault_search` combines FTS5 keyword results with sqlite-vec vector similarity using [Reciprocal Rank Fusion](https://github.com/tobi/qmd#score-normalization--fusion) (RRF). Embeddings are generated locally by a small ONNX model ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5), 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
+
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
+
+**Vector schema:** Two tables in the same SQLite database as FTS5:
+
+- `note_chunks`: stores chunk text, position index, and content hash per note
+- `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
+
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
+
+**Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
+
+1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
+2. Vector search: embed the query → sqlite-vec KNN → deduplicate to best chunk per note
+3. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across both lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
+4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
+5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
+
+Graceful fallback: when no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or the embedding model fails, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
+
+**Hybrid query flow:**
+
+```mermaid
+flowchart LR
+    Q[Query] --> FTS[FTS5 BM25]
+    Q --> EMB[Embed Query]
+    EMB --> KNN[sqlite-vec KNN]
+    FTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
+    KNN --> |ranked paths| RRF
+    RRF --> R[Results]
+
+    style Q fill:#f9f,stroke:#333
+    style RRF fill:#bbf,stroke:#333
+    style R fill:#bfb,stroke:#333
+```
+
+**Indexing pipeline (startup + incremental):**
+
+```mermaid
+flowchart TD
+    VF[Vault Files] --> RB[rebuildFromVault]
+    RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
+    P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
+    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+
+    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
+    UP --> FTS[Update FTS5]
+    UP --> LK[Update Links]
+    UP --> EM[embedAndStoreChunks]
+    EM --> CH{Content\nhash match?}
+    CH --> |unchanged| SK[Skip]
+    CH --> |changed| EMB[Embed chunk\nbge-small q8]
+    EMB --> VEC[Store in\nnote_vectors]
+
+    FW --> |delete| RM[removeNote]
+    RM --> D1[Delete FTS + links]
+    RM --> D2[Delete chunks + vectors]
+
+    style VF fill:#f9f,stroke:#333
+    style FW fill:#f9f,stroke:#333
+    style CH fill:#ffd,stroke:#333
+    style SK fill:#dfd,stroke:#333
+```
+
+**Search module decomposition:** The search query and indexing layer is split into five modules (the embedding pipeline and file watcher are described above):
+
+| Module              | Responsibility                                                                                                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`), embedder wiring                                                                                                                                          |
+| `search-queries.ts` | 15 query methods — `fullTextSearch`, `hybridSearch`, `searchByTag`, `searchByFolder`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
+| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `noteRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                              |
+| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                           |
+| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                        |
+
+Write concerns (index mutations) are separated from read concerns (queries) and pure logic (helpers, RRF). `search-index.ts` remains the factory — it binds query functions to the database via a `SearchQueryContext` closure.
 
 ## MCP Prompts
 
@@ -379,7 +451,7 @@ Two services run in order via `depends_on`:
 
 1. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
    the config volume at `/home/obsidian/.config` (persists across restarts
-   for incremental sync — critical for Phase 2 embedding ingestion). The
+   for incremental sync — critical for embedding ingestion). The
    forked sync image owns `/home/obsidian/.config` as `obsidian:obsidian`
    at build time, so named-volume mounts are writable by UID 1000 without a
    separate init container.
@@ -416,39 +488,43 @@ The auto-snapshot is the only one that protects against AWS-side events
 Pulumi-driven replacement.
 
 Restore procedures, the intentional-replace flow (unprotect → deploy →
-re-protect, e.g. for a Phase 2 bundle upgrade), SST state reconciliation,
+re-protect, e.g. for a bundle upgrade), SST state reconciliation,
 and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ## Cost
 
-| Component                          | Phase 1                                    | Phase 2       |
-| ---------------------------------- | ------------------------------------------ | ------------- |
-| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB) |
-| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same          |
-| API Gateway                        | ~$0                                        | ~$0           |
-| Obsidian Sync                      | existing                                   | same          |
-| Local embeddings (in-process ONNX) | —                                          | $0 (no API)   |
-| **Total**                          | **~$13/mo**                                | **~$25/mo**   |
+| Component                          | Phase 1 (full-text search)                 | Phase 2 (hybrid search) |
+| ---------------------------------- | ------------------------------------------ | ----------------------- |
+| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB)           |
+| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same                    |
+| API Gateway                        | ~$0                                        | ~$0                     |
+| Obsidian Sync                      | existing                                   | same                    |
+| Local embeddings (in-process ONNX) | —                                          | $0 (no API)             |
+| **Total**                          | **~$13/mo**                                | **~$25/mo**             |
 
 ## Key Decisions
 
-| Decision                            | Rationale                                                                                                                                                                                                                                                      |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Lightsail over ECS                  | $12 vs ~$50+. Single-user server.                                                                                                                                                                                                                              |
-| API Gateway over Caddy              | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle. |
-| Obsidian Sync over git-based sync   | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                 |
-| Forked obsidian-headless-sync       | Upstream image lacked `DEVICE_NAME` support and had config-dir ownership issues. Fork adds both — `--device-name` parameter and `chown` at build time — so named-volume mounts work without an init container.                                                 |
-| OAuth 2.1 + static token            | OAuth for all clients. Static bearer token as CLI alternative.                                                                                                                                                                                                 |
-| Custom JWT over jose                | 50-line HS256 implementation vs 200KB+ jose bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                |
-| JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                     |
-| 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                  |
-| Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                          |
-| Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                |
-| SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                                                                                                                                                       |
-| chokidar                            | Node-native, same process as SQLite. Phase 2: adds embedding hook.                                                                                                                                                                                             |
-| Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                                                                                                                                              |
-| GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                                                                                                                                                      |
-| Express 5 over Fastify/Hono         | Ecosystem maturity, middleware compatibility. Express 5's native async error handling eliminated wrapper boilerplate. MCP SDK reference implementation uses Express.                                                                                           |
-| Atomic writes + per-file mutex      | MCP handlers are concurrent — two tools could write the same file. Write-to-tmp-then-rename prevents partial writes; per-file mutex prevents conflicting operations (fail-fast for intent-based writes, serializing for read-inside-lock writes).              |
-| Factory over class                  | Functional style. Closure holds db ref, no `this`.                                                                                                                                                                                                             |
-| `type` over `interface`             | Preferred unless `interface` specifically required.                                                                                                                                                                                                            |
+| Decision                            | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lightsail over ECS                  | $12–24 vs ~$50+. Single-user server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| API Gateway over Caddy              | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Obsidian Sync over git-based sync   | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Forked obsidian-headless-sync       | Upstream image lacked `DEVICE_NAME` support and had config-dir ownership issues. Fork adds both — `--device-name` parameter and `chown` at build time — so named-volume mounts work without an init container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| OAuth 2.1 + static token            | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no secret in config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Custom JWT over JWT libraries       | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| JWT over opaque tokens              | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 60-day sliding refresh              | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Auto-snapshot (`addOn`)             | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Debian slim over Alpine             | `onnxruntime-node` (bundled by `@huggingface/transformers` for local embeddings) requires glibc. Alpine uses musl — no musl build exists. Hard architectural constraint, not a preference.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| sqlite-vec over pgvector/Pinecone   | Vectors live alongside FTS5 in the same SQLite database — loaded as an extension into the same connection (`sqliteVec.load(db)`), not a separate datastore or service. No network hop, no second process, no API key. Keeps the "zero services, embedded, personal scale" principle established by FTS5.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| chokidar                            | Node-native, same process as SQLite. Embedding hook for vector index updates.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Express 5 over Fastify/Hono         | Ecosystem maturity, middleware compatibility. Express 5's native async error handling eliminated wrapper boilerplate. MCP SDK reference implementation uses Express.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Atomic writes + per-file mutex      | MCP handlers are concurrent — two tools could write the same file. Write-to-tmp-then-rename prevents partial writes; per-file mutex prevents conflicting operations (fail-fast for intent-based writes, serializing for read-inside-lock writes).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Factory over class                  | Functional style. Closure holds db ref, no `this`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `type` over `interface`             | Uniform syntax — `type` handles unions, intersections, tuples, mapped types, and object shapes; `interface` only handles objects, so you'd need both anyway. No accidental declaration merging (interfaces with the same name silently merge — a library augmentation feature that's a footgun in application code). Negligible performance difference in practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Hybrid search over LightRAG         | 30% of natural-language queries fail on FTS-only (vocabulary mismatch), but vector-only loses precision on exact terms and technical jargon where keyword matching excels. Hybrid keeps both strengths. LightRAG requires a ≥32B LLM for entity extraction — far too heavy for a VPS — and the vault's wikilinks already encode a hand-authored knowledge graph. [qmd](https://github.com/tobi/qmd) demonstrated how lightweight hybrid search can be: FTS5 + sqlite-vec + RRF in a single SQLite file, all application-layer code. vault-cortex applies the same patterns with lighter ONNX models ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) 33M/~25MB vs [qmd](https://github.com/tobi/qmd)'s ~2GB GGUF stack). Opt-out via `EMBEDDING_ENABLED=false` — no model download, no vector tables — and graceful FTS-only fallback when vectors aren't available. |
+| RRF fusion (k=60)                   | Merges FTS keyword and vector similarity ranked lists by rank position, not score — BM25 scores and cosine distances are on incomparable scales, so any score-based combination would need normalization. Top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3) reward results that either system placed highly. Validated at 8/9 on the vocabulary-mismatch evaluation, ~8ms added latency. Inspired by [qmd](https://github.com/tobi/qmd).                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
