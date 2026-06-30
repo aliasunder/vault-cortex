@@ -158,6 +158,11 @@ type SearchResult = {
   leading_callout?: LeadingCallout
 }
 
+type HybridSearchResult = {
+  results: SearchResult[]
+  search_mode: "hybrid" | "fts"
+}
+
 type NoteMetadata = {
   path: string
   title: string
@@ -1252,7 +1257,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   const hybridSearch = async (
     params: { query: string; filters?: SearchFilters },
     logger: Logger,
-  ): Promise<SearchResult[]> => {
+  ): Promise<HybridSearchResult> => {
     const userLimit = params.filters?.limit ?? 20
     const snippetTokens = params.filters?.snippet_tokens ?? 30
     const includeLeadingCallout =
@@ -1275,7 +1280,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     )
 
     // FTS-only fallback when no vectors are available
-    if (vectorHits.length === 0) return ftsResults.slice(0, userLimit)
+    if (vectorHits.length === 0)
+      return { results: ftsResults.slice(0, userLimit), search_mode: "fts" }
 
     // Compute RRF scores from both ranked lists
     const rrfScores = computeRrfScores({
@@ -1340,7 +1346,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       mergedResults: mergedResults.length,
       returnedResults: Math.min(mergedResults.length, userLimit),
     })
-    return mergedResults.slice(0, userLimit)
+    return {
+      results: mergedResults.slice(0, userLimit),
+      search_mode: "hybrid",
+    }
   }
 
   /** Finds notes with a specific tag. Supports hierarchical prefix matching. */

@@ -405,6 +405,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     expect(description).toContain("Reciprocal Rank Fusion")
     expect(description).toContain("semantic")
     expect(description).toContain("career aspirations")
+    expect(description).toContain("search_mode")
   })
 
   it("describes keyword-only search when EMBEDDING_ENABLED=false", () => {
@@ -416,6 +417,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     expect(description).not.toContain("Reciprocal Rank Fusion")
     expect(description).not.toContain("semantic")
     expect(description).not.toContain("career aspirations")
+    expect(description).toContain("search_mode")
   })
 })
 

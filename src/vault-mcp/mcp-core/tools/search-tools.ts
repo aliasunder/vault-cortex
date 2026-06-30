@@ -51,7 +51,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, and search_mode ("hybrid" or "fts"). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
@@ -72,7 +72,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes) and total count. created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, and search_mode ("fts" — keyword-only ranking). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -146,9 +146,15 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       return safeHandler(
         reqLogger,
         async () => search.hybridSearch({ query, filters }, reqLogger),
-        (results) => {
-          reqLogger.info("tool_result", { resultCount: results.length })
-          return JSON.stringify({ results, total: results.length })
+        (searchResult) => {
+          reqLogger.info("tool_result", {
+            resultCount: searchResult.results.length,
+            searchMode: searchResult.search_mode,
+          })
+          return JSON.stringify({
+            ...searchResult,
+            total: searchResult.results.length,
+          })
         },
       )
     },

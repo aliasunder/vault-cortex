@@ -3181,13 +3181,14 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      const results = await ftsIndex.hybridSearch(
+      const { results, search_mode } = await ftsIndex.hybridSearch(
         { query: "career goals" },
         logger,
       )
 
       expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
+      expect(search_mode).toBe("fts")
     })
 
     it("returns FTS results when embedder exists but no vectors indexed", async () => {
@@ -3199,14 +3200,14 @@ the Lightsail budget estimates for next quarter.
       )
       // upsertNote doesn't embed — vectors are empty
 
-      const results = await hybridIndex.hybridSearch(
+      const { results, search_mode } = await hybridIndex.hybridSearch(
         { query: "career goals" },
         logger,
       )
 
       expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
-      // embedText called once for the query embedding, but KNN returns nothing
+      expect(search_mode).toBe("fts")
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
 
@@ -3221,13 +3222,14 @@ the Lightsail budget estimates for next quarter.
       const warnSpy = vi.spyOn(logger, "warn")
       onTestFinished(() => warnSpy.mockRestore())
 
-      const results = await hybridIndex.hybridSearch(
+      const { results, search_mode } = await hybridIndex.hybridSearch(
         { query: "career goals" },
         logger,
       )
 
       expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
+      expect(search_mode).toBe("fts")
       expect(warnSpy).toHaveBeenCalledWith(
         "vector search failed, falling back to FTS-only",
         expect.objectContaining({ error: "model unavailable" }),
@@ -3260,11 +3262,12 @@ the Lightsail budget estimates for next quarter.
       )
 
       // Query that matches NOTE_A via FTS ("career goals") and both via vector
-      const results = await hybridIndex.hybridSearch(
+      const { results, search_mode } = await hybridIndex.hybridSearch(
         { query: "career goals" },
         logger,
       )
 
+      expect(search_mode).toBe("hybrid")
       expect(results.length).toBeGreaterThanOrEqual(2)
       // a.md appears in both FTS and vector → higher RRF score → ranked first
       expect(results[0].path).toBe("a.md")
@@ -3294,7 +3297,7 @@ the Lightsail budget estimates for next quarter.
       )
 
       // Query that matches b.md via FTS ("project ideas CLI") and both via vector
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "project ideas CLI" },
         logger,
       )
@@ -3354,7 +3357,7 @@ the Lightsail budget estimates for next quarter.
       )
 
       // Query that doesn't match any note via FTS — results are vector-only
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "zzz_no_fts_match" },
         logger,
       )
@@ -3411,7 +3414,7 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "deployment costs", filters: { folder: "Work" } },
         logger,
       )
@@ -3444,7 +3447,7 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "deployment infrastructure", filters: { tags: ["work"] } },
         logger,
       )
@@ -3477,7 +3480,7 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "deployment timeline", filters: { type: "meeting" } },
         logger,
       )
@@ -3520,7 +3523,7 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "project", filters: { limit: 1 } },
         logger,
       )
@@ -3563,7 +3566,7 @@ We should track latency and error rates across all services.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "deployment" },
         logger,
       )
@@ -3602,7 +3605,7 @@ The main content discusses RESTful API design and GraphQL alternatives.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         {
           query: "API design patterns",
           filters: { include_leading_callout: true },
@@ -3643,7 +3646,7 @@ The main content discusses RESTful API design and GraphQL alternatives.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         {
           query: "deployment infrastructure",
           filters: { related: ["[[Projects/alpha.md]]"] },
@@ -3704,7 +3707,7 @@ This project is no longer maintained but had deployment infrastructure.
         logger,
       )
 
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         {
           query: "deployment",
           filters: { properties: { status: "active" } },
@@ -3746,7 +3749,7 @@ This is a note with many words that should be truncated when using a small snipp
       )
 
       // Query that won't match via FTS — forces vector-only result path
-      const results = await hybridIndex.hybridSearch(
+      const { results } = await hybridIndex.hybridSearch(
         { query: "zzz_no_fts_match", filters: { snippet_tokens: 5 } },
         logger,
       )
