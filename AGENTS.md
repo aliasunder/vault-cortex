@@ -98,8 +98,8 @@ src/
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
-    search/                            # SQLite FTS5 indexing + file watching + embedding
-      search-index.ts                  # SQLite FTS5 + vec0 factory (tags, folders, vectors)
+    search/                            # SQLite FTS5 + hybrid search + file watching + embedding
+      search-index.ts                  # FTS5 + vec0 + hybrid search (RRF fusion) factory
       embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
       chunker.ts                       # Heading-aware chunking for embedding
       file-watcher.ts                  # chokidar → keeps FTS + vector index current

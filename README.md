@@ -37,7 +37,7 @@
 
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **Plugin-free** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Ranked search](#tools-25)** — SQLite FTS5 with BM25 scoring, stemming, phrase matching, and tag/property/folder filtering
+- **[Hybrid search](#tools-25)** — FTS5 keyword matching + vector semantic similarity via RRF fusion. Finds notes even when exact keywords differ. Falls back to FTS5-only when embeddings are disabled.
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -314,7 +314,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 | Phase | What                                                         | Status       |
 | ----- | ------------------------------------------------------------ | ------------ |
 | **1** | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1 | Complete     |
-| **2** | Hybrid search (FTS5 + vector)                                | In discovery |
+| **2** | Hybrid search (FTS5 + vector + RRF fusion)                   | In progress  |
 
 ## Acknowledgments
 
