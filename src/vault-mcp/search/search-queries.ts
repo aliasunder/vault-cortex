@@ -10,7 +10,7 @@ import { computeRrfScores } from "./rrf.js"
 import {
   rowToMetadata,
   noteRowToSearchResult,
-  notePassesFilters,
+  noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
 } from "./search-helpers.js"
@@ -272,7 +272,8 @@ export const hybridSearch = async (
     if (!noteRow) continue
 
     // Apply filters that FTS would have applied via SQL
-    if (params.filters && !notePassesFilters(noteRow, params.filters)) continue
+    if (params.filters && !noteMatchesSearchFilters(noteRow, params.filters))
+      continue
 
     const vectorHit = vectorHitsByPath.get(path)
     const snippet = vectorHit

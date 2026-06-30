@@ -119,9 +119,11 @@ export const noteRowToSearchResult = (params: {
 
 // ── Filters ────────────────────────────────────────────────────
 
-/** Applies the same filter logic as fullTextSearch's SQL WHERE clause, but in
- *  TypeScript — used for vector-only results that bypassed the FTS query. */
-export const notePassesFilters = (
+/** Returns true when a note row satisfies every active search filter (folder
+ *  prefix, all-of tags, type, all-of related links, property key/value pairs).
+ *  Mirrors fullTextSearch's SQL WHERE clause in TypeScript — used for
+ *  vector-only results that bypassed the FTS query. */
+export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
 ): boolean => {

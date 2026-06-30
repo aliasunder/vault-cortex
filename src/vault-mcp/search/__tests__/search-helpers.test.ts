@@ -4,7 +4,7 @@ import {
   coerceToArray,
   buildFtsMetadataText,
   mtimeToIso,
-  notePassesFilters,
+  noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
 } from "../search-helpers.js"
@@ -116,9 +116,9 @@ describe("mtimeToIso", () => {
   })
 })
 
-// ── notePassesFilters ─────────────────────────────────────────
+// ── noteMatchesSearchFilters ─────────────────────────────────────────
 
-describe("notePassesFilters", () => {
+describe("noteMatchesSearchFilters", () => {
   const baseRow: NoteRow = {
     path: "Projects/Alpha/note.md",
     title: "Test",
@@ -134,52 +134,60 @@ describe("notePassesFilters", () => {
   }
 
   it("passes when no filters are set", () => {
-    expect(notePassesFilters(baseRow, {})).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, {})).toBe(true)
   })
 
   it("filters by folder prefix", () => {
-    expect(notePassesFilters(baseRow, { folder: "Projects/Alpha" })).toBe(true)
-    expect(notePassesFilters(baseRow, { folder: "Projects/Beta" })).toBe(false)
-    expect(notePassesFilters(baseRow, { folder: "Projects" })).toBe(true)
+    expect(
+      noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha" }),
+    ).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta" })).toBe(
+      false,
+    )
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects" })).toBe(true)
   })
 
   it("requires all tags to match", () => {
-    expect(notePassesFilters(baseRow, { tags: ["project"] })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["project"] })).toBe(true)
     expect(
-      notePassesFilters(baseRow, { tags: ["project", "project/alpha"] }),
+      noteMatchesSearchFilters(baseRow, { tags: ["project", "project/alpha"] }),
     ).toBe(true)
-    expect(notePassesFilters(baseRow, { tags: ["missing"] })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["missing"] })).toBe(false)
   })
 
   it("filters by type", () => {
-    expect(notePassesFilters(baseRow, { type: "note" })).toBe(true)
-    expect(notePassesFilters(baseRow, { type: "daily" })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { type: "note" })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { type: "daily" })).toBe(false)
   })
 
   it("requires all related links to match", () => {
-    expect(notePassesFilters(baseRow, { related: ["Other.md"] })).toBe(true)
-    expect(notePassesFilters(baseRow, { related: ["Missing.md"] })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { related: ["Other.md"] })).toBe(
+      true,
+    )
+    expect(noteMatchesSearchFilters(baseRow, { related: ["Missing.md"] })).toBe(
+      false,
+    )
   })
 
   it("filters by property key/value", () => {
     expect(
-      notePassesFilters(baseRow, { properties: { status: "active" } }),
+      noteMatchesSearchFilters(baseRow, { properties: { status: "active" } }),
     ).toBe(true)
     expect(
-      notePassesFilters(baseRow, { properties: { status: "archived" } }),
+      noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } }),
     ).toBe(false)
   })
 
   it("combines multiple filters with AND semantics", () => {
     expect(
-      notePassesFilters(baseRow, {
+      noteMatchesSearchFilters(baseRow, {
         folder: "Projects/Alpha",
         tags: ["project"],
         type: "note",
       }),
     ).toBe(true)
     expect(
-      notePassesFilters(baseRow, {
+      noteMatchesSearchFilters(baseRow, {
         folder: "Projects/Alpha",
         tags: ["missing"],
         type: "note",
