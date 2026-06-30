@@ -3323,13 +3323,14 @@ the Lightsail budget estimates for next quarter.
 
     it("generates snippets from chunk text for vector-only results", async () => {
       const mockEmbedder = createHybridMockEmbedder()
-      // Return different embeddings so query matches a.md better semantically
-      let callCount = 0
+      // Embed call 1 (a.md chunk): seed 0
+      // Embed call 2 (c.md chunk): seed 1
+      // Embed call 3+ (query): seed 0 — matches a.md exactly (distance 0)
+      let embedCallIndex = 0
       mockEmbedder.embedText.mockImplementation(() => {
-        callCount++
-        // First two calls are during embedNote (for the notes' chunks)
-        // Third+ call is the query embedding — make it match a.md's embedding
-        return Promise.resolve(seededEmbedding(callCount <= 1 ? 0 : 1))
+        const seed = embedCallIndex === 1 ? 1 : 0
+        embedCallIndex++
+        return Promise.resolve(seededEmbedding(seed))
       })
 
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -3352,18 +3353,17 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      // Query that doesn't match any note via FTS keywords
+      // Query that doesn't match any note via FTS — results are vector-only
       const results = await hybridIndex.hybridSearch(
         { query: "zzz_no_fts_match" },
         logger,
       )
 
-      // Vector-only results should have non-empty snippet built from chunk text
+      // a.md should appear (closest vector match) with a snippet from its chunk
       expect(results.length).toBeGreaterThanOrEqual(1)
-      for (const result of results) {
-        expect(result.snippet).toBeTruthy()
-        expect(result.snippet.length).toBeGreaterThan(0)
-      }
+      const noteA = results.find((r) => r.path === "a.md")
+      expect(noteA).toBeDefined()
+      expect(noteA!.snippet).toContain("aspire")
     })
   })
 
@@ -3755,10 +3755,9 @@ This is a note with many words that should be truncated when using a small snipp
         (result) => result.path === "verbose.md",
       )
       expect(verboseResult).toBeDefined()
-      // Snippet should be truncated to ~5 words with trailing "..."
-      const wordCount = verboseResult?.snippet.split(/\s+/).length ?? 0
-      expect(wordCount).toBeLessThanOrEqual(6) // 5 words + "..." is 6 tokens
-      expect(verboseResult?.snippet).toContain("...")
+      // buildSnippetFromChunkText takes first 5 words of the chunk text
+      // (title-prefixed body) and appends "..."
+      expect(verboseResult!.snippet).toBe("Verbose Note This is a...")
     })
   })
 })
