@@ -72,7 +72,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, and search_mode ("fts" — keyword-only ranking). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()

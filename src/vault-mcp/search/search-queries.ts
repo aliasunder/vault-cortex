@@ -374,11 +374,11 @@ const tryRerank = async (params: {
 
     const scoredResults = params.mergedResults.map((result, index) => ({
       ...result,
-      score: Number(blendedScores[index].toPrecision(4)),
+      score: blendedScores[index],
     }))
 
     return {
-      results: [...scoredResults].sort(
+      results: scoredResults.sort(
         (resultA, resultB) => resultB.score - resultA.score,
       ),
     }
