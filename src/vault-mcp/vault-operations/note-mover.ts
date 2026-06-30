@@ -37,7 +37,7 @@ import type { Logger } from "../../logger.js"
 // ── Types ───────────────────────────────────────────────────────
 
 /** Structured summary of a completed move. */
-export type MoveResult = {
+type MoveResult = {
   /** Vault-relative destination path the note now lives at. */
   moved_to: string
   /** Total number of individual link occurrences rewritten across all notes

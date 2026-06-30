@@ -205,7 +205,7 @@ const readNote = async (
 
 /** One heading in a note's outline: its level, text, and the byte size of its
  *  section (heading line through the next same-or-higher heading). */
-export type HeadingOutline = Readonly<{
+type HeadingOutline = Readonly<{
   level: number
   text: string
   bytes: number
@@ -214,7 +214,7 @@ export type HeadingOutline = Readonly<{
 /** A note's outline: its optional leading callout (a top-of-file `> [!type]`
  *  block — info, warning, etc.) plus the heading tree. `leading_callout` is
  *  omitted when the note has none. */
-export type NoteOutline = Readonly<{
+type NoteOutline = Readonly<{
   leading_callout?: LeadingCallout
   headings: HeadingOutline[]
 }>
@@ -365,7 +365,7 @@ const updateProperties = async (
   })
 }
 
-export type DeleteNoteResult = {
+type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
   prunedEmptyFolders: number

@@ -13,7 +13,7 @@ import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { stripMarkdownSyntax } from "../obsidian-markdown/plaintext.js"
 
-export type NoteChunk = Readonly<{
+type NoteChunk = Readonly<{
   index: number
   text: string
 }>

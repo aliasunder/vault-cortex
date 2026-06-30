@@ -13,7 +13,7 @@ import { describeError } from "../../utils/describe-error.js"
  *  the perceived cost is negligible. */
 const POLLING_INTERVAL_MS = 300
 
-export type FileWatcherOptions = Readonly<{
+type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
    *  Prevents reading partial writes from Obsidian Sync. */
   stabilityThreshold?: number
