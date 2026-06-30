@@ -68,7 +68,9 @@ export const sanitizeFtsQuery = (raw: string): string => {
   const tokens = afterCompounds
     .replace(ASCII_PUNCTUATION_REGEX, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 0 && !FTS5_RESERVED.has(t.toUpperCase()))
+    .filter(
+      (token) => token.length > 0 && !FTS5_RESERVED.has(token.toUpperCase()),
+    )
 
   const parts = [...phrases, ...tokens]
   return parts.length === 0 ? '""' : parts.join(" ")
