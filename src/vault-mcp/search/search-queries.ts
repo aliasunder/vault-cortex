@@ -13,6 +13,7 @@ import {
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
+  stripTrailingSlashes,
 } from "./search-helpers.js"
 import type {
   VectorHit,
@@ -106,7 +107,9 @@ export const fullTextSearch = (
 
   if (params.filters?.folder) {
     conditions.push("n.path LIKE ? ESCAPE '\\'")
-    queryParams.push(`${escapeLikeWildcards(params.filters.folder)}/%`)
+    queryParams.push(
+      `${escapeLikeWildcards(stripTrailingSlashes(params.filters.folder))}/%`,
+    )
   }
 
   if (params.filters?.tags) {
@@ -348,7 +351,7 @@ export const searchByFolder = (
   const recursive = params.recursive ?? true
   const limit = Math.max(0, params.limit ?? 20)
 
-  const escapedFolder = escapeLikeWildcards(params.folder)
+  const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
   const condition = recursive
     ? "path LIKE ? || '/%' ESCAPE '\\'"
     : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'"
@@ -428,7 +431,7 @@ export const listPropertyKeys = (
   logger: Logger,
 ): PropertyKeyInfo[] => {
   const escapedFolder = params.folder
-    ? escapeLikeWildcards(params.folder)
+    ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
   const folderCondition = escapedFolder
     ? "WHERE n.path LIKE @folder || '/%' ESCAPE '\\'"
@@ -501,7 +504,7 @@ export const listPropertyValues = (
 ): PropertyValueCount[] => {
   const limit = Math.max(0, params.limit ?? 50)
   const escapedFolder = params.folder
-    ? escapeLikeWildcards(params.folder)
+    ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
   const folderCondition = escapedFolder
     ? "AND path LIKE @folder || '/%' ESCAPE '\\'"
@@ -553,7 +556,7 @@ export const searchByProperty = (
 ): NoteMetadata[] => {
   const limit = Math.max(0, params.limit ?? 20)
   const escapedFolder = params.folder
-    ? escapeLikeWildcards(params.folder)
+    ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
   const folderCondition = escapedFolder
     ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'"
