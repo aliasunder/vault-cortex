@@ -167,14 +167,14 @@ export const registerVaultOrientationPrompt = ({
             : ""
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
-          ...(stats.untaggedNotes > 0
-            ? [`${stats.untaggedNotes} untagged.`]
-            : []),
-          ...(stats.noPropertiesNotes > 0
-            ? [`${stats.noPropertiesNotes} without properties.`]
-            : []),
-          ...(brokenLinkSegment.length > 0 ? [brokenLinkSegment] : []),
-        ].join(" ")
+          stats.untaggedNotes > 0 ? `${stats.untaggedNotes} untagged.` : "",
+          stats.noPropertiesNotes > 0
+            ? `${stats.noPropertiesNotes} without properties.`
+            : "",
+          brokenLinkSegment,
+        ]
+          .filter(Boolean)
+          .join(" ")
 
         const foldersSection =
           folderCounts.length > 0
@@ -212,22 +212,29 @@ export const registerVaultOrientationPrompt = ({
             : `No memory files yet — the ${config.memoryDir}/ layer is empty. Use vault_update_memory to start it.`
           : ""
 
+        const orphanTools =
+          orphans.length > 0
+            ? "- `vault_find_orphans` — full orphan list with exclusion control"
+            : ""
+        const memoryTools = config.memoryEnabled
+          ? "- `vault_get_memory` — read memory files in detail"
+          : ""
         const goDeeper = [
           "- `vault_search` — full-text search across all notes",
           "- `vault_search_by_tag` — explore notes by tag",
           "- `vault_list_property_values` — explore values for any property key",
-          ...(orphans.length > 0
-            ? [
-                "- `vault_find_orphans` — full orphan list with exclusion control",
-              ]
-            : []),
-          ...(config.memoryEnabled
-            ? ["- `vault_get_memory` — read memory files in detail"]
-            : []),
+          orphanTools,
+          memoryTools,
           "- `vault_read_note` — read any note's full content",
-        ].join("\n")
+        ]
+          .filter(Boolean)
+          .join("\n")
 
-        const text = [
+        const memorySectionBlock = config.memoryEnabled
+          ? `\n## Memory (${config.memoryDir}/)\n${memorySection}`
+          : undefined
+
+        const orientationSurvey = [
           "# Vault orientation",
           "",
           "This vault is a structured, convention-driven Obsidian system. Survey its structure and health below, then use the vault tools to go deeper.",
@@ -249,22 +256,22 @@ export const registerVaultOrientationPrompt = ({
           "",
           "## Orphans",
           orphanSection,
-          ...(config.memoryEnabled
-            ? ["", `## Memory (${config.memoryDir}/)`, memorySection]
-            : []),
+          memorySectionBlock,
           "",
           "---",
           "Go deeper with the vault tools:",
           goDeeper,
-        ].join("\n")
+        ]
+          .filter((line): line is string => line !== undefined)
+          .join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",
-          chars: text.length,
+          chars: orientationSurvey.length,
           memoryFiles: memoryFiles.length,
           orphanCount: orphans.length,
           brokenLinks: brokenLinkResult.count,
         })
-        return textResult(text)
+        return textResult(orientationSurvey)
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })

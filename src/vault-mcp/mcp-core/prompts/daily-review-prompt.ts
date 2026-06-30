@@ -101,24 +101,22 @@ export const registerDailyReviewPrompt = ({
         const brokenLinks = outgoingLinks.filter(
           (link) => !link.exists && !link.daily_note_forward_ref,
         )
-        const outgoingSection =
-          daily.exists && outgoingLinks.length > 0
-            ? [
-                ...outgoingLinks.map((link) =>
-                  link.exists
-                    ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
-                    : `- ${link.path} (**broken** — target does not exist)`,
-                ),
-                ...(brokenLinks.length > 0
-                  ? [
-                      "",
-                      `${brokenLinks.length} broken link${brokenLinks.length === 1 ? "" : "s"} — the target note${brokenLinks.length === 1 ? " does" : "s do"} not exist yet.`,
-                    ]
-                  : []),
-              ].join("\n")
-            : daily.exists
-              ? "No outgoing links in this daily note."
-              : "_Daily note does not exist — no link analysis available._"
+        const outgoingSection = (() => {
+          if (!daily.exists)
+            return "_Daily note does not exist — no link analysis available._"
+          if (outgoingLinks.length === 0)
+            return "No outgoing links in this daily note."
+          const linkLines = outgoingLinks.map((link) =>
+            link.exists
+              ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
+              : `- ${link.path} (**broken** — target does not exist)`,
+          )
+          const brokenSummary =
+            brokenLinks.length > 0
+              ? `\n${brokenLinks.length} broken link${brokenLinks.length === 1 ? "" : "s"} — the target note${brokenLinks.length === 1 ? " does" : "s do"} not exist yet.`
+              : ""
+          return linkLines.join("\n") + brokenSummary
+        })()
         const backlinksSection =
           daily.exists && backlinks.length > 0
             ? backlinks.map(formatNoteLine).join("\n")
@@ -130,27 +128,27 @@ export const registerDailyReviewPrompt = ({
             ? modifiedOnDate.map(formatNoteLine).join("\n")
             : `No notes were modified on ${dateArg}.`
 
-        const reviewSteps = [
+        const memoryStep = config.memoryEnabled
+          ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+          : ""
+        const noteAnalysisSteps = daily.exists
+          ? [
+              "**Task extraction** — identify any incomplete tasks (`- [ ]`) in the daily note. Are any overdue or blocked?",
+              "**Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
+              "**Pattern recognition** — look for recurring themes, repeated tasks, or persistent concerns across this note and recent activity.",
+            ]
+          : []
+        const reviewSection = [
           "**Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
           "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
-          ...(config.memoryEnabled
-            ? [
-                `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`,
-              ]
-            : []),
-          ...(daily.exists
-            ? [
-                "**Task extraction** — identify any incomplete tasks (`- [ ]`) in the daily note. Are any overdue or blocked?",
-                "**Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
-                "**Pattern recognition** — look for recurring themes, repeated tasks, or persistent concerns across this note and recent activity.",
-              ]
-            : []),
+          memoryStep,
+          ...noteAnalysisSteps,
         ]
-        const reviewSection = reviewSteps
+          .filter(Boolean)
           .map((step, index) => `${index + 1}. ${step}`)
           .join("\n")
 
-        const text = [
+        const dailyReview = [
           "# Daily review",
           "",
           daily.exists
@@ -179,13 +177,13 @@ export const registerDailyReviewPrompt = ({
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: daily.exists ? "ok" : "no_note",
-          chars: text.length,
+          chars: dailyReview.length,
           truncated,
           outgoingLinks: outgoingLinks.length,
           brokenLinks: brokenLinks.length,
           backlinks: backlinks.length,
         })
-        return textResult(text)
+        return textResult(dailyReview)
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })

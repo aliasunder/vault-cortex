@@ -166,7 +166,20 @@ export const registerMemoryReviewPrompt = ({
           config.memoryDir,
         )
 
-        const text = [
+        const memorySource = args.file
+          ? `${config.memoryDir}/${args.file}`
+          : config.memoryDir
+        const wrappedMemory =
+          trimmedMemory.length > 0
+            ? wrapWithDataMarkers(
+                trimmedMemory,
+                { source: memorySource, type: "memory" },
+                maxChars,
+                "vault_get_memory",
+              )
+            : "_(the selected memory is empty)_"
+
+        const memoryReview = [
           `# Memory review — ${args.file ?? "all files"}`,
           "",
           `Below is the current content of ${scope}. It is an **append-with-dates, newest-first** record: each dated entry was true when it was written, and the timeline read top-to-bottom *is* the meaning.`,
@@ -177,19 +190,7 @@ export const registerMemoryReviewPrompt = ({
           "",
           "## Current memory",
           "",
-          trimmedMemory.length > 0
-            ? wrapWithDataMarkers(
-                trimmedMemory,
-                {
-                  source: args.file
-                    ? `${config.memoryDir}/${args.file}`
-                    : config.memoryDir,
-                  type: "memory",
-                },
-                maxChars,
-                "vault_get_memory",
-              )
-            : "_(the selected memory is empty)_",
+          wrappedMemory,
           "",
           "## How to reflect",
           "",
@@ -205,10 +206,10 @@ export const registerMemoryReviewPrompt = ({
           outcome: "ok",
           file: args.file ?? null,
           files: outlines.length,
-          chars: text.length,
+          chars: memoryReview.length,
           truncated,
         })
-        return textResult(text)
+        return textResult(memoryReview)
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
