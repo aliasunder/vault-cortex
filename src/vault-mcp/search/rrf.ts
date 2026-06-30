@@ -12,7 +12,7 @@
  *     list, rewarding results that either system placed highly
  *  4. Sort by combined score descending
  *
- *  Pattern borrowed from qmd: https://github.com/tobi/qmd#score-normalization--fusion */
+ *  Inspired by qmd: https://github.com/tobi/qmd#score-normalization--fusion */
 export const computeRrfScores = (params: {
   ftsRanked: readonly { path: string }[]
   vectorRanked: readonly { path: string }[]
