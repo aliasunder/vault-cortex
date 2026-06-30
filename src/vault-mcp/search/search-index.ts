@@ -1292,8 +1292,15 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     )
 
     // FTS-only fallback when no vectors are available
-    if (vectorHits.length === 0)
-      return { results: ftsResults.slice(0, userLimit), search_mode: "fts" }
+    if (vectorHits.length === 0) {
+      const fallbackResults = ftsResults.slice(0, userLimit)
+      logger.info("hybrid search", {
+        query: params.query,
+        searchMode: "fts",
+        resultCount: fallbackResults.length,
+      })
+      return { results: fallbackResults, search_mode: "fts" }
+    }
 
     // Compute RRF scores from both ranked lists
     const rrfScores = computeRrfScores({
@@ -1353,6 +1360,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
     logger.info("hybrid search", {
       query: params.query,
+      searchMode: "hybrid",
       ftsResults: ftsResults.length,
       vectorHits: vectorHits.length,
       mergedResults: mergedResults.length,
