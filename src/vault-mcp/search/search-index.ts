@@ -896,10 +896,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
       // Deduplicate to best chunk per note — rows are ordered by distance
       // ascending, so the first occurrence of each path is the closest match.
-      const bestPerNote = new Map<string, VectorHit>()
+      const bestChunkPerNote = new Map<string, VectorHit>()
       for (const row of rows) {
-        if (!bestPerNote.has(row.note_path)) {
-          bestPerNote.set(row.note_path, {
+        if (!bestChunkPerNote.has(row.note_path)) {
+          bestChunkPerNote.set(row.note_path, {
             path: row.note_path,
             distance: row.distance,
             chunkText: row.chunk_text,
@@ -910,9 +910,9 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       logger.info("vector search", {
         query: params.query,
         knnHits: rows.length,
-        uniqueNotes: bestPerNote.size,
+        uniqueNotes: bestChunkPerNote.size,
       })
-      return [...bestPerNote.values()]
+      return [...bestChunkPerNote.values()]
     } catch (error) {
       logger.warn("vector search failed, falling back to FTS-only", {
         error: describeError(error),
