@@ -3137,7 +3137,7 @@ Content about deployment costs and infrastructure.
       )
 
       // Only the note inside Work/ should appear
-      const paths = results.map((r) => r.path)
+      const paths = results.map((result) => result.path)
       expect(paths).toContain("Work/inside.md")
       expect(paths).not.toContain("Personal/outside.md")
     })
@@ -3289,7 +3289,9 @@ We should track latency and error rates across all services.
       )
 
       // Even with multiple chunks, the note appears only once
-      const longNoteResults = results.filter((r) => r.path === "long.md")
+      const longNoteResults = results.filter(
+        (result) => result.path === "long.md",
+      )
       expect(longNoteResults).toHaveLength(1)
     })
   })

@@ -1,6 +1,6 @@
 // ── Query methods extracted from search-index.ts ──────────────
 
-import Database from "better-sqlite3"
+import type Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -12,6 +12,7 @@ import {
   noteRowToSearchResult,
   notePassesFilters,
   buildSnippetFromChunkText,
+  escapeLikeWildcards,
 } from "./search-helpers.js"
 import type {
   VectorHit,
@@ -44,11 +45,11 @@ export type SearchQueryContext = {
 // ── Vector search (internal) ───────────────────────────────────
 
 const vectorSearch = async (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { query: string; limit: number },
   logger: Logger,
 ): Promise<VectorHit[]> => {
-  const { embedder, knnSearchStmt } = ctx.vector
+  const { embedder, knnSearchStmt } = context.vector
   if (!embedder || !knnSearchStmt) return []
 
   try {
@@ -92,7 +93,7 @@ const vectorSearch = async (
 // ── Full-text search ───────────────────────────────────────────
 
 export const fullTextSearch = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { query: string; filters?: SearchFilters },
   logger: Logger,
 ): SearchResult[] => {
@@ -104,8 +105,8 @@ export const fullTextSearch = (
   queryParams.push(sanitizeFtsQuery(params.query))
 
   if (params.filters?.folder) {
-    conditions.push("n.path LIKE ?")
-    queryParams.push(`${params.filters.folder}/%`)
+    conditions.push("n.path LIKE ? ESCAPE '\\'")
+    queryParams.push(`${escapeLikeWildcards(params.filters.folder)}/%`)
   }
 
   if (params.filters?.tags) {
@@ -138,13 +139,14 @@ export const fullTextSearch = (
     }
   }
 
-  const limit = params.filters?.limit ?? 20
+  const limit = Math.max(0, params.filters?.limit ?? 20)
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
   const includeLeadingCallout = params.filters?.include_leading_callout ?? false
   queryParams.push(limit)
 
+  // FTS5 rank is negative (lower = better), negated for human-friendly scoring
   const sql = `
     SELECT n.path, n.title,
            snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
@@ -156,10 +158,9 @@ export const fullTextSearch = (
     ORDER BY rank
     LIMIT ?
   `
-  // rank * -1: FTS5 rank is negative (lower = better), negated for human-friendly scoring
 
   try {
-    const rows = ctx.db.prepare(sql).all(...queryParams) as Array<
+    const rows = context.db.prepare(sql).all(...queryParams) as Array<
       Pick<
         NoteRow,
         | "path"
@@ -205,18 +206,18 @@ export const fullTextSearch = (
  *  similarity via RRF fusion. Falls back to FTS-only silently when no
  *  embeddings are available. */
 export const hybridSearch = async (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { query: string; filters?: SearchFilters },
   logger: Logger,
 ): Promise<HybridSearchResult> => {
-  const userLimit = params.filters?.limit ?? 20
+  const userLimit = Math.max(0, params.filters?.limit ?? 20)
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   const includeLeadingCallout = params.filters?.include_leading_callout ?? false
-  const candidateLimit = Math.min(userLimit * 3, 100)
+  const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
 
   // Run FTS with inflated limit to give RRF enough candidates
   const ftsResults = fullTextSearch(
-    ctx,
+    context,
     {
       query: params.query,
       filters: { ...params.filters, limit: candidateLimit },
@@ -226,7 +227,7 @@ export const hybridSearch = async (
 
   // Attempt vector search — returns [] on any failure
   const vectorHits = await vectorSearch(
-    ctx,
+    context,
     { query: params.query, limit: candidateLimit },
     logger,
   )
@@ -265,7 +266,7 @@ export const hybridSearch = async (
     }
 
     // Vector-only result — look up metadata from the notes table
-    const noteRow = ctx.vector.selectNoteMetadataStmt.get(path) as
+    const noteRow = context.vector.selectNoteMetadataStmt.get(path) as
       | NoteRow
       | undefined
     if (!noteRow) continue
@@ -306,11 +307,11 @@ export const hybridSearch = async (
 
 /** Finds notes with a specific tag. Supports hierarchical prefix matching. */
 export const searchByTag = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { tag: string; exactMatch?: boolean; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = params.limit ?? 20
+  const limit = Math.max(0, params.limit ?? 20)
 
   const condition = params.exactMatch
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
@@ -328,7 +329,7 @@ export const searchByTag = (
     LIMIT ?
   `
 
-  const rows = ctx.db.prepare(sql).all(...queryParams) as NoteRow[]
+  const rows = context.db.prepare(sql).all(...queryParams) as NoteRow[]
   const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
@@ -339,20 +340,21 @@ export const searchByTag = (
 
 /** Lists notes in a folder, optionally including subfolders. */
 export const searchByFolder = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { folder: string; recursive?: boolean; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
   const recursive = params.recursive ?? true
-  const limit = params.limit ?? 20
+  const limit = Math.max(0, params.limit ?? 20)
 
+  const escapedFolder = escapeLikeWildcards(params.folder)
   const condition = recursive
-    ? "path LIKE ? || '/%'"
-    : "path LIKE ? || '/%' AND path NOT LIKE ? || '/%/%'"
+    ? "path LIKE ? || '/%' ESCAPE '\\'"
+    : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'"
 
   const queryParams: unknown[] = recursive
-    ? [params.folder, limit]
-    : [params.folder, params.folder, limit]
+    ? [escapedFolder, limit]
+    : [escapedFolder, escapedFolder, limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -362,7 +364,7 @@ export const searchByFolder = (
     LIMIT ?
   `
 
-  const rows = ctx.db.prepare(sql).all(...queryParams) as NoteRow[]
+  const rows = context.db.prepare(sql).all(...queryParams) as NoteRow[]
   const results = rows.map(rowToMetadata)
   logger.info("search by folder", {
     folder: params.folder,
@@ -373,7 +375,7 @@ export const searchByFolder = (
 
 /** Returns all tags in the vault with their note counts. */
 export const listAllTags = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
@@ -383,19 +385,19 @@ export const listAllTags = (
     GROUP BY value
     ORDER BY count DESC
   `
-  const results = ctx.db.prepare(sql).all() as TagCount[]
+  const results = context.db.prepare(sql).all() as TagCount[]
   logger.info("listed all tags", { count: results.length })
   return results
 }
 
 /** Returns recently modified or created notes, sorted by chosen timestamp. */
 export const recentNotes = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { sort_by?: "created" | "modified"; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
   const sortBy = params.sort_by ?? "modified"
-  const limit = params.limit ?? 20
+  const limit = Math.max(0, params.limit ?? 20)
 
   // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
   const orderClause =
@@ -410,7 +412,7 @@ export const recentNotes = (
     LIMIT ?
   `
 
-  const rows = ctx.db.prepare(sql).all(limit) as NoteRow[]
+  const rows = context.db.prepare(sql).all(limit) as NoteRow[]
   const results = rows.map(rowToMetadata)
   logger.info("recent notes", { sortBy, resultCount: results.length })
   return results
@@ -420,12 +422,15 @@ export const recentNotes = (
 
 /** Returns all frontmatter property keys with note counts and top 3 sample values. */
 export const listPropertyKeys = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { folder?: string },
   logger: Logger,
 ): PropertyKeyInfo[] => {
-  const folderCondition = params.folder
-    ? "WHERE n.path LIKE @folder || '/%'"
+  const escapedFolder = params.folder
+    ? escapeLikeWildcards(params.folder)
+    : null
+  const folderCondition = escapedFolder
+    ? "WHERE n.path LIKE @folder || '/%' ESCAPE '\\'"
     : ""
 
   const keySql = `
@@ -435,15 +440,16 @@ export const listPropertyKeys = (
     GROUP BY property.key
     ORDER BY count DESC
   `
-  const keySqlParams: Record<string, string> = {}
-  if (params.folder) keySqlParams.folder = params.folder
-  const keyRows = ctx.db.prepare(keySql).all(keySqlParams) as Array<{
+  const keySqlParams: Record<string, string> = escapedFolder
+    ? { folder: escapedFolder }
+    : {}
+  const keyRows = context.db.prepare(keySql).all(keySqlParams) as Array<{
     key: string
     count: number
   }>
 
-  const sampleFolderCondition = params.folder
-    ? "AND path LIKE @folder || '/%'"
+  const sampleFolderCondition = escapedFolder
+    ? "AND path LIKE @folder || '/%' ESCAPE '\\'"
     : ""
 
   // For each key, fetch the 3 most common values as samples.
@@ -466,11 +472,12 @@ export const listPropertyKeys = (
     ORDER BY count DESC
     LIMIT 3
   `
-  const sampleStmt = ctx.db.prepare(sampleSql)
+  const sampleStmt = context.db.prepare(sampleSql)
 
   const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
-    const sqlParams: Record<string, string> = { key: keyRow.key }
-    if (params.folder) sqlParams.folder = params.folder
+    const sqlParams: Record<string, string> = escapedFolder
+      ? { key: keyRow.key, folder: escapedFolder }
+      : { key: keyRow.key }
     const sampleRows = sampleStmt.all(sqlParams) as Array<{
       value: string
     }>
@@ -487,12 +494,17 @@ export const listPropertyKeys = (
 
 /** Returns distinct values for a given property key with note counts. */
 export const listPropertyValues = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { key: string; folder?: string; limit?: number },
   logger: Logger,
 ): PropertyValueCount[] => {
-  const limit = params.limit ?? 50
-  const folderCondition = params.folder ? "AND path LIKE @folder || '/%'" : ""
+  const limit = Math.max(0, params.limit ?? 50)
+  const escapedFolder = params.folder
+    ? escapeLikeWildcards(params.folder)
+    : null
+  const folderCondition = escapedFolder
+    ? "AND path LIKE @folder || '/%' ESCAPE '\\'"
+    : ""
 
   // json_array() wraps scalars so json_each works uniformly for
   // both scalar ("active") and array (["a","b"]) property values.
@@ -515,9 +527,9 @@ export const listPropertyValues = (
   `
 
   const sqlParams: Record<string, unknown> = { key: params.key, limit }
-  if (params.folder) sqlParams.folder = params.folder
+  if (escapedFolder) sqlParams.folder = escapedFolder
 
-  const rows = ctx.db.prepare(sql).all(sqlParams) as Array<{
+  const rows = context.db.prepare(sql).all(sqlParams) as Array<{
     value: string | number
     count: number
   }>
@@ -534,12 +546,17 @@ export const listPropertyValues = (
 
 /** Finds notes where a frontmatter property matches a value (exact match). */
 export const searchByProperty = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { key: string; value: string; folder?: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = params.limit ?? 20
-  const folderCondition = params.folder ? "AND n.path LIKE @folder || '/%'" : ""
+  const limit = Math.max(0, params.limit ?? 20)
+  const escapedFolder = params.folder
+    ? escapeLikeWildcards(params.folder)
+    : null
+  const folderCondition = escapedFolder
+    ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'"
+    : ""
 
   // Two branches handle different property shapes:
   // - Array properties (tags: ["a","b"]): check if @value is IN the array
@@ -569,9 +586,9 @@ export const searchByProperty = (
     value: params.value,
     limit,
   }
-  if (params.folder) sqlParams.folder = params.folder
+  if (escapedFolder) sqlParams.folder = escapedFolder
 
-  const rows = ctx.db.prepare(sql).all(sqlParams) as NoteRow[]
+  const rows = context.db.prepare(sql).all(sqlParams) as NoteRow[]
   const results = rows.map(rowToMetadata)
   logger.info("search by property", {
     key: params.key,
@@ -585,7 +602,7 @@ export const searchByProperty = (
 
 /** Returns notes that link TO the given path (incoming links / backlinks). */
 export const getBacklinks = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
@@ -597,7 +614,7 @@ export const getBacklinks = (
     WHERE l.target = ?
     ORDER BY n.title
   `
-  const rows = ctx.db.prepare(sql).all(params.path) as Array<{
+  const rows = context.db.prepare(sql).all(params.path) as Array<{
     path: string
     title: string
     bytes: number
@@ -619,11 +636,13 @@ export const getBacklinks = (
  *  "asset" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. */
 export const getOutgoingLinks = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { path: string },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
   assertPathHasExtension(params.path, ".md")
+  // Left-join against both notes and non_md_files to classify each link target:
+  // notes → kind "note", non_md_files → kind "asset", neither → broken (defaults to "note").
   const sql = `
     SELECT l.target as path,
            n.title,
@@ -640,14 +659,14 @@ export const getOutgoingLinks = (
     WHERE l.source = ?
     ORDER BY l.target
   `
-  const rows = ctx.db.prepare(sql).all(params.path) as Array<{
+  const rows = context.db.prepare(sql).all(params.path) as Array<{
     path: string
     title: string | null
     exists_flag: number
     kind: "note" | "asset"
     bytes: number | null
   }>
-  const folder = ctx.getDailyNotesFolder()
+  const folder = context.getDailyNotesFolder()
   const folderPrefix = folder !== null ? `${folder}/` : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
@@ -669,18 +688,20 @@ export const getOutgoingLinks = (
 
 /** Finds notes with no incoming links (orphans). */
 export const findOrphans = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { excludeFolders?: string[]; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []
-  const limit = params.limit ?? 50
+  const limit = Math.max(0, params.limit ?? 50)
 
   // One exclusion clause per folder, each bound to a positional parameter
-  const folderExclusions = Array(excludeFolders.length)
-    .fill("path NOT LIKE ? || '/%'")
+  const escapedExcludeFolders = excludeFolders.map(escapeLikeWildcards)
+  const folderExclusions = Array(escapedExcludeFolders.length)
+    .fill("path NOT LIKE ? || '/%' ESCAPE '\\'")
     .join(" AND ")
-  const whereClause = excludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
+  const whereClause =
+    escapedExcludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
 
   // Self-links (source = target) are excluded from the backlink subquery
   // so a note that only links to itself is still considered an orphan.
@@ -693,7 +714,9 @@ export const findOrphans = (
     LIMIT ?
   `
 
-  const rows = ctx.db.prepare(sql).all(...excludeFolders, limit) as NoteRow[]
+  const rows = context.db
+    .prepare(sql)
+    .all(...escapedExcludeFolders, limit) as NoteRow[]
   const results = rows.map(rowToMetadata)
   logger.info("find orphans", { count: results.length })
   return results
@@ -714,14 +737,14 @@ export type BrokenLinkResult = {
  *  click" navigation), not genuinely broken. Returns the count plus
  *  exclusion metadata so callers can communicate what was filtered. */
 export const brokenLinkCount = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): BrokenLinkResult => {
-  const folder = ctx.getDailyNotesFolder()
+  const folder = context.getDailyNotesFolder()
 
   if (folder === null) {
-    const row = ctx.db
+    const row = context.db
       .prepare(
         `SELECT COUNT(DISTINCT target) as count
          FROM links
@@ -734,7 +757,7 @@ export const brokenLinkCount = (
   }
 
   const folderPrefix = `${folder}/`
-  const brokenTargets = ctx.db
+  const brokenTargets = context.db
     .prepare(
       `SELECT DISTINCT target
        FROM links
@@ -759,11 +782,11 @@ export const brokenLinkCount = (
 /** Returns notes whose filesystem mtime falls within a calendar date
  *  (server-local day boundaries, governed by the TZ env var). */
 export const modifiedOnDate = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   params: { date: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = params.limit ?? 50
+  const limit = Math.max(0, params.limit ?? 50)
   const dayStart = DateTime.fromISO(params.date)
   const dayEnd = dayStart.plus({ days: 1 })
 
@@ -774,7 +797,7 @@ export const modifiedOnDate = (
     ORDER BY mtime DESC
     LIMIT ?
   `
-  const rows = ctx.db
+  const rows = context.db
     .prepare(sql)
     .all(dayStart.toMillis(), dayEnd.toMillis(), limit) as NoteRow[]
   const results = rows.map(rowToMetadata)
@@ -788,7 +811,7 @@ export const modifiedOnDate = (
 /** Lightweight aggregate counts — total notes, untagged notes, notes without
  *  frontmatter properties. Single SQL to avoid multiple round-trips. */
 export const vaultStats = (
-  ctx: SearchQueryContext,
+  context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): VaultStats => {
@@ -801,7 +824,7 @@ export const vaultStats = (
       COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
     FROM notes
   `
-  const row = ctx.db.prepare(sql).get() as VaultStats
+  const row = context.db.prepare(sql).get() as VaultStats
   logger.info("vault stats", row)
   return row
 }

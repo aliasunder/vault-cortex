@@ -2,7 +2,6 @@
 
 import { DateTime } from "luxon"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import { links } from "../obsidian-markdown/links.js"
 import type {
   NoteRow,
   NoteMetadata,
@@ -21,20 +20,12 @@ export const isString = (value: unknown): value is string =>
 export const coerceToArray = (value: unknown): string[] =>
   Array.isArray(value) ? value : value ? [String(value)] : []
 
-// ── Link extraction ────────────────────────────────────────────
+// ── LIKE escaping ─────────────────────────────────────────────
 
-/** A note's complete link set — body links unioned with frontmatter wikilinks,
- *  deduplicated. Single source of truth for "what does this note link to",
- *  shared by incremental upsert and full rebuild — must not diverge. */
-export const extractAllLinks = (
-  content: string,
-  data: Record<string, unknown>,
-): string[] => [
-  ...new Set([
-    ...links.extractFromBody(content),
-    ...links.extractFromFrontmatter(data),
-  ]),
-]
+/** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
+ *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
+export const escapeLikeWildcards = (value: string): string =>
+  value.replace(/[\\%_]/g, (character) => `\\${character}`)
 
 // ── FTS metadata builder ───────────────────────────────────────
 

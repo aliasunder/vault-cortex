@@ -39,6 +39,16 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
+      name: "NEAR reserved word dropped from mixed input",
+      input: "meeting NEAR fence",
+      expected: "meeting fence",
+    },
+    {
+      name: "NEAR alone: empty result",
+      input: "NEAR",
+      expected: '""',
+    },
+    {
       name: "empty string: empty result",
       input: "",
       expected: '""',

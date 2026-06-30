@@ -16,13 +16,10 @@ import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import {
   isString,
   coerceToArray,
-  extractAllLinks,
   buildFtsMetadataText,
+  escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
-
-export { sanitizeFtsQuery } from "./fts-query.js"
-export { computeRrfScores } from "./rrf.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -316,11 +313,6 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
   const resolveNonMdBySuffixPathStmt = db.prepare(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
-  /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
-   *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
-  const escapeLikeWildcards = (value: string): string =>
-    value.replace(/[\\%_]/g, (character) => `\\${character}`)
-
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
     ? db.prepare(
@@ -452,6 +444,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     }>,
     normalizedVault: string,
   ): number => {
+    // Counter incremented per non-md file upserted — returned to caller for logging
     let filesIndexed = 0
     for (const directoryEntry of entries) {
       if (
@@ -579,7 +572,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     const pathList = allPaths.map((row) => row.path)
 
     deleteLinksStmt.run(note.path)
-    for (const rawTarget of extractAllLinks(parsed.content, frontmatter)) {
+    for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
       const resolved = links.resolve(rawTarget, pathList, note.path)
       if (resolved !== null) {
         insertLinkStmt.run(note.path, resolved)
@@ -647,6 +640,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       ).map((row) => [row.chunk_index, row.content_hash]),
     )
 
+    // Counter tracking how many chunks were actually (re-)embedded — returned for logging
     let embeddedCount = 0
 
     for (const chunk of chunks) {
@@ -820,7 +814,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
-        for (const rawTarget of extractAllLinks(parsed.content, parsed.data)) {
+        for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
           const resolved = links.resolve(rawTarget, pathList, note.relativePath)
           if (resolved !== null) {
             insertLinkStmt.run(note.relativePath, resolved)
@@ -937,7 +931,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
   // ── Query context + delegation ───────────────────────────────
 
-  const queryCtx: queries.SearchQueryContext = {
+  const queryContext: queries.SearchQueryContext = {
     db,
     getDailyNotesFolder: () => dailyNotesFolder,
     vector: {
@@ -949,10 +943,10 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
   /** Binds the query context as the first argument of a query function,
    *  producing the two-arg (params, logger) signature the factory exposes. */
-  const bind = <P, R>(
-    fn: (ctx: queries.SearchQueryContext, params: P, logger: Logger) => R,
+  const bindQueryContext = <P, R>(
+    fn: (context: queries.SearchQueryContext, params: P, logger: Logger) => R,
   ): ((params: P, logger: Logger) => R) => {
-    return (params, logger) => fn(queryCtx, params, logger)
+    return (params, logger) => fn(queryContext, params, logger)
   }
 
   /** Sets the daily notes folder used by brokenLinkCount and
@@ -970,21 +964,21 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     upsertNonMdFile,
     removeNonMdFile,
     setDailyNotesFolder,
-    fullTextSearch: bind(queries.fullTextSearch),
-    hybridSearch: bind(queries.hybridSearch),
-    searchByTag: bind(queries.searchByTag),
-    searchByFolder: bind(queries.searchByFolder),
-    listAllTags: bind(queries.listAllTags),
-    recentNotes: bind(queries.recentNotes),
-    listPropertyKeys: bind(queries.listPropertyKeys),
-    listPropertyValues: bind(queries.listPropertyValues),
-    searchByProperty: bind(queries.searchByProperty),
-    getBacklinks: bind(queries.getBacklinks),
-    getOutgoingLinks: bind(queries.getOutgoingLinks),
-    findOrphans: bind(queries.findOrphans),
-    brokenLinkCount: bind(queries.brokenLinkCount),
-    modifiedOnDate: bind(queries.modifiedOnDate),
-    vaultStats: bind(queries.vaultStats),
+    fullTextSearch: bindQueryContext(queries.fullTextSearch),
+    hybridSearch: bindQueryContext(queries.hybridSearch),
+    searchByTag: bindQueryContext(queries.searchByTag),
+    searchByFolder: bindQueryContext(queries.searchByFolder),
+    listAllTags: bindQueryContext(queries.listAllTags),
+    recentNotes: bindQueryContext(queries.recentNotes),
+    listPropertyKeys: bindQueryContext(queries.listPropertyKeys),
+    listPropertyValues: bindQueryContext(queries.listPropertyValues),
+    searchByProperty: bindQueryContext(queries.searchByProperty),
+    getBacklinks: bindQueryContext(queries.getBacklinks),
+    getOutgoingLinks: bindQueryContext(queries.getOutgoingLinks),
+    findOrphans: bindQueryContext(queries.findOrphans),
+    brokenLinkCount: bindQueryContext(queries.brokenLinkCount),
+    modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
+    vaultStats: bindQueryContext(queries.vaultStats),
   }
 }
 
