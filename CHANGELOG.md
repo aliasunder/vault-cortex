@@ -15,6 +15,44 @@
 
 
 
+
+## [0.24.0] — 2026-06-30
+
+### ⚠ BREAKING CHANGES
+
+- Search index factory `createSearchIndex` gains an optional second parameter (`embedder`). Existing callers are unaffected.
+- Docker base image changed from Alpine to Debian slim. Users with Alpine-specific customizations (apk packages, musl-linked binaries) need to update to Debian equivalents.
+
+### Features
+
+- **search:** Add hybrid search with RRF fusion (#224)
+- **search:** Add embedding pipeline for vector search indexing (#217)
+
+### Bug Fixes
+
+- Normalize trailing slashes in folder filter inputs (#233)
+- **search:** Run embedding pass in background so server starts immediately (#218)
+
+### Refactoring
+
+- **search:** Decompose search-index.ts into focused modules (#226)
+
+### Documentation
+
+- Update README and ARCHITECTURE for Phase 2a completion (#227)
+- Update feature surface docs for hybrid search (#225)
+- Update CHANGELOG.md for v0.23.12
+
+### Maintenance
+
+- **deps-dev:** Bump the development group across 1 directory with 3 updates (#232)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.0 to 6.2.1 (#230)
+- **deps:** Bump tailscale/github-action from 4.1.2 to 4.1.3 (#231)
+
+### Other Changes
+
+- Migrate Docker base image from Alpine to Debian slim (#215)
+
 ## [0.23.12] — 2026-06-29
 
 ### Features
