@@ -30,9 +30,9 @@ This alone makes any MCP client vault-aware and personalized across
 conversations.
 
 **Phase 2a** adds hybrid search (FTS5 + sqlite-vec vector search with
-RRF fusion) to the existing `vault_search` tool — embeddings generated
+RRF fusion) to `vault_search` — embeddings generated
 locally by a small ONNX model running in-process, no external API
-required. The file watcher gains a second hook for embedding ingestion.
+required. The file watcher includes a second hook for embedding ingestion.
 Additive, no rewrites. The Docker image uses Debian slim (`node:24-slim`)
 instead of Alpine because `onnxruntime-node` requires glibc.
 
@@ -49,7 +49,7 @@ blending to refine hybrid search result ordering.
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                 |
 | R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12/mo. IaC via SST.                                  |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                               |
 | R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
 
 ## Component Diagram
@@ -71,7 +71,7 @@ graph TB
         APIGW -->|validate| AUTH_FN
     end
 
-    subgraph lightsail ["AWS — Lightsail $12/mo"]
+    subgraph lightsail ["AWS — Lightsail $12–24/mo"]
         subgraph compose ["Docker Compose"]
             OB_HEADLESS["obsidian-sync<br/>ob sync --continuous"]
             VAULT_FS[("/vault<br/>SOURCE OF TRUTH")]
@@ -168,11 +168,11 @@ graph LR
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → obsidian-headless → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Hybrid query (Phase 2):** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
+**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
 
 ## Invariant: Vault Is Source of Truth
 
-The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. This extends to Phase 2: the vector embeddings in sqlite-vec are also derived from vault files, not the other way around.
+The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The vector embeddings in sqlite-vec are also derived from vault files, not the other way around.
 
 ## MCP Tools
 
@@ -451,7 +451,7 @@ Two services run in order via `depends_on`:
 
 1. **`obsidian-sync`** — bidirectional Obsidian Sync. Stores sync state in
    the config volume at `/home/obsidian/.config` (persists across restarts
-   for incremental sync — critical for Phase 2 embedding ingestion). The
+   for incremental sync — critical for embedding ingestion). The
    forked sync image owns `/home/obsidian/.config` as `obsidian:obsidian`
    at build time, so named-volume mounts are writable by UID 1000 without a
    separate init container.
@@ -488,7 +488,7 @@ The auto-snapshot is the only one that protects against AWS-side events
 Pulumi-driven replacement.
 
 Restore procedures, the intentional-replace flow (unprotect → deploy →
-re-protect, e.g. for a Phase 2 bundle upgrade), SST state reconciliation,
+re-protect, e.g. for a bundle upgrade), SST state reconciliation,
 and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ## Cost
@@ -518,7 +518,7 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 | Pulumi `protect` + `retainOnDelete` | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Debian slim over Alpine             | `onnxruntime-node` (bundled by `@huggingface/transformers` for local embeddings) requires glibc. Alpine uses musl — no musl build exists. Hard architectural constraint, not a preference.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | SQLite FTS5                         | Zero services, embedded, personal scale.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| chokidar                            | Node-native, same process as SQLite. Phase 2: adds embedding hook.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| chokidar                            | Node-native, same process as SQLite. Embedding hook for vector index updates.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Streamable HTTP                     | Current MCP spec (2025-11-25). SSE is deprecated.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | GHCR over ECR                       | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Express 5 over Fastify/Hono         | Ecosystem maturity, middleware compatibility. Express 5's native async error handling eliminated wrapper boilerplate. MCP SDK reference implementation uses Express.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
