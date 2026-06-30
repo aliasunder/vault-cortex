@@ -61,6 +61,7 @@ services:
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
+      WINDOWS_MODE: ${WINDOWS_MODE:-false}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):

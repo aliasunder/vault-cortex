@@ -174,11 +174,11 @@ Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHI
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
-- **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
+- **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
+- **Embedding model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
+- **Reranker model** — [ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2) (~20MB ONNX) applies position-aware score blending after RRF fusion, adding ~200ms. Set `RERANK_MODE=none` to skip
 
-A cross-encoder reranker ([ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), ~20MB ONNX) refines result ordering after RRF fusion using position-aware score blending — top RRF hits are protected (75% retrieval weight), while lower-ranked results let the reranker rescue demoted notes (60% reranker weight). This fixes intent-heavy queries like "how I feel about AI tools" where the bi-encoder can't distinguish opinions from expertise. Set `RERANK_MODE=none` to skip reranking for lower latency (~200ms savings).
-
-Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) and `reranked` boolean tell clients which ranking was used.
+Both models run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) and `reranked` boolean tell clients which ranking was used.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, cross-encoder reranking, vector persistence, and search module decomposition.
 
