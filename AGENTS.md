@@ -98,8 +98,8 @@ src/
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
-    search/                            # SQLite FTS5 indexing + file watching + embedding
-      search-index.ts                  # SQLite FTS5 + vec0 factory (tags, folders, vectors)
+    search/                            # SQLite FTS5 + hybrid search + file watching + embedding
+      search-index.ts                  # FTS5 + vec0 + hybrid search (RRF fusion) factory
       embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
       chunker.ts                       # Heading-aware chunking for embedding
       file-watcher.ts                  # chokidar → keeps FTS + vector index current
@@ -530,6 +530,8 @@ changed:
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
+| `cli/src/env.ts`                     | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
+| `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
 

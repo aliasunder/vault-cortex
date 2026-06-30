@@ -261,7 +261,7 @@ Link queries use a `links` table populated during indexing:
 
 ### Phase 2: Hybrid Search (R8)
 
-Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent). The sqlite-vec extension and `@huggingface/transformers` runtime are installed in the base image; the extension is loaded at startup so vec0 tables are available when the embedding pipeline lands.
+Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
 
@@ -271,6 +271,60 @@ Enhances the existing `vault_search` tool with vector similarity via sqlite-vec,
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
+
+**Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
+
+1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
+2. Vector search: embed the query → sqlite-vec KNN → deduplicate to best chunk per note
+3. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across both lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
+4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
+5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
+
+Graceful fallback: when no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or the embedding model fails, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
+
+**Hybrid query flow:**
+
+```mermaid
+flowchart LR
+    Q[Query] --> FTS[FTS5 BM25]
+    Q --> EMB[Embed Query]
+    EMB --> KNN[sqlite-vec KNN]
+    FTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
+    KNN --> |ranked paths| RRF
+    RRF --> R[Results]
+
+    style Q fill:#f9f,stroke:#333
+    style RRF fill:#bbf,stroke:#333
+    style R fill:#bfb,stroke:#333
+```
+
+**Indexing pipeline (startup + incremental):**
+
+```mermaid
+flowchart TD
+    VF[Vault Files] --> RB[rebuildFromVault]
+    RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
+    P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
+    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+
+    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
+    UP --> FTS[Update FTS5]
+    UP --> LK[Update Links]
+    UP --> EM[embedAndStoreChunks]
+    EM --> CH{Content\nhash match?}
+    CH --> |unchanged| SK[Skip]
+    CH --> |changed| EMB[Embed chunk\nbge-small q8]
+    EMB --> VEC[Store in\nnote_vectors]
+
+    FW --> |delete| RM[removeNote]
+    RM --> D1[Delete FTS + links]
+    RM --> D2[Delete chunks + vectors]
+
+    style VF fill:#f9f,stroke:#333
+    style FW fill:#f9f,stroke:#333
+    style CH fill:#ffd,stroke:#333
+    style SK fill:#dfd,stroke:#333
+```
 
 ## MCP Prompts
 

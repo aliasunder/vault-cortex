@@ -396,7 +396,10 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const searchCall = registeredCalls.find(
       ([name]) => name === TOOL_NAMES.VAULT_SEARCH,
     )
-    return searchCall![1].description!
+    if (!searchCall) throw new Error("vault_search not registered")
+    const description = searchCall[1].description
+    if (!description) throw new Error("vault_search has no description")
+    return description
   }
 
   it("describes hybrid search when EMBEDDING_ENABLED=true", () => {

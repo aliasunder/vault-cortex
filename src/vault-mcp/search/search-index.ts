@@ -1877,6 +1877,15 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
 
 // ── Helpers ─────────────────────────────────────────────────────
 
+/** Converts mtime (epoch ms) to an ISO string, throwing if the value is
+ *  invalid — mtime comes from stat().mtimeMs during indexing, so null
+ *  indicates data corruption rather than an expected edge case. */
+const mtimeToIso = (mtime: number): string => {
+  const iso = DateTime.fromMillis(Math.round(mtime)).toISO()
+  if (iso === null) throw new Error(`invalid mtime: ${mtime}`)
+  return iso
+}
+
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
 const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   path: row.path,
@@ -1886,7 +1895,7 @@ const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   folder: row.folder,
   type: row.type,
   created: row.created,
-  modified: DateTime.fromMillis(Math.round(row.mtime)).toISO()!,
+  modified: mtimeToIso(row.mtime),
   bytes: row.bytes ?? 0,
   properties: JSON.parse(row.properties) as Record<string, unknown>,
   leading_callout: row.leading_callout
@@ -1920,7 +1929,7 @@ const noteRowToSearchResult = (params: {
   folder: params.row.folder,
   type: params.row.type,
   ...(params.row.created !== null ? { created: params.row.created } : {}),
-  modified: DateTime.fromMillis(Math.round(params.row.mtime)).toISO() ?? "",
+  modified: mtimeToIso(params.row.mtime),
   bytes: params.row.bytes ?? 0,
   ...(params.includeLeadingCallout && params.row.leading_callout
     ? {
