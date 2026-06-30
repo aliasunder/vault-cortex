@@ -39,7 +39,7 @@ export type SearchQueryContext = {
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement | null
-    readonly selectNoteMetadataStmt: Database.Statement
+    readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
 }
 
@@ -269,8 +269,7 @@ export const hybridSearch = async (
     }
 
     // Vector-only result — look up metadata from the notes table
-    const noteRow = context.vector.selectNoteMetadataStmt.get(path) as
-      NoteRow | undefined
+    const noteRow = context.vector.selectNoteMetadataStmt.get(path)
     if (!noteRow) continue
 
     // Apply filters that FTS would have applied via SQL

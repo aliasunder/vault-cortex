@@ -369,7 +369,7 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     : null
 
   /** Metadata lookup for notes found only via vector search. */
-  const selectNoteMetadataStmt = db.prepare(
+  const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
     `SELECT path, title, tags, related, folder, type, created, mtime,
             properties, leading_callout, bytes
      FROM notes WHERE path = ?`,
