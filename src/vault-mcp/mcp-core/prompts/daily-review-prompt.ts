@@ -26,6 +26,48 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 const DAILY_RECENT_LIMIT = 10
 
+type OutgoingLink = {
+  path: string
+  title?: string
+  exists: boolean
+  daily_note_forward_ref?: boolean
+}
+
+/** Formats a single outgoing link as a bullet, flagging broken targets. */
+const formatOutgoingLink = (link: OutgoingLink): string =>
+  link.exists
+    ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
+    : `- ${link.path} (**broken** — target does not exist)`
+
+/** Assembles the outgoing links section with a broken-link summary. */
+const formatOutgoingLinksSection = (
+  noteExists: boolean,
+  outgoingLinks: readonly OutgoingLink[],
+  brokenLinks: readonly OutgoingLink[],
+): string => {
+  if (!noteExists)
+    return "_Daily note does not exist — no link analysis available._"
+  if (outgoingLinks.length === 0) return "No outgoing links in this daily note."
+
+  const linkLines = outgoingLinks.map(formatOutgoingLink).join("\n")
+  if (brokenLinks.length === 0) return linkLines
+
+  const brokenCount = brokenLinks.length
+  const brokenSummary = `${brokenCount} broken link${brokenCount === 1 ? "" : "s"} — the target note${brokenCount === 1 ? " does" : "s do"} not exist yet.`
+  return `${linkLines}\n\n${brokenSummary}`
+}
+
+/** Assembles the backlinks section. */
+const formatBacklinksSection = (
+  noteExists: boolean,
+  backlinks: ReadonlyArray<{ path: string; title: string }>,
+): string => {
+  if (!noteExists)
+    return "_Daily note does not exist — no link analysis available._"
+  if (backlinks.length === 0) return "No other notes link to this daily note."
+  return backlinks.map(formatNoteLine).join("\n")
+}
+
 export const registerDailyReviewPrompt = ({
   server,
   vaultPath,
@@ -102,28 +144,12 @@ export const registerDailyReviewPrompt = ({
         const brokenLinks = outgoingLinks.filter(
           (link) => !link.exists && !link.daily_note_forward_ref,
         )
-        const outgoingSection = (() => {
-          if (!daily.exists)
-            return "_Daily note does not exist — no link analysis available._"
-          if (outgoingLinks.length === 0)
-            return "No outgoing links in this daily note."
-          const linkLines = outgoingLinks.map((link) =>
-            link.exists
-              ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
-              : `- ${link.path} (**broken** — target does not exist)`,
-          )
-          const brokenSummary =
-            brokenLinks.length > 0
-              ? `\n${brokenLinks.length} broken link${brokenLinks.length === 1 ? "" : "s"} — the target note${brokenLinks.length === 1 ? " does" : "s do"} not exist yet.`
-              : ""
-          return linkLines.join("\n") + brokenSummary
-        })()
-        const backlinksSection =
-          daily.exists && backlinks.length > 0
-            ? backlinks.map(formatNoteLine).join("\n")
-            : daily.exists
-              ? "No other notes link to this daily note."
-              : "_Daily note does not exist — no link analysis available._"
+        const outgoingSection = formatOutgoingLinksSection(
+          daily.exists,
+          outgoingLinks,
+          brokenLinks,
+        )
+        const backlinksSection = formatBacklinksSection(daily.exists, backlinks)
         const modifiedSection =
           modifiedOnDate.length > 0
             ? modifiedOnDate.map(formatNoteLine).join("\n")

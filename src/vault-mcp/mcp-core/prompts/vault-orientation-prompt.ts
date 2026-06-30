@@ -44,8 +44,29 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Renders property keys with adoption rates relative to total notes.
- *  Properties below the threshold get a "(low adoption)" suffix. */
+/** Formats a single property key with its adoption rate, sample values, and
+ *  a low-adoption flag when below the threshold. */
+const formatPropertyLine = (
+  propertyKey: { key: string; count: number; sample_values: string[] },
+  totalNotes: number,
+  lowAdoptionThreshold: number,
+): string => {
+  const percentage =
+    totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
+  const displayPercentage =
+    propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
+  const samples =
+    propertyKey.sample_values.length > 0
+      ? ` — e.g. ${propertyKey.sample_values.join(", ")}`
+      : ""
+  const isLowAdoption =
+    totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
+  const lowAdoptionFlag = isLowAdoption ? " (low adoption)" : ""
+
+  return `- ${propertyKey.key} (${propertyKey.count}/${totalNotes} — ${displayPercentage}%)${samples}${lowAdoptionFlag}`
+}
+
+/** Renders property keys with adoption rates relative to total notes. */
 const formatPropertyAdoption = (
   propertyKeys: ReadonlyArray<{
     key: string
@@ -60,42 +81,45 @@ const formatPropertyAdoption = (
 
   return propertyKeys
     .slice(0, limit)
-    .map((propertyKey) => {
-      const percentage =
-        totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
-      const displayPercentage =
-        propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
-      const samples =
-        propertyKey.sample_values.length > 0
-          ? ` — e.g. ${propertyKey.sample_values.join(", ")}`
-          : ""
-      const lowAdoption =
-        totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
-          ? " (low adoption)"
-          : ""
-      return `- ${propertyKey.key} (${propertyKey.count}/${totalNotes} — ${displayPercentage}%)${samples}${lowAdoption}`
-    })
+    .map((key) => formatPropertyLine(key, totalNotes, lowAdoptionThreshold))
     .join("\n")
+}
+
+/** Formats a single memory file as a bullet with its H2 section names. */
+const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
+  const sectionLines = outline.headings
+    .filter((heading) => heading.level === 2)
+    .map((heading) => {
+      const entryCount =
+        heading.entryCount != null ? ` (${heading.entryCount})` : ""
+      return `  - ${heading.text}${entryCount}`
+    })
+  return [`- ${outline.file}`, ...sectionLines].join("\n")
 }
 
 /** Renders memory-file outlines as a nested list of files and their H2
  *  sections with entry counts — the same shape vault_list_memory_files returns. */
 const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
-  outlines
-    .map((outline) => {
-      const sections = outline.headings
-        .filter((heading) => heading.level === 2)
-        .map(
-          (heading) =>
-            `  - ${heading.text}${
-              typeof heading.entryCount === "number"
-                ? ` (${heading.entryCount})`
-                : ""
-            }`,
-        )
-      return [`- ${outline.file}`, ...sections].join("\n")
-    })
-    .join("\n")
+  outlines.map(formatMemoryOutlineEntry).join("\n")
+
+/** Formats the broken-link count for the stats line, including excluded
+ *  forward-refs when present. Returns "" when there are no broken links. */
+const formatBrokenLinkSegment = (result: {
+  count: number
+  excludedFolder: string
+  excludedCount: number
+}): string => {
+  const { count, excludedFolder, excludedCount } = result
+  const excludedNote =
+    excludedCount > 0
+      ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
+      : ""
+  if (count === 0 && excludedNote.length === 0) return ""
+
+  const linkCount = `${count} broken link${count === 1 ? "" : "s"}`
+  const parenthetical = excludedNote.length > 0 ? ` (${excludedNote})` : ""
+  return `${linkCount}${parenthetical}.`
+}
 
 export const registerVaultOrientationPrompt = ({
   server,
@@ -152,19 +176,10 @@ export const registerVaultOrientationPrompt = ({
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
-        const {
-          count: brokenCount,
-          excludedFolder,
-          excludedCount,
-        } = brokenLinkResult
-        const excludedNote =
-          excludedCount > 0
-            ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
-            : ""
-        const brokenLinkSegment =
-          brokenCount > 0 || excludedNote.length > 0
-            ? `${brokenCount} broken link${brokenCount === 1 ? "" : "s"}${excludedNote.length > 0 ? ` (${excludedNote})` : ""}.`
-            : ""
+
+        // ── Format each section ──────────────────────────────────
+
+        const brokenLinkSegment = formatBrokenLinkSegment(brokenLinkResult)
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
           stats.untaggedNotes > 0 ? `${stats.untaggedNotes} untagged.` : "",
@@ -182,6 +197,7 @@ export const registerVaultOrientationPrompt = ({
                 .map((folder) => `- ${folder.name} (${folder.count})`)
                 .join("\n")
             : "No folders yet — notes live at the vault root."
+
         const tagsSection =
           tags.length > 0
             ? tags
@@ -189,23 +205,28 @@ export const registerVaultOrientationPrompt = ({
                 .map((tag) => `- #${tag.tag} (${tag.count})`)
                 .join("\n")
             : "No tags yet."
+
         const propertyKeysSection = formatPropertyAdoption(
           propertyKeys,
           stats.totalNotes,
           ORIENTATION_PROPERTY_LIMIT,
           ORIENTATION_LOW_ADOPTION_THRESHOLD,
         )
+
         const recentSection =
           recent.length > 0
             ? recent.map(formatNoteLine).join("\n")
             : "No notes yet."
+
+        const orphanCountLabel = `${orphans.length}${hasMoreOrphans ? "+" : ""}`
         const orphanSection =
           orphans.length > 0
             ? [
-                `${orphans.length}${hasMoreOrphans ? "+" : ""} orphan notes (no incoming links):`,
+                `${orphanCountLabel} orphan notes (no incoming links):`,
                 ...orphans.map(formatNoteLine),
               ].join("\n")
             : "No orphans found — every note has at least one incoming link."
+
         const memorySection = config.memoryEnabled
           ? memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)

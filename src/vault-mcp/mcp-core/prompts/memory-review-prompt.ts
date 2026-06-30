@@ -24,6 +24,26 @@ const PROMPT_NAMES = {
 } as const
 export { PROMPT_NAMES as MEMORY_REVIEW_PROMPT_NAMES }
 
+/** Formats a single memory file outline as a bullet with scope and section details. */
+const formatFileOutline = (outline: MemoryFileOutline): string => {
+  const titleLine = `- **${outline.file}** (${outline.bytes} bytes)`
+
+  const scopeLines = (outline.leading_callout?.body ?? "")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => `  ${line}`)
+
+  const sectionLines = outline.headings
+    .filter((heading) => heading.level === 2)
+    .map((heading) => {
+      const entryCount =
+        heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
+      return `  - ${heading.text}${entryCount}`
+    })
+
+  return [titleLine, ...scopeLines, ...sectionLines].join("\n")
+}
+
 /** Renders a structural overview of memory files: file count, scope callouts,
  *  section names with entry counts, and file sizes. Shown before the raw
  *  content in memory-review so the LLM has structural context. */
@@ -33,27 +53,7 @@ const formatMemoryStructuralOverview = (
 ): string => {
   const fileCount = outlines.length
   const header = `${fileCount} memory file${fileCount === 1 ? "" : "s"} in ${memoryDir}/:`
-
-  const fileDetails = outlines
-    .map((outline) => {
-      const scopeLines = (outline.leading_callout?.body ?? "")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => `  ${line}`)
-      const sections = outline.headings
-        .filter((heading) => heading.level === 2)
-        .map((heading) => {
-          const count =
-            heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
-          return `  - ${heading.text}${count}`
-        })
-      return [
-        `- **${outline.file}** (${outline.bytes} bytes)`,
-        ...scopeLines,
-        ...sections,
-      ].join("\n")
-    })
-    .join("\n")
+  const fileDetails = outlines.map(formatFileOutline).join("\n")
 
   return [header, "", fileDetails].join("\n")
 }
