@@ -67,7 +67,7 @@ export const advanceFence = (
 
 /** One line tagged with whether it sits in a fenced code block (a fence
  *  delimiter line counts as code — it never bears links or headings). */
-export type ClassifiedLine = { text: string; inCode: boolean }
+type ClassifiedLine = { text: string; inCode: boolean }
 
 /** Walks markdown content line by line, threading fence state via advanceFence
  *  and tagging each line as code or not. Used by link extraction (skips code

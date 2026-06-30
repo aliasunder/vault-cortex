@@ -20,8 +20,8 @@ on:
         description: >-
           Skip SST deploy and Lightsail instance update (SSH, compose
           restart, healthcheck). The image is still built and pushed to
-          GHCR. Use when the instance runs a different branch (e.g.
-          Phase 2) and restarting compose would overwrite it.
+          GHCR. Use when restarting compose would overwrite a
+          manually-deployed stack.
         required: false
         default: false
         type: boolean

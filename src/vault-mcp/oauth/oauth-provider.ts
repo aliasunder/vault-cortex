@@ -40,7 +40,7 @@ const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 // 10 minutes — OAuth spec recommends short auth code lifetimes.
 const AUTH_CODE_TTL_S = 10 * 60
 
-export type PendingAuthRequest = {
+type PendingAuthRequest = {
   client: OAuthClientInformationFull
   params: AuthorizationParams
   createdAt: DateTime
@@ -53,7 +53,7 @@ type StoredAuthCode = {
   expiresAt: DateTime
 }
 
-export type OAuthProviderOptions = {
+type OAuthProviderOptions = {
   authToken: string
   dbPath: string
   logger: Logger
@@ -194,11 +194,13 @@ export const createOAuthProvider = ({
     token: string,
   ): { clientId: string; scopes: string[] } | null => {
     const row = db
-      .prepare(
+      .prepare<
+        [string],
+        { client_id: string; scopes: string; expires_at: number }
+      >(
         "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
       )
-      .get(token) as
-      { client_id: string; scopes: string; expires_at: number } | undefined
+      .get(token)
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
     if (row.expires_at < DateTime.now().toUnixInteger()) return null

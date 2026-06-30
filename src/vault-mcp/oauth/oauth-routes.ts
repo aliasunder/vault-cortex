@@ -8,7 +8,7 @@ import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
-export type OAuthRoutesOptions = {
+type OAuthRoutesOptions = {
   authToken: string
   serverUrl: URL
   oauthProvider: OAuthProvider

@@ -15,9 +15,8 @@ on:
       skip_deploy:
         description: >-
           Skip SST deploy and Lightsail restart — the Docker image is
-          still built and pushed to GHCR. Use when the instance runs a
-          different branch (e.g. Phase 2) and restarting compose would
-          overwrite it.
+          still built and pushed to GHCR. Use when restarting compose
+          would overwrite a manually-deployed stack.
         required: false
         type: boolean
         default: false

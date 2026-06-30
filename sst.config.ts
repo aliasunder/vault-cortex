@@ -122,9 +122,9 @@ export default $config({
 
     // ── Lightsail ─────────────────────────────────────────────────
     // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
-    // Phase 1 runs fine on small_3_0 (2 GB, $12/mo). Phase 2 (hybrid
-    // search with local embeddings) needs the extra RAM. To downgrade,
-    // change bundleId to "small_3_0" — no snapshot needed, just redeploy.
+    // Hybrid search with local embeddings needs 4 GB RAM (small_3_0
+    // at 2 GB is insufficient). To downgrade, change bundleId to
+    // "small_3_0" — no snapshot needed, just redeploy.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,

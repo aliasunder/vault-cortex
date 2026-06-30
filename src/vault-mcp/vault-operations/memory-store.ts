@@ -60,7 +60,7 @@ const toKebabCase = (text: string): string =>
 
 // ── Types ───────────────────────────────────────────────────────
 
-export type MemoryHeading = Readonly<{
+type MemoryHeading = Readonly<{
   level: 1 | 2
   text: string
   entryCount?: number
@@ -76,8 +76,7 @@ export type MemoryFileOutline = Readonly<{
 
 /** What an updateMemory call did — lets the tool layer tailor its confirmation
  *  (e.g. nudge the caller to fill in a new file's scope callout). */
-export type UpdateMemoryOutcome =
-  "created-file" | "created-section" | "appended"
+type UpdateMemoryOutcome = "created-file" | "created-section" | "appended"
 
 type ParsedSection = Readonly<{
   heading: string
