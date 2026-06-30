@@ -42,7 +42,7 @@ Filters — all conditions AND-combine with each other and the text query:
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
-Example: vault_search({ query: "dealing with burnout recovery" }) — semantic: finds notes about mental health and overwhelm even without the word "burnout"
+Example: vault_search({ query: "how the server watches for file changes" }) — semantic: finds notes about chokidar and file watchers even without those exact terms
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
