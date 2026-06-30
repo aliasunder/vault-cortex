@@ -59,6 +59,12 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 
 # Days to retain persistent log files before cleanup (default: 30).
 # LOG_RETENTION_DAYS=30
+
+# Windows users: set this to true. Makes a vault stored on a C: drive work
+# through Docker Desktop (switches the file watcher to polling and note moves
+# to rename-based writes). Only strictly needed when your vault is on a C:
+# drive rather than inside WSL2, but harmless to enable for any Windows setup.
+# WINDOWS_MODE=true
 `
 
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
