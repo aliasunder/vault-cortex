@@ -29,8 +29,8 @@ describe("registerPrompts — registration", () => {
     const calls = captureRegistration()
     for (const call of calls) {
       const [, config] = call
-      expect(typeof config.title).toBe("string")
-      expect(config.title!.length).toBeGreaterThan(0)
+      expect(config.title).toEqual(expect.any(String))
+      expect(config.title?.length).toBeGreaterThan(0)
     }
   })
 
@@ -38,8 +38,8 @@ describe("registerPrompts — registration", () => {
     const calls = captureRegistration()
     for (const call of calls) {
       const [, config] = call
-      expect(typeof config.description).toBe("string")
-      expect(config.description!.length).toBeGreaterThan(0)
+      expect(config.description).toEqual(expect.any(String))
+      expect(config.description?.length).toBeGreaterThan(0)
     }
   })
 

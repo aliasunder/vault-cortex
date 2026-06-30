@@ -220,8 +220,11 @@ export const findCall = (
     throw new Error(`prompt not registered: ${name}`)
   })()
 
-export const textOf = (result: PromptResult): string =>
-  result.messages[0]!.content.text
+export const textOf = (result: PromptResult): string => {
+  const first = result.messages[0]
+  if (!first) throw new Error("prompt returned no messages")
+  return first.content.text
+}
 
 // Re-export dependencies that per-prompt test files need without adding
 // their own import of these modules.
