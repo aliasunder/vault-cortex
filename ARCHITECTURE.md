@@ -176,7 +176,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 ## MCP Tools
 
-### Phase 1: Vault Read/Write (R2, R3)
+### Vault Read/Write (R2, R3)
 
 | Tool                      | Input                                                        | Annotation      |
 | ------------------------- | ------------------------------------------------------------ | --------------- |
@@ -198,7 +198,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links — mirroring Obsidian's built-in rename. It reuses the same link-resolution logic as the link-graph tools, only rewrites a link when leaving it would break it, and refuses to overwrite an existing destination or touch `PROTECTED_PATHS`. Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
-### Phase 1: Search (R4)
+### Search (R4)
 
 | Tool                     | Input                        | Annotation   |
 | ------------------------ | ---------------------------- | ------------ |
@@ -212,7 +212,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-definitions.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
 
-### Phase 1: Property Discovery + Daily Notes
+### Property Discovery + Daily Notes
 
 | Tool                         | Input                         | Annotation   |
 | ---------------------------- | ----------------------------- | ------------ |
@@ -223,7 +223,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 `vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
 
-### Phase 1: Memory (R5)
+### Memory (R5)
 
 | Tool                      | Input                            | Annotation       |
 | ------------------------- | -------------------------------- | ---------------- |
@@ -236,7 +236,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 
 **Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. The vault CRUD and search layers continue to work normally.
 
-### Phase 1: Link Queries
+### Link Queries
 
 | Tool                       | Input                      | Annotation   |
 | -------------------------- | -------------------------- | ------------ |
@@ -255,7 +255,7 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
-### Phase 2: Hybrid Search (R8)
+### Hybrid Search (R8)
 
 Enhances the existing `vault_search` tool with vector similarity via sqlite-vec, fused with FTS5 keyword results using Reciprocal Rank Fusion (RRF). Embeddings generated locally by a small ONNX model (bge-small-en-v1.5, 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
 

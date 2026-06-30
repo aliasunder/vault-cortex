@@ -170,11 +170,15 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results.
 
-Hybrid search combines FTS5 keyword ranking with vector semantic similarity, fused via Reciprocal Rank Fusion (RRF). Keywords handle exact terms and technical jargon; vectors bridge the vocabulary gap by matching on meaning. Both run against a single SQLite database — a small ONNX model ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5), ~25MB) generates embeddings in-process with no external API, adding ~8ms to query latency.
+Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search-r8):
 
-Set `EMBEDDING_ENABLED=false` to run keyword-only search with no model download. When embeddings are enabled, search works with FTS-only while the index builds on first startup, then switches to hybrid automatically. The response includes a `search_mode` field (`"hybrid"` or `"fts"`) so clients always know which ranking produced the results.
+- **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
+- **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
+- **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
 
-See [ARCHITECTURE.md → Phase 2](./ARCHITECTURE.md#phase-2-hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
+Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, search starts FTS-only while the vector index builds on first startup, then switches to hybrid automatically — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
+
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
 
 ## Tools (25)
 
