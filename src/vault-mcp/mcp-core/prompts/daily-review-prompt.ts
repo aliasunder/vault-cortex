@@ -88,14 +88,15 @@ export const registerDailyReviewPrompt = ({
         const trimmedDaily = daily.content?.trim() ?? ""
         const truncated =
           maxChars !== undefined && trimmedDaily.length > maxChars
+        const markedDaily = wrapWithDataMarkers(
+          trimmedDaily,
+          { source: daily.path, type: "daily-note", date: dateArg },
+          maxChars,
+          "vault_get_daily_note",
+        )
         const dailySection =
           daily.exists && trimmedDaily.length > 0
-            ? wrapWithDataMarkers(
-                trimmedDaily,
-                { source: daily.path, type: "daily-note", date: dateArg },
-                maxChars,
-                "vault_get_daily_note",
-              )
+            ? markedDaily
             : `_No daily note exists at \`${daily.path}\` yet._`
 
         const brokenLinks = outgoingLinks.filter(

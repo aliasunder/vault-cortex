@@ -169,14 +169,15 @@ export const registerMemoryReviewPrompt = ({
         const memorySource = args.file
           ? `${config.memoryDir}/${args.file}`
           : config.memoryDir
+        const markedMemory = wrapWithDataMarkers(
+          trimmedMemory,
+          { source: memorySource, type: "memory" },
+          maxChars,
+          "vault_get_memory",
+        )
         const wrappedMemory =
           trimmedMemory.length > 0
-            ? wrapWithDataMarkers(
-                trimmedMemory,
-                { source: memorySource, type: "memory" },
-                maxChars,
-                "vault_get_memory",
-              )
+            ? markedMemory
             : "_(the selected memory is empty)_"
 
         const memoryReview = [
