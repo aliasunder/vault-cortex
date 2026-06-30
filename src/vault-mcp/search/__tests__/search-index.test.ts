@@ -2999,16 +2999,16 @@ It has multiple sentences to verify chunking works correctly.
 })
 
 describe("computeRrfScores", () => {
+  /** Rank-1 RRF score with default k=60: 1/(60+1) + 0.05 bonus */
+  const RANK_1_SCORE = Number((1 / 61 + 0.05).toPrecision(4))
+
   it("scores a path appearing in FTS only", () => {
     const result = computeRrfScores({
       ftsRanked: [{ path: "a.md" }],
       vectorRanked: [],
     })
 
-    expect(result).toHaveLength(1)
-    expect(result[0].path).toBe("a.md")
-    // rank 1: 1/(60+1) + 0.05 bonus = 0.06639...
-    expect(result[0].score).toBe(Number((1 / 61 + 0.05).toPrecision(4)))
+    expect(result).toEqual([{ path: "a.md", score: RANK_1_SCORE }])
   })
 
   it("scores a path appearing in vector only", () => {
@@ -3017,9 +3017,7 @@ describe("computeRrfScores", () => {
       vectorRanked: [{ path: "a.md" }],
     })
 
-    expect(result).toHaveLength(1)
-    expect(result[0].path).toBe("a.md")
-    expect(result[0].score).toBe(Number((1 / 61 + 0.05).toPrecision(4)))
+    expect(result).toEqual([{ path: "a.md", score: RANK_1_SCORE }])
   })
 
   it("combines scores when a path appears in both lists", () => {
@@ -3028,10 +3026,10 @@ describe("computeRrfScores", () => {
       vectorRanked: [{ path: "a.md" }],
     })
 
-    expect(result).toHaveLength(1)
-    // rank 1 in both: (1/61 + 0.05) * 2
-    const expectedScore = Number(((1 / 61 + 0.05) * 2).toPrecision(4))
-    expect(result[0].score).toBe(expectedScore)
+    // rank 1 in both lists: score doubles
+    expect(result).toEqual([
+      { path: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) },
+    ])
   })
 
   it("applies +0.02 bonus for ranks 2-3", () => {
@@ -3044,11 +3042,12 @@ describe("computeRrfScores", () => {
       vectorRanked: [],
     })
 
-    expect(result).toHaveLength(3)
-    const secondResult = result.find((r) => r.path === "second.md")
-    const thirdResult = result.find((r) => r.path === "third.md")
-    expect(secondResult?.score).toBe(Number((1 / 62 + 0.02).toPrecision(4)))
-    expect(thirdResult?.score).toBe(Number((1 / 63 + 0.02).toPrecision(4)))
+    // Sorted by score descending — rank 1 has highest score
+    expect(result).toEqual([
+      { path: "first.md", score: RANK_1_SCORE },
+      { path: "second.md", score: Number((1 / 62 + 0.02).toPrecision(4)) },
+      { path: "third.md", score: Number((1 / 63 + 0.02).toPrecision(4)) },
+    ])
   })
 
   it("applies no bonus for rank 4 and beyond", () => {
@@ -3062,19 +3061,24 @@ describe("computeRrfScores", () => {
       vectorRanked: [],
     })
 
-    const fourthResult = result.find((r) => r.path === "4.md")
-    expect(fourthResult?.score).toBe(Number((1 / 64).toPrecision(4)))
+    // Fourth result has no bonus — raw RRF only
+    expect(result[3]).toEqual({
+      path: "4.md",
+      score: Number((1 / 64).toPrecision(4)),
+    })
   })
 
-  it("handles disjoint lists and sorts by score descending", () => {
+  it("handles disjoint lists with equal-rank paths", () => {
     const result = computeRrfScores({
       ftsRanked: [{ path: "fts-only.md" }],
       vectorRanked: [{ path: "vec-only.md" }],
     })
 
-    expect(result).toHaveLength(2)
-    // Both are rank 1 in their respective lists — same score, stable order
-    expect(result[0].score).toBe(result[1].score)
+    // Both are rank 1 in their respective lists — same score
+    expect(result).toEqual([
+      { path: "fts-only.md", score: RANK_1_SCORE },
+      { path: "vec-only.md", score: RANK_1_SCORE },
+    ])
   })
 
   it("returns empty array for empty inputs", () => {
@@ -3091,9 +3095,10 @@ describe("computeRrfScores", () => {
       vectorRanked: [{ path: "a.md" }],
     })
 
-    // "a.md" appears in both lists → higher score
+    // "a.md" appears in both lists → higher combined score → first
     expect(result[0].path).toBe("a.md")
     expect(result[0].score).toBeGreaterThan(result[1].score)
+    expect(result[1].path).toBe("b.md")
   })
 
   it("accepts a custom k value", () => {
@@ -3181,7 +3186,7 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results.length).toBeGreaterThan(0)
+      expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
     })
 
@@ -3199,7 +3204,7 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results.length).toBeGreaterThan(0)
+      expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
       // embedText called once for the query embedding, but KNN returns nothing
       expect(mockEmbedder.embedText).toHaveBeenCalled()
@@ -3214,19 +3219,19 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
       const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
       const results = await hybridIndex.hybridSearch(
         { query: "career goals" },
         logger,
       )
 
-      expect(results.length).toBeGreaterThan(0)
+      expect(results).toHaveLength(1)
       expect(results[0].path).toBe("a.md")
       expect(warnSpy).toHaveBeenCalledWith(
         "vector search failed, falling back to FTS-only",
         expect.objectContaining({ error: "model unavailable" }),
       )
-      warnSpy.mockRestore()
     })
   })
 
@@ -3260,17 +3265,16 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      // a.md appears in both FTS and vector → higher RRF score
+      expect(results.length).toBeGreaterThanOrEqual(2)
+      // a.md appears in both FTS and vector → higher RRF score → ranked first
       expect(results[0].path).toBe("a.md")
+      expect(results[0].score).toBeGreaterThan(results[1].score)
     })
 
     it("includes vector-only results with full metadata", async () => {
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      // NOTE_A has "aspire" and "targets" — a semantic match for "aspirations"
-      // but FTS won't find it via stemming alone for some queries
       hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
@@ -3295,18 +3299,26 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      // Both should appear since both have vector results
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      // All results should have full metadata
-      for (const result of results) {
-        expect(result.path).toBeTruthy()
-        expect(result.title).toBeTruthy()
-        expect(result.score).toBeGreaterThan(0)
-        expect(result.tags).toBeInstanceOf(Array)
-        expect(result.folder).toBeDefined()
-        expect(result.modified).toBeTruthy()
-        expect(typeof result.bytes).toBe("number")
-      }
+      expect(results.length).toBeGreaterThanOrEqual(2)
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("a.md")
+      expect(paths).toContain("b.md")
+
+      // Vector-only result (a.md — no FTS match for "project ideas CLI")
+      // should carry full metadata from the notes table
+      const vectorOnlyResult = results.find((result) => result.path === "a.md")
+      expect(vectorOnlyResult).toEqual(
+        expect.objectContaining({
+          path: "a.md",
+          title: "Career Goals",
+          tags: ["personal", "career"],
+          folder: "",
+          type: "reflection",
+        }),
+      )
+      expect(vectorOnlyResult?.score).toBeGreaterThan(0)
+      expect(vectorOnlyResult?.modified).toBeTruthy()
+      expect(typeof vectorOnlyResult?.bytes).toBe("number")
     })
 
     it("generates snippets from chunk text for vector-only results", async () => {
@@ -3346,9 +3358,11 @@ the Lightsail budget estimates for next quarter.
         logger,
       )
 
-      // Vector-only results should have snippet from chunk text
+      // Vector-only results should have non-empty snippet built from chunk text
+      expect(results.length).toBeGreaterThanOrEqual(1)
       for (const result of results) {
-        expect(typeof result.snippet).toBe("string")
+        expect(result.snippet).toBeTruthy()
+        expect(result.snippet.length).toBeGreaterThan(0)
       }
     })
   })
@@ -3435,8 +3449,9 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      // Only c.md has the "work" tag
-      const paths = results.map((r) => r.path)
+      // Only c.md has the "work" tag — a.md (tags: personal, career) excluded
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
       expect(paths).not.toContain("a.md")
     })
 
@@ -3467,7 +3482,9 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      const paths = results.map((r) => r.path)
+      // Only c.md is type "meeting" — a.md (type: reflection) excluded
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
       expect(paths).not.toContain("a.md")
     })
   })
@@ -3593,11 +3610,155 @@ The main content discusses RESTful API design and GraphQL alternatives.
         logger,
       )
 
-      const refResult = results.find((r) => r.path === "ref.md")
+      const refResult = results.find((result) => result.path === "ref.md")
       expect(refResult).toBeDefined()
-      if (refResult?.leading_callout) {
-        expect(refResult.leading_callout.type).toBe("info")
-      }
+      expect(refResult?.leading_callout).toEqual({
+        type: "info",
+        title: "Quick reference",
+        body: "This is a reference document about API design patterns.",
+      })
+    })
+  })
+
+  describe("filters — related and properties", () => {
+    it("applies related filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
+
+      const results = await hybridIndex.hybridSearch(
+        {
+          query: "deployment infrastructure",
+          filters: { related: ["[[Projects/alpha.md]]"] },
+        },
+        logger,
+      )
+
+      // Only c.md has the related link — a.md has no related field
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("c.md")
+      expect(paths).not.toContain("a.md")
+    })
+
+    it("applies properties filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteWithProperty = `---
+title: Active Project
+tags: [project]
+status: active
+---
+
+This project is currently in development with active deployment work.
+`
+      const noteWithoutProperty = `---
+title: Archived Project
+tags: [project]
+status: archived
+---
+
+This project is no longer maintained but had deployment infrastructure.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "active.md",
+          rawContent: noteWithProperty,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        {
+          filePath: "archived.md",
+          rawContent: noteWithoutProperty,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "active.md", rawContent: noteWithProperty },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "archived.md", rawContent: noteWithoutProperty },
+        logger,
+      )
+
+      const results = await hybridIndex.hybridSearch(
+        {
+          query: "deployment",
+          filters: { properties: { status: "active" } },
+        },
+        logger,
+      )
+
+      // Only active.md has status: active
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("active.md")
+      expect(paths).not.toContain("archived.md")
+    })
+  })
+
+  describe("snippet_tokens", () => {
+    it("truncates vector-only snippets to the specified token count", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const verboseNote = `---
+title: Verbose Note
+tags: [test]
+---
+
+This is a note with many words that should be truncated when using a small snippet token limit for vector-only results.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "verbose.md",
+          rawContent: verboseNote,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "verbose.md", rawContent: verboseNote },
+        logger,
+      )
+
+      // Query that won't match via FTS — forces vector-only result path
+      const results = await hybridIndex.hybridSearch(
+        { query: "zzz_no_fts_match", filters: { snippet_tokens: 5 } },
+        logger,
+      )
+
+      const verboseResult = results.find(
+        (result) => result.path === "verbose.md",
+      )
+      expect(verboseResult).toBeDefined()
+      // Snippet should be truncated to ~5 words with trailing "..."
+      const wordCount = verboseResult?.snippet.split(/\s+/).length ?? 0
+      expect(wordCount).toBeLessThanOrEqual(6) // 5 words + "..." is 6 tokens
+      expect(verboseResult?.snippet).toContain("...")
     })
   })
 })
