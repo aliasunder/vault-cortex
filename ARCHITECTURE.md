@@ -272,7 +272,7 @@ Enhances the existing `vault_search` tool with vector similarity via sqlite-vec,
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
-**Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 and vector search in parallel, then merges via RRF. The flow:
+**Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
 
 1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
 2. Vector search: embed the query → sqlite-vec KNN → deduplicate to best chunk per note
