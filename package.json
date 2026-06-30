@@ -90,16 +90,16 @@
     "@types/node": "26.0.1",
     "@types/picomatch": "4.0.3",
     "commander": "14.0.3",
-    "eslint": "10.5.0",
+    "eslint": "10.6.0",
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jiti": "2.7.0",
     "lint-staged": "17.0.8",
-    "prettier": "3.8.5",
+    "prettier": "3.9.4",
     "sst": "4.17.0",
     "tsx": "4.22.4",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.62.0",
+    "typescript-eslint": "8.62.1",
     "vitest": "4.1.9"
   }
 }
