@@ -821,7 +821,14 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index) as {
           id: number
         }
-        insertVectorStmt.run(BigInt(chunkRow.id), Buffer.from(embedding.buffer))
+        insertVectorStmt.run(
+          BigInt(chunkRow.id),
+          Buffer.from(
+            embedding.buffer,
+            embedding.byteOffset,
+            embedding.byteLength,
+          ),
+        )
       })()
       embeddedCount++
     }
@@ -862,7 +869,11 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
     try {
       const queryEmbedding = await embedder.embedText(params.query)
       const rows = knnSearchStmt.all(
-        Buffer.from(queryEmbedding.buffer),
+        Buffer.from(
+          queryEmbedding.buffer,
+          queryEmbedding.byteOffset,
+          queryEmbedding.byteLength,
+        ),
         params.limit,
       ) as Array<{ note_path: string; chunk_text: string; distance: number }>
 
