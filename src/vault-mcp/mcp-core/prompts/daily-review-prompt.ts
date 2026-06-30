@@ -63,7 +63,13 @@ export const registerDailyReviewPrompt = ({
       try {
         // Resolve the date once so getDailyNote and modifiedOnDate always
         // target the same calendar day, even around midnight.
-        const dateArg = args.date ?? DateTime.now().toISODate()!
+        const resolvedDate = args.date ?? DateTime.now().toISODate()
+        if (!resolvedDate) {
+          return textResult(
+            "Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.",
+          )
+        }
+        const dateArg = resolvedDate
         const daily = await getDailyNote(
           { vaultPath, date: dateArg },
           reqLogger,
