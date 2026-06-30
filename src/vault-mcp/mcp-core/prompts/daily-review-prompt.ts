@@ -28,7 +28,7 @@ const DAILY_RECENT_LIMIT = 10
 
 type OutgoingLink = {
   path: string
-  title?: string
+  title: string | null
   exists: boolean
   daily_note_forward_ref?: boolean
 }

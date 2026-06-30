@@ -106,7 +106,7 @@ const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
  *  forward-refs when present. Returns "" when there are no broken links. */
 const formatBrokenLinkSegment = (result: {
   count: number
-  excludedFolder: string
+  excludedFolder: string | null
   excludedCount: number
 }): string => {
   const { count, excludedFolder, excludedCount } = result
