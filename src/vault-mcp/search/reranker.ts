@@ -91,16 +91,23 @@ export const createReranker = (logger: Logger) => {
 
     const crossEncoder = await getModel()
 
+    // Score each (query, document) pair sequentially — the ONNX runtime
+    // runs on a single thread, so parallelizing wouldn't help.
     const scores: number[] = []
     for (const document of documents) {
       const inputs = crossEncoder.tokenizer(query, {
+        // text_pair encodes both texts as a single [CLS] query [SEP] document [SEP]
+        // sequence so the model can attend across both simultaneously.
         text_pair: document,
+        // padding: required by the tokenizer API for consistent tensor shapes.
         padding: true,
+        // truncation: ms-marco has a 512-token context window. Query + document
+        // can exceed this (chunks are up to 450 tokens), so truncation clips
+        // the combined input to fit — the model scores what it sees.
         truncation: true,
       })
       const output = await crossEncoder.model(inputs)
-      // Cross-encoder logit: output.logits is a Tensor with shape [1, 1]
-      // (single input, single output score for relevance).
+      // output.logits is a Tensor [1, 1] — a single relevance score per pair.
       const logit = Number(output.logits.data[0])
       scores.push(logit)
     }
