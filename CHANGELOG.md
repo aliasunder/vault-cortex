@@ -16,6 +16,26 @@
 
 
 
+
+## [0.25.0] — 2026-07-01
+
+### Features
+
+- **search:** Add cross-encoder reranker with position-aware score blending (#235)
+
+### Refactoring
+
+- **prompts:** Decompose prompt-definitions into prompts/ directory (#236)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.24.0
+
+### Maintenance
+
+- **cli:** Update npm keywords for Phase 2 search (#237)
+- Remove dead Phase 2 workflow + unused type exports (#234)
+
 ## [0.24.0] — 2026-06-30
 
 ### ⚠ BREAKING CHANGES
