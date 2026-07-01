@@ -21,23 +21,13 @@ See the [README](./README.md) for the full value proposition.
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 
-## Phasing
+## Capability Layers
 
-**Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
-About Me/ memory layer. The MCP surface is **tools + prompts** — model-driven
-tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
-This alone makes any MCP client vault-aware and personalized across
-conversations.
+The server provides three capability layers, each additive:
 
-**Phase 2a** adds hybrid search (FTS5 + sqlite-vec vector search with
-RRF fusion) to `vault_search` — embeddings generated
-locally by a small ONNX model running in-process, no external API
-required. The file watcher includes a second hook for embedding ingestion.
-Additive, no rewrites. The Docker image uses Debian slim (`node:24-slim`)
-instead of Alpine because `onnxruntime-node` requires glibc.
-
-**Phase 2b** adds cross-encoder reranking with position-aware score
-blending to refine hybrid search result ordering after RRF fusion.
+- **Vault CRUD + memory** — read/write notes, heading-targeted patching, note moving with link rewriting, and an About Me/ memory layer for AI personalization. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
+- **Hybrid search** — FTS5 keyword matching + sqlite-vec vector similarity, fused via RRF. Embeddings generated locally by a small ONNX model — no external API. The Docker image uses Debian slim (`node:24-slim`) because `onnxruntime-node` requires glibc.
+- **Cross-encoder reranking** — position-aware score blending after RRF fusion, rescuing intent-heavy queries where keywords and vectors both miss.
 
 ## User Requirements
 
@@ -168,7 +158,7 @@ graph LR
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → obsidian-headless → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → response.
+**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → cross-encoder reranking → response.
 
 ## Invariant: Vault Is Source of Truth
 
@@ -257,9 +247,18 @@ Link queries use a `links` table populated during indexing:
 
 ### Hybrid Search (R8)
 
-`vault_search` combines FTS5 keyword results with sqlite-vec vector similarity using [Reciprocal Rank Fusion](https://github.com/tobi/qmd#score-normalization--fusion) (RRF). Embeddings are generated locally by a small ONNX model ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5), 33M params, INT8 quantized) running in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
+`vault_search` combines FTS5 keyword results with sqlite-vec vector similarity using [Reciprocal Rank Fusion](https://github.com/tobi/qmd#score-normalization--fusion) (RRF), refined by a cross-encoder reranker. All models run in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). When enabled, `createEmbedder(logger)` lazy-loads the ONNX model on first use (1.3s cold start, ~25MB download cached by transformers). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
+| Component      | Model                                                                                    | Download | Query latency          | Peak memory |
+| -------------- | ---------------------------------------------------------------------------------------- | -------- | ---------------------- | ----------- |
+| **Embedding**  | [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (33M, q8)           | ~25MB    | ~8ms                   | ~200MB      |
+| **Reranker**   | [ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2) (22M, q8) | ~20MB    | ~200ms (20 candidates) | ~100MB      |
+| **Vector KNN** | sqlite-vec (brute-force)                                                                 | in DB    | <1ms                   | negligible  |
+| **RRF fusion** | application-layer                                                                        | —        | <1ms                   | negligible  |
+
+Both models lazy-load on first use (~1–2s cold start each, cached after). Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
+
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
 
 **Vector schema:** Two tables in the same SQLite database as FTS5:
 
@@ -507,14 +506,14 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ## Cost
 
-| Component                          | Phase 1 (full-text search)                 | Phase 2 (hybrid search) |
-| ---------------------------------- | ------------------------------------------ | ----------------------- |
-| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB)           |
-| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same                    |
-| API Gateway                        | ~$0                                        | ~$0                     |
-| Obsidian Sync                      | existing                                   | same                    |
-| Local embeddings (in-process ONNX) | —                                          | $0 (no API)             |
-| **Total**                          | **~$13/mo**                                | **~$25/mo**             |
+| Component                          | Keyword-only (`EMBEDDING_ENABLED=false`)   | Full (hybrid + reranker) |
+| ---------------------------------- | ------------------------------------------ | ------------------------ |
+| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB)            |
+| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same                     |
+| API Gateway                        | ~$0                                        | ~$0                      |
+| Obsidian Sync                      | existing                                   | same                     |
+| Local embeddings (in-process ONNX) | —                                          | $0 (no API)              |
+| **Total**                          | **~$13/mo**                                | **~$25/mo**              |
 
 ## Key Decisions
 
