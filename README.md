@@ -224,8 +224,10 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 > **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
 
+## Properties
+
 <details>
-<summary><strong>Properties</strong> — five promoted properties get dedicated filtering; all others are still fully queryable</summary>
+<summary>Five promoted properties get dedicated filtering; all others are still fully queryable</summary>
 
 Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
 
