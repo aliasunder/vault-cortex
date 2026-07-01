@@ -38,6 +38,8 @@
     "second-brain",
     "hybrid-search",
     "semantic-search",
+    "cross-encoder",
+    "reranking",
     "cli"
   ],
   "dependencies": {
