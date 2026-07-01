@@ -18,6 +18,15 @@
 
 
 
+
+## [0.25.2] — 2026-07-01
+
+### Documentation
+
+- Complete the hybrid search narrative (#241)
+- Update DeepWiki annotations for Phase 2 (#240)
+- Update CHANGELOG.md for v0.25.1
+
 ## [0.25.1] — 2026-07-01
 
 ### Documentation
