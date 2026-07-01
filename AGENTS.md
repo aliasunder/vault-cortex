@@ -57,6 +57,26 @@ deploy/                                # End-user quickstart (no clone needed)
     README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
+scripts/                               # Dev/ops helpers (not shipped in Docker)
+  dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
+  sync-cli-templates.ts                # Copies deploy/ compose files into cli/templates/
+cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
+  src/
+    bin.ts                             # Entry point (version injection + run)
+    main.ts                            # Top-level wiring (program + init + prompts + docker)
+    program.ts                         # Commander program definition
+    init.ts                            # Init command orchestration
+    prompts.ts                         # Interactive prompt flow (mode, vault path, token)
+    scaffold.ts                        # File generation (docker-compose.yml, .env)
+    docker.ts                          # Container management (compose up, health-check wait)
+    env.ts                             # Environment file handling (.env generation)
+    token.ts                           # Secure token generation (openssl rand)
+    vault.ts                           # Vault path validation
+    node-version.ts                    # Node.js version compatibility check
+    messages.ts                        # User-facing output formatting
+  templates/                           # Scaffolding templates (synced from deploy/)
+    local/docker-compose.yml           #   Local deployment template
+    remote/docker-compose.yml          #   Remote deployment template
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
@@ -66,6 +86,8 @@ src/
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
     fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)
+    assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
+    filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
