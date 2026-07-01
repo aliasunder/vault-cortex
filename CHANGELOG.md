@@ -17,6 +17,18 @@
 
 
 
+
+## [0.25.1] — 2026-07-01
+
+### Documentation
+
+- Polish README and ARCHITECTURE for readability (#239)
+- Update CHANGELOG.md for v0.25.0
+
+### Maintenance
+
+- **cli:** Add cross-encoder and reranking npm keywords (#238)
+
 ## [0.25.0] — 2026-07-01
 
 ### Features
