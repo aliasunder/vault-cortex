@@ -37,7 +37,7 @@
 
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
+- **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -164,7 +164,7 @@ graph LR
 
 The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and Phase 1/2 boundaries.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
 
 ## Hybrid Search
 
@@ -174,11 +174,13 @@ Hybrid search combines both ranking signals via [Reciprocal Rank Fusion](./ARCHI
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
-- **Model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
+- **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
+- **Embedding model** — [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (~25MB ONNX) runs in-process with no external API, adding ~8ms to query latency
+- **Reranker model** — [ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2) (~20MB ONNX) applies position-aware score blending after RRF fusion, adding ~200ms. Set `RERANK_MODE=none` to skip
 
-Both run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) tells clients which ranking was used.
+Both models run against a single SQLite database. Set `EMBEDDING_ENABLED=false` to skip embeddings entirely and run keyword-only search. When enabled, each query uses hybrid ranking if vectors are available, falling back to FTS-only otherwise — the `search_mode` response field (`"hybrid"` or `"fts"`) and `reranked` boolean tell clients which ranking was used.
 
-See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, vector persistence, and search module decomposition.
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for the full technical breakdown — embedding pipeline, RRF algorithm, cross-encoder reranking, vector persistence, and search module decomposition.
 
 ## Tools (25)
 
@@ -252,6 +254,7 @@ All settings are environment variables with sensible defaults.
 | `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                           |
 | `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                           |
 | `EMBEDDING_ENABLED`         | —           | `true`                               | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                             |
+| `RERANK_MODE`               | —           | `blended`                            | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                |
 | `MEMORY_ENABLED`            | —           | `true`                               | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                     |
 | `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                          |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                 |
@@ -325,17 +328,18 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase  | What                                                               | Status      |
-| ------ | ------------------------------------------------------------------ | ----------- |
-| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1       | Complete    |
-| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking | Complete    |
-| **2b** | Reranker — cross-encoder reranking, position-aware score blending  | In progress |
+| Phase  | What                                                                                                        | Status    |
+| ------ | ----------------------------------------------------------------------------------------------------------- | --------- |
+| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                                | Complete  |
+| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                          | Complete  |
+| **2b** | Reranker — cross-encoder reranking, position-aware score blending                                           | Complete  |
+| **3**  | Graph memory — automated relationship extraction for relational queries that hand-maintained wikilinks miss | Exploring |
 
 ## Acknowledgments
 
 Vault Cortex's remote capability exists because of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — a [headless Obsidian Sync](https://obsidian.md/help/sync/headless) client that runs in Docker without a display server. It's the piece that makes "access your vault from anywhere" possible. The remote stack runs a small [fork](https://github.com/aliasunder/obsidian-headless-sync-docker) that adds a build-time config `chown` and `--device-name` on the initial Sync registration ([upstream PR #8](https://github.com/Belphemur/obsidian-headless-sync-docker/pull/8) remains open).
 
-The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, content-hash gating, and heading-aware chunking.
+The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, position-aware score blending for cross-encoder reranking, content-hash gating, and heading-aware chunking.
 
 ## Contributing
 

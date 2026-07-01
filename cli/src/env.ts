@@ -33,6 +33,13 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Set to false to disable model download and use FTS5 search only.
 # EMBEDDING_ENABLED=true
 
+# Reranking mode for hybrid search results (default: blended).
+# "blended" uses a cross-encoder to refine result ordering with
+# position-aware score blending (~200ms added latency).
+# "none" skips reranking for lower latency.
+# Only takes effect when EMBEDDING_ENABLED=true.
+# RERANK_MODE=blended
+
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 # MEMORY_ENABLED=true
@@ -52,6 +59,12 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 
 # Days to retain persistent log files before cleanup (default: 30).
 # LOG_RETENTION_DAYS=30
+
+# Windows users: set this to true. Makes a vault stored on a C: drive work
+# through Docker Desktop (switches the file watcher to polling and note moves
+# to rename-based writes). Only strictly needed when your vault is on a C:
+# drive rather than inside WSL2, but harmless to enable for any Windows setup.
+# WINDOWS_MODE=true
 `
 
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
@@ -68,6 +81,13 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # subsequent starts are fast via content-hash caching.
 # Set to false to disable model download and use FTS5 search only.
 # EMBEDDING_ENABLED=true
+
+# Reranking mode for hybrid search results (default: blended).
+# "blended" uses a cross-encoder to refine result ordering with
+# position-aware score blending (~200ms added latency).
+# "none" skips reranking for lower latency.
+# Only takes effect when EMBEDDING_ENABLED=true.
+# RERANK_MODE=blended
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.

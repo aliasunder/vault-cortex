@@ -13,17 +13,10 @@ under DEVICE_NAME.
 Fronted by API Gateway with a smart Lambda authorizer (path-aware: OAuth
 endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
 
-**Phase 1** delivers vault CRUD, full-text search (SQLite FTS5), and the
-About Me/ memory layer — enough to make any MCP client personalized.
-
-**Phase 2a** adds hybrid search — FTS5 + sqlite-vec vector search with
-RRF fusion — to the existing `vault_search` tool. The file watcher
-includes a second hook for embedding ingestion. Additive — not a
-rewrite. The Docker image uses Debian slim (`node:24-slim`) because
-`onnxruntime-node` requires glibc.
-
-**Phase 2b** (in progress) will add cross-encoder reranking and
-position-aware score blending to refine hybrid search result ordering.
+The server provides vault CRUD, hybrid search (FTS5 keyword + sqlite-vec
+vector + cross-encoder reranking via RRF fusion and position-aware score
+blending), and the About Me/ memory layer. The Docker image uses Debian
+slim (`node:24-slim`) because `onnxruntime-node` requires glibc.
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
@@ -113,6 +106,7 @@ src/
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
       embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
+      reranker.ts                      # Cross-encoder reranker factory (ms-marco-MiniLM, ONNX)
       chunker.ts                       # Heading-aware chunking for embedding
       file-watcher.ts                  # chokidar → keeps FTS + vector index current
     oauth/                             # OAuth 2.1 (provider, routes, consent)

@@ -6,6 +6,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
+import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
@@ -75,11 +76,16 @@ const startServer = async (): Promise<void> => {
     memoryEnabled: config.memoryEnabled,
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
+    rerankMode: config.rerankMode,
     windowsBindMount: config.windowsBindMount,
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
-  const search = createSearchIndex(searchDbPath, embedder)
+  const reranker =
+    config.embeddingEnabled && config.rerankMode === "blended"
+      ? createReranker(logger)
+      : undefined
+  const search = createSearchIndex(searchDbPath, embedder, reranker)
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 

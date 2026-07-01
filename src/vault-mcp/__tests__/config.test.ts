@@ -218,6 +218,29 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("RERANK_MODE", () => {
+    it("defaults to 'blended' when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.rerankMode).toBe("blended")
+    })
+
+    it("accepts 'none'", () => {
+      const config = loadConfig({ RERANK_MODE: "none" })
+      expect(config.rerankMode).toBe("none")
+    })
+
+    it("accepts 'blended'", () => {
+      const config = loadConfig({ RERANK_MODE: "blended" })
+      expect(config.rerankMode).toBe("blended")
+    })
+
+    it("rejects an invalid value", () => {
+      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(
+        /Invalid option/,
+      )
+    })
+  })
+
   describe("EMBEDDING_ENABLED", () => {
     it("defaults to true when unset", () => {
       const config = loadConfig(EMPTY_ENV)

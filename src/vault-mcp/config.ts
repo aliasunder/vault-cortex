@@ -46,6 +46,11 @@ export type VaultConfig = Readonly<{
    *  vector search. When false, no model is loaded, no vector tables are created,
    *  and search uses FTS5 only. */
   embeddingEnabled: boolean
+  /** Controls cross-encoder reranking after RRF fusion in hybrid search.
+   *  "blended" applies position-aware score blending (~200ms added latency).
+   *  "none" skips reranking entirely — no model download, RRF-only ordering.
+   *  Only takes effect when embeddingEnabled is true. */
+  rerankMode: "none" | "blended"
   /** "Windows mode": the vault is bind-mounted from a Windows drive into Docker
    *  Desktop, so it crosses the Docker Desktop ↔ WSL2 bridge. Enables filesystem
    *  polling for the watcher (inotify doesn't cross the bridge) and a
@@ -96,6 +101,10 @@ export const loadConfig = (
     .default("true")
     .asBool()
 
+  const rerankMode = z
+    .enum(["none", "blended"])
+    .parse(envVar.from(env).get("RERANK_MODE").default("blended").asString())
+
   const windowsBindMount = envVar
     .from(env)
     .get("WINDOWS_MODE")
@@ -109,6 +118,7 @@ export const loadConfig = (
     orphanExcludeFolders,
     serviceDocumentationUrl,
     embeddingEnabled,
+    rerankMode,
     windowsBindMount,
   })
 }

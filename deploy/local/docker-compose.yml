@@ -26,6 +26,7 @@ services:
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env — see .env.example}"
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
+      RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -34,7 +35,7 @@ services:
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true in .env when your vault is on a C: drive
       # (polling watcher + rename-based moves across the Docker Desktop/WSL2 bridge).
-      WINDOWS_MODE: ${WINDOWS_MODE:-}
+      WINDOWS_MODE: ${WINDOWS_MODE:-false}
       # Optional overrides. When unset, the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes" (blocked from vault_delete_note)

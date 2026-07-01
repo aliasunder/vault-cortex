@@ -10,6 +10,7 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { contentHash, type Embedder } from "./embedder.js"
+import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -47,6 +48,7 @@ export type SearchResult = {
 export type HybridSearchResult = {
   results: SearchResult[]
   search_mode: "hybrid" | "fts"
+  reranked: boolean
 }
 
 export type NoteMetadata = {
@@ -151,7 +153,11 @@ export type OutgoingLinkEntry = {
 
 // ── Factory ─────────────────────────────────────────────────────
 
-export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
+export const createSearchIndex = (
+  dbPath: string,
+  embedder?: Embedder,
+  reranker?: Reranker,
+) => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -365,6 +371,14 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
          WHERE nv.embedding MATCH ?
            AND nv.k = ?
          ORDER BY nv.distance`,
+      )
+    : null
+
+  /** First chunk text for a note — used by the reranker to score FTS-only
+   *  results that have no vector hit. Chunk 0 contains the title + intro. */
+  const selectFirstChunkStmt = embedder
+    ? db.prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
       )
     : null
 
@@ -933,6 +947,8 @@ export const createSearchIndex = (dbPath: string, embedder?: Embedder) => {
       knnSearchStmt,
       selectNoteMetadataStmt,
     },
+    reranker,
+    selectFirstChunkStmt,
   }
 
   /** Binds the query context as the first argument of a query function,

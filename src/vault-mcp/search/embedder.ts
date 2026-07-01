@@ -2,7 +2,7 @@
  *
  * Factory-closure pattern: `createEmbedder(logger)` returns the embed API.
  * The model is downloaded on first use and cached by the transformers library.
- * Bi-encoder only — the cross-encoder reranker lives in a separate PR. */
+ * Bi-encoder for vector embeddings — see `reranker.ts` for the cross-encoder. */
 
 import { createHash } from "node:crypto"
 import type { Logger } from "../../logger.js"

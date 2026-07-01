@@ -81,6 +81,12 @@
           "default": "true"
         },
         {
+          "name": "RERANK_MODE",
+          "description": "Cross-encoder reranking mode: blended (position-aware score blending after RRF fusion) or none (skip reranking). Only takes effect when EMBEDDING_ENABLED is true.",
+          "default": "blended",
+          "choices": ["blended", "none"]
+        },
+        {
           "name": "MEMORY_ENABLED",
           "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
           "default": "true"
