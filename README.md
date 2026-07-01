@@ -168,7 +168,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 ## Hybrid Search
 
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results.
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
 
 Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search-r8):
 
