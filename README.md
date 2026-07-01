@@ -226,9 +226,6 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 ## Properties
 
-<details>
-<summary>Five promoted properties get dedicated filtering; all others are still fully queryable</summary>
-
 Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
 
 | Property  | What you can do                                                                                              |
@@ -244,8 +241,6 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every search and discovery result. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
-
-</details>
 
 ## Configuration
 
