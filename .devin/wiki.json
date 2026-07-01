@@ -10,7 +10,7 @@
   "pages": [
     {
       "title": "Overview",
-      "purpose": "What Vault Cortex is: a standalone MCP server that works directly with .md files on disk, running headless in Docker with its own parsers, hybrid search engine, and link resolution. The architecture diagram and key differentiators: Docker-based, remote-capable, hybrid search (FTS5 keyword + vector KNN, fused via RRF with optional cross-encoder reranking), OAuth 2.1 authentication (essential for a tool with read/write access to personal notes), TDQS-optimized tool descriptions for efficient agent use, and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
+      "purpose": "What Vault Cortex is: a standalone MCP server that works directly with .md files on disk, running headless in Docker with its own parsers, hybrid search engine, and link resolution. Key capabilities: hybrid search (FTS5 keyword + vector KNN, fused via RRF with optional cross-encoder reranking), OAuth 2.1 authentication, a structured memory layer, 25 tools with TDQS-optimized descriptions, three deployment modes (local Docker, remote with Obsidian Sync, AWS reference), and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
     },
     {
       "title": "Getting Started",
