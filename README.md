@@ -41,7 +41,7 @@
 - **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
 - **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **[Guided workflows](#prompts-3)** — three built-in prompts that surface vault health (orphans, broken links, property adoption), review your memory layer's structure and coverage, or reconcile a day's work with outgoing links, backlinks, and date-specific activity. Assembled from live vault data each time you run them.
+- **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
 **Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
@@ -224,7 +224,8 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 > **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
 
-## Properties
+<details>
+<summary><strong>Properties</strong> — five promoted properties get dedicated filtering; all others are still fully queryable</summary>
 
 Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
 
@@ -241,6 +242,8 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every search and discovery result. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+
+</details>
 
 ## Configuration
 
