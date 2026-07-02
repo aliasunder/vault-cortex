@@ -43,7 +43,7 @@
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
-**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 70+ tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ## Quick Start
 
