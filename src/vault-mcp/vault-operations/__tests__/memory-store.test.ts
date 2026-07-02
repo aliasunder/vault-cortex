@@ -402,6 +402,240 @@ describe("updateMemory", () => {
   })
 })
 
+describe("updateMemory idempotency", () => {
+  it("returns 'unchanged' and writes nothing when the exact entry already exists in the section", async () => {
+    const firstOutcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "retry-safe entry",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    expect(firstOutcome).toBe("appended")
+    const contentAfterFirstCall = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+
+    const secondOutcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "retry-safe entry",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    expect(secondOutcome).toBe("unchanged")
+
+    // The file is byte-identical to the state after the first call — the
+    // retry neither duplicated the entry nor touched anything else.
+    const contentAfterSecondCall = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(contentAfterSecondCall).toBe(contentAfterFirstCall)
+    const bulletOccurrences = contentAfterSecondCall.split(
+      "- **2026-07-02**: retry-safe entry",
+    ).length
+    expect(bulletOccurrences - 1).toBe(1)
+  })
+
+  it("treats an entry already present from a hand edit as unchanged", async () => {
+    // Duplicates the fixture line that exists in PRINCIPLES_MD verbatim.
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "Secrets invisible at every layer",
+        date: "2026-05-06",
+      },
+      logger,
+    )
+    expect(outcome).toBe("unchanged")
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    const bulletOccurrences = raw.split(
+      "- **2026-05-06**: Secrets invisible at every layer",
+    ).length
+    expect(bulletOccurrences - 1).toBe(1)
+  })
+
+  it("rejects a multiline entry, which duplicate detection could never see", async () => {
+    // A multiline entry would write a block the line-based duplicate guard
+    // (and deleteMemory's exact line match) can never detect — it must be
+    // rejected before anything is written.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "line one\nline two",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+    )
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "carriage\rreturn",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+    )
+    // Nothing was written — the file is byte-identical to the fixture.
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).toBe(PRINCIPLES_MD)
+  })
+
+  it("rejects a date that is not a real bare ISO calendar date", async () => {
+    // The date lands inside the same single-line bullet as the entry, so a
+    // malformed or newline-bearing date corrupts the format the same way a
+    // multiline entry does — it must be rejected before anything is written.
+    // "2026-13-40" is shape-valid but calendar-impossible.
+    const malformedDates = [
+      "2026-7-2",
+      "2026-07-02T10:00:00",
+      "today\n",
+      "2026-13-40",
+    ]
+    for (const malformedDate of malformedDates) {
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Principles",
+            section: "Decision heuristics (newest first)",
+            entry: "valid entry",
+            date: malformedDate,
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+      )
+    }
+    // Nothing was written — the file is byte-identical to the fixture.
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).toBe(PRINCIPLES_MD)
+  })
+
+  it("appends when the same text arrives with a different date", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "same text",
+        date: "2026-07-01",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "same text",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    expect(outcome).toBe("appended")
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+      },
+      logger,
+    )
+    expect(result).toContain("- **2026-07-01**: same text")
+    expect(result).toContain("- **2026-07-02**: same text")
+  })
+
+  it("appends when the same date arrives with different text", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "first entry of the day",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "second entry of the day",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    expect(outcome).toBe("appended")
+    const result = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+      },
+      logger,
+    )
+    expect(result).toContain("- **2026-07-02**: first entry of the day")
+    expect(result).toContain("- **2026-07-02**: second entry of the day")
+  })
+
+  it("an identical bullet in a different section does not suppress the append", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics (newest first)",
+        entry: "cross-section entry",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+        entry: "cross-section entry",
+        date: "2026-07-02",
+      },
+      logger,
+    )
+    expect(outcome).toBe("appended")
+    const workingStyle = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style (newest first)",
+      },
+      logger,
+    )
+    expect(workingStyle).toContain("- **2026-07-02**: cross-section entry")
+  })
+})
+
 describe("updateMemory auto-creation", () => {
   it("auto-creates directory and file when neither exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-"))
