@@ -433,7 +433,33 @@ describe("createMcpRouter — POST /mcp", () => {
 })
 
 describe("createMcpRouter — GET /mcp", () => {
-  it("forwards the request to the existing transport without a body argument", async () => {
+  // vault-cortex never sends server-initiated messages, so the router
+  // rejects the standalone SSE stream with 405 (allowed by the Streamable
+  // HTTP spec) instead of holding a stream open until an upstream proxy
+  // timeout kills it.
+  it("returns 405 with an Allow header and logs the response", async () => {
+    const harness = await setupHarness()
+
+    const response = await fetch(harness.url(), {
+      method: "GET",
+      headers: baseHeaders,
+    })
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("POST, DELETE")
+    expect(await response.json()).toEqual({
+      error:
+        "method not allowed: this server does not offer a standalone SSE stream",
+    })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
+      sessionId: undefined,
+      clientIp: FORWARDED_IP,
+      status: 405,
+      outcome: "standalone SSE stream not offered",
+    })
+  })
+
+  it("returns 405 for a live session without handing the request to its transport", async () => {
     const harness = await setupHarness()
     const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockClear()
@@ -444,40 +470,11 @@ describe("createMcpRouter — GET /mcp", () => {
     })
     await response.arrayBuffer()
 
-    expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-    // GET forwards req + res without a body argument (2 args, not 3).
-    const handleRequestArgs = transport.handleRequest.mock.calls[0]!
-    expect(handleRequestArgs).toHaveLength(2)
-  })
-
-  it("returns 404 when the mcp-session-id header is missing", async () => {
-    const harness = await setupHarness()
-
-    const response = await fetch(harness.url(), {
-      method: "GET",
-      headers: baseHeaders,
-    })
-
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "session not found" })
-    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
-      sessionId: undefined,
-      clientIp: FORWARDED_IP,
-      status: 404,
-      outcome: "session not found",
-    })
-  })
-
-  it("returns 404 when the session id is unknown", async () => {
-    const harness = await setupHarness()
-
-    const response = await fetch(harness.url(), {
-      method: "GET",
-      headers: { ...baseHeaders, "mcp-session-id": "missing" },
-    })
-
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "session not found" })
+    expect(response.status).toBe(405)
+    // Guardrail: even with a valid session, the GET must not reach the
+    // transport — reintroducing the held SSE stream is the regression
+    // this route exists to prevent.
+    expect(transport.handleRequest).not.toHaveBeenCalled()
   })
 
   it("returns 401 when bearer auth rejects", async () => {
@@ -513,10 +510,11 @@ describe("createMcpRouter — DELETE /mcp", () => {
     })
 
     // The session should be gone from the map — verified via a follow-up
-    // GET that should now 404.
+    // POST to the deleted session that should now 404.
     const followUp = await fetch(harness.url(), {
-      method: "GET",
+      method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     })
     await followUp.arrayBuffer()
     expect(followUp.status).toBe(404)
@@ -569,10 +567,12 @@ describe("createMcpRouter — transport.onclose", () => {
     expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", {
       sessionId,
     })
-    // The session should be gone — confirm with a GET that should 404.
+    // The session should be gone — confirm with a POST to the closed
+    // session that should 404.
     const followUp = await fetch(harness.url(), {
-      method: "GET",
+      method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     })
     await followUp.arrayBuffer()
     expect(followUp.status).toBe(404)
