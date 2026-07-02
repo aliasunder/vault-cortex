@@ -480,7 +480,9 @@ describe("updateMemory idempotency", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("entry must be a single line")
+    ).rejects.toThrow(
+      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+    )
     await expect(
       updateMemory(
         {
@@ -492,7 +494,33 @@ describe("updateMemory idempotency", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("entry must be a single line")
+    ).rejects.toThrow(
+      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+    )
+    // Nothing was written — the file is byte-identical to the fixture.
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).toBe(PRINCIPLES_MD)
+  })
+
+  it("rejects a date that is not a bare ISO calendar date", async () => {
+    // The date lands inside the same single-line bullet as the entry, so a
+    // malformed or newline-bearing date corrupts the format the same way a
+    // multiline entry does — it must be rejected before anything is written.
+    const malformedDates = ["2026-7-2", "2026-07-02T10:00:00", "today\n"]
+    for (const malformedDate of malformedDates) {
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Principles",
+            section: "Decision heuristics (newest first)",
+            entry: "valid entry",
+            date: malformedDate,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("date must be ISO YYYY-MM-DD (e.g. 2026-07-02)")
+    }
     // Nothing was written — the file is byte-identical to the fixture.
     const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(raw).toBe(PRINCIPLES_MD)

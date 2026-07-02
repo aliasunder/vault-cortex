@@ -42,6 +42,15 @@ const guardAgainstShrink = (
 // The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
 const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
+/** Matches CR/LF anywhere in a string — memory entries are single-line dated
+ *  bullets, so any line break in an input would corrupt the format. Shared
+ *  with the tool-layer schema so the two guards can't drift. */
+export const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
+
+/** Matches a bare ISO calendar date (YYYY-MM-DD) — the only date shape the
+ *  dated-bullet format accepts. Shared with the tool-layer schema. */
+export const MEMORY_ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
 const isString = (value: unknown): value is string => typeof value === "string"
 
 /** Returns the heading name with the "(newest first)" suffix, appending it if absent (case-insensitive). */
@@ -399,10 +408,20 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // a block that neither the duplicate guard below nor deleteMemory's
     // exact line match can ever see — reject loudly at the boundary instead
     // of writing an entry the memory tools can't detect or delete.
-    if (/[\r\n]/.test(params.entry)) {
+    if (MEMORY_ENTRY_LINE_BREAK_PATTERN.test(params.entry)) {
       throw new Error(
         "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
       )
+    }
+    // The default date (today) is always valid, so only a caller-supplied
+    // date needs the shape check — anything that isn't a bare YYYY-MM-DD (a
+    // line break, a timestamp, free text) would corrupt the bullet the same
+    // way a multiline entry does.
+    if (
+      params.date !== undefined &&
+      !MEMORY_ENTRY_DATE_PATTERN.test(params.date)
+    ) {
+      throw new Error("date must be ISO YYYY-MM-DD (e.g. 2026-07-02)")
     }
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).

@@ -1,7 +1,11 @@
 /** Memory tool registrations — read, update, list, and delete About Me/ entries. */
 
 import { z } from "zod"
-import { createMemoryStore } from "../../vault-operations/memory-store.js"
+import {
+  createMemoryStore,
+  MEMORY_ENTRY_DATE_PATTERN,
+  MEMORY_ENTRY_LINE_BREAK_PATTERN,
+} from "../../vault-operations/memory-store.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
 
@@ -110,6 +114,7 @@ Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = ta
 Errors:
 - "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
+- "date must be ISO YYYY-MM-DD" — options.date only accepts a bare calendar date (e.g. "2026-07-02"), not a timestamp.
 - An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
@@ -125,9 +130,10 @@ Returns: Confirmation message (notes when an identical entry already existed and
         entry: z
           .string()
           .min(1)
-          .refine((entryText) => !/[\r\n]/.test(entryText), {
-            message: "entry must be a single line",
-          })
+          .refine(
+            (entryText) => !MEMORY_ENTRY_LINE_BREAK_PATTERN.test(entryText),
+            { error: "entry must be a single line" },
+          )
           .describe(
             'Raw entry text — a single line (newlines are rejected); the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
           ),
@@ -135,6 +141,9 @@ Returns: Confirmation message (notes when an identical entry already existed and
           .object({
             date: z
               .string()
+              .refine((dateText) => MEMORY_ENTRY_DATE_PATTERN.test(dateText), {
+                error: "date must be ISO YYYY-MM-DD",
+              })
               .optional()
               .describe("ISO YYYY-MM-DD date (defaults to today)"),
             position: z
