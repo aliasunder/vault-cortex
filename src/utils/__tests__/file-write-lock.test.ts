@@ -305,7 +305,16 @@ describe("withExclusiveMultiFileLock", () => {
     const pathA = join(testDir, "release-a.txt")
     const pathB = join(testDir, "release-b.txt")
 
-    await withExclusiveMultiFileLock([pathA, pathB], async () => "first")
+    const multiWrite = withExclusiveMultiFileLock(
+      [pathA, pathB],
+      async () => "first",
+    )
+    // Prove the locks were actually acquired — otherwise "released after" would
+    // pass vacuously if the lock never registered anything.
+    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow(
+      "concurrent write in progress",
+    )
+    expect(await multiWrite).toBe("first")
 
     expect(await withExclusiveFileLock(pathA, async () => "a")).toBe("a")
     expect(await withExclusiveFileLock(pathB, async () => "b")).toBe("b")
@@ -315,11 +324,16 @@ describe("withExclusiveMultiFileLock", () => {
     const pathA = join(testDir, "fail-a.txt")
     const pathB = join(testDir, "fail-b.txt")
 
-    await expect(
-      withExclusiveMultiFileLock([pathA, pathB], async () => {
-        throw new Error("boom")
-      }),
-    ).rejects.toThrow("boom")
+    const multiWrite = withExclusiveMultiFileLock([pathA, pathB], async () => {
+      throw new Error("boom")
+    })
+    // Prove the locks were actually acquired before the operation rejected —
+    // the operation is deferred to a microtask, so this synchronous check runs
+    // while the locks are still held.
+    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow(
+      "concurrent write in progress",
+    )
+    await expect(multiWrite).rejects.toThrow("boom")
 
     expect(await withExclusiveFileLock(pathA, async () => "a")).toBe("a")
     expect(await withExclusiveFileLock(pathB, async () => "b")).toBe("b")
@@ -407,9 +421,12 @@ describe("withExclusiveMultiFileLock", () => {
     const canonicalPath = join(testDir, "canon.txt")
     const redundantPath = `${testDir}/phantom/../canon.txt`
 
-    // Duplicates and redundant forms of the same file must not self-conflict…
+    // Duplicate redundant forms of the same file must not self-conflict…
+    // Only redundant forms go in the list, so the canonical-form check below
+    // can pass only if the lock canonicalized them — not because the canonical
+    // path was locked literally.
     const multiWrite = withExclusiveMultiFileLock(
-      [canonicalPath, canonicalPath, redundantPath],
+      [redundantPath, redundantPath],
       async () => {
         await delay(50)
         return "ran"

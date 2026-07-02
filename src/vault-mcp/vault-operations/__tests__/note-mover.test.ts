@@ -608,6 +608,45 @@ describe("moveNote — failure safety", () => {
     expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
   })
 
+  it("aborts without writing anything when a backlink source path cannot be resolved", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    // "../escape.md" fails path resolution (traversal out of the vault), which
+    // the move checks upfront while building its lock set — a resolve-specific
+    // abort, distinct from the read failure of a missing source file.
+    await expect(
+      moveNote("Foo.md", "Bar.md", ["Hub.md", "../escape.md"]),
+    ).rejects.toThrow(
+      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+    )
+
+    expect(await noteExists("Foo.md")).toBe(true)
+    expect(await noteExists("Bar.md")).toBe(false)
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
+  })
+
+  it("logs the resolution failure distinctly from a read failure", async () => {
+    const { writeFixture, moveNote, logger } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(
+      moveNote("Foo.md", "Bar.md", ["../escape.md"]),
+    ).rejects.toThrow(
+      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+    )
+
+    expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+      "note move aborted: could not resolve a backlink source path",
+      expect.objectContaining({
+        source: "../escape.md",
+        from: "Foo.md",
+        to: "Bar.md",
+      }),
+    )
+  })
+
   it("logs the offending source and destination when a rewrite aborts the move", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -955,13 +994,22 @@ describe("moveNote — concurrent write locking", () => {
   })
 
   it("releases every lock when the move completes", async () => {
-    const { vault, logger, writeFixture, moveNote, readNote } = setupVault()
+    const { vault, logger, writeFixture, moveNote, noteExists, readNote } =
+      setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
 
     await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+    // The move actually ran — the release assertions below aren't passing
+    // because nothing was ever locked.
+    expect(await noteExists("Foo.md")).toBe(false)
 
-    // Every path the move locked accepts writes again.
+    // Every path the move locked (old path, destination, backlink source)
+    // accepts writes again.
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Foo.md", body: "recreated after move" },
+      logger,
+    )
     await vaultFs.writeNote(
       { vaultPath: vault, path: "Hub.md", body: "rewritten after move" },
       logger,
@@ -970,6 +1018,7 @@ describe("moveNote — concurrent write locking", () => {
       { vaultPath: vault, path: "Bar.md", body: "updated after move" },
       logger,
     )
+    expect(await readNote("Foo.md")).toBe("recreated after move\n")
     expect(await readNote("Hub.md")).toBe("rewritten after move\n")
     expect(await readNote("Bar.md")).toBe("updated after move\n")
   })
@@ -986,8 +1035,14 @@ describe("moveNote — concurrent write locking", () => {
       'destination exists: "Bar.md"',
     )
 
+    // Every path the failed move locked (old path, destination, backlink
+    // source) accepts writes again.
     await vaultFs.writeNote(
       { vaultPath: vault, path: "Foo.md", body: "written after failed move" },
+      logger,
+    )
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Bar.md", body: "destination writable" },
       logger,
     )
     await vaultFs.writeNote(
@@ -995,6 +1050,7 @@ describe("moveNote — concurrent write locking", () => {
       logger,
     )
     expect(await readNote("Foo.md")).toBe("written after failed move\n")
+    expect(await readNote("Bar.md")).toBe("destination writable\n")
     expect(await readNote("Hub.md")).toBe("also writable\n")
   })
 })

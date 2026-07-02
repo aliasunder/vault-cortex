@@ -1338,7 +1338,11 @@ describe("concurrent writes (exclusive lock)", () => {
         }),
       }),
     )
-    await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow()
+    // ENOENT specifically — proving the first delete removed the file, not
+    // that the read failed for some unrelated reason.
+    await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(
+      /ENOENT/,
+    )
   })
 
   it("rejects a delete while a write is in flight on the same note", async () => {
@@ -1406,10 +1410,11 @@ describe("concurrent writes (exclusive lock)", () => {
         }),
       }),
     )
-    // The delete won — the note stays deleted.
-    await expect(
-      readFile(join(vault, "vanishing.md"), "utf8"),
-    ).rejects.toThrow()
+    // The delete won — the note stays deleted (ENOENT specifically, so an
+    // unrelated read failure can't stand in for "the note is gone").
+    await expect(readFile(join(vault, "vanishing.md"), "utf8")).rejects.toThrow(
+      /ENOENT/,
+    )
   })
 
   it("releases the lock after a delete so the path can be recreated", async () => {
@@ -1423,6 +1428,11 @@ describe("concurrent writes (exclusive lock)", () => {
         pruneEmptyFolders: false,
       },
       logger,
+    )
+    // The delete actually removed the file — the recreate below isn't just
+    // overwriting a note the delete never touched.
+    await expect(readFile(join(vault, "reborn.md"), "utf8")).rejects.toThrow(
+      /ENOENT/,
     )
 
     await writeNote(
