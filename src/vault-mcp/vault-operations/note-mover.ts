@@ -437,11 +437,11 @@ const moveNote = async (
         return { source, fullPath: resolveSafePath(vaultPath, source) }
       } catch (error) {
         logger.error(
-          "note move aborted: could not read/plan a backlink source",
+          "note move aborted: could not resolve a backlink source path",
           { source, from: oldPath, to: newPath, error: describeError(error) },
         )
         throw new Error(
-          `move aborted: could not read backlink source "${source}". Nothing was written.`,
+          `move aborted: could not resolve backlink source "${source}". Nothing was written.`,
           { cause: error },
         )
       }
