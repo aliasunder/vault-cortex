@@ -1301,4 +1301,136 @@ describe("concurrent writes (exclusive lock)", () => {
       }),
     )
   })
+
+  it("rejects the second delete when two deleteNote calls target the same note", async () => {
+    await writeFile(join(vault, "doomed.md"), "body\n", "utf8")
+
+    // The lock — not the unlink — must reject the loser: the second call
+    // fails with the concurrent-write message, not the ENOENT the second
+    // unlink of an already-deleted file would raise.
+    const [first, second] = await Promise.allSettled([
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "doomed.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "doomed.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ])
+
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
+    await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow()
+  })
+
+  it("rejects a delete while a write is in flight on the same note", async () => {
+    await writeFile(join(vault, "contested.md"), "original\n", "utf8")
+
+    // Without the delete lock this interleaving resurrects the note: the
+    // write reads the file, the delete unlinks it, and the write's
+    // atomic-rename recreates it. The delete must fail fast instead.
+    const [write, del] = await Promise.allSettled([
+      writeNote(
+        { vaultPath: vault, path: "contested.md", body: "updated" },
+        logger,
+      ),
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "contested.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ])
+
+    expect(write.status).toBe("fulfilled")
+    expect(del).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
+    // The write landed and the note survived.
+    expect(
+      parseNote(await readFile(join(vault, "contested.md"), "utf8")).content,
+    ).toBe("updated\n")
+  })
+
+  it("rejects a write while a delete is in flight on the same note", async () => {
+    await writeFile(join(vault, "vanishing.md"), "original\n", "utf8")
+
+    const [del, write] = await Promise.allSettled([
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "vanishing.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+      writeNote(
+        { vaultPath: vault, path: "vanishing.md", body: "resurrected?" },
+        logger,
+      ),
+    ])
+
+    expect(del.status).toBe("fulfilled")
+    expect(write).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
+    // The delete won — the note stays deleted.
+    await expect(
+      readFile(join(vault, "vanishing.md"), "utf8"),
+    ).rejects.toThrow()
+  })
+
+  it("releases the lock after a delete so the path can be recreated", async () => {
+    await writeFile(join(vault, "reborn.md"), "first life\n", "utf8")
+
+    await deleteNote(
+      {
+        vaultPath: vault,
+        path: "reborn.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+      },
+      logger,
+    )
+
+    await writeNote(
+      { vaultPath: vault, path: "reborn.md", body: "second life" },
+      logger,
+    )
+    expect(
+      parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content,
+    ).toBe("second life\n")
+  })
 })

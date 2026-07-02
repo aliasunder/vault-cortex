@@ -5,6 +5,8 @@ import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { noteMover } from "../note-mover.js"
 import { vaultFs } from "../vault-filesystem.js"
+import { vaultPatcher } from "../vault-patcher.js"
+import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 import type { Logger } from "../../../logger.js"
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
@@ -768,5 +770,231 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
     // Both notes untouched — the failed move wrote nothing.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
+  })
+})
+
+describe("moveNote — concurrent write locking", () => {
+  const delay = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+
+  /** Invokes moveNote WITHOUT awaiting it. The multi-file lock is acquired
+   *  synchronously before moveNote's first await, so the locks are already
+   *  held when this returns. Callers pass a pre-fetched path list so nothing
+   *  yields the event loop before acquisition — deliberately a plain (not
+   *  async) function: an async wrapper would flatten the returned promise. */
+  const startMove = (params: {
+    vault: string
+    logger: Logger
+    oldPath: string
+    newPath: string
+    backlinkSources: string[]
+    allNotePaths: string[]
+  }): ReturnType<typeof noteMover.moveNote> =>
+    noteMover.moveNote(
+      {
+        vaultPath: params.vault,
+        oldPath: params.oldPath,
+        newPath: params.newPath,
+        protectedPaths: PROTECTED,
+        backlinkSources: params.backlinkSources,
+        allNotePaths: params.allNotePaths,
+        pruneEmptyFolders: false,
+        windowsBindMount: false,
+      },
+      params.logger,
+    )
+
+  it("rejects a concurrent patch to a backlink source while a move is in flight", async () => {
+    const { vault, logger, writeFixture, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+
+    const movePromise = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+      allNotePaths,
+    })
+
+    // The move already holds Hub.md's lock, so the patch must fail fast
+    // instead of racing the move's read-then-write and losing its edit.
+    await expect(
+      vaultPatcher.patchNote(
+        {
+          vaultPath: vault,
+          path: "Hub.md",
+          operation: "append",
+          content: "A racing appended line.",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("concurrent write in progress")
+
+    // The move itself completes untouched by the rejected patch.
+    const result = await movePromise
+    expect(result.moved_to).toBe("Bar.md")
+    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
+  })
+
+  it("rejects a concurrent write to the destination while a move is in flight", async () => {
+    const { vault, logger, writeFixture, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+
+    const movePromise = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: [],
+      allNotePaths,
+    })
+
+    await expect(
+      vaultFs.writeNote(
+        { vaultPath: vault, path: "Bar.md", body: "squatter" },
+        logger,
+      ),
+    ).rejects.toThrow("concurrent write in progress")
+
+    await movePromise
+    expect(await readNote("Bar.md")).toBe("content\n")
+  })
+
+  it("rejects a concurrent delete of the note being moved", async () => {
+    const { vault, logger, writeFixture, noteExists } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+
+    const movePromise = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: [],
+      allNotePaths,
+    })
+
+    await expect(
+      vaultFs.deleteNote(
+        {
+          vaultPath: vault,
+          path: "Foo.md",
+          protectedPaths: PROTECTED,
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow("concurrent write in progress")
+
+    await movePromise
+    expect(await noteExists("Bar.md")).toBe(true)
+  })
+
+  it("rejects a second move of the same note while one is in flight", async () => {
+    const { vault, logger, writeFixture, noteExists } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+
+    const firstMove = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: [],
+      allNotePaths,
+    })
+    const secondMove = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Baz.md",
+      backlinkSources: [],
+      allNotePaths,
+    })
+
+    await expect(secondMove).rejects.toThrow("concurrent write in progress")
+
+    await firstMove
+    expect(await noteExists("Bar.md")).toBe(true)
+    expect(await noteExists("Baz.md")).toBe(false)
+  })
+
+  it("rejects the move when a write is already in flight on a backlink source", async () => {
+    const { vault, logger, writeFixture, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+
+    // Simulate an in-flight single-file write on the backlink source.
+    const holdHubLock = withExclusiveFileLock(
+      join(vault, "Hub.md"),
+      async () => {
+        await delay(50)
+      },
+    )
+
+    const movePromise = startMove({
+      vault,
+      logger,
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+      allNotePaths,
+    })
+    await expect(movePromise).rejects.toThrow("concurrent write in progress")
+
+    // Fail-fast means fail-clean: nothing was moved or rewritten.
+    await holdHubLock
+    expect(await noteExists("Foo.md")).toBe(true)
+    expect(await noteExists("Bar.md")).toBe(false)
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
+  })
+
+  it("releases every lock when the move completes", async () => {
+    const { vault, logger, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    await moveNote("Foo.md", "Bar.md", ["Hub.md"])
+
+    // Every path the move locked accepts writes again.
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Hub.md", body: "rewritten after move" },
+      logger,
+    )
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Bar.md", body: "updated after move" },
+      logger,
+    )
+    expect(await readNote("Hub.md")).toBe("rewritten after move\n")
+    expect(await readNote("Bar.md")).toBe("updated after move\n")
+  })
+
+  it("releases every lock when the move fails", async () => {
+    const { vault, logger, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Bar.md", "occupied\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    // Fails inside the lock, after acquisition — the existence check runs
+    // within the locked span.
+    await expect(moveNote("Foo.md", "Bar.md", ["Hub.md"])).rejects.toThrow(
+      'destination exists: "Bar.md"',
+    )
+
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Foo.md", body: "written after failed move" },
+      logger,
+    )
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Hub.md", body: "also writable" },
+      logger,
+    )
+    expect(await readNote("Foo.md")).toBe("written after failed move\n")
+    expect(await readNote("Hub.md")).toBe("also writable\n")
   })
 })

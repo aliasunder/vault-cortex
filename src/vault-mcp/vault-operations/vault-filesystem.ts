@@ -398,15 +398,20 @@ const deleteNote = async (
   }
 
   const fullPath = resolveSafePath(params.vaultPath, path)
-  await unlink(fullPath)
-  const prunedEmptyFolders = params.pruneEmptyFolders
-    ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
-    : 0
-  logger.info("deleted note", {
-    path,
-    pruned_empty_folders: prunedEmptyFolders,
+  // Locked so a concurrent read-modify-write (patch/replace) can't recreate
+  // the note via its atomic-rename write after the unlink, and so a delete
+  // rejects while a note move holds this path.
+  return withExclusiveFileLock(fullPath, async () => {
+    await unlink(fullPath)
+    const prunedEmptyFolders = params.pruneEmptyFolders
+      ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
+      : 0
+    logger.info("deleted note", {
+      path,
+      pruned_empty_folders: prunedEmptyFolders,
+    })
+    return { prunedEmptyFolders }
   })
-  return { prunedEmptyFolders }
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
