@@ -828,8 +828,8 @@ describe("moveNote — concurrent write locking", () => {
     newPath: string
     backlinkSources: string[]
     allNotePaths: string[]
-  }): ReturnType<typeof noteMover.moveNote> =>
-    noteMover.moveNote(
+  }): ReturnType<typeof noteMover.moveNote> => {
+    const movePromise = noteMover.moveNote(
       {
         vaultPath: params.vault,
         oldPath: params.oldPath,
@@ -842,6 +842,14 @@ describe("moveNote — concurrent write locking", () => {
       },
       params.logger,
     )
+    // Settle the move during cleanup so an assertion failing between start
+    // and await can't leave an unhandled rejection or an in-flight move
+    // behind the test.
+    onTestFinished(async () => {
+      await movePromise.catch(() => {})
+    })
+    return movePromise
+  }
 
   it("rejects a concurrent patch to a backlink source while a move is in flight", async () => {
     const { vault, logger, writeFixture, readNote } = setupVault()
@@ -1052,5 +1060,48 @@ describe("moveNote — concurrent write locking", () => {
     expect(await readNote("Foo.md")).toBe("written after failed move\n")
     expect(await readNote("Bar.md")).toBe("destination writable\n")
     expect(await readNote("Hub.md")).toBe("also writable\n")
+  })
+})
+
+describe("moveNote — backlink source hygiene", () => {
+  it("rewrites a backlink source once when it is listed under duplicate and alias spellings", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    // "Hub.md", "./Hub.md", and a second "Hub.md" all resolve to one file —
+    // it must get exactly one rewrite plan, not three.
+    const result = await moveNote("Foo.md", "Bar.md", [
+      "Hub.md",
+      "./Hub.md",
+      "Hub.md",
+    ])
+
+    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("excludes an alias spelling of the moved note from the backlink sources", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    // A self-link makes the difference observable: as the moved note it is
+    // rewritten once (counted in links_updated); if "./Foo.md" slipped past
+    // the old-path filter it would also get a backlink-source rewrite plan,
+    // inflating links_updated to 2 and listing "./Foo.md" in updated_notes.
+    await writeFixture("Foo.md", "See [[Foo]].\n")
+
+    const result = await moveNote("Foo.md", "Bar.md", ["./Foo.md"])
+
+    expect(await readNote("Bar.md")).toBe("See [[Bar]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 })

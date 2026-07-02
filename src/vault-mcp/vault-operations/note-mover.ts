@@ -430,22 +430,37 @@ const moveNote = async (
   // Resolve every backlink source upfront so the lock set below covers each
   // file the move reads or writes. A resolution failure aborts before anything
   // is locked or written.
-  const backlinkSources = params.backlinkSources
-    .filter((source) => source !== oldPath)
-    .map((source) => {
-      try {
-        return { source, fullPath: resolveSafePath(vaultPath, source) }
-      } catch (error) {
-        logger.error(
-          "note move aborted: could not resolve a backlink source path",
-          { source, from: oldPath, to: newPath, error: describeError(error) },
-        )
-        throw new Error(
-          `move aborted: could not resolve backlink source "${source}". Nothing was written.`,
-          { cause: error },
-        )
-      }
-    })
+  const resolvedBacklinkSources = params.backlinkSources.map((rawSource) => {
+    const source = toVaultRelativePath(rawSource)
+    try {
+      return { source, fullPath: resolveSafePath(vaultPath, source) }
+    } catch (error) {
+      logger.error(
+        "note move aborted: could not resolve a backlink source path",
+        {
+          source,
+          from: oldPath,
+          to: newPath,
+          error: describeError(error),
+        },
+      )
+      throw new Error(
+        `move aborted: could not resolve backlink source "${source}". Nothing was written.`,
+        { cause: error },
+      )
+    }
+  })
+  // Dedupe by resolved path: duplicate or alias spellings of the same file
+  // must not produce two rewrite plans (double writes, over-counted
+  // links_updated). The moved note is excluded by resolved path too, so an
+  // alias of old_path can't slip in as a backlink source and receive a
+  // wrong-context rewrite.
+  const backlinkSourcesByFullPath = new Map(
+    resolvedBacklinkSources
+      .filter((backlinkSource) => backlinkSource.fullPath !== oldFullPath)
+      .map((backlinkSource) => [backlinkSource.fullPath, backlinkSource]),
+  )
+  const backlinkSources = [...backlinkSourcesByFullPath.values()]
 
   // Lock the moved note, its destination, and every backlink source as one
   // unit for the whole read-plan-write span — a concurrent single-file write
