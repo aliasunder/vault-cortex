@@ -425,7 +425,7 @@ describe("deleteNote", () => {
     await expect(readFile(join(vault, "ok.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it("throws on non-existent file", async () => {
+  it("rejects a non-existent note with a vault-relative note-not-found error", async () => {
     await expect(
       deleteNote(
         {
@@ -436,7 +436,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(/ENOENT/)
+    ).rejects.toThrow('note not found: "ghost.md"')
   })
 
   it("rejects a traversal path that resolves into a protected folder", async () => {
