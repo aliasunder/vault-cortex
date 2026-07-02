@@ -394,141 +394,154 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       position?: "top" | "bottom"
     },
     logger: Logger,
-  ): Promise<UpdateMemoryOutcome> =>
+  ): Promise<UpdateMemoryOutcome> => {
+    // Memory entries are single dated bullets. A multiline entry would write
+    // a block that neither the duplicate guard below nor deleteMemory's
+    // exact line match can ever see — reject loudly at the boundary instead
+    // of writing an entry the memory tools can't detect or delete.
+    if (/[\r\n]/.test(params.entry)) {
+      throw new Error(
+        "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+      )
+    }
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
-    withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
-      const date = params.date ?? DateTime.now().toISODate()
-      const position = params.position ?? "top"
-      const bullet = `- **${date}**: ${params.entry}`
+    return withFileLock(
+      memoryFilePath(params.vaultPath, params.file),
+      async () => {
+        const date = params.date ?? DateTime.now().toISODate()
+        const position = params.position ?? "top"
+        const bullet = `- **${date}**: ${params.entry}`
 
-      const existingContent = await readMemoryFileOrNull(
-        params.vaultPath,
-        params.file,
-      )
+        const existingContent = await readMemoryFileOrNull(
+          params.vaultPath,
+          params.file,
+        )
 
-      // File does not exist — create directory + file with section and entry
-      if (existingContent === null) {
-        const newSection = headingWithNewestFirstSuffix(params.section)
-        const filePath = memoryFilePath(params.vaultPath, params.file)
-        await mkdir(dirname(filePath), { recursive: true })
-        const content = buildNewMemoryFile({
-          fileName: params.file,
-          section: newSection,
+        // File does not exist — create directory + file with section and entry
+        if (existingContent === null) {
+          const newSection = headingWithNewestFirstSuffix(params.section)
+          const filePath = memoryFilePath(params.vaultPath, params.file)
+          await mkdir(dirname(filePath), { recursive: true })
+          const content = buildNewMemoryFile({
+            fileName: params.file,
+            section: newSection,
+            bullet,
+          })
+          await atomicWriteFile(filePath, content)
+          logger.info("created memory file", {
+            file: params.file,
+            section: newSection,
+            date,
+            outcome: "created-file",
+            beforeBytes: 0,
+            afterBytes: Buffer.byteLength(content, "utf8"),
+          })
+          return "created-file"
+        }
+
+        const parsed = parseNote(existingContent)
+        const contentLines = splitIntoLines(parsed.content)
+        const sections = parseSections(contentLines)
+        const match = findSection(sections, params.section, 2)
+
+        // File exists but section does not — append new H2 + entry at end
+        if (!match) {
+          const newSection = headingWithNewestFirstSuffix(params.section)
+          const appendedLines = [...contentLines, `## ${newSection}`, bullet]
+          const newContent = appendedLines.join("\n")
+          const serialized = stringifyNote(newContent, parsed.data)
+          const beforeBytes = Buffer.byteLength(existingContent, "utf8")
+          const afterBytes = Buffer.byteLength(serialized, "utf8")
+          guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
+          await atomicWriteFile(
+            memoryFilePath(params.vaultPath, params.file),
+            serialized,
+          )
+          logger.info("created memory section", {
+            file: params.file,
+            section: newSection,
+            date,
+            outcome: "created-section",
+            beforeBytes,
+            afterBytes,
+          })
+          return "created-section"
+        }
+
+        const bodyLines = contentLines.slice(
+          match.bodyStartLine,
+          match.bodyEndLine,
+        )
+
+        // Idempotency guard: if the exact bullet already exists in this section,
+        // the entry already landed — typically an MCP client retrying after a
+        // gateway timeout. Splicing again would create a duplicate that
+        // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
+        // target section: the same bullet under a different heading is a
+        // distinct entry and does not suppress the append.
+        if (bodyLines.includes(bullet)) {
+          logger.info("memory entry unchanged", {
+            file: params.file,
+            section: params.section,
+            date,
+            outcome: "unchanged",
+          })
+          return "unchanged"
+        }
+
+        // File + section exist — find the first and last dated bullet within the
+        // section body to determine where to insert. Offsets are relative to bodyStartLine.
+        const firstBulletOffset = bodyLines.findIndex((line) =>
+          ENTRY_PATTERN.test(line),
+        )
+        const lastBulletOffset = bodyLines.reduce(
+          (lastMatchIndex, line, index) =>
+            ENTRY_PATTERN.test(line) ? index : lastMatchIndex,
+          -1,
+        )
+
+        // Compute the absolute line index in the full content array for insertion.
+        // "top" inserts before the first existing bullet (newest-first ordering).
+        // "bottom" inserts after the last existing bullet.
+        // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+        const insertIndex =
+          position === "top"
+            ? firstBulletOffset >= 0
+              ? match.bodyStartLine + firstBulletOffset
+              : match.bodyEndLine
+            : lastBulletOffset >= 0
+              ? match.bodyStartLine + lastBulletOffset + 1
+              : match.bodyEndLine
+
+        // Splice the new bullet into the content lines
+        const updatedLines = [
+          ...contentLines.slice(0, insertIndex),
           bullet,
-        })
-        await atomicWriteFile(filePath, content)
-        logger.info("created memory file", {
-          file: params.file,
-          section: newSection,
-          date,
-          outcome: "created-file",
-          beforeBytes: 0,
-          afterBytes: Buffer.byteLength(content, "utf8"),
-        })
-        return "created-file"
-      }
+          ...contentLines.slice(insertIndex),
+        ]
 
-      const parsed = parseNote(existingContent)
-      const contentLines = splitIntoLines(parsed.content)
-      const sections = parseSections(contentLines)
-      const match = findSection(sections, params.section, 2)
-
-      // File exists but section does not — append new H2 + entry at end
-      if (!match) {
-        const newSection = headingWithNewestFirstSuffix(params.section)
-        const appendedLines = [...contentLines, `## ${newSection}`, bullet]
-        const newContent = appendedLines.join("\n")
+        const newContent = updatedLines.join("\n")
         const serialized = stringifyNote(newContent, parsed.data)
         const beforeBytes = Buffer.byteLength(existingContent, "utf8")
         const afterBytes = Buffer.byteLength(serialized, "utf8")
-        guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
+        guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
         await atomicWriteFile(
           memoryFilePath(params.vaultPath, params.file),
           serialized,
         )
-        logger.info("created memory section", {
-          file: params.file,
-          section: newSection,
-          date,
-          outcome: "created-section",
-          beforeBytes,
-          afterBytes,
-        })
-        return "created-section"
-      }
-
-      const bodyLines = contentLines.slice(
-        match.bodyStartLine,
-        match.bodyEndLine,
-      )
-
-      // Idempotency guard: if the exact bullet already exists in this section,
-      // the entry already landed — typically an MCP client retrying after a
-      // gateway timeout. Splicing again would create a duplicate that
-      // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
-      // target section: the same bullet under a different heading is a
-      // distinct entry and does not suppress the append.
-      if (bodyLines.includes(bullet)) {
-        logger.info("memory entry unchanged", {
+        logger.info("updated memory", {
           file: params.file,
           section: params.section,
           date,
-          outcome: "unchanged",
+          outcome: "appended",
+          beforeBytes,
+          afterBytes,
         })
-        return "unchanged"
-      }
-
-      // File + section exist — find the first and last dated bullet within the
-      // section body to determine where to insert. Offsets are relative to bodyStartLine.
-      const firstBulletOffset = bodyLines.findIndex((line) =>
-        ENTRY_PATTERN.test(line),
-      )
-      const lastBulletOffset = bodyLines.reduce(
-        (lastMatchIndex, line, index) =>
-          ENTRY_PATTERN.test(line) ? index : lastMatchIndex,
-        -1,
-      )
-
-      // Compute the absolute line index in the full content array for insertion.
-      // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts after the last existing bullet.
-      // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
-      const insertIndex =
-        position === "top"
-          ? firstBulletOffset >= 0
-            ? match.bodyStartLine + firstBulletOffset
-            : match.bodyEndLine
-          : lastBulletOffset >= 0
-            ? match.bodyStartLine + lastBulletOffset + 1
-            : match.bodyEndLine
-
-      // Splice the new bullet into the content lines
-      const updatedLines = [
-        ...contentLines.slice(0, insertIndex),
-        bullet,
-        ...contentLines.slice(insertIndex),
-      ]
-
-      const newContent = updatedLines.join("\n")
-      const serialized = stringifyNote(newContent, parsed.data)
-      const beforeBytes = Buffer.byteLength(existingContent, "utf8")
-      const afterBytes = Buffer.byteLength(serialized, "utf8")
-      guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
-      await atomicWriteFile(
-        memoryFilePath(params.vaultPath, params.file),
-        serialized,
-      )
-      logger.info("updated memory", {
-        file: params.file,
-        section: params.section,
-        date,
-        outcome: "appended",
-        beforeBytes,
-        afterBytes,
-      })
-      return "appended"
-    })
+        return "appended"
+      },
+    )
+  }
 
   const listMemoryFiles = async (
     params: { vaultPath: string },

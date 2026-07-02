@@ -465,6 +465,39 @@ describe("updateMemory idempotency", () => {
     expect(bulletOccurrences - 1).toBe(1)
   })
 
+  it("rejects a multiline entry, which duplicate detection could never see", async () => {
+    // A multiline entry would write a block the line-based duplicate guard
+    // (and deleteMemory's exact line match) can never detect — it must be
+    // rejected before anything is written.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "line one\nline two",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("entry must be a single line")
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "carriage\rreturn",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("entry must be a single line")
+    // Nothing was written — the file is byte-identical to the fixture.
+    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+    expect(raw).toBe(PRINCIPLES_MD)
+  })
+
   it("appends when the same text arrives with a different date", async () => {
     await updateMemory(
       {

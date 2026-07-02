@@ -109,6 +109,7 @@ Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = ta
 
 Errors:
 - "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
+- "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
@@ -124,8 +125,11 @@ Returns: Confirmation message (notes when an identical entry already existed and
         entry: z
           .string()
           .min(1)
+          .refine((entryText) => !/[\r\n]/.test(entryText), {
+            message: "entry must be a single line",
+          })
           .describe(
-            'Raw entry text — the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
+            'Raw entry text — a single line (newlines are rejected); the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
           ),
         options: z
           .object({
