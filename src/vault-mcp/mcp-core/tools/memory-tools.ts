@@ -141,7 +141,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           .object({
             date: z
               .string()
-              .refine((dateText) => isValidMemoryEntryDate(dateText), {
+              .refine(isValidMemoryEntryDate, {
                 error:
                   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
               })
