@@ -19,6 +19,21 @@
 
 
 
+
+## [0.25.3] — 2026-07-02
+
+### Bug Fixes
+
+- **memory:** Make vault_update_memory idempotent on exact duplicate entries (#245)
+- **mcp:** Return 405 for GET /mcp instead of holding a standalone SSE stream (#246)
+
+### Documentation
+
+- **readme:** Update trip dogfooding stat to audited tool-call count (#244)
+- Add force_deploy and ghcr-cleanup to DEPLOY.md workflow table (#243)
+- Add missing files to AGENTS.md structure tree (#242)
+- Update CHANGELOG.md for v0.25.2
+
 ## [0.25.2] — 2026-07-01
 
 ### Documentation
