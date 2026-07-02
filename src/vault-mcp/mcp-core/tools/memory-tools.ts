@@ -3,7 +3,7 @@
 import { z } from "zod"
 import {
   createMemoryStore,
-  MEMORY_ENTRY_DATE_PATTERN,
+  isValidMemoryEntryDate,
   MEMORY_ENTRY_LINE_BREAK_PATTERN,
 } from "../../vault-operations/memory-store.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
@@ -114,7 +114,7 @@ Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = ta
 Errors:
 - "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
-- "date must be ISO YYYY-MM-DD" — options.date only accepts a bare calendar date (e.g. "2026-07-02"), not a timestamp.
+- "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
@@ -141,8 +141,9 @@ Returns: Confirmation message (notes when an identical entry already existed and
           .object({
             date: z
               .string()
-              .refine((dateText) => MEMORY_ENTRY_DATE_PATTERN.test(dateText), {
-                error: "date must be ISO YYYY-MM-DD",
+              .refine((dateText) => isValidMemoryEntryDate(dateText), {
+                error:
+                  "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
               })
               .optional()
               .describe("ISO YYYY-MM-DD date (defaults to today)"),

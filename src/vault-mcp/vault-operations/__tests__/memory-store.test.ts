@@ -502,11 +502,17 @@ describe("updateMemory idempotency", () => {
     expect(raw).toBe(PRINCIPLES_MD)
   })
 
-  it("rejects a date that is not a bare ISO calendar date", async () => {
+  it("rejects a date that is not a real bare ISO calendar date", async () => {
     // The date lands inside the same single-line bullet as the entry, so a
     // malformed or newline-bearing date corrupts the format the same way a
     // multiline entry does — it must be rejected before anything is written.
-    const malformedDates = ["2026-7-2", "2026-07-02T10:00:00", "today\n"]
+    // "2026-13-40" is shape-valid but calendar-impossible.
+    const malformedDates = [
+      "2026-7-2",
+      "2026-07-02T10:00:00",
+      "today\n",
+      "2026-13-40",
+    ]
     for (const malformedDate of malformedDates) {
       await expect(
         updateMemory(
@@ -519,7 +525,9 @@ describe("updateMemory idempotency", () => {
           },
           logger,
         ),
-      ).rejects.toThrow("date must be ISO YYYY-MM-DD (e.g. 2026-07-02)")
+      ).rejects.toThrow(
+        "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+      )
     }
     // Nothing was written — the file is byte-identical to the fixture.
     const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")

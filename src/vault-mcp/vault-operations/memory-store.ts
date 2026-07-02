@@ -48,8 +48,16 @@ const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 export const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
 
 /** Matches a bare ISO calendar date (YYYY-MM-DD) — the only date shape the
- *  dated-bullet format accepts. Shared with the tool-layer schema. */
-export const MEMORY_ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+ *  dated-bullet format accepts. Shape only; calendar validity is checked by
+ *  isValidMemoryEntryDate. */
+const MEMORY_ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
+ *  the shape check rejects timestamps and free text, the Luxon parse rejects
+ *  calendar-impossible values ("2026-13-40" is shape-valid but no date).
+ *  Shared with the tool-layer schema so the two guards can't drift. */
+export const isValidMemoryEntryDate = (dateText: string): boolean =>
+  MEMORY_ENTRY_DATE_PATTERN.test(dateText) && DateTime.fromISO(dateText).isValid
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
@@ -414,14 +422,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       )
     }
     // The default date (today) is always valid, so only a caller-supplied
-    // date needs the shape check — anything that isn't a bare YYYY-MM-DD (a
-    // line break, a timestamp, free text) would corrupt the bullet the same
-    // way a multiline entry does.
-    if (
-      params.date !== undefined &&
-      !MEMORY_ENTRY_DATE_PATTERN.test(params.date)
-    ) {
-      throw new Error("date must be ISO YYYY-MM-DD (e.g. 2026-07-02)")
+    // date needs checking — anything that isn't a real bare YYYY-MM-DD date
+    // (a line break, a timestamp, free text, an impossible calendar value)
+    // would corrupt the bullet the same way a multiline entry does.
+    if (params.date !== undefined && !isValidMemoryEntryDate(params.date)) {
+      throw new Error(
+        "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+      )
     }
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
