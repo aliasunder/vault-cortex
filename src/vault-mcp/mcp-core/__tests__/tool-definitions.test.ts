@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import type { z } from "zod"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -53,6 +57,7 @@ type RegisterToolCall = [
   config: {
     title?: string
     description?: string
+    inputSchema?: Record<string, z.ZodType>
     annotations?: Record<string, boolean>
   },
   handler: (...args: unknown[]) => Promise<unknown>,
@@ -75,6 +80,14 @@ beforeEach(() => {
 
 const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find(([toolName]) => toolName === name)
+
+/** findCall for tests that assume the tool is registered — throws instead of
+ *  returning undefined so call sites need no non-null assertion. */
+const requireCall = (name: string): RegisterToolCall => {
+  const call = findCall(name)
+  if (!call) throw new Error(`tool not registered: ${name}`)
+  return call
+}
 
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
@@ -146,13 +159,16 @@ describe("registerTools", () => {
   )
 
   it("vault_update_memory description documents the duplicate no-op contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)!
-    expect(config.description).toContain("idempotent")
-    expect(config.description).toContain("no-op")
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    // Assert the full contract fragment — a bare "idempotent" check would
+    // also pass on a reworded "not idempotent" description.
+    expect(config.description).toContain(
+      "idempotent — an exact duplicate (same date + text in the same section) is a no-op",
+    )
   })
 
   it("vault_delete_memory description documents duplicate-entry remediation", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_DELETE_MEMORY)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
     expect(config.description).toContain("ambiguous")
     expect(config.description).toContain(
       "vault_update_memory refuses to write exact duplicates",
@@ -250,7 +266,7 @@ describe("annotations", () => {
   })
 
   it("vault_update_memory has idempotentHint: true (exact duplicates are no-ops)", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
     expect(config.annotations?.idempotentHint).toBe(true)
   })
 
@@ -390,6 +406,106 @@ describe("error handling", () => {
     }
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe("heading_level requires a heading")
+  })
+})
+
+describe("vault_update_memory input schema", () => {
+  // The data layer enforces the same guards, but the schema refines are the
+  // protocol-level defense — these tests catch the refine being dropped from
+  // the schema even though updateMemory would still reject the input deeper.
+  const requireUpdateMemorySchema = (): Record<string, z.ZodType> => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    if (!config.inputSchema) {
+      throw new Error("vault_update_memory has no input schema")
+    }
+    return config.inputSchema
+  }
+
+  it("entry rejects a multiline value and accepts a single-line one", () => {
+    const schema = requireUpdateMemorySchema()
+    const multilineResult = schema.entry.safeParse("line one\nline two")
+    if (multilineResult.success) {
+      throw new Error("expected the multiline entry to be rejected")
+    }
+    expect(multilineResult.error.issues.map((issue) => issue.message)).toEqual([
+      "entry must be a single line",
+    ])
+    expect(schema.entry.safeParse("a single-line entry").success).toBe(true)
+  })
+
+  it("options.date rejects a calendar-impossible date and accepts a real one", () => {
+    const schema = requireUpdateMemorySchema()
+    const impossibleDateResult = schema.options.safeParse({
+      date: "2026-13-40",
+    })
+    if (impossibleDateResult.success) {
+      throw new Error("expected the calendar-impossible date to be rejected")
+    }
+    expect(
+      impossibleDateResult.error.issues.map((issue) => issue.message),
+    ).toEqual([
+      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+    ])
+    expect(schema.options.safeParse({ date: "2026-07-02" }).success).toBe(true)
+  })
+})
+
+describe("vault_update_memory handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
+    // A real temp vault so the handler exercises the actual memory store —
+    // the global harness registers against a nonexistent path.
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    await mkdir(join(tempVault, "About Me"), { recursive: true })
+    await writeFile(
+      join(tempVault, "About Me/Principles.md"),
+      "# Principles\n\n## Decision heuristics (newest first)\n- **2026-05-06**: seeded entry\n",
+      "utf8",
+    )
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const updateMemoryCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    )
+    if (!updateMemoryCall) throw new Error("vault_update_memory not registered")
+    const [, , handler] = updateMemoryCall
+
+    const args = {
+      file: "Principles",
+      section: "Decision heuristics (newest first)",
+      entry: "retry entry",
+      options: { date: "2026-07-02" },
+    }
+
+    // First call appends and confirms — proves the entry actually landed
+    // before the retry, so the no-op can't be a silent failure.
+    const firstResult = (await handler(args, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(firstResult.isError).toBeUndefined()
+    expect(firstResult.content[0].text).toBe(
+      "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
+    )
+
+    // Identical retry succeeds but reports the no-op instead of "Added entry".
+    const retryResult = (await handler(args, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(retryResult.isError).toBeUndefined()
+    expect(retryResult.content[0].text).toBe(
+      "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
+    )
   })
 })
 

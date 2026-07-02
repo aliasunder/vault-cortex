@@ -439,10 +439,10 @@ describe("updateMemory idempotency", () => {
       "utf8",
     )
     expect(contentAfterSecondCall).toBe(contentAfterFirstCall)
-    const bulletOccurrences = contentAfterSecondCall.split(
-      "- **2026-07-02**: retry-safe entry",
-    ).length
-    expect(bulletOccurrences - 1).toBe(1)
+    const bulletOccurrenceCount =
+      contentAfterSecondCall.split("- **2026-07-02**: retry-safe entry")
+        .length - 1
+    expect(bulletOccurrenceCount).toBe(1)
   })
 
   it("treats an entry already present from a hand edit as unchanged", async () => {
@@ -458,80 +458,77 @@ describe("updateMemory idempotency", () => {
       logger,
     )
     expect(outcome).toBe("unchanged")
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    const bulletOccurrences = raw.split(
-      "- **2026-05-06**: Secrets invisible at every layer",
-    ).length
-    expect(bulletOccurrences - 1).toBe(1)
+    // The no-op left the file byte-identical to the fixture — the entry was
+    // neither duplicated nor was anything else touched.
+    const fileContent = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
-  it("rejects a multiline entry, which duplicate detection could never see", async () => {
-    // A multiline entry would write a block the line-based duplicate guard
-    // (and deleteMemory's exact line match) can never detect — it must be
-    // rejected before anything is written.
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Principles",
-          section: "Decision heuristics (newest first)",
-          entry: "line one\nline two",
-          date: "2026-07-02",
-        },
-        logger,
-      ),
-    ).rejects.toThrow(
-      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
-    )
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Principles",
-          section: "Decision heuristics (newest first)",
-          entry: "carriage\rreturn",
-          date: "2026-07-02",
-        },
-        logger,
-      ),
-    ).rejects.toThrow(
-      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
-    )
-    // Nothing was written — the file is byte-identical to the fixture.
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(raw).toBe(PRINCIPLES_MD)
-  })
-
-  it("rejects a date that is not a real bare ISO calendar date", async () => {
-    // The date lands inside the same single-line bullet as the entry, so a
-    // malformed or newline-bearing date corrupts the format the same way a
-    // multiline entry does — it must be rejected before anything is written.
-    // "2026-13-40" is shape-valid but calendar-impossible.
-    const malformedDates = [
-      "2026-7-2",
-      "2026-07-02T10:00:00",
-      "today\n",
-      "2026-13-40",
-    ]
-    for (const malformedDate of malformedDates) {
+  // A multiline entry would write a block the line-based duplicate guard
+  // (and deleteMemory's exact line match) can never detect — it must be
+  // rejected before anything is written.
+  it.each([
+    { lineBreakKind: "a line feed", entry: "line one\nline two" },
+    { lineBreakKind: "a carriage return", entry: "carriage\rreturn" },
+  ])(
+    "rejects an entry containing $lineBreakKind, which duplicate detection could never see",
+    async ({ entry }) => {
       await expect(
         updateMemory(
           {
             vaultPath: vault,
             file: "Principles",
             section: "Decision heuristics (newest first)",
-            entry: "valid entry",
-            date: malformedDate,
+            entry,
+            date: "2026-07-02",
           },
           logger,
         ),
       ).rejects.toThrow(
-        "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+        "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
       )
-    }
+      // Nothing was written — the file is byte-identical to the fixture.
+      const fileContent = await readFile(
+        join(vault, "About Me/Principles.md"),
+        "utf8",
+      )
+      expect(fileContent).toBe(PRINCIPLES_MD)
+    },
+  )
+
+  // The date lands inside the same single-line bullet as the entry, so a
+  // malformed or newline-bearing date corrupts the format the same way a
+  // multiline entry does — it must be rejected before anything is written.
+  // "2026-13-40" is shape-valid but calendar-impossible.
+  it.each([
+    { dateKind: "a non-zero-padded date", date: "2026-7-2" },
+    { dateKind: "a timestamp", date: "2026-07-02T10:00:00" },
+    { dateKind: "free text with a line break", date: "today\n" },
+    { dateKind: "a calendar-impossible date", date: "2026-13-40" },
+  ])("rejects $dateKind as the entry date", async ({ date }) => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+    )
     // Nothing was written — the file is byte-identical to the fixture.
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(raw).toBe(PRINCIPLES_MD)
+    const fileContent = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
   it("appends when the same text arrives with a different date", async () => {
@@ -603,7 +600,7 @@ describe("updateMemory idempotency", () => {
   })
 
   it("an identical bullet in a different section does not suppress the append", async () => {
-    await updateMemory(
+    const firstOutcome = await updateMemory(
       {
         vaultPath: vault,
         file: "Principles",
@@ -613,6 +610,9 @@ describe("updateMemory idempotency", () => {
       },
       logger,
     )
+    // The duplicate must actually be on disk before the cross-section call —
+    // otherwise the second "appended" proves nothing about section scoping.
+    expect(firstOutcome).toBe("appended")
     const outcome = await updateMemory(
       {
         vaultPath: vault,
