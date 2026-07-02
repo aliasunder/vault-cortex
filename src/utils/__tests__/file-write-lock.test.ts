@@ -434,6 +434,28 @@ describe("withExclusiveMultiFileLock", () => {
     )
     expect(result).toBe(42)
   })
+
+  it("registers every lock before the operation's first statement runs", async () => {
+    const filePath = join(testDir, "pre-registered.txt")
+    const operationEvents: string[] = []
+
+    const multiWrite = withExclusiveMultiFileLock([filePath], async () => {
+      operationEvents.push("operation started")
+      return "done"
+    })
+
+    // Synchronously after invocation the lock must already be held while the
+    // operation body has not run — if the operation started before its keys
+    // registered, its synchronous prefix could re-enter another lock helper
+    // on the same paths and observe them as unlocked.
+    expect(() => withExclusiveFileLock(filePath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
+    expect(operationEvents).toEqual([])
+
+    expect(await multiWrite).toBe("done")
+    expect(operationEvents).toEqual(["operation started"])
+  })
 })
 
 describe("cross-mode interaction", () => {

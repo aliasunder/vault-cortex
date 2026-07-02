@@ -72,7 +72,10 @@ export const withExclusiveMultiFileLock = <T>(
   if (anyFileBusy) {
     throw new Error("concurrent write in progress")
   }
-  const thisWrite = operation()
+  // Deferring the operation to a microtask lets every key register first —
+  // otherwise the operation's synchronous prefix could observe its own paths
+  // as still unlocked and re-enter another lock helper on them.
+  const thisWrite = Promise.resolve().then(operation)
   for (const key of keys) {
     fileWriteLocks.set(key, thisWrite)
     cleanupAfterWrite(key, thisWrite)
