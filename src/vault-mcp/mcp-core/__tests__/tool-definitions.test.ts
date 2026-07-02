@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import type { z } from "zod"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -53,6 +57,7 @@ type RegisterToolCall = [
   config: {
     title?: string
     description?: string
+    inputSchema?: Record<string, z.ZodType>
     annotations?: Record<string, boolean>
   },
   handler: (...args: unknown[]) => Promise<unknown>,
@@ -75,6 +80,14 @@ beforeEach(() => {
 
 const findCall = (name: string): RegisterToolCall | undefined =>
   calls.find(([toolName]) => toolName === name)
+
+/** findCall for tests that assume the tool is registered — throws instead of
+ *  returning undefined so call sites need no non-null assertion. */
+const requireCall = (name: string): RegisterToolCall => {
+  const call = findCall(name)
+  if (!call) throw new Error(`tool not registered: ${name}`)
+  return call
+}
 
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
@@ -120,88 +133,105 @@ describe("registerTools", () => {
   it.each(WRITE_TOOLS)(
     "%s description includes Obsidian syntax guidance",
     (name) => {
-      const [, config] = findCall(name)!
+      const [, config] = requireCall(name)
       expect(config.description).toContain("Obsidian syntax:")
     },
   )
 
   it("vault_replace_in_note description clarifies in-place scope", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)
     expect(config.description).toContain("in place")
     expect(config.description).toContain("vault_read_note")
   })
 
   it("vault_patch_note description includes cross-section move guidance", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_PATCH_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
     expect(config.description).toContain("Cross-section move")
   })
 
   it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
     "%s description documents the shrink-guard error",
     (name) => {
-      const [, config] = findCall(name)!
+      const [, config] = requireCall(name)
       expect(config.description).toContain("Errors:")
       expect(config.description).toContain("refusing memory write")
     },
   )
 
+  it("vault_update_memory description documents the duplicate no-op contract", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    // Assert the full contract fragment — a bare "idempotent" check would
+    // also pass on a reworded "not idempotent" description.
+    expect(config.description).toContain(
+      "idempotent — an exact duplicate (same date + text in the same section) is a no-op",
+    )
+  })
+
+  it("vault_delete_memory description documents duplicate-entry remediation", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    expect(config.description).toContain("ambiguous")
+    expect(config.description).toContain(
+      "vault_update_memory refuses to write exact duplicates",
+    )
+  })
+
   it("vault_update_properties description documents null-deletes-key contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)
     expect(config.description).toContain("null deletes a key")
   })
 
   it("vault_write_note description documents null-deletes-key contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_WRITE_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
     expect(config.description).toContain("keys set to null removed")
   })
 
   it("vault_recent_notes description documents sorting behavior", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_RECENT_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)
     expect(config.description).toContain("filesystem mtime")
     expect(config.description).toContain("sort last")
   })
 
   it("vault_read_note description cross-references graph tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.description).toContain("vault_get_backlinks")
     expect(config.description).toContain("vault_get_outgoing_links")
   })
 
   it("vault_search_by_property parameters cross-reference discovery tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY)
     expect(config.description).toContain("vault_list_property_keys")
     expect(config.description).toContain("vault_list_property_values")
   })
 
   it("vault_list_notes description cross-references vault_read_note", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_NOTES)
     expect(config.description).toContain("vault_read_note")
   })
 
   it("vault_get_daily_note description cross-references vault_recent_notes", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)
     expect(config.description).toContain("vault_recent_notes")
   })
 
   it("vault_list_tags description documents frontmatter-only tag counting", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_TAGS)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain("frontmatter tags")
     expect(config.description).toContain("unique notes")
   })
 
   it("vault_get_daily_note description documents future date support", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)
     expect(config.description).toContain("future dates")
   })
 
   it("vault_list_notes description includes empty-result contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_NOTES)
     expect(config.description).toContain("Errors:")
     expect(config.description).toContain("empty array, not an error")
   })
 
   it("vault_search_by_folder description cross-references graph tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)
     expect(config.description).toContain("vault_get_backlinks")
   })
 
@@ -218,21 +248,26 @@ describe("registerTools", () => {
 
 describe("annotations", () => {
   it.each(READ_ONLY_TOOLS)("%s has readOnlyHint: true", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.readOnlyHint).toBe(true)
     expect(config.annotations?.destructiveHint).toBe(false)
   })
 
   it.each(DESTRUCTIVE_TOOLS)("%s has destructiveHint: true", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.destructiveHint).toBe(true)
     expect(config.annotations?.readOnlyHint).toBe(false)
   })
 
   it.each(ADDITIVE_WRITE_TOOLS)("%s is a non-destructive write", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.readOnlyHint).toBe(false)
     expect(config.annotations?.destructiveHint).toBe(false)
+  })
+
+  it("vault_update_memory has idempotentHint: true (exact duplicates are no-ops)", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    expect(config.annotations?.idempotentHint).toBe(true)
   })
 
   it("all tools have openWorldHint: false", () => {
@@ -257,8 +292,13 @@ describe("config interpolation in descriptions", () => {
     return server.registerTool.mock.calls as RegisterToolCall[]
   })()
 
-  const findCustomCall = (name: string): RegisterToolCall | undefined =>
-    customCalls.find(([toolName]) => toolName === name)
+  /** Like requireCall, but over the custom-config registration — throws
+   *  instead of returning undefined so call sites need no non-null assertion. */
+  const requireCustomCall = (name: string): RegisterToolCall => {
+    const call = customCalls.find(([toolName]) => toolName === name)
+    if (!call) throw new Error(`tool not registered: ${name}`)
+    return call
+  }
 
   const DEFAULT_MEMORY_REF = "About Me/"
 
@@ -276,20 +316,20 @@ describe("config interpolation in descriptions", () => {
   it.each(memoryDirTools)(
     "$name description references the configured memory dir",
     ({ toolName }) => {
-      const [, config] = findCustomCall(toolName)!
+      const [, config] = requireCustomCall(toolName)
       expect(config.description).toContain(`${CUSTOM_MEMORY_DIR}/`)
       expect(config.description).not.toContain(DEFAULT_MEMORY_REF)
     },
   )
 
   it("vault_delete_note description lists configured protected paths", () => {
-    const [, config] = findCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)!
+    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)
     expect(config.description).toContain("Profile/")
     expect(config.description).not.toContain("About Me/")
   })
 
   it("vault_find_orphans description references configured exclusion folders", () => {
-    const [, config] = findCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)!
+    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
     expect(config.description).toContain(CUSTOM_MEMORY_DIR)
     expect(config.description).not.toContain("About Me")
   })
@@ -299,7 +339,7 @@ describe("error handling", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
   it("vault_read_note handler returns isError on failure", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ type: string; text: string }>
       isError?: boolean
@@ -309,7 +349,7 @@ describe("error handling", () => {
   })
 
   it("error text does not contain stack traces", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ text: string }>
     }
@@ -318,7 +358,7 @@ describe("error handling", () => {
   })
 
   it("vault_get_memory rejects section without file", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_GET_MEMORY)
     const result = (await handler(
       { file: undefined, section: "Decision heuristics" },
       mockExtra,
@@ -331,7 +371,7 @@ describe("error handling", () => {
   })
 
   it("vault_get_memory handler returns isError on failure", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_GET_MEMORY)
     const result = (await handler(
       { file: "Nonexistent", section: undefined },
       mockExtra,
@@ -346,7 +386,7 @@ describe("error handling", () => {
   })
 
   it("vault_read_note rejects combining outline with heading", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
       { path: "note.md", outline: true, heading: "Active" },
       mockExtra,
@@ -361,7 +401,7 @@ describe("error handling", () => {
   })
 
   it("vault_read_note rejects heading_level without a heading", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
       { path: "note.md", heading_level: 2 },
       mockExtra,
@@ -371,6 +411,99 @@ describe("error handling", () => {
     }
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toBe("heading_level requires a heading")
+  })
+})
+
+describe("vault_update_memory input schema", () => {
+  // Rich validation (single-line entries, calendar-valid dates) lives in the
+  // data layer, where failures flow through safeHandler as structured tool
+  // errors — by convention tool schemas stay at min(1). These tests catch an
+  // empty-string guard being dropped (an empty file name would silently
+  // create "About Me/.md").
+  const requireUpdateMemorySchema = (): Record<string, z.ZodType> => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    if (!config.inputSchema) {
+      throw new Error("vault_update_memory has no input schema")
+    }
+    return config.inputSchema
+  }
+
+  it.each([
+    { field: "file", validValue: "Principles" },
+    { field: "section", validValue: "Decision heuristics (newest first)" },
+    { field: "entry", validValue: "a single-line entry" },
+  ])(
+    "$field rejects an empty string and accepts a non-empty one",
+    ({ field, validValue }) => {
+      const schema = requireUpdateMemorySchema()
+      expect(schema[field].safeParse("").success).toBe(false)
+      expect(schema[field].safeParse(validValue).success).toBe(true)
+    },
+  )
+
+  it("options.date rejects an empty string and accepts a date", () => {
+    const schema = requireUpdateMemorySchema()
+    expect(schema.options.safeParse({ date: "" }).success).toBe(false)
+    expect(schema.options.safeParse({ date: "2026-07-02" }).success).toBe(true)
+  })
+})
+
+describe("vault_update_memory handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
+    // A real temp vault so the handler exercises the actual memory store —
+    // the global harness registers against a nonexistent path.
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    await mkdir(join(tempVault, "About Me"), { recursive: true })
+    await writeFile(
+      join(tempVault, "About Me/Principles.md"),
+      "# Principles\n\n## Decision heuristics (newest first)\n- **2026-05-06**: seeded entry\n",
+      "utf8",
+    )
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const updateMemoryCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    )
+    if (!updateMemoryCall) throw new Error("vault_update_memory not registered")
+    const [, , handler] = updateMemoryCall
+
+    const args = {
+      file: "Principles",
+      section: "Decision heuristics (newest first)",
+      entry: "retry entry",
+      options: { date: "2026-07-02" },
+    }
+
+    // First call appends and confirms — proves the entry actually landed
+    // before the retry, so the no-op can't be a silent failure.
+    const firstResult = (await handler(args, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(firstResult.isError).toBeUndefined()
+    expect(firstResult.content[0].text).toBe(
+      "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
+    )
+
+    // Identical retry succeeds but reports the no-op instead of "Added entry".
+    const retryResult = (await handler(args, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(retryResult.isError).toBeUndefined()
+    expect(retryResult.content[0].text).toBe(
+      "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
+    )
   })
 })
 
