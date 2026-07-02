@@ -184,6 +184,19 @@ describe("getMemory", () => {
     expect(result).toBe("")
     await rm(emptyVault, { recursive: true })
   })
+
+  // A memory file is a bare name, never a path — a separator would let
+  // "../.." read notes outside the memory directory (or the vault).
+  it("rejects a file name containing path separators instead of reading outside the memory directory", async () => {
+    // A real note one level above About Me/ — the guard, not a missing
+    // file, must be what rejects the read.
+    await writeFile(join(vault, "Outside.md"), "# Outside\n", "utf8")
+    await expect(
+      getMemory({ vaultPath: vault, file: "../Outside" }, logger),
+    ).rejects.toThrow(
+      'memory file must be a bare name without path separators: "../Outside"',
+    )
+  })
 })
 
 describe("updateMemory", () => {
@@ -530,6 +543,62 @@ describe("updateMemory idempotency", () => {
     )
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
+
+  // A section name with a line break would write a corrupted multi-line
+  // "## heading" that findSection could never match again — every retry
+  // would append another broken section instead of hitting the duplicate
+  // guard, so it must be rejected before anything is written.
+  it("rejects a section name containing a line break, which would corrupt the heading", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics\n(newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "section must be a single line: section names become H2 headings — remove line breaks",
+    )
+    // Nothing was written — the file is byte-identical to the fixture.
+    const fileContent = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(fileContent).toBe(PRINCIPLES_MD)
+  })
+
+  // A memory file is a bare name, never a path — a separator would let
+  // "../.." escape the memory directory (and the vault) entirely.
+  it.each([
+    { separatorKind: "a forward slash", file: "../Escaped" },
+    { separatorKind: "a backslash", file: "..\\Escaped" },
+  ])(
+    "rejects a file name containing $separatorKind instead of writing outside the memory directory",
+    async ({ file }) => {
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file,
+            section: "Decision heuristics (newest first)",
+            entry: "valid entry",
+            date: "2026-07-02",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        `memory file must be a bare name without path separators: "${file}"`,
+      )
+      // No file escaped the memory directory into the vault root.
+      await expect(
+        readFile(join(vault, "Escaped.md"), "utf8"),
+      ).rejects.toMatchObject({ code: "ENOENT" })
+    },
+  )
 
   it("appends when the same text arrives with a different date", async () => {
     await updateMemory(

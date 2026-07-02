@@ -433,6 +433,20 @@ describe("vault_update_memory input schema", () => {
     expect(schema.entry.safeParse("a single-line entry").success).toBe(true)
   })
 
+  it("section rejects a multiline value and accepts a single-line one", () => {
+    const schema = requireUpdateMemorySchema()
+    const multilineResult = schema.section.safeParse("Heading\nsplit in two")
+    if (multilineResult.success) {
+      throw new Error("expected the multiline section to be rejected")
+    }
+    expect(multilineResult.error.issues.map((issue) => issue.message)).toEqual([
+      "section must be a single line",
+    ])
+    expect(
+      schema.section.safeParse("Decision heuristics (newest first)").success,
+    ).toBe(true)
+  })
+
   it("options.date rejects a calendar-impossible date and accepts a real one", () => {
     const schema = requireUpdateMemorySchema()
     const impossibleDateResult = schema.options.safeParse({

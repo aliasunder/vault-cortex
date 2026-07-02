@@ -173,8 +173,17 @@ const findSection = (
 export const createMemoryStore = (options: { memoryDir: string }) => {
   const { memoryDir } = options
 
-  const memoryFilePath = (vaultPath: string, file: string): string =>
-    join(vaultPath, memoryDir, `${file}.md`)
+  // A memory file is a bare name, never a path — a separator would let a
+  // name like "../../outside" escape the memory directory (and the vault)
+  // entirely, so reject it at the single point every memory path goes through.
+  const memoryFilePath = (vaultPath: string, file: string): string => {
+    if (file.includes("/") || file.includes("\\")) {
+      throw new Error(
+        `memory file must be a bare name without path separators: "${file}"`,
+      )
+    }
+    return join(vaultPath, memoryDir, `${file}.md`)
+  }
 
   type MemoryTemplateSpec = {
     fileName: string
@@ -428,6 +437,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     if (params.date !== undefined && !isValidMemoryEntryDate(params.date)) {
       throw new Error(
         "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+      )
+    }
+    // A section name with a line break would write a corrupted multi-line
+    // "## heading" that findSection can never match again — every subsequent
+    // call would append yet another broken section instead of reaching the
+    // duplicate guard, so reject it at the boundary like entry and date.
+    if (MEMORY_ENTRY_LINE_BREAK_PATTERN.test(params.section)) {
+      throw new Error(
+        "section must be a single line: section names become H2 headings — remove line breaks",
       )
     }
     // Serialize the read-modify-write so concurrent appends to the same file

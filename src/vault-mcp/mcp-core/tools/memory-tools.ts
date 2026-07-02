@@ -103,7 +103,7 @@ Returns: Raw markdown text.`,
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
-Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_patch_note).
+Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note).
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
@@ -114,6 +114,7 @@ Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = ta
 Errors:
 - "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
+- "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
@@ -121,9 +122,15 @@ Returns: Confirmation message (notes when an identical entry already existed and
       inputSchema: {
         file: z
           .string()
+          .min(1)
           .describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
+          .min(1)
+          .refine(
+            (sectionName) => !MEMORY_ENTRY_LINE_BREAK_PATTERN.test(sectionName),
+            { error: "section must be a single line" },
+          )
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
@@ -198,7 +205,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           // Nudge the caller to author the scope callout the new file was
           // seeded with, so the file self-documents what belongs in it.
           return outcome === "created-file"
-            ? `${confirmation}. Created a new memory file with a placeholder scope callout — fill in its "Contains"/"Does NOT contain" via vault_patch_note (operation "prepend", no heading) so other agents know what this file is for.`
+            ? `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
             : confirmation
         },
       )
@@ -261,16 +268,18 @@ Parameters:
 
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
-- "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span or a manual edit, then retry.
+- "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.
 
 Returns: Confirmation message.`,
       inputSchema: {
         file: z
           .string()
+          .min(1)
           .describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
+          .min(1)
           .describe(
             'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
