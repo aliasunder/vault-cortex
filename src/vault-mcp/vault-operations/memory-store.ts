@@ -46,16 +46,12 @@ const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
  *  bullets, so any line break in an input would corrupt the format. */
 const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
 
-/** Matches a bare ISO calendar date (YYYY-MM-DD) — the only date shape the
- *  dated-bullet format accepts. Shape only; calendar validity is checked by
- *  isValidMemoryEntryDate. */
-const MEMORY_ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-
-/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
- *  the shape check rejects timestamps and free text, the Luxon parse rejects
- *  calendar-impossible values ("2026-13-40" is shape-valid but no date). */
+/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form.
+ *  fromFormat enforces both the exact shape (zero-padded, rejects timestamps
+ *  and week/ordinal forms that the permissive fromISO would accept) and
+ *  calendar validity ("2026-02-30" parses as out of range). */
 const isValidMemoryEntryDate = (dateText: string): boolean =>
-  MEMORY_ENTRY_DATE_PATTERN.test(dateText) && DateTime.fromISO(dateText).isValid
+  DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
