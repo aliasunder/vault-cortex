@@ -152,21 +152,25 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     res.status(404).json({ error: "session not found" })
   })
 
-  router.get("/mcp", bearerAuth, async (req: Request, res: Response) => {
+  // The Streamable HTTP spec lets a client open a standalone SSE stream via
+  // GET for server-initiated messages — and explicitly allows servers that
+  // don't offer one to reject the request with 405. vault-cortex never sends
+  // server-initiated messages, so a held stream would only ever sit idle
+  // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
+  router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
-    if (!sessionId || !transports.has(sessionId)) {
-      logger.warn("mcp_response", {
-        sessionId,
-        clientIp,
-        status: 404,
-        outcome: "session not found",
-      })
-      res.status(404).json({ error: "session not found" })
-      return
-    }
-    await transports.get(sessionId)!.handleRequest(req, res)
+    logger.info("mcp_response", {
+      sessionId,
+      clientIp,
+      status: 405,
+      outcome: "standalone SSE stream not offered",
+    })
+    res.status(405).set("Allow", "POST, DELETE").json({
+      error:
+        "method not allowed: this server does not offer a standalone SSE stream",
+    })
   })
 
   router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
