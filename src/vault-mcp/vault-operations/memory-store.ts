@@ -46,12 +46,20 @@ const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
  *  bullets, so any line break in an input would corrupt the format. */
 const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
 
-/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form.
- *  fromFormat enforces both the exact shape (zero-padded, rejects timestamps
- *  and week/ordinal forms that the permissive fromISO would accept) and
- *  calendar validity ("2026-02-30" parses as out of range). */
-const isValidMemoryEntryDate = (dateText: string): boolean =>
-  DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
+/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
+ *  or undefined, which callers treat as "not supplied" (updateMemory defaults
+ *  it to today). fromFormat enforces both the exact shape (zero-padded,
+ *  rejects timestamps and week/ordinal forms that the permissive fromISO
+ *  would accept) and calendar validity ("2026-02-30" parses as out of range). */
+const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
+  if (dateText === undefined) return true
+  return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
+}
+
+/** Thrown by updateMemory and deleteMemory when a supplied date fails
+ *  isValidMemoryEntryDate — one string so the two sites can't drift. */
+const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
+  "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
@@ -424,14 +432,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
       )
     }
-    // The default date (today) is always valid, so only a caller-supplied
-    // date needs checking — anything that isn't a real bare YYYY-MM-DD date
-    // (a line break, a timestamp, free text, an impossible calendar value)
-    // would corrupt the bullet the same way a multiline entry does.
-    if (params.date !== undefined && !isValidMemoryEntryDate(params.date)) {
-      throw new Error(
-        "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
-      )
+    // An omitted date is fine (it defaults to today below); anything supplied
+    // that isn't a real bare YYYY-MM-DD date (a line break, a timestamp, free
+    // text, an impossible calendar value) would corrupt the bullet the same
+    // way a multiline entry does.
+    if (!isValidMemoryEntryDate(params.date)) {
+      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
     }
     // A section name with a line break would write a corrupted multi-line
     // "## heading" that findSection can never match again — every subsequent
@@ -665,65 +671,75 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       entry: string
     },
     logger: Logger,
-  ): Promise<void> =>
+  ): Promise<void> => {
+    // Server-written bullets only ever carry real calendar dates, so a
+    // malformed date can never match — reject it up front with remediation
+    // instead of a guaranteed "no entry matching" miss.
+    if (!isValidMemoryEntryDate(params.date)) {
+      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+    }
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
-      const raw = await readMemoryFile(params.vaultPath, params.file)
-      const parsed = parseNote(raw)
-      const lines = splitIntoLines(parsed.content)
-      const sections = parseSections(lines)
-      const match = findSection(sections, params.section, 2)
-      if (!match) {
-        throw new Error(
-          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+    return withFileLock(
+      memoryFilePath(params.vaultPath, params.file),
+      async () => {
+        const raw = await readMemoryFile(params.vaultPath, params.file)
+        const parsed = parseNote(raw)
+        const lines = splitIntoLines(parsed.content)
+        const sections = parseSections(lines)
+        const match = findSection(sections, params.section, 2)
+        if (!match) {
+          throw new Error(
+            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+          )
+        }
+
+        // Build the exact bullet string and find matching lines within the section
+        const targetBullet = `- **${params.date}**: ${params.entry}`
+        const matchingIndices = lines.flatMap((line, index) =>
+          index >= match.bodyStartLine &&
+          index < match.bodyEndLine &&
+          line === targetBullet
+            ? [index]
+            : [],
         )
-      }
 
-      // Build the exact bullet string and find matching lines within the section
-      const targetBullet = `- **${params.date}**: ${params.entry}`
-      const matchingIndices = lines.flatMap((line, index) =>
-        index >= match.bodyStartLine &&
-        index < match.bodyEndLine &&
-        line === targetBullet
-          ? [index]
-          : [],
-      )
+        if (matchingIndices.length === 0) {
+          throw new Error(
+            `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+          )
+        }
+        if (matchingIndices.length > 1) {
+          throw new Error(
+            `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+          )
+        }
 
-      if (matchingIndices.length === 0) {
-        throw new Error(
-          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+        // Remove the single matched line, preserving everything before and after it
+        const updatedLines = [
+          ...lines.slice(0, matchingIndices[0]),
+          ...lines.slice(matchingIndices[0] + 1),
+        ]
+
+        const newContent = updatedLines.join("\n")
+        const serialized = stringifyNote(newContent, parsed.data)
+        const beforeBytes = Buffer.byteLength(raw, "utf8")
+        const afterBytes = Buffer.byteLength(serialized, "utf8")
+        guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
+        await atomicWriteFile(
+          memoryFilePath(params.vaultPath, params.file),
+          serialized,
         )
-      }
-      if (matchingIndices.length > 1) {
-        throw new Error(
-          `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
-        )
-      }
-
-      // Remove the single matched line, preserving everything before and after it
-      const updatedLines = [
-        ...lines.slice(0, matchingIndices[0]),
-        ...lines.slice(matchingIndices[0] + 1),
-      ]
-
-      const newContent = updatedLines.join("\n")
-      const serialized = stringifyNote(newContent, parsed.data)
-      const beforeBytes = Buffer.byteLength(raw, "utf8")
-      const afterBytes = Buffer.byteLength(serialized, "utf8")
-      guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
-      await atomicWriteFile(
-        memoryFilePath(params.vaultPath, params.file),
-        serialized,
-      )
-      logger.info("deleted memory entry", {
-        file: params.file,
-        section: params.section,
-        date: params.date,
-        beforeBytes,
-        afterBytes,
-      })
-    })
+        logger.info("deleted memory entry", {
+          file: params.file,
+          section: params.section,
+          date: params.date,
+          beforeBytes,
+          afterBytes,
+        })
+      },
+    )
+  }
 
   /** Creates the memory directory with template files if it doesn't exist. Idempotent. */
   const bootstrapMemoryDir = async (

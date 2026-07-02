@@ -133,26 +133,26 @@ describe("registerTools", () => {
   it.each(WRITE_TOOLS)(
     "%s description includes Obsidian syntax guidance",
     (name) => {
-      const [, config] = findCall(name)!
+      const [, config] = requireCall(name)
       expect(config.description).toContain("Obsidian syntax:")
     },
   )
 
   it("vault_replace_in_note description clarifies in-place scope", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)
     expect(config.description).toContain("in place")
     expect(config.description).toContain("vault_read_note")
   })
 
   it("vault_patch_note description includes cross-section move guidance", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_PATCH_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
     expect(config.description).toContain("Cross-section move")
   })
 
   it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
     "%s description documents the shrink-guard error",
     (name) => {
-      const [, config] = findCall(name)!
+      const [, config] = requireCall(name)
       expect(config.description).toContain("Errors:")
       expect(config.description).toContain("refusing memory write")
     },
@@ -176,62 +176,62 @@ describe("registerTools", () => {
   })
 
   it("vault_update_properties description documents null-deletes-key contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)
     expect(config.description).toContain("null deletes a key")
   })
 
   it("vault_write_note description documents null-deletes-key contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_WRITE_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
     expect(config.description).toContain("keys set to null removed")
   })
 
   it("vault_recent_notes description documents sorting behavior", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_RECENT_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)
     expect(config.description).toContain("filesystem mtime")
     expect(config.description).toContain("sort last")
   })
 
   it("vault_read_note description cross-references graph tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.description).toContain("vault_get_backlinks")
     expect(config.description).toContain("vault_get_outgoing_links")
   })
 
   it("vault_search_by_property parameters cross-reference discovery tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY)
     expect(config.description).toContain("vault_list_property_keys")
     expect(config.description).toContain("vault_list_property_values")
   })
 
   it("vault_list_notes description cross-references vault_read_note", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_NOTES)
     expect(config.description).toContain("vault_read_note")
   })
 
   it("vault_get_daily_note description cross-references vault_recent_notes", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)
     expect(config.description).toContain("vault_recent_notes")
   })
 
   it("vault_list_tags description documents frontmatter-only tag counting", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_TAGS)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain("frontmatter tags")
     expect(config.description).toContain("unique notes")
   })
 
   it("vault_get_daily_note description documents future date support", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_GET_DAILY_NOTE)
     expect(config.description).toContain("future dates")
   })
 
   it("vault_list_notes description includes empty-result contract", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_LIST_NOTES)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_NOTES)
     expect(config.description).toContain("Errors:")
     expect(config.description).toContain("empty array, not an error")
   })
 
   it("vault_search_by_folder description cross-references graph tools", () => {
-    const [, config] = findCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)!
+    const [, config] = requireCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)
     expect(config.description).toContain("vault_get_backlinks")
   })
 
@@ -248,19 +248,19 @@ describe("registerTools", () => {
 
 describe("annotations", () => {
   it.each(READ_ONLY_TOOLS)("%s has readOnlyHint: true", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.readOnlyHint).toBe(true)
     expect(config.annotations?.destructiveHint).toBe(false)
   })
 
   it.each(DESTRUCTIVE_TOOLS)("%s has destructiveHint: true", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.destructiveHint).toBe(true)
     expect(config.annotations?.readOnlyHint).toBe(false)
   })
 
   it.each(ADDITIVE_WRITE_TOOLS)("%s is a non-destructive write", (name) => {
-    const [, config] = findCall(name)!
+    const [, config] = requireCall(name)
     expect(config.annotations?.readOnlyHint).toBe(false)
     expect(config.annotations?.destructiveHint).toBe(false)
   })
@@ -292,8 +292,13 @@ describe("config interpolation in descriptions", () => {
     return server.registerTool.mock.calls as RegisterToolCall[]
   })()
 
-  const findCustomCall = (name: string): RegisterToolCall | undefined =>
-    customCalls.find(([toolName]) => toolName === name)
+  /** Like requireCall, but over the custom-config registration — throws
+   *  instead of returning undefined so call sites need no non-null assertion. */
+  const requireCustomCall = (name: string): RegisterToolCall => {
+    const call = customCalls.find(([toolName]) => toolName === name)
+    if (!call) throw new Error(`tool not registered: ${name}`)
+    return call
+  }
 
   const DEFAULT_MEMORY_REF = "About Me/"
 
@@ -311,20 +316,20 @@ describe("config interpolation in descriptions", () => {
   it.each(memoryDirTools)(
     "$name description references the configured memory dir",
     ({ toolName }) => {
-      const [, config] = findCustomCall(toolName)!
+      const [, config] = requireCustomCall(toolName)
       expect(config.description).toContain(`${CUSTOM_MEMORY_DIR}/`)
       expect(config.description).not.toContain(DEFAULT_MEMORY_REF)
     },
   )
 
   it("vault_delete_note description lists configured protected paths", () => {
-    const [, config] = findCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)!
+    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)
     expect(config.description).toContain("Profile/")
     expect(config.description).not.toContain("About Me/")
   })
 
   it("vault_find_orphans description references configured exclusion folders", () => {
-    const [, config] = findCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)!
+    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
     expect(config.description).toContain(CUSTOM_MEMORY_DIR)
     expect(config.description).not.toContain("About Me")
   })
@@ -334,7 +339,7 @@ describe("error handling", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
   it("vault_read_note handler returns isError on failure", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ type: string; text: string }>
       isError?: boolean
@@ -344,7 +349,7 @@ describe("error handling", () => {
   })
 
   it("error text does not contain stack traces", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ text: string }>
     }
@@ -353,7 +358,7 @@ describe("error handling", () => {
   })
 
   it("vault_get_memory rejects section without file", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_GET_MEMORY)
     const result = (await handler(
       { file: undefined, section: "Decision heuristics" },
       mockExtra,
@@ -366,7 +371,7 @@ describe("error handling", () => {
   })
 
   it("vault_get_memory handler returns isError on failure", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_GET_MEMORY)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_GET_MEMORY)
     const result = (await handler(
       { file: "Nonexistent", section: undefined },
       mockExtra,
@@ -381,7 +386,7 @@ describe("error handling", () => {
   })
 
   it("vault_read_note rejects combining outline with heading", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
       { path: "note.md", outline: true, heading: "Active" },
       mockExtra,
@@ -396,7 +401,7 @@ describe("error handling", () => {
   })
 
   it("vault_read_note rejects heading_level without a heading", async () => {
-    const [, , handler] = findCall(TOOL_NAMES.VAULT_READ_NOTE)!
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
       { path: "note.md", heading_level: 2 },
       mockExtra,

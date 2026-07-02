@@ -948,6 +948,31 @@ describe("deleteMemory", () => {
     ).rejects.toThrow('no entry matching (2026-05-05, "nonexistent text")')
   })
 
+  // Server-written bullets only carry real calendar dates, so a malformed
+  // date can never match — the guard turns a guaranteed "no entry matching"
+  // miss into an actionable format error before any file read.
+  it("rejects a calendar-impossible date and leaves the file unchanged", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          date: "2026-13-40",
+          entry: "Least-privilege for AI agents",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
+    )
+    const fileContent = await readFile(
+      join(vault, "About Me/Principles.md"),
+      "utf8",
+    )
+    expect(fileContent).toBe(PRINCIPLES_MD)
+  })
+
   it("throws on ambiguous match", async () => {
     const dupeContent = `---
 title: Dupe
