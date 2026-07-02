@@ -324,6 +324,16 @@ throughout the codebase.
 - `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
+- Tool input schemas stay at `.min(1)` — no `.refine`. Rich validation
+  (format, date validity, mutual exclusivity) lives in the data layer or
+  handler, where failures flow through `safeHandler` as structured tool
+  errors with remediation text and get logged as `tool_error`. Zod
+  schema failures surface as protocol-level invalid-params errors that
+  bypass both, and a `.refine` predicate can't be serialized into the
+  JSON schema clients see anyway — so it adds no discoverability, only a
+  second copy of a guard the data layer must enforce regardless (drift
+  risk). `.min(1)` is the floor because it does serialize (`minLength`)
+  and its default failure message is self-explanatory.
 - No `any`. No `as` or `!` (non-null assertion) — both are type
   assertions that bypass the compiler. Use runtime guards (`if (x ===
 undefined) return`) or schema validation to narrow types instead.
