@@ -43,9 +43,8 @@ const guardAgainstShrink = (
 const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
 
 /** Matches CR/LF anywhere in a string — memory entries are single-line dated
- *  bullets, so any line break in an input would corrupt the format. Shared
- *  with the tool-layer schema so the two guards can't drift. */
-export const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
+ *  bullets, so any line break in an input would corrupt the format. */
+const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
 
 /** Matches a bare ISO calendar date (YYYY-MM-DD) — the only date shape the
  *  dated-bullet format accepts. Shape only; calendar validity is checked by
@@ -54,9 +53,8 @@ const MEMORY_ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 /** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
  *  the shape check rejects timestamps and free text, the Luxon parse rejects
- *  calendar-impossible values ("2026-13-40" is shape-valid but no date).
- *  Shared with the tool-layer schema so the two guards can't drift. */
-export const isValidMemoryEntryDate = (dateText: string): boolean =>
+ *  calendar-impossible values ("2026-13-40" is shape-valid but no date). */
+const isValidMemoryEntryDate = (dateText: string): boolean =>
   MEMORY_ENTRY_DATE_PATTERN.test(dateText) && DateTime.fromISO(dateText).isValid
 
 const isString = (value: unknown): value is string => typeof value === "string"

@@ -1,11 +1,7 @@
 /** Memory tool registrations — read, update, list, and delete About Me/ entries. */
 
 import { z } from "zod"
-import {
-  createMemoryStore,
-  isValidMemoryEntryDate,
-  MEMORY_ENTRY_LINE_BREAK_PATTERN,
-} from "../../vault-operations/memory-store.js"
+import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
 
@@ -127,20 +123,12 @@ Returns: Confirmation message (notes when an identical entry already existed and
         section: z
           .string()
           .min(1)
-          .refine(
-            (sectionName) => !MEMORY_ENTRY_LINE_BREAK_PATTERN.test(sectionName),
-            { error: "section must be a single line" },
-          )
           .describe(
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
         entry: z
           .string()
           .min(1)
-          .refine(
-            (entryText) => !MEMORY_ENTRY_LINE_BREAK_PATTERN.test(entryText),
-            { error: "entry must be a single line" },
-          )
           .describe(
             'Raw entry text — a single line (newlines are rejected); the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
           ),
@@ -148,10 +136,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           .object({
             date: z
               .string()
-              .refine(isValidMemoryEntryDate, {
-                error:
-                  "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
-              })
+              .min(1)
               .optional()
               .describe("ISO YYYY-MM-DD date (defaults to today)"),
             position: z

@@ -410,9 +410,11 @@ describe("error handling", () => {
 })
 
 describe("vault_update_memory input schema", () => {
-  // The data layer enforces the same guards, but the schema refines are the
-  // protocol-level defense — these tests catch the refine being dropped from
-  // the schema even though updateMemory would still reject the input deeper.
+  // Rich validation (single-line entries, calendar-valid dates) lives in the
+  // data layer, where failures flow through safeHandler as structured tool
+  // errors — by convention tool schemas stay at min(1). These tests catch an
+  // empty-string guard being dropped (an empty file name would silently
+  // create "About Me/.md").
   const requireUpdateMemorySchema = (): Record<string, z.ZodType> => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
     if (!config.inputSchema) {
@@ -421,45 +423,22 @@ describe("vault_update_memory input schema", () => {
     return config.inputSchema
   }
 
-  it("entry rejects a multiline value and accepts a single-line one", () => {
-    const schema = requireUpdateMemorySchema()
-    const multilineResult = schema.entry.safeParse("line one\nline two")
-    if (multilineResult.success) {
-      throw new Error("expected the multiline entry to be rejected")
-    }
-    expect(multilineResult.error.issues.map((issue) => issue.message)).toEqual([
-      "entry must be a single line",
-    ])
-    expect(schema.entry.safeParse("a single-line entry").success).toBe(true)
-  })
+  it.each([
+    { field: "file", validValue: "Principles" },
+    { field: "section", validValue: "Decision heuristics (newest first)" },
+    { field: "entry", validValue: "a single-line entry" },
+  ])(
+    "$field rejects an empty string and accepts a non-empty one",
+    ({ field, validValue }) => {
+      const schema = requireUpdateMemorySchema()
+      expect(schema[field].safeParse("").success).toBe(false)
+      expect(schema[field].safeParse(validValue).success).toBe(true)
+    },
+  )
 
-  it("section rejects a multiline value and accepts a single-line one", () => {
+  it("options.date rejects an empty string and accepts a date", () => {
     const schema = requireUpdateMemorySchema()
-    const multilineResult = schema.section.safeParse("Heading\nsplit in two")
-    if (multilineResult.success) {
-      throw new Error("expected the multiline section to be rejected")
-    }
-    expect(multilineResult.error.issues.map((issue) => issue.message)).toEqual([
-      "section must be a single line",
-    ])
-    expect(
-      schema.section.safeParse("Decision heuristics (newest first)").success,
-    ).toBe(true)
-  })
-
-  it("options.date rejects a calendar-impossible date and accepts a real one", () => {
-    const schema = requireUpdateMemorySchema()
-    const impossibleDateResult = schema.options.safeParse({
-      date: "2026-13-40",
-    })
-    if (impossibleDateResult.success) {
-      throw new Error("expected the calendar-impossible date to be rejected")
-    }
-    expect(
-      impossibleDateResult.error.issues.map((issue) => issue.message),
-    ).toEqual([
-      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
-    ])
+    expect(schema.options.safeParse({ date: "" }).success).toBe(false)
     expect(schema.options.safeParse({ date: "2026-07-02" }).success).toBe(true)
   })
 })
