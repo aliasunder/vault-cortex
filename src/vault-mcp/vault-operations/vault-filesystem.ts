@@ -13,7 +13,7 @@ import { join, dirname, relative, resolve, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import { readFileOrNull, readdirOrNull } from "../../utils/fs.js"
+import { fileExists, readFileOrNull, readdirOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseNote,
@@ -398,15 +398,26 @@ const deleteNote = async (
   }
 
   const fullPath = resolveSafePath(params.vaultPath, path)
-  await unlink(fullPath)
-  const prunedEmptyFolders = params.pruneEmptyFolders
-    ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
-    : 0
-  logger.info("deleted note", {
-    path,
-    pruned_empty_folders: prunedEmptyFolders,
+  // Locked so a concurrent read-modify-write (patch/replace) can't recreate
+  // the note via its atomic-rename write after the unlink, and so a delete
+  // rejects while a note move holds this path.
+  return withExclusiveFileLock(fullPath, async () => {
+    // Checked inside the lock, mirroring moveNote — a clean vault-relative
+    // "note not found" instead of unlink's raw ENOENT (whose message would
+    // leak the absolute container path to the client).
+    if (!(await fileExists(fullPath))) {
+      throw new Error(`note not found: "${path}"`)
+    }
+    await unlink(fullPath)
+    const prunedEmptyFolders = params.pruneEmptyFolders
+      ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
+      : 0
+    logger.info("deleted note", {
+      path,
+      pruned_empty_folders: prunedEmptyFolders,
+    })
+    return { prunedEmptyFolders }
   })
-  return { prunedEmptyFolders }
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */

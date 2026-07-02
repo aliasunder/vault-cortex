@@ -14,7 +14,9 @@
  *    5. Orchestration (moveNote) — two-phase: preflight reads every affected
  *       note and computes its rewrite (aborting on any failure before touching
  *       the vault), then commit writes the destination, updates backlink sources,
- *       and deletes the original last. */
+ *       and deletes the original last. The whole span runs under a multi-file
+ *       write lock covering the moved note, its destination, and every backlink
+ *       source, so concurrent single-file writes fail fast instead of racing. */
 
 import { readFile, mkdir, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
@@ -28,6 +30,7 @@ import {
 } from "./vault-filesystem.js"
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
+import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
 import { fileExists } from "../../utils/fs.js"
@@ -383,7 +386,10 @@ const REWRITE_CONCURRENCY = 10
 /** Moves a note and rewrites every link across the vault that resolves to it.
  *  Two phases: preflight reads all files and computes rewrites (aborting on any
  *  read failure before touching the vault), then commit writes everything and
- *  deletes the original last — so a failure never loses data. */
+ *  deletes the original last — so a failure never loses data. Both phases hold
+ *  an exclusive multi-file lock on every affected file (moved note, destination,
+ *  backlink sources); the move rejects fail-fast when any of them already has a
+ *  write in flight, and vice versa. */
 const moveNote = async (
   params: {
     vaultPath: string
@@ -421,191 +427,242 @@ const moveNote = async (
   const oldFullPath = resolveSafePath(vaultPath, oldPath)
   const newFullPath = resolveSafePath(vaultPath, newPath)
 
-  if (!(await fileExists(oldFullPath))) {
-    throw new Error(`note not found: "${oldPath}"`)
-  }
-  if (await fileExists(newFullPath)) {
-    throw new Error(`destination exists: "${newPath}"`)
-  }
-
-  const allNotePathsBefore = [...allNotePaths]
-  const allNotePathsAfter = allNotePaths.map((path) =>
-    path === oldPath ? newPath : path,
-  )
-
-  // Bind rewriteTarget to a context for one source note, producing a simple
-  // callback. Backlink sources stay put (before === after); the moved note
-  // shifts old → new.
-  const rewriteLinkForSource = (sourceLocation: {
-    before: string
-    after: string
-  }): RewriteLink => {
-    const context: RewriteContext = {
-      oldSourcePath: sourceLocation.before,
-      newSourcePath: sourceLocation.after,
-      oldTargetPath: oldPath,
-      newTargetPath: newPath,
-      allNotePaths: allNotePathsBefore,
-      allNotePathsAfter,
-    }
-    return (rawTarget) => rewriteTarget(rawTarget, context)
-  }
-
-  // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
-
-  // Rewrite the moved note's self-links and source-relative links so they still
-  // resolve from the new folder. A read failure aborts before any write.
-  const planMovedNote = async (): Promise<{
-    content: string
-    linksRewritten: number
-  }> => {
+  // Resolve every backlink source upfront so the lock set below covers each
+  // file the move reads or writes. A resolution failure aborts before anything
+  // is locked or written.
+  const resolvedBacklinkSources = params.backlinkSources.map((rawSource) => {
+    const source = toVaultRelativePath(rawSource)
     try {
-      const rawContent = await readFile(oldFullPath, "utf8")
-      const rewrite = rewriteNoteContent(
-        rawContent,
-        rewriteLinkForSource({ before: oldPath, after: newPath }),
-      )
-      return {
-        content: rewrite?.content ?? rawContent,
-        linksRewritten: rewrite?.linksRewritten ?? 0,
-      }
+      return { source, fullPath: resolveSafePath(vaultPath, source) }
     } catch (error) {
-      logger.error("note move aborted: could not read the note being moved", {
-        from: oldPath,
-        to: newPath,
-        error: describeError(error),
-      })
+      logger.error(
+        "note move aborted: could not resolve a backlink source path",
+        {
+          source,
+          from: oldPath,
+          to: newPath,
+          error: describeError(error),
+        },
+      )
       throw new Error(
-        `move aborted: could not read "${oldPath}". Nothing was written.`,
+        `move aborted: could not resolve backlink source "${source}". Nothing was written.`,
         { cause: error },
       )
     }
-  }
-  const { content: movedContent, linksRewritten: movedLinksRewritten } =
-    await planMovedNote()
+  })
+  // Dedupe by resolved path: duplicate or alias spellings of the same file
+  // must not produce two rewrite plans (double writes, over-counted
+  // links_updated). The moved note is excluded by resolved path too, so an
+  // alias of old_path can't slip in as a backlink source and receive a
+  // wrong-context rewrite.
+  const backlinkSourcesByFullPath = new Map(
+    resolvedBacklinkSources
+      .filter((backlinkSource) => backlinkSource.fullPath !== oldFullPath)
+      .map((backlinkSource) => [backlinkSource.fullPath, backlinkSource]),
+  )
+  const backlinkSources = [...backlinkSourcesByFullPath.values()]
 
-  const plannedRewrites = (
-    await mapWithConcurrency({
-      items: params.backlinkSources.filter((source) => source !== oldPath),
-      concurrency: REWRITE_CONCURRENCY,
-      mapper: async (source) => {
-        try {
-          const sourceFullPath = resolveSafePath(vaultPath, source)
-          const rawContent = await readFile(sourceFullPath, "utf8")
-          const rewrite = rewriteNoteContent(
-            rawContent,
-            rewriteLinkForSource({ before: source, after: source }),
-          )
-          return rewrite === null
-            ? null
-            : {
+  // Lock the moved note, its destination, and every backlink source as one
+  // unit for the whole read-plan-write span — a concurrent single-file write
+  // to any of them fails fast instead of racing the move (and losing), and the
+  // move fails fast when any of them already has a write in flight. Acquired
+  // before the existence checks so those also run against a stable vault.
+  const lockPaths = [
+    oldFullPath,
+    newFullPath,
+    ...backlinkSources.map((backlinkSource) => backlinkSource.fullPath),
+  ]
+  return withExclusiveMultiFileLock(lockPaths, async () => {
+    if (!(await fileExists(oldFullPath))) {
+      throw new Error(`note not found: "${oldPath}"`)
+    }
+    if (await fileExists(newFullPath)) {
+      throw new Error(`destination exists: "${newPath}"`)
+    }
+
+    const allNotePathsBefore = [...allNotePaths]
+    const allNotePathsAfter = allNotePaths.map((path) =>
+      path === oldPath ? newPath : path,
+    )
+
+    // Bind rewriteTarget to a context for one source note, producing a simple
+    // callback. Backlink sources stay put (before === after); the moved note
+    // shifts old → new.
+    const rewriteLinkForSource = (sourceLocation: {
+      before: string
+      after: string
+    }): RewriteLink => {
+      const context: RewriteContext = {
+        oldSourcePath: sourceLocation.before,
+        newSourcePath: sourceLocation.after,
+        oldTargetPath: oldPath,
+        newTargetPath: newPath,
+        allNotePaths: allNotePathsBefore,
+        allNotePathsAfter,
+      }
+      return (rawTarget) => rewriteTarget(rawTarget, context)
+    }
+
+    // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
+
+    // Rewrite the moved note's self-links and source-relative links so they still
+    // resolve from the new folder. A read failure aborts before any write.
+    const planMovedNote = async (): Promise<{
+      content: string
+      linksRewritten: number
+    }> => {
+      try {
+        const rawContent = await readFile(oldFullPath, "utf8")
+        const rewrite = rewriteNoteContent(
+          rawContent,
+          rewriteLinkForSource({ before: oldPath, after: newPath }),
+        )
+        return {
+          content: rewrite?.content ?? rawContent,
+          linksRewritten: rewrite?.linksRewritten ?? 0,
+        }
+      } catch (error) {
+        logger.error("note move aborted: could not read the note being moved", {
+          from: oldPath,
+          to: newPath,
+          error: describeError(error),
+        })
+        throw new Error(
+          `move aborted: could not read "${oldPath}". Nothing was written.`,
+          { cause: error },
+        )
+      }
+    }
+    const { content: movedContent, linksRewritten: movedLinksRewritten } =
+      await planMovedNote()
+
+    const plannedRewrites = (
+      await mapWithConcurrency({
+        items: backlinkSources,
+        concurrency: REWRITE_CONCURRENCY,
+        mapper: async ({ source, fullPath }) => {
+          try {
+            const rawContent = await readFile(fullPath, "utf8")
+            const rewrite = rewriteNoteContent(
+              rawContent,
+              rewriteLinkForSource({ before: source, after: source }),
+            )
+            return rewrite === null
+              ? null
+              : {
+                  source,
+                  fullPath,
+                  content: rewrite.content,
+                  linksRewritten: rewrite.linksRewritten,
+                }
+          } catch (error) {
+            logger.error(
+              "note move aborted: could not read/plan a backlink source",
+              {
                 source,
-                fullPath: sourceFullPath,
-                content: rewrite.content,
-                linksRewritten: rewrite.linksRewritten,
-              }
+                from: oldPath,
+                to: newPath,
+                error: describeError(error),
+              },
+            )
+            throw new Error(
+              `move aborted: could not read backlink source "${source}". Nothing was written.`,
+              { cause: error },
+            )
+          }
+        },
+      })
+    ).filter((planned) => planned !== null)
+
+    // ── Commit: all reads succeeded — write destination, update sources, delete original last. ──
+
+    await mkdir(dirname(newFullPath), { recursive: true })
+    try {
+      await atomicWriteFileExclusive(newFullPath, movedContent, {
+        hardLinksSupported: !params.windowsBindMount,
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`destination exists: "${newPath}"`, { cause: error })
+      }
+      logger.error(
+        "note move aborted: could not write the note to its new path",
+        { from: oldPath, to: newPath, error: describeError(error) },
+      )
+      throw new Error(
+        `move aborted: could not write to "${newPath}". Nothing was written.`,
+        { cause: error },
+      )
+    }
+
+    // Mutable: tracks progress so a mid-commit failure can report how far it got.
+    let sourcesWritten = 0
+    await mapWithConcurrency({
+      items: plannedRewrites,
+      concurrency: REWRITE_CONCURRENCY,
+      mapper: async (planned) => {
+        try {
+          await atomicWriteFile(planned.fullPath, planned.content)
+          sourcesWritten += 1
         } catch (error) {
-          logger.error(
-            "note move aborted: could not read/plan a backlink source",
-            { source, from: oldPath, to: newPath, error: describeError(error) },
-          )
+          logger.error("note move failed while writing a backlink source", {
+            source: planned.source,
+            from: oldPath,
+            to: newPath,
+            sources_written: sourcesWritten,
+            sources_planned: plannedRewrites.length,
+            error: describeError(error),
+          })
           throw new Error(
-            `move aborted: could not read backlink source "${source}". Nothing was written.`,
+            `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). Original not deleted — re-run to finish.`,
             { cause: error },
           )
         }
       },
     })
-  ).filter((planned) => planned !== null)
+    const linksUpdated =
+      movedLinksRewritten +
+      plannedRewrites.reduce((sum, planned) => sum + planned.linksRewritten, 0)
 
-  // ── Commit: all reads succeeded — write destination, update sources, delete original last. ──
-
-  await mkdir(dirname(newFullPath), { recursive: true })
-  try {
-    await atomicWriteFileExclusive(newFullPath, movedContent, {
-      hardLinksSupported: !params.windowsBindMount,
-    })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error(`destination exists: "${newPath}"`, { cause: error })
+    // Delete the original last — if this fails, both copies exist but no data is lost.
+    try {
+      await unlink(oldFullPath)
+    } catch (error) {
+      logger.error("note move failed while deleting the original note", {
+        from: oldPath,
+        to: newPath,
+        sources_updated: plannedRewrites.length,
+        links_updated: linksUpdated,
+        error: describeError(error),
+      })
+      throw new Error(
+        `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
+        { cause: error },
+      )
     }
-    logger.error(
-      "note move aborted: could not write the note to its new path",
-      { from: oldPath, to: newPath, error: describeError(error) },
-    )
-    throw new Error(
-      `move aborted: could not write to "${newPath}". Nothing was written.`,
-      { cause: error },
-    )
-  }
 
-  // Mutable: tracks progress so a mid-commit failure can report how far it got.
-  let sourcesWritten = 0
-  await mapWithConcurrency({
-    items: plannedRewrites,
-    concurrency: REWRITE_CONCURRENCY,
-    mapper: async (planned) => {
-      try {
-        await atomicWriteFile(planned.fullPath, planned.content)
-        sourcesWritten += 1
-      } catch (error) {
-        logger.error("note move failed while writing a backlink source", {
-          source: planned.source,
-          from: oldPath,
-          to: newPath,
-          sources_written: sourcesWritten,
-          sources_planned: plannedRewrites.length,
-          error: describeError(error),
-        })
-        throw new Error(
-          `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). Original not deleted — re-run to finish.`,
-          { cause: error },
-        )
-      }
-    },
-  })
-  const linksUpdated =
-    movedLinksRewritten +
-    plannedRewrites.reduce((sum, planned) => sum + planned.linksRewritten, 0)
+    // Prune from the OLD note's folder — a same-folder rename or a move into a
+    // subfolder leaves the source non-empty, so nothing is pruned in those cases.
+    const prunedEmptyFolders = pruneEmptyFolders
+      ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger)
+      : 0
 
-  // Delete the original last — if this fails, both copies exist but no data is lost.
-  try {
-    await unlink(oldFullPath)
-  } catch (error) {
-    logger.error("note move failed while deleting the original note", {
+    logger.info("note move complete", {
       from: oldPath,
       to: newPath,
-      sources_updated: plannedRewrites.length,
       links_updated: linksUpdated,
-      error: describeError(error),
+      sources_updated: plannedRewrites.length,
+      sources_failed: 0,
+      pruned_empty_folders: prunedEmptyFolders,
     })
-    throw new Error(
-      `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
-      { cause: error },
-    )
-  }
 
-  // Prune from the OLD note's folder — a same-folder rename or a move into a
-  // subfolder leaves the source non-empty, so nothing is pruned in those cases.
-  const prunedEmptyFolders = pruneEmptyFolders
-    ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger)
-    : 0
-
-  logger.info("note move complete", {
-    from: oldPath,
-    to: newPath,
-    links_updated: linksUpdated,
-    sources_updated: plannedRewrites.length,
-    sources_failed: 0,
-    pruned_empty_folders: prunedEmptyFolders,
+    return {
+      moved_to: newPath,
+      links_updated: linksUpdated,
+      updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
+      pruned_empty_folders: prunedEmptyFolders,
+    }
   })
-
-  return {
-    moved_to: newPath,
-    links_updated: linksUpdated,
-    updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
-    pruned_empty_folders: prunedEmptyFolders,
-  }
 }
 
 export const noteMover = {
