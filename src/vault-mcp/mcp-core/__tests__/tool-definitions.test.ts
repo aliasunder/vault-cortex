@@ -145,6 +145,20 @@ describe("registerTools", () => {
     },
   )
 
+  it("vault_update_memory description documents the duplicate no-op contract", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)!
+    expect(config.description).toContain("idempotent")
+    expect(config.description).toContain("no-op")
+  })
+
+  it("vault_delete_memory description documents duplicate-entry remediation", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_DELETE_MEMORY)!
+    expect(config.description).toContain("ambiguous")
+    expect(config.description).toContain(
+      "vault_update_memory refuses to write exact duplicates",
+    )
+  })
+
   it("vault_update_properties description documents null-deletes-key contract", () => {
     const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_PROPERTIES)!
     expect(config.description).toContain("null deletes a key")
@@ -233,6 +247,11 @@ describe("annotations", () => {
     const [, config] = findCall(name)!
     expect(config.annotations?.readOnlyHint).toBe(false)
     expect(config.annotations?.destructiveHint).toBe(false)
+  })
+
+  it("vault_update_memory has idempotentHint: true (exact duplicates are no-ops)", () => {
+    const [, config] = findCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)!
+    expect(config.annotations?.idempotentHint).toBe(true)
   })
 
   it("all tools have openWorldHint: false", () => {

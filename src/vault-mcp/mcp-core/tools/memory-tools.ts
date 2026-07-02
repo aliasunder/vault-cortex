@@ -94,7 +94,7 @@ Returns: Raw markdown text.`,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Append-only — repeat calls add duplicates; when a preference changes, append the new state (newest wins) rather than deleting the old one.
+      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Append-only and idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe; when a preference changes, append the new state (newest wins) rather than deleting the old one.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
@@ -109,8 +109,9 @@ Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = ta
 
 Errors:
 - "refusing memory write: … would shrink content" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.
+- An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
-Returns: Confirmation message.`,
+Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
         file: z
           .string()
@@ -145,8 +146,12 @@ Returns: Confirmation message.`,
         // Append-only: entries are inserted, never overwritten or deleted
         // (see memoryStore.updateMemory) — additive, not destructive.
         destructiveHint: false,
-        // Repeat calls add a duplicate dated entry, so not idempotent.
-        idempotentHint: false,
+        // An exact duplicate (same date + text in the same section) is a
+        // no-op, so replayed calls are safe. Nuance: `date` defaults to
+        // today, so identical args replayed across a date boundary append a
+        // second, differently-dated entry — real client retries happen
+        // within seconds, so the hint reflects the retry-safety contract.
+        idempotentHint: true,
         openWorldHint: false,
       },
     },
@@ -172,6 +177,9 @@ Returns: Confirmation message.`,
           ),
         (outcome) => {
           reqLogger.info("tool_result", { outcome })
+          if (outcome === "unchanged") {
+            return `Entry already exists in ${config.memoryDir}/${file}.md → ## ${section} — nothing was written.`
+          }
           const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
           // Nudge the caller to author the scope callout the new file was
           // seeded with, so the file self-documents what belongs in it.
@@ -239,7 +247,7 @@ Parameters:
 
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
-- "ambiguous: N entries match …" — more than one bullet matched; the entry text is not unique within the section.
+- "ambiguous: N entries match …" — more than one identical bullet exists in the section (possible only via hand edits; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span or a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.
 
 Returns: Confirmation message.`,

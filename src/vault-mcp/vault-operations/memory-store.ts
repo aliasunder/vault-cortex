@@ -75,8 +75,10 @@ export type MemoryFileOutline = Readonly<{
 }>
 
 /** What an updateMemory call did — lets the tool layer tailor its confirmation
- *  (e.g. nudge the caller to fill in a new file's scope callout). */
-type UpdateMemoryOutcome = "created-file" | "created-section" | "appended"
+ *  (e.g. nudge the caller to fill in a new file's scope callout, or report
+ *  that an identical entry already existed and nothing was written). */
+type UpdateMemoryOutcome =
+  "created-file" | "created-section" | "appended" | "unchanged"
 
 type ParsedSection = Readonly<{
   heading: string
@@ -456,12 +458,29 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-section"
       }
 
-      // File + section exist — find the first and last dated bullet within the
-      // section body to determine where to insert. Offsets are relative to bodyStartLine.
       const bodyLines = contentLines.slice(
         match.bodyStartLine,
         match.bodyEndLine,
       )
+
+      // Idempotency guard: if the exact bullet already exists in this section,
+      // the entry already landed — typically an MCP client retrying after a
+      // gateway timeout. Splicing again would create a duplicate that
+      // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
+      // target section: the same bullet under a different heading is a
+      // distinct entry and does not suppress the append.
+      if (bodyLines.includes(bullet)) {
+        logger.info("memory entry unchanged", {
+          file: params.file,
+          section: params.section,
+          date,
+          outcome: "unchanged",
+        })
+        return "unchanged"
+      }
+
+      // File + section exist — find the first and last dated bullet within the
+      // section body to determine where to insert. Offsets are relative to bodyStartLine.
       const firstBulletOffset = bodyLines.findIndex((line) =>
         ENTRY_PATTERN.test(line),
       )
