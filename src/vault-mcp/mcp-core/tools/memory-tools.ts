@@ -261,7 +261,7 @@ Parameters:
 
 Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
-- "ambiguous: N entries match …" — more than one identical bullet exists in the section (possible only via hand edits; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span or a manual edit, then retry.
+- "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span or a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.
 
 Returns: Confirmation message.`,
