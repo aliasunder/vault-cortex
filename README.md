@@ -14,9 +14,9 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 25 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 26 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-25) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-26) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -38,8 +38,8 @@
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
-- **[Structured memory](#tools-25)** — dated entries, section targeting, auto-initialization for AI personalization
-- **[Link graph](#tools-25)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Structured memory](#tools-26)** — dated entries, section targeting, auto-initialization for AI personalization
+- **[Link graph](#tools-26)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -180,7 +180,7 @@ All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=fa
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for model details, blend weights, and the full pipeline breakdown.
 
-## Tools (25)
+## Tools (26)
 
 | Category        | Tool                         | Description                                                |
 | --------------- | ---------------------------- | ---------------------------------------------------------- |
@@ -197,6 +197,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 |                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                     |
 |                 | `vault_recent_notes`         | Recently modified or created notes                         |
 |                 | `vault_list_tags`            | All tags with usage counts                                 |
+|                 | `vault_list_tasks`           | Vault-wide task triage — status, date, priority filters    |
 | **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)             |
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                   |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                     |

@@ -99,6 +99,7 @@ src/
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+      tasks.ts                         # Tasks-plugin task-line grammar (emoji + Dataview fields)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
@@ -113,7 +114,7 @@ src/
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
-        search-tools.ts                # 11 tools: search, tags, properties, graph queries
+        search-tools.ts                # 12 tools: search, tags, tasks, properties, graph queries
         memory-tools.ts                # 4 tools: get/update/list/delete memory
         daily-note-tools.ts            # 1 tool: get daily note
       prompts/                         # Prompt group modules (one per prompt)
@@ -123,7 +124,7 @@ src/
         daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
-      search-queries.ts                # All 15 query methods (FTS, hybrid, tags, links, etc.)
+      search-queries.ts                # All 16 query methods (FTS, hybrid, tags, tasks, links, etc.)
       search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
