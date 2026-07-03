@@ -68,7 +68,7 @@
     "express": "5.2.1",
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
-    "picomatch": "4.0.4",
+    "picomatch": "4.0.5",
     "sqlite-vec": "0.1.9",
     "yaml": "2.9.0",
     "zod": "4.4.3"
