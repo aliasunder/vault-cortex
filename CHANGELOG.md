@@ -20,6 +20,17 @@
 
 
 
+
+## [0.25.4] — 2026-07-03
+
+### Bug Fixes
+
+- **vault-operations:** Lock note moves and deletes against concurrent writes (#247)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.25.3
+
 ## [0.25.3] — 2026-07-02
 
 ### Bug Fixes
