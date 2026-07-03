@@ -9,6 +9,8 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { tasks } from "../obsidian-markdown/tasks.js"
+import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
@@ -112,6 +114,90 @@ export type NoteRow = {
   bytes: number
 }
 
+/** One tasks-table row as stored in SQLite: depends_on and tags are
+ *  JSON-encoded arrays; dates are raw YYYY-MM-DD strings. */
+export type TaskRow = {
+  note_path: string
+  line: number
+  status_char: string
+  status: TaskStatus
+  description: string
+  created: string | null
+  scheduled: string | null
+  start: string | null
+  due: string | null
+  done: string | null
+  cancelled: string | null
+  priority: TaskPriority | null
+  recurrence: string | null
+  on_completion: string | null
+  task_id: string | null
+  depends_on: string
+  tags: string
+  block_id: string | null
+  heading: string | null
+  folder: string
+}
+
+/** One task on the wire — snake_case multi-word fields match the JSON
+ *  response shape. Every entry carries its attribution (path, folder,
+ *  heading, line) so a client never needs a follow-up read to locate it. */
+export type TaskEntry = {
+  path: string
+  line: number
+  status: TaskStatus
+  status_char: string
+  description: string
+  heading: string | null
+  folder: string
+  created: string | null
+  scheduled: string | null
+  start: string | null
+  due: string | null
+  done: string | null
+  cancelled: string | null
+  priority: TaskPriority | null
+  recurrence: string | null
+  on_completion: string | null
+  task_id: string | null
+  depends_on: string[]
+  tags: string[]
+  block_id: string | null
+}
+
+/** Status filter vocabulary for listTasks. "not_done" (the default) covers
+ *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
+ *  exclude cancelled tasks. */
+export type TaskStatusFilter =
+  | "not_done"
+  | "todo"
+  | "in_progress"
+  | "done"
+  | "cancelled"
+  | "all"
+
+/** Date bounds for one task date field. before/after are exclusive and on is
+ *  an exact match — the Tasks plugin's query vocabulary. Dates are
+ *  YYYY-MM-DD, so bounds compare lexicographically. */
+export type TaskDateFilter = { before?: string; on?: string; after?: string }
+
+/** Priority filter value — the five explicit levels plus "none" for tasks
+ *  with no priority signifier. */
+export type TaskPriorityFilter = TaskPriority | "none"
+
+/** Sort keys for listTasks. The five task dates and priority sort on the
+ *  task's own metadata; note_mtime sorts on the owning note's modified time. */
+export type TaskSortKey =
+  | "due"
+  | "scheduled"
+  | "start"
+  | "created"
+  | "done"
+  | "priority"
+  | "note_mtime"
+
+export type ListTasksResult = { total: number; tasks: TaskEntry[] }
+
 export type BacklinkEntry = { path: string; title: string; bytes: number }
 
 export type OutgoingLinkEntry = {
@@ -211,6 +297,32 @@ export const createSearchIndex = (
     );
     CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
     CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      note_path     TEXT NOT NULL,
+      line          INTEGER NOT NULL,
+      status_char   TEXT NOT NULL,
+      status        TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      created       TEXT,
+      scheduled     TEXT,
+      start         TEXT,
+      due           TEXT,
+      done          TEXT,
+      cancelled     TEXT,
+      priority      TEXT,
+      recurrence    TEXT,
+      on_completion TEXT,
+      task_id       TEXT,
+      depends_on    TEXT NOT NULL,
+      tags          TEXT NOT NULL,
+      block_id      TEXT,
+      heading       TEXT,
+      folder        TEXT NOT NULL,
+      PRIMARY KEY (note_path, line)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
@@ -268,6 +380,17 @@ export const createSearchIndex = (
     `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
   )
   const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
+  const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`)
+  const insertTaskStmt = db.prepare(`
+    INSERT INTO tasks (note_path, line, status_char, status, description,
+      created, scheduled, start, due, done, cancelled,
+      priority, recurrence, on_completion, task_id, depends_on, tags,
+      block_id, heading, folder)
+    VALUES (@notePath, @line, @statusChar, @status, @description,
+      @created, @scheduled, @start, @due, @done, @cancelled,
+      @priority, @recurrence, @onCompletion, @taskId, @dependsOn, @tags,
+      @blockId, @heading, @folder)
+  `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
   const insertLinkStmt = db.prepare(
     `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
@@ -412,19 +535,22 @@ export const createSearchIndex = (
     // base_path column strips the extension, so "photo.png" wouldn't match
     // base_path "photo".
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
     const exactMatch = resolveNonMdByBasePathStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
       const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
-        { path: string } | undefined
+        | { path: string }
+        | undefined
       if (relativeMatch) return relativeMatch.path
     }
 
@@ -439,7 +565,8 @@ export const createSearchIndex = (
       return suffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
-      { path: string } | undefined
+      | { path: string }
+      | undefined
     return basenameMatch?.path ?? null
   }
 
@@ -572,7 +699,44 @@ export const createSearchIndex = (
     )
     const metadataText = buildFtsMetadataText(frontmatter)
     insertFtsStmt.run(note.path, note.title, note.content, metadataText)
-    logger.debug("indexed note", { path: note.path, bytes: note.bytes })
+
+    // Task rows carry the full immediate-parent folder (posix dirname), unlike
+    // notes.folder which stores only the first path segment — task triage
+    // needs project-level attribution ("Code Projects/vault-cortex", not
+    // "Code Projects").
+    const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
+    deleteTasksStmt.run(note.path)
+    const extractedTasks = tasks.extractTasks(rawContent)
+    for (const extractedTask of extractedTasks) {
+      insertTaskStmt.run({
+        notePath: note.path,
+        line: extractedTask.line,
+        statusChar: extractedTask.statusChar,
+        status: extractedTask.status,
+        description: extractedTask.description,
+        created: extractedTask.createdDate,
+        scheduled: extractedTask.scheduledDate,
+        start: extractedTask.startDate,
+        due: extractedTask.dueDate,
+        done: extractedTask.doneDate,
+        cancelled: extractedTask.cancelledDate,
+        priority: extractedTask.priority,
+        recurrence: extractedTask.recurrence,
+        onCompletion: extractedTask.onCompletion,
+        taskId: extractedTask.taskId,
+        dependsOn: JSON.stringify(extractedTask.dependsOn),
+        tags: JSON.stringify(extractedTask.tags),
+        blockId: extractedTask.blockId,
+        heading: extractedTask.heading,
+        folder: taskFolder,
+      })
+    }
+
+    logger.debug("indexed note", {
+      path: note.path,
+      bytes: note.bytes,
+      tasksIndexed: extractedTasks.length,
+    })
 
     if (skipLinks) return
 
@@ -667,7 +831,8 @@ export const createSearchIndex = (
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-          { id: number } | undefined
+          | { id: number }
+          | undefined
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -718,11 +883,13 @@ export const createSearchIndex = (
     await embedAndStoreChunks(params, logger)
   }
 
-  /** Removes a note from the notes table, FTS index, links, and vectors. */
+  /** Removes a note from the notes table, FTS index, links, tasks, and
+   *  vectors. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
     removeNotesStmt.run(filePath)
     deleteLinksStmt.run(filePath)
+    deleteTasksStmt.run(filePath)
     if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
       deleteVectorsForNoteStmt.run(filePath)
       deleteChunksForNoteStmt.run(filePath)
@@ -741,6 +908,7 @@ export const createSearchIndex = (
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
+    db.exec("DELETE FROM tasks")
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
     // Deleted notes are cleaned up in Pass 3 before embedding starts.
@@ -901,7 +1069,8 @@ export const createSearchIndex = (
           let embedErrors = 0
           for (const note of notesForEmbedding) {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
-              { mtime: number } | undefined
+              | { mtime: number }
+              | undefined
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
             if (noteIsStale) {
@@ -978,6 +1147,7 @@ export const createSearchIndex = (
     hybridSearch: bindQueryContext(queries.hybridSearch),
     searchByTag: bindQueryContext(queries.searchByTag),
     searchByFolder: bindQueryContext(queries.searchByFolder),
+    listTasks: bindQueryContext(queries.listTasks),
     listAllTags: bindQueryContext(queries.listAllTags),
     recentNotes: bindQueryContext(queries.recentNotes),
     listPropertyKeys: bindQueryContext(queries.listPropertyKeys),

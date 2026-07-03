@@ -11,6 +11,7 @@ import { blendScores } from "./reranker.js"
 import type { Reranker } from "./reranker.js"
 import {
   rowToMetadata,
+  rowToTaskEntry,
   noteRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
@@ -30,6 +31,12 @@ import type {
   SearchFilters,
   BacklinkEntry,
   OutgoingLinkEntry,
+  TaskRow,
+  TaskStatusFilter,
+  TaskDateFilter,
+  TaskPriorityFilter,
+  TaskSortKey,
+  ListTasksResult,
 } from "./search-index.js"
 import type { Embedder } from "./embedder.js"
 
@@ -352,7 +359,8 @@ const tryRerank = async (params: {
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          { chunk_text: string } | undefined
+          | { chunk_text: string }
+          | undefined
         if (chunkRow) return chunkRow.chunk_text
       }
 
@@ -469,6 +477,199 @@ export const searchByFolder = (
 }
 
 /** Returns all tags in the vault with their note counts. */
+// ── Task listing ───────────────────────────────────────────────
+
+/** Strict YYYY-MM-DD guard for task date filters (matches the format the
+ *  Tasks plugin recognizes on task lines). */
+const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Rejects a malformed task date filter with remediation text. Luxon
+ *  validates calendar correctness (2026-02-31 fails), the regex pins the
+ *  format (no time component, no shorthand). */
+const assertTaskFilterDate = (value: string, filterName: string): void => {
+  if (!STRICT_ISO_DATE_RE.test(value) || !DateTime.fromISO(value).isValid) {
+    throw new Error(
+      `invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
+    )
+  }
+}
+
+/** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
+ *  whitelisted TaskSortKey union — never raw user input. Date keys push
+ *  dateless tasks last regardless of direction; priority maps levels to the
+ *  plugin's numeric order (highest=0 … lowest=5, none=3 between medium and
+ *  low, the ELSE arm since none is stored as NULL). */
+const TASK_ORDER_BY: Record<TaskSortKey, (direction: string) => string> = {
+  due: (direction) => `t.due IS NULL, t.due ${direction}`,
+  scheduled: (direction) => `t.scheduled IS NULL, t.scheduled ${direction}`,
+  start: (direction) => `t.start IS NULL, t.start ${direction}`,
+  created: (direction) => `t.created IS NULL, t.created ${direction}`,
+  done: (direction) => `t.done IS NULL, t.done ${direction}`,
+  priority: (direction) =>
+    `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction}`,
+  note_mtime: (direction) => `n.mtime ${direction}`,
+}
+
+/** Lists indexed tasks with structured filters and sorting. All filters
+ *  AND-combine; the default view is actionable work (not_done = todo +
+ *  in_progress), sorted overdue-first (due ascending, dateless last).
+ *  Returns the total match count alongside the limited page so callers can
+ *  tell "50 of 338" from "all 50". */
+export const listTasks = (
+  context: SearchQueryContext,
+  params: {
+    status?: TaskStatusFilter
+    due?: TaskDateFilter
+    scheduled?: TaskDateFilter
+    start?: TaskDateFilter
+    done?: TaskDateFilter
+    created?: TaskDateFilter
+    cancelled?: TaskDateFilter
+    priority?: TaskPriorityFilter[]
+    folder?: string
+    tag?: string
+    heading?: string
+    path?: string
+    limit?: number
+    sortBy?: TaskSortKey
+    sortDirection?: "asc" | "desc"
+  },
+  logger: Logger,
+): ListTasksResult => {
+  const conditions: string[] = []
+  const queryParams: unknown[] = []
+
+  const status = params.status ?? "not_done"
+  if (status === "not_done") {
+    conditions.push("t.status IN ('todo', 'in_progress')")
+  } else if (status !== "all") {
+    conditions.push("t.status = ?")
+    queryParams.push(status)
+  }
+
+  // A date filter only ever matches tasks that HAVE that date — SQL comparison
+  // with NULL is never true, so undated tasks drop out automatically.
+  const dateFilters: ReadonlyArray<{
+    column: "due" | "scheduled" | "start" | "done" | "created" | "cancelled"
+    filter: TaskDateFilter | undefined
+  }> = [
+    { column: "due", filter: params.due },
+    { column: "scheduled", filter: params.scheduled },
+    { column: "start", filter: params.start },
+    { column: "done", filter: params.done },
+    { column: "created", filter: params.created },
+    { column: "cancelled", filter: params.cancelled },
+  ]
+  for (const { column, filter } of dateFilters) {
+    if (filter === undefined) continue
+    if (filter.on !== undefined) {
+      assertTaskFilterDate(filter.on, `${column}.on`)
+      conditions.push(`t.${column} = ?`)
+      queryParams.push(filter.on)
+    }
+    if (filter.before !== undefined) {
+      assertTaskFilterDate(filter.before, `${column}.before`)
+      conditions.push(`t.${column} < ?`)
+      queryParams.push(filter.before)
+    }
+    if (filter.after !== undefined) {
+      assertTaskFilterDate(filter.after, `${column}.after`)
+      conditions.push(`t.${column} > ?`)
+      queryParams.push(filter.after)
+    }
+  }
+
+  if (params.priority !== undefined && params.priority.length > 0) {
+    // Priority values OR-combine (a task has exactly one level); "none"
+    // selects tasks with no priority signifier, stored as NULL.
+    const namedLevels = params.priority.filter((level) => level !== "none")
+    const priorityClauses: string[] = []
+    if (namedLevels.length > 0) {
+      priorityClauses.push(
+        `t.priority IN (${namedLevels.map(() => "?").join(", ")})`,
+      )
+      queryParams.push(...namedLevels)
+    }
+    if (params.priority.includes("none")) {
+      priorityClauses.push("t.priority IS NULL")
+    }
+    conditions.push(`(${priorityClauses.join(" OR ")})`)
+  }
+
+  if (params.folder !== undefined) {
+    conditions.push("t.note_path LIKE ? ESCAPE '\\'")
+    queryParams.push(
+      `${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`,
+    )
+  }
+
+  if (params.tag !== undefined) {
+    // Same nested-tag semantics as searchByTag's prefix mode: "project"
+    // matches both #project and #project/vault-cortex.
+    conditions.push(
+      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%')",
+    )
+    queryParams.push(params.tag, params.tag)
+  }
+
+  if (params.heading !== undefined) {
+    conditions.push("t.heading = ?")
+    queryParams.push(params.heading)
+  }
+
+  if (params.path !== undefined) {
+    assertPathHasExtension(params.path, ".md")
+    conditions.push("t.note_path = ?")
+    queryParams.push(params.path)
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
+
+  const sortBy = params.sortBy ?? "due"
+  // note_mtime defaults to newest-first — "recently touched" is the only
+  // useful direction for it; every other key defaults ascending.
+  const sortDirection =
+    params.sortDirection ?? (sortBy === "note_mtime" ? "desc" : "asc")
+  const orderBy = TASK_ORDER_BY[sortBy](
+    sortDirection === "desc" ? "DESC" : "ASC",
+  )
+
+  const limit = Math.max(0, params.limit ?? 50)
+
+  const countRow = context.db
+    .prepare<
+      unknown[],
+      { total: number }
+    >(`SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`)
+    .get(...queryParams)
+  const total = countRow === undefined ? 0 : countRow.total
+
+  const sql = `
+    SELECT t.note_path, t.line, t.status_char, t.status, t.description,
+           t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
+           t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
+           t.tags, t.block_id, t.heading, t.folder
+    FROM tasks t
+    JOIN notes n ON n.path = t.note_path
+    ${whereClause}
+    ORDER BY ${orderBy}, t.note_path ASC, t.line ASC
+    LIMIT ?
+  `
+  const rows = context.db
+    .prepare<unknown[], TaskRow>(sql)
+    .all(...queryParams, limit)
+  const taskEntries = rows.map(rowToTaskEntry)
+
+  logger.info("list tasks", {
+    status,
+    sortBy,
+    resultCount: taskEntries.length,
+    total,
+  })
+  return { total, tasks: taskEntries }
+}
+
 export const listAllTags = (
   context: SearchQueryContext,
   _params: Record<string, never>,
