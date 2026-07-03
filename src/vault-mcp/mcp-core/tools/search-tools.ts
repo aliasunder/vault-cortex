@@ -1,6 +1,7 @@
-/** Search tool registrations — hybrid (FTS + vector), tag, property, folder, and graph queries. */
+/** Search tool registrations — hybrid (FTS + vector), tag, property, folder, task, and graph queries. */
 
 import { z } from "zod"
+import type { TaskEntry } from "../../search/search-index.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, formatNoteMetadata } from "./tool-helpers.js"
 
@@ -10,6 +11,7 @@ const TOOL_NAMES = {
   VAULT_LIST_TAGS: "vault_list_tags",
   VAULT_RECENT_NOTES: "vault_recent_notes",
   VAULT_SEARCH_BY_FOLDER: "vault_search_by_folder",
+  VAULT_LIST_TASKS: "vault_list_tasks",
   VAULT_LIST_PROPERTY_KEYS: "vault_list_property_keys",
   VAULT_LIST_PROPERTY_VALUES: "vault_list_property_values",
   VAULT_SEARCH_BY_PROPERTY: "vault_search_by_property",
@@ -19,6 +21,34 @@ const TOOL_NAMES = {
 } as const
 
 export { TOOL_NAMES as SEARCH_TOOL_NAMES }
+
+/** Drops null fields and empty arrays from a task entry so responses stay
+ *  lean — most tasks carry only a few of the optional metadata fields, and
+ *  338 open tasks × 20 mostly-null fields is pure token waste. */
+const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(entry).filter(
+      ([, value]) =>
+        value !== null && !(Array.isArray(value) && value.length === 0),
+    ),
+  )
+
+/** Shared schema for one task date filter ({ before, on, after }). */
+const taskDateFilterSchema = z
+  .object({
+    before: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
+    on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
+    after: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
+  })
+  .optional()
 
 export const registerSearchTools = ({
   server,
@@ -693,6 +723,187 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))
+        },
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_LIST_TASKS,
+    {
+      title: "List Tasks",
+      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its full attribution — note path, folder, nearest heading (the lane on a Kanban board), and line number — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks are not indexed.
+
+Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
+Example: vault_list_tasks({ folder: "Code Projects/vault-cortex", heading: "Active" }) — one project's Active Kanban lane
+Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
+Example: vault_list_tasks({ priority: ["highest", "high"], sort_by: "priority" }) — most urgent open work first
+
+When to use: Any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
+Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
+
+Parameters:
+- status: "not_done" (default — todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", or "all". Checkbox chars map to statuses the way the Tasks plugin maps them: " " todo, "/" in_progress, "x"/"X" done, "-" cancelled, any other char todo.
+- due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
+- priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
+- folder: note path prefix (e.g. "Code Projects/vault-cortex"). tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text, case-sensitive (a Kanban lane name). path: one note, must end in ".md".
+- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime". Date sorts put dateless tasks last in both directions; priority sorts highest→lowest with unprioritized between medium and low. sort_direction defaults to "asc", except note_mtime which defaults to "desc" (recently modified notes first).
+- limit: max results (default 50). The total field always reports the full match count, so "50 of 338" is distinguishable from "all 50".
+
+Errors:
+- A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
+- path without the ".md" extension is rejected
+- No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
+
+Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task, null-omitted above the first heading), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id. Null and empty fields are omitted to keep responses lean.`,
+      inputSchema: {
+        status: z
+          .enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])
+          .optional()
+          .describe(
+            'Status filter (default "not_done" = todo + in_progress, excluding cancelled)',
+          ),
+        due: taskDateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
+        scheduled: taskDateFilterSchema.describe(
+          "Scheduled date (⏳ / [scheduled:: ]) bounds",
+        ),
+        start: taskDateFilterSchema.describe(
+          "Start date (🛫 / [start:: ]) bounds",
+        ),
+        done: taskDateFilterSchema.describe(
+          "Done date (✅ / [completion:: ]) bounds",
+        ),
+        created: taskDateFilterSchema.describe(
+          "Created date (➕ / [created:: ]) bounds",
+        ),
+        cancelled: taskDateFilterSchema.describe(
+          "Cancelled date (❌ / [cancelled:: ]) bounds",
+        ),
+        priority: z
+          .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
+          .optional()
+          .describe(
+            'Priority levels, OR-combined; "none" selects tasks with no priority signifier',
+          ),
+        folder: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")',
+          ),
+        tag: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Inline task tag, bare name without "#"; parent tags match children',
+          ),
+        heading: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Exact heading text above the task (case-sensitive) — a Kanban lane name (e.g. "Active")',
+          ),
+        path: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Restrict to one note (vault-relative path ending ".md")'),
+        limit: z.number().optional().describe("Max results (default 50)"),
+        sort_by: z
+          .enum([
+            "due",
+            "scheduled",
+            "start",
+            "created",
+            "done",
+            "priority",
+            "note_mtime",
+          ])
+          .optional()
+          .describe(
+            'Sort key (default "due" — ascending, dateless tasks last)',
+          ),
+        sort_direction: z
+          .enum(["asc", "desc"])
+          .optional()
+          .describe(
+            'Sort direction (default "asc"; note_mtime defaults to "desc")',
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (
+      {
+        status,
+        due,
+        scheduled,
+        start,
+        done,
+        created,
+        cancelled,
+        priority,
+        folder,
+        tag,
+        heading,
+        path,
+        limit,
+        sort_by,
+        sort_direction,
+      },
+      extra,
+    ) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_LIST_TASKS,
+      })
+      reqLogger.info("tool_call", {
+        status,
+        folder,
+        tag,
+        heading,
+        path,
+        sortBy: sort_by,
+      })
+      return safeHandler(
+        reqLogger,
+        async () =>
+          search.listTasks(
+            {
+              status,
+              due,
+              scheduled,
+              start,
+              done,
+              created,
+              cancelled,
+              priority,
+              folder,
+              tag,
+              heading,
+              path,
+              limit,
+              sortBy: sort_by,
+              sortDirection: sort_direction,
+            },
+            reqLogger,
+          ),
+        (result) => {
+          reqLogger.info("tool_result", {
+            resultCount: result.tasks.length,
+            total: result.total,
+          })
+          return JSON.stringify({
+            total: result.total,
+            tasks: result.tasks.map(formatTaskEntry),
+          })
         },
       )
     },
