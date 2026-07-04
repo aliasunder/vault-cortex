@@ -476,7 +476,6 @@ export const searchByFolder = (
   return results
 }
 
-/** Returns all tags in the vault with their note counts. */
 // ── Task listing ───────────────────────────────────────────────
 
 /** Strict YYYY-MM-DD guard for task date filters (matches the format the
@@ -670,6 +669,7 @@ export const listTasks = (
   return { total, tasks: taskEntries }
 }
 
+/** Returns all tags in the vault with their note counts. */
 export const listAllTags = (
   context: SearchQueryContext,
   _params: Record<string, never>,
