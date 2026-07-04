@@ -14,7 +14,7 @@
  *  uniformly.
  *
  *  Like links.ts, the raw grammar regexes stay module-private behind the
- *  `tasks` namespace: several are `/g` (shared `lastIndex` footgun) and the
+ *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
  *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
 
 import { advanceFence, type OpenFence, splitIntoLines } from "./lines.js"

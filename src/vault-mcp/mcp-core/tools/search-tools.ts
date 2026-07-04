@@ -761,7 +761,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
           .enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])
           .optional()
           .describe(
-            'Status filter (default "not_done" = todo + in_progress, excluding cancelled)',
+            'Status filter (default "not_done" = todo + in_progress, excluding done and cancelled)',
           ),
         due: taskDateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
         scheduled: taskDateFilterSchema.describe(
