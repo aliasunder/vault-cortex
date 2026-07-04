@@ -636,7 +636,9 @@ export const listTasks = (
     sortDirection === "desc" ? "DESC" : "ASC",
   )
 
-  const limit = Math.max(0, params.limit ?? 50)
+  // Math.floor: SQLite rejects a non-integer LIMIT binding with a cryptic
+  // "datatype mismatch" error, so a fractional limit is floored instead.
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   const countRow = context.db
     .prepare<unknown[], { total: number }>(

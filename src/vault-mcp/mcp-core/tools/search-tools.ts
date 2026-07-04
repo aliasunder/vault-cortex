@@ -755,7 +755,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
 
-Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task, null-omitted above the first heading), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id. Null and empty fields are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task, null-omitted above the first heading), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id. Null fields and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])

@@ -731,4 +731,14 @@ describe("listTasks sorting and paging", () => {
     expect(result.tasks).toEqual([])
     expect(result.total).toBe(4)
   })
+
+  it("floors a fractional limit instead of failing with SQLite's datatype mismatch", () => {
+    const index = indexWithSortData()
+    const result = index.listTasks({ limit: 2.7 }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Due first",
+      "Due middle",
+    ])
+    expect(result.total).toBe(4)
+  })
 })
