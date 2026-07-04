@@ -359,8 +359,7 @@ const tryRerank = async (params: {
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          | { chunk_text: string }
-          | undefined
+          { chunk_text: string } | undefined
         if (chunkRow) return chunkRow.chunk_text
       }
 
@@ -640,10 +639,9 @@ export const listTasks = (
   const limit = Math.max(0, params.limit ?? 50)
 
   const countRow = context.db
-    .prepare<
-      unknown[],
-      { total: number }
-    >(`SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`)
+    .prepare<unknown[], { total: number }>(
+      `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
+    )
     .get(...queryParams)
   const total = countRow === undefined ? 0 : countRow.total
 

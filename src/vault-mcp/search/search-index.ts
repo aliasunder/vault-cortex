@@ -169,12 +169,7 @@ export type TaskEntry = {
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
  *  exclude cancelled tasks. */
 export type TaskStatusFilter =
-  | "not_done"
-  | "todo"
-  | "in_progress"
-  | "done"
-  | "cancelled"
-  | "all"
+  "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
 
 /** Date bounds for one task date field. before/after are exclusive and on is
  *  an exact match — the Tasks plugin's query vocabulary. Dates are
@@ -188,13 +183,7 @@ export type TaskPriorityFilter = TaskPriority | "none"
 /** Sort keys for listTasks. The five task dates and priority sort on the
  *  task's own metadata; note_mtime sorts on the owning note's modified time. */
 export type TaskSortKey =
-  | "due"
-  | "scheduled"
-  | "start"
-  | "created"
-  | "done"
-  | "priority"
-  | "note_mtime"
+  "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime"
 
 export type ListTasksResult = { total: number; tasks: TaskEntry[] }
 
@@ -535,22 +524,19 @@ export const createSearchIndex = (
     // base_path column strips the extension, so "photo.png" wouldn't match
     // base_path "photo".
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
     const exactMatch = resolveNonMdByBasePathStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
       const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
-        | { path: string }
-        | undefined
+        { path: string } | undefined
       if (relativeMatch) return relativeMatch.path
     }
 
@@ -565,8 +551,7 @@ export const createSearchIndex = (
       return suffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
-      | { path: string }
-      | undefined
+      { path: string } | undefined
     return basenameMatch?.path ?? null
   }
 
@@ -831,8 +816,7 @@ export const createSearchIndex = (
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-          | { id: number }
-          | undefined
+          { id: number } | undefined
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1069,8 +1053,7 @@ export const createSearchIndex = (
           let embedErrors = 0
           for (const note of notesForEmbedding) {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
-              | { mtime: number }
-              | undefined
+              { mtime: number } | undefined
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
             if (noteIsStale) {
