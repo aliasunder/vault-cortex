@@ -390,7 +390,8 @@ const splitIdSequence = (idSequence: string): string[] =>
     .filter((id) => id !== "")
 
 /** Collects every inline #tag in a description, deduplicated and stored bare
- *  (no "#") to match the vault-wide tag convention. */
+ *  (no "#") to match the notes table tag format used by vault_list_tags and
+ *  vault_search_by_tag. */
 const extractInlineTags = (description: string): string[] => [
   ...new Set(
     [...description.matchAll(HASHTAG_RE)].map((match) =>
