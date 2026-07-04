@@ -185,6 +185,8 @@ export type TaskPriorityFilter = TaskPriority | "none"
 export type TaskSortKey =
   "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime"
 
+/** listTasks response: tasks is the limit-capped page, total the full match
+ *  count — so callers can tell "50 of 338" from "all 50". */
 export type ListTasksResult = { total: number; tasks: TaskEntry[] }
 
 export type BacklinkEntry = { path: string; title: string; bytes: number }

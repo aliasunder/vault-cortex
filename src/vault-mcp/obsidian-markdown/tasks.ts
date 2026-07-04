@@ -412,7 +412,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   const bodyLines = allLines.slice(bodyStartLine)
   const headings = parseHeadings(bodyLines)
 
-  const extracted: ParsedTask[] = []
+  const extractedTasks: ParsedTask[] = []
   // A fenced-code scan is inherently sequential, so the open fence threads
   // through the loop mutably (same pattern as classifyLines).
   let openFence: OpenFence = null
@@ -441,7 +441,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       (heading) => heading.startLine < lineIndex,
     )
 
-    extracted.push({
+    extractedTasks.push({
       line: bodyStartLine + lineIndex + 1,
       statusChar,
       status: statusForChar(statusChar),
@@ -450,7 +450,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       ...parseTaskMetadata(taskBody),
     })
   }
-  return extracted
+  return extractedTasks
 }
 
 // ── Public surface ──────────────────────────────────────────────

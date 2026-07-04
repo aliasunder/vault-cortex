@@ -24,7 +24,7 @@ export { TOOL_NAMES as SEARCH_TOOL_NAMES }
 
 /** Drops null fields and empty arrays from a task entry so responses stay
  *  lean — most tasks carry only a few of the optional metadata fields, and
- *  338 open tasks × 20 mostly-null fields is pure token waste. */
+ *  a few hundred open tasks × 20 mostly-null fields is pure token waste. */
 const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
   Object.fromEntries(
     Object.entries(entry).filter(
