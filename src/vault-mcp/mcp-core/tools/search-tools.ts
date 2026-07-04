@@ -866,11 +866,20 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
       })
       reqLogger.info("tool_call", {
         status,
-        folder,
-        tag,
-        heading,
-        path,
+        ...(due && { due }),
+        ...(scheduled && { scheduled }),
+        ...(start && { start }),
+        ...(done && { done }),
+        ...(created && { created }),
+        ...(cancelled && { cancelled }),
+        ...(priority && { priority }),
+        ...(folder && { folder }),
+        ...(tag && { tag }),
+        ...(heading && { heading }),
+        ...(path && { path }),
+        ...(limit !== undefined && { limit }),
         sortBy: sort_by,
+        sortDirection: sort_direction,
       })
       return safeHandler(
         reqLogger,

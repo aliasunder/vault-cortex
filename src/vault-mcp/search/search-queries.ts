@@ -702,21 +702,8 @@ export const listTasks = (
   logger.info("list tasks", {
     status,
     sortBy,
-    sortDirection,
-    limit,
     resultCount: taskEntries.length,
     total,
-    ...(params.folder && { folder: params.folder }),
-    ...(params.tag && { tag: params.tag }),
-    ...(params.heading && { heading: params.heading }),
-    ...(params.path && { path: params.path }),
-    ...(params.priority && { priority: params.priority }),
-    ...(params.due && { due: params.due }),
-    ...(params.scheduled && { scheduled: params.scheduled }),
-    ...(params.start && { start: params.start }),
-    ...(params.done && { done: params.done }),
-    ...(params.created && { created: params.created }),
-    ...(params.cancelled && { cancelled: params.cancelled }),
   })
   return { total, tasks: taskEntries }
 }
