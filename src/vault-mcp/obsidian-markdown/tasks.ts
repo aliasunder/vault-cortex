@@ -380,7 +380,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
  *  way, but marks it invalid and excludes it from every date comparison —
  *  mirrored here by indexing the value as null (dateless in filters/sorts). */
 const calendarValidOrNull = (date: string | null): string | null =>
-  date !== null && DateTime.fromISO(date).isValid ? date : null
+  date !== null && DateTime.fromFormat(date, "yyyy-MM-dd").isValid ? date : null
 
 /** Splits a ⛔ / `dependsOn::` value ("a, b ,c") into individual IDs. */
 const splitIdSequence = (idSequence: string): string[] =>

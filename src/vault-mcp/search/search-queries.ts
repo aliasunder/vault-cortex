@@ -477,15 +477,11 @@ export const searchByFolder = (
 
 // ── Task listing ───────────────────────────────────────────────
 
-/** Strict YYYY-MM-DD guard for task date filters (matches the format the
- *  Tasks plugin recognizes on task lines). */
-const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-/** Rejects a malformed task date filter with remediation text. Luxon
- *  validates calendar correctness (2026-02-31 fails), the regex pins the
- *  format (no time component, no shorthand). */
+/** Rejects a malformed task date filter with remediation text.
+ *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
+ *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
 const assertTaskFilterDate = (value: string, filterName: string): void => {
-  if (!STRICT_ISO_DATE_RE.test(value) || !DateTime.fromISO(value).isValid) {
+  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
     throw new Error(
       `invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
     )
