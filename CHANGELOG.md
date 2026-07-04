@@ -22,6 +22,22 @@
 
 
 
+
+## [0.26.1] — 2026-07-04
+
+### Bug Fixes
+
+- **assets:** Regenerate social-preview.png with correct text sizing (#256)
+
+### Documentation
+
+- Surface task layer across user-facing docs and assets (#258)
+- Update CHANGELOG.md for v0.26.0
+
+### Maintenance
+
+- Retire obsidian-headless-sync fork — use upstream image (#257)
+
 ## [0.26.0] — 2026-07-04
 
 ### Features
