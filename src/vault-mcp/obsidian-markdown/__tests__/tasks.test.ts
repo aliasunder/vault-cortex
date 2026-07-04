@@ -128,14 +128,18 @@ describe("tasks.extractTasks", () => {
       {
         name: "done ✅",
         line: "- [x] T ✅ 2026-07-05",
-        field: { statusChar: "x", status: "done", doneDate: "2026-07-05" },
+        field: {
+          statusChar: "x",
+          status: "done" as const,
+          doneDate: "2026-07-05",
+        },
       },
       {
         name: "cancelled ❌",
         line: "- [-] T ❌ 2026-07-06",
         field: {
           statusChar: "-",
-          status: "cancelled",
+          status: "cancelled" as const,
           cancelledDate: "2026-07-06",
         },
       },
@@ -203,21 +207,25 @@ describe("tasks.extractTasks", () => {
       {
         name: "completion (not done::)",
         line: "- [x] T [completion:: 2026-07-05]",
-        field: { statusChar: "x", status: "done", doneDate: "2026-07-05" },
+        field: {
+          statusChar: "x",
+          status: "done" as const,
+          doneDate: "2026-07-05",
+        },
       },
       {
         name: "cancelled",
         line: "- [-] T [cancelled:: 2026-07-06]",
         field: {
           statusChar: "-",
-          status: "cancelled",
+          status: "cancelled" as const,
           cancelledDate: "2026-07-06",
         },
       },
       {
         name: "priority word",
         line: "- [ ] T [priority:: high]",
-        field: { priority: "high" },
+        field: { priority: "high" as const },
       },
       {
         name: "repeat (not recurrence::)",
@@ -227,7 +235,11 @@ describe("tasks.extractTasks", () => {
       {
         name: "onCompletion",
         line: "- [x] T [onCompletion:: delete]",
-        field: { statusChar: "x", status: "done", onCompletion: "delete" },
+        field: {
+          statusChar: "x",
+          status: "done" as const,
+          onCompletion: "delete",
+        },
       },
       {
         name: "id",
