@@ -1,16 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { createSearchIndex } from "../search-index.js"
-import type { SearchIndex, TaskEntry } from "../search-index.js"
+import type { TaskEntry } from "../search-index.js"
 import { logger } from "../../../logger.js"
 
-let index: SearchIndex
-
-beforeEach(() => {
-  index = createSearchIndex(":memory:")
-})
+const createTestIndex = () => createSearchIndex(":memory:")
 
 const testStat = (
   mtimeMs: number,
@@ -43,16 +39,35 @@ const PLAIN_NOTE = `# Notes
 - [ ] Undated low task 🔽
 `
 
+const indexWithBoard = () => {
+  const index = createTestIndex()
+  index.upsertNote(
+    {
+      filePath: "Projects/board.md",
+      rawContent: BOARD_NOTE,
+      fileStat: testStat(1000),
+    },
+    logger,
+  )
+  return index
+}
+
+const indexWithBoardAndPlain = () => {
+  const index = indexWithBoard()
+  index.upsertNote(
+    {
+      filePath: "Inbox/notes.md",
+      rawContent: PLAIN_NOTE,
+      fileStat: testStat(2000),
+    },
+    logger,
+  )
+  return index
+}
+
 describe("task indexing lifecycle", () => {
   it("indexes tasks during upsertNote and returns them via listTasks", () => {
-    index.upsertNote(
-      {
-        filePath: "Projects/board.md",
-        rawContent: BOARD_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
+    const index = indexWithBoard()
 
     const result = index.listTasks({ status: "all" }, logger)
     expect(result.total).toBe(4)
@@ -60,14 +75,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("returns full attribution on every entry — dates, priority, folder, heading, block ID", () => {
-    index.upsertNote(
-      {
-        filePath: "Projects/board.md",
-        rawContent: BOARD_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
+    const index = indexWithBoard()
 
     const result = index.listTasks({}, logger)
     const fixLoginTask = result.tasks.find(
@@ -99,6 +107,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("stores the full parent folder, not just the first path segment", () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "Code Projects/vault-cortex/task-notes/note.md",
@@ -114,6 +123,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("stores an empty-string folder for root-level notes", () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "inbox.md",
@@ -129,6 +139,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("replaces a note's tasks on re-upsert instead of accumulating them", () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "note.md",
@@ -152,6 +163,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("removes a note's tasks on removeNote and keeps other notes' tasks", () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "removed.md",
@@ -180,6 +192,7 @@ describe("task indexing lifecycle", () => {
   })
 
   it("indexes tasks from disk during rebuildFromVault and wipes stale rows", async () => {
+    const index = createTestIndex()
     const vaultDir = await mkdtemp(join(tmpdir(), "task-rebuild-test-"))
     try {
       await mkdir(join(vaultDir, "Projects"), { recursive: true })
@@ -214,18 +227,8 @@ describe("task indexing lifecycle", () => {
 })
 
 describe("listTasks status filter", () => {
-  beforeEach(() => {
-    index.upsertNote(
-      {
-        filePath: "Projects/board.md",
-        rawContent: BOARD_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-  })
-
   it("defaults to not_done: includes todo and in_progress, excludes done and cancelled", () => {
+    const index = indexWithBoard()
     const result = index.listTasks({}, logger)
     const descriptions = result.tasks.map((entry) => entry.description)
     expect(descriptions).toEqual(["Fix login bug", "Write tests"])
@@ -241,6 +244,7 @@ describe("listTasks status filter", () => {
   it.each(statusScenarios)(
     "filters status $status exactly",
     ({ status, expected }) => {
+      const index = indexWithBoard()
       const result = index.listTasks({ status }, logger)
       expect(result.tasks.map((entry) => entry.description)).toEqual([
         ...expected,
@@ -249,13 +253,15 @@ describe("listTasks status filter", () => {
   )
 
   it("returns every status with status: all", () => {
+    const index = indexWithBoard()
     const result = index.listTasks({ status: "all" }, logger)
     expect(result.total).toBe(4)
   })
 })
 
 describe("listTasks date filters", () => {
-  beforeEach(() => {
+  const indexWithDates = () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "dates.md",
@@ -270,9 +276,11 @@ describe("listTasks date filters", () => {
       },
       logger,
     )
-  })
+    return index
+  }
 
   it("due.before is exclusive and drops undated tasks", () => {
+    const index = indexWithDates()
     const result = index.listTasks({ due: { before: "2026-07-20" } }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Due early",
@@ -280,11 +288,13 @@ describe("listTasks date filters", () => {
   })
 
   it("due.after is exclusive", () => {
+    const index = indexWithDates()
     const result = index.listTasks({ due: { after: "2026-07-01" } }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual(["Due late"])
   })
 
   it("due.on matches exactly", () => {
+    const index = indexWithDates()
     const result = index.listTasks({ due: { on: "2026-07-01" } }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Due early",
@@ -292,6 +302,7 @@ describe("listTasks date filters", () => {
   })
 
   it("combines before and after into a range", () => {
+    const index = indexWithDates()
     const result = index.listTasks(
       { due: { after: "2026-06-30", before: "2026-07-19" } },
       logger,
@@ -302,6 +313,7 @@ describe("listTasks date filters", () => {
   })
 
   it("filters done range for completed-this-week reviews", () => {
+    const index = indexWithDates()
     const result = index.listTasks(
       { status: "done", done: { after: "2026-06-30" } },
       logger,
@@ -312,12 +324,14 @@ describe("listTasks date filters", () => {
   })
 
   it("rejects a malformed date with remediation text", () => {
+    const index = createTestIndex()
     expect(() =>
       index.listTasks({ due: { before: "July 3rd" } }, logger),
     ).toThrow('invalid due.before date: "July 3rd". Use YYYY-MM-DD')
   })
 
   it("rejects a calendar-invalid date", () => {
+    const index = createTestIndex()
     expect(() =>
       index.listTasks({ due: { on: "2026-02-31" } }, logger),
     ).toThrow('invalid due.on date: "2026-02-31". Use YYYY-MM-DD')
@@ -325,7 +339,8 @@ describe("listTasks date filters", () => {
 })
 
 describe("listTasks priority filter", () => {
-  beforeEach(() => {
+  const indexWithPriorities = () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "priorities.md",
@@ -341,9 +356,11 @@ describe("listTasks priority filter", () => {
       },
       logger,
     )
-  })
+    return index
+  }
 
   it("filters a single priority level", () => {
+    const index = indexWithPriorities()
     const result = index.listTasks({ priority: ["high"] }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "High task",
@@ -351,6 +368,7 @@ describe("listTasks priority filter", () => {
   })
 
   it("OR-combines multiple priority levels", () => {
+    const index = indexWithPriorities()
     const result = index.listTasks({ priority: ["highest", "high"] }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Highest task",
@@ -359,6 +377,7 @@ describe("listTasks priority filter", () => {
   })
 
   it("selects unprioritized tasks with none", () => {
+    const index = indexWithPriorities()
     const result = index.listTasks({ priority: ["none"] }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Normal task",
@@ -366,6 +385,7 @@ describe("listTasks priority filter", () => {
   })
 
   it("combines named levels with none", () => {
+    const index = indexWithPriorities()
     const result = index.listTasks({ priority: ["lowest", "none"] }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Normal task",
@@ -375,26 +395,8 @@ describe("listTasks priority filter", () => {
 })
 
 describe("listTasks scope filters", () => {
-  beforeEach(() => {
-    index.upsertNote(
-      {
-        filePath: "Projects/board.md",
-        rawContent: BOARD_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    index.upsertNote(
-      {
-        filePath: "Inbox/notes.md",
-        rawContent: PLAIN_NOTE,
-        fileStat: testStat(2000),
-      },
-      logger,
-    )
-  })
-
   it("scopes to a folder, excluding tasks outside it", () => {
+    const index = indexWithBoardAndPlain()
     const result = index.listTasks({ folder: "Projects" }, logger)
     expect(result.tasks.map((entry) => entry.path)).toEqual([
       "Projects/board.md",
@@ -403,12 +405,14 @@ describe("listTasks scope filters", () => {
   })
 
   it("treats a trailing slash on folder as equivalent", () => {
+    const index = indexWithBoardAndPlain()
     const withSlash = index.listTasks({ folder: "Projects/" }, logger)
     const withoutSlash = index.listTasks({ folder: "Projects" }, logger)
     expect(withSlash).toEqual(withoutSlash)
   })
 
   it("filters by inline tag, excluding untagged tasks", () => {
+    const index = indexWithBoardAndPlain()
     const result = index.listTasks({ tag: "errand" }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Standalone task #errand",
@@ -416,6 +420,7 @@ describe("listTasks scope filters", () => {
   })
 
   it("matches nested child tags when filtering by the parent tag", () => {
+    const index = indexWithBoardAndPlain()
     index.upsertNote(
       {
         filePath: "nested.md",
@@ -432,6 +437,7 @@ describe("listTasks scope filters", () => {
   })
 
   it("filters by heading (Kanban lane), excluding other lanes", () => {
+    const index = indexWithBoardAndPlain()
     const result = index.listTasks({ status: "all", heading: "Done" }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Ship release",
@@ -440,6 +446,7 @@ describe("listTasks scope filters", () => {
   })
 
   it("scopes to a single note by path", () => {
+    const index = indexWithBoardAndPlain()
     const result = index.listTasks({ path: "Inbox/notes.md" }, logger)
     expect(result.tasks.map((entry) => entry.path)).toEqual([
       "Inbox/notes.md",
@@ -448,12 +455,14 @@ describe("listTasks scope filters", () => {
   })
 
   it("rejects a path without the .md extension", () => {
+    const index = createTestIndex()
     expect(() => index.listTasks({ path: "Inbox/notes" }, logger)).toThrow(
       'path must end in ".md" (received "Inbox/notes")',
     )
   })
 
   it("AND-combines folder, heading, and priority filters correctly", () => {
+    const index = indexWithBoardAndPlain()
     const result = index.listTasks(
       { folder: "Projects", heading: "Active", priority: ["high"] },
       logger,
@@ -465,7 +474,8 @@ describe("listTasks scope filters", () => {
 })
 
 describe("listTasks sorting and paging", () => {
-  beforeEach(() => {
+  const indexWithSortData = () => {
+    const index = createTestIndex()
     index.upsertNote(
       {
         filePath: "a.md",
@@ -486,9 +496,11 @@ describe("listTasks sorting and paging", () => {
       },
       logger,
     )
-  })
+    return index
+  }
 
   it("defaults to due ascending with dateless tasks last", () => {
+    const index = indexWithSortData()
     const result = index.listTasks({}, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Due first",
@@ -499,6 +511,7 @@ describe("listTasks sorting and paging", () => {
   })
 
   it("reverses date order with sortDirection desc, keeping dateless last", () => {
+    const index = indexWithSortData()
     const result = index.listTasks({ sortDirection: "desc" }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Due last",
@@ -509,6 +522,7 @@ describe("listTasks sorting and paging", () => {
   })
 
   it("sorts by priority in the plugin's order with none between medium and low", () => {
+    const index = indexWithSortData()
     index.upsertNote(
       {
         filePath: "priorities.md",
@@ -535,11 +549,13 @@ describe("listTasks sorting and paging", () => {
   })
 
   it("sorts by note_mtime newest-first by default", () => {
+    const index = indexWithSortData()
     const result = index.listTasks({ sortBy: "note_mtime" }, logger)
     expect(result.tasks[0].path).toBe("b.md")
   })
 
   it("limits results while total reports the full match count", () => {
+    const index = indexWithSortData()
     const result = index.listTasks({ limit: 2 }, logger)
     expect(result.tasks).toHaveLength(2)
     expect(result.total).toBe(4)
