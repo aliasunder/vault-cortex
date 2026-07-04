@@ -10,7 +10,7 @@
   "pages": [
     {
       "title": "Overview",
-      "purpose": "What Vault Cortex is: a standalone MCP server that works directly with .md files on disk, running headless in Docker with its own parsers, hybrid search engine, and link resolution. Key capabilities: hybrid search (FTS5 keyword + vector KNN, fused via RRF with optional cross-encoder reranking), OAuth 2.1 authentication, a structured memory layer, 26 tools with TDQS-optimized descriptions, three deployment modes (local Docker, remote with Obsidian Sync, AWS reference), and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
+      "purpose": "What Vault Cortex is: a standalone MCP server that works directly with .md files on disk, running headless in Docker with its own parsers, hybrid search engine, and link resolution. Key capabilities: hybrid search (FTS5 keyword + vector KNN, fused via RRF with optional cross-encoder reranking), OAuth 2.1 authentication, a structured memory layer, a vault-wide task index (parsing both Tasks-plugin emoji and Dataview inline-field formats), 26 tools with TDQS-optimized descriptions, three deployment modes (local Docker, remote with Obsidian Sync, AWS reference), and a comprehensive security toolchain (OpenSSF Scorecard, Trivy, Gitleaks, Dependabot, CodeQL, Socket Security, Snyk). Listed on the official MCP server registry and awesome-mcp-servers."
     },
     {
       "title": "Getting Started",
@@ -65,7 +65,7 @@
     },
     {
       "title": "MCP Interface",
-      "purpose": "Parent page for the MCP protocol surface — the tools and prompts that clients interact with. Overview of the 26 tools (grouped by domain: vault CRUD, search and discovery, memory, graph queries, properties, daily notes) and the 3 user-initiated prompts. Explains the distinction: tools are model-driven (the AI decides when to call them), prompts are user-initiated (surfaced as slash commands or menu items in the client). Both tools and prompts surface live vault content — prompts assemble real-time vault data (folder structure, tags, property keys, memory files, recent notes, daily notes) at invocation time, not static instructions."
+      "purpose": "Parent page for the MCP protocol surface — the tools and prompts that clients interact with. Overview of the 26 tools (grouped by domain: vault CRUD, search and discovery, tasks, memory, graph queries, properties, daily notes) and the 3 user-initiated prompts. Explains the distinction: tools are model-driven (the AI decides when to call them), prompts are user-initiated (surfaced as slash commands or menu items in the client). Both tools and prompts surface live vault content — prompts assemble real-time vault data (folder structure, tags, property keys, memory files, recent notes, daily notes) at invocation time, not static instructions."
     },
     {
       "title": "Tool Reference",
