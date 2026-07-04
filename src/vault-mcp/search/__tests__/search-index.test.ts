@@ -827,6 +827,30 @@ describe("searchByTag", () => {
     const results = index.searchByTag({ tag: "nope" }, logger)
     expect(results).toHaveLength(0)
   })
+
+  it("prefix match treats LIKE wildcards in the tag as literal characters", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [a_b/child]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    // Without escaping, LIKE 'a_b/%' would also match this tag — the "_"
+    // wildcard matches the "x" in "axb".
+    index.upsertNote(
+      {
+        filePath: "e.md",
+        rawContent: "---\ntags: [axb/child]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    const results = index.searchByTag({ tag: "a_b" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["d.md"])
+  })
 })
 
 describe("searchByFolder", () => {
@@ -986,6 +1010,11 @@ describe("recentNotes", () => {
   it("respects limit", () => {
     const results = index.recentNotes({ limit: 1 }, logger)
     expect(results).toHaveLength(1)
+  })
+
+  it("floors a fractional limit instead of failing with SQLite's datatype mismatch", () => {
+    const results = index.recentNotes({ limit: 1.9 }, logger)
+    expect(results.map((note) => note.path)).toEqual(["new.md"])
   })
 })
 

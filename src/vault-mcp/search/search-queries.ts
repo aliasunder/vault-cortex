@@ -11,6 +11,7 @@ import { blendScores } from "./reranker.js"
 import type { Reranker } from "./reranker.js"
 import {
   rowToMetadata,
+  rowToTaskEntry,
   noteRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
@@ -30,6 +31,12 @@ import type {
   SearchFilters,
   BacklinkEntry,
   OutgoingLinkEntry,
+  TaskRow,
+  TaskStatusFilter,
+  TaskDateFilter,
+  TaskPriorityFilter,
+  TaskSortKey,
+  ListTasksResult,
 } from "./search-index.js"
 import type { Embedder } from "./embedder.js"
 
@@ -146,7 +153,7 @@ export const fullTextSearch = (
     }
   }
 
-  const limit = Math.max(0, params.filters?.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
@@ -217,7 +224,7 @@ export const hybridSearch = async (
   params: { query: string; filters?: SearchFilters },
   logger: Logger,
 ): Promise<HybridSearchResult> => {
-  const userLimit = Math.max(0, params.filters?.limit ?? 20)
+  const userLimit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   const includeLeadingCallout = params.filters?.include_leading_callout ?? false
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
@@ -406,15 +413,15 @@ export const searchByTag = (
   params: { tag: string; exactMatch?: boolean; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const condition = params.exactMatch
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%')"
+    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
 
   const queryParams: unknown[] = params.exactMatch
     ? [params.tag, limit]
-    : [params.tag, params.tag, limit]
+    : [params.tag, escapeLikeWildcards(params.tag), limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -440,7 +447,7 @@ export const searchByFolder = (
   logger: Logger,
 ): NoteMetadata[] => {
   const recursive = params.recursive ?? true
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
   const condition = recursive
@@ -468,6 +475,239 @@ export const searchByFolder = (
   return results
 }
 
+// ── Task listing ───────────────────────────────────────────────
+
+/** Rejects a malformed task date filter with remediation text.
+ *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
+ *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
+const assertTaskFilterDate = (value: string, filterName: string): void => {
+  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
+    throw new Error(
+      `invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
+    )
+  }
+}
+
+/** Date cascade priority — when the primary sort date is NULL, fall through
+ *  to the next most-actionable date so dateless tasks still sort meaningfully
+ *  instead of landing in arbitrary file-path order. Each date key cascades
+ *  through the remaining columns in urgency order (due → scheduled → start →
+ *  created), then note mtime as a final recency tiebreaker before file
+ *  position. `done` and `cancelled` are terminal-state dates that don't
+ *  cascade — they stand alone with an mtime tiebreaker. */
+const DATE_CASCADE: Record<string, readonly string[]> = {
+  due: ["scheduled", "start", "created"],
+  scheduled: ["due", "start", "created"],
+  start: ["due", "scheduled", "created"],
+  created: ["due", "scheduled", "start"],
+}
+
+/** Builds a cascaded ORDER BY for a date sort key: primary date column, then
+ *  each fallback date column (all with NULL-last), then note mtime descending
+ *  as a recency tiebreaker for fully dateless tasks. */
+const buildDateOrderBy = (
+  column: string,
+  direction: "ASC" | "DESC",
+): string => {
+  const cascade = DATE_CASCADE[column]
+  const primary = `t.${column} IS NULL, t.${column} ${direction}`
+  if (cascade === undefined) {
+    return `${primary}, n.mtime DESC`
+  }
+  const fallbacks = cascade
+    .map((col) => `t.${col} IS NULL, t.${col} ${direction}`)
+    .join(", ")
+  return `${primary}, ${fallbacks}, n.mtime DESC`
+}
+
+/** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
+ *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
+ *  through related date columns so dateless tasks sort by the next available
+ *  date rather than falling to arbitrary file-path order; priority maps levels
+ *  to the plugin's numeric order (highest=0 … lowest=5, none=3 between medium
+ *  and low, the ELSE arm since none is stored as NULL). */
+const TASK_ORDER_BY: Record<
+  TaskSortKey,
+  (direction: "ASC" | "DESC") => string
+> = {
+  due: (direction) => buildDateOrderBy("due", direction),
+  scheduled: (direction) => buildDateOrderBy("scheduled", direction),
+  start: (direction) => buildDateOrderBy("start", direction),
+  created: (direction) => buildDateOrderBy("created", direction),
+  done: (direction) => buildDateOrderBy("done", direction),
+  priority: (direction) =>
+    `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction}`,
+  note_mtime: (direction) => `n.mtime ${direction}`,
+}
+
+/** Lists indexed tasks with structured filters and sorting. All filters
+ *  AND-combine; the default view is actionable work (not_done = todo +
+ *  in_progress), sorted overdue-first (due ascending, dateless last).
+ *  Returns the total match count alongside the limited page so callers can
+ *  tell "50 of 338" from "all 50". */
+export const listTasks = (
+  context: SearchQueryContext,
+  params: {
+    status?: TaskStatusFilter
+    due?: TaskDateFilter
+    scheduled?: TaskDateFilter
+    start?: TaskDateFilter
+    done?: TaskDateFilter
+    created?: TaskDateFilter
+    cancelled?: TaskDateFilter
+    priority?: TaskPriorityFilter[]
+    folder?: string
+    tag?: string
+    heading?: string
+    path?: string
+    limit?: number
+    sortBy?: TaskSortKey
+    sortDirection?: "asc" | "desc"
+  },
+  logger: Logger,
+): ListTasksResult => {
+  const conditions: string[] = []
+  const queryParams: unknown[] = []
+
+  const status = params.status ?? "not_done"
+  if (status === "not_done") {
+    conditions.push("t.status IN ('todo', 'in_progress')")
+  } else if (status !== "all") {
+    conditions.push("t.status = ?")
+    queryParams.push(status)
+  }
+
+  // A date filter only ever matches tasks that HAVE that date — SQL comparison
+  // with NULL is never true, so undated tasks drop out automatically.
+  const dateFilters: ReadonlyArray<{
+    column: "due" | "scheduled" | "start" | "done" | "created" | "cancelled"
+    filter: TaskDateFilter | undefined
+  }> = [
+    { column: "due", filter: params.due },
+    { column: "scheduled", filter: params.scheduled },
+    { column: "start", filter: params.start },
+    { column: "done", filter: params.done },
+    { column: "created", filter: params.created },
+    { column: "cancelled", filter: params.cancelled },
+  ]
+  for (const { column, filter } of dateFilters) {
+    if (filter === undefined) continue
+    if (filter.on !== undefined) {
+      assertTaskFilterDate(filter.on, `${column}.on`)
+      conditions.push(`t.${column} = ?`)
+      queryParams.push(filter.on)
+    }
+    if (filter.before !== undefined) {
+      assertTaskFilterDate(filter.before, `${column}.before`)
+      conditions.push(`t.${column} < ?`)
+      queryParams.push(filter.before)
+    }
+    if (filter.after !== undefined) {
+      assertTaskFilterDate(filter.after, `${column}.after`)
+      conditions.push(`t.${column} > ?`)
+      queryParams.push(filter.after)
+    }
+  }
+
+  if (params.priority !== undefined && params.priority.length > 0) {
+    // Priority values OR-combine (a task has exactly one level); "none"
+    // selects tasks with no priority signifier, stored as NULL.
+    const namedLevels = params.priority.filter((level) => level !== "none")
+    const priorityClauses: string[] = []
+    if (namedLevels.length > 0) {
+      priorityClauses.push(
+        `t.priority IN (${namedLevels.map(() => "?").join(", ")})`,
+      )
+      queryParams.push(...namedLevels)
+    }
+    if (params.priority.includes("none")) {
+      priorityClauses.push("t.priority IS NULL")
+    }
+    conditions.push(`(${priorityClauses.join(" OR ")})`)
+  }
+
+  if (params.folder !== undefined) {
+    conditions.push("t.note_path LIKE ? ESCAPE '\\'")
+    queryParams.push(
+      `${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`,
+    )
+  }
+
+  if (params.tag !== undefined) {
+    // Same nested-tag semantics as searchByTag's prefix mode: "project"
+    // matches both #project and #project/vault-cortex.
+    conditions.push(
+      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')",
+    )
+    queryParams.push(params.tag, escapeLikeWildcards(params.tag))
+  }
+
+  if (params.heading !== undefined) {
+    conditions.push("t.heading = ?")
+    queryParams.push(params.heading)
+  }
+
+  if (params.path !== undefined) {
+    assertPathHasExtension(params.path, ".md")
+    conditions.push("t.note_path = ?")
+    queryParams.push(params.path)
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
+
+  const sortBy = params.sortBy ?? "due"
+  // "due" and "scheduled" default ascending — soonest deadline first
+  // (overdue triage). "start", "created", "done", and "note_mtime" default
+  // descending — most recent first ("what did I start/create/finish lately?").
+  const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
+    "start",
+    "created",
+    "done",
+    "note_mtime",
+  ])
+  const sortDirection =
+    params.sortDirection ?? (DESCENDING_BY_DEFAULT.has(sortBy) ? "desc" : "asc")
+  const orderBy = TASK_ORDER_BY[sortBy](
+    sortDirection === "desc" ? "DESC" : "ASC",
+  )
+
+  // Math.floor: SQLite rejects a non-integer LIMIT binding with a cryptic
+  // "datatype mismatch" error, so a fractional limit is floored instead.
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
+
+  const countRow = context.db
+    .prepare<unknown[], { total: number }>(
+      `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
+    )
+    .get(...queryParams)
+  const total = countRow === undefined ? 0 : countRow.total
+
+  const sql = `
+    SELECT t.note_path, t.line, t.status_char, t.status, t.description,
+           t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
+           t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
+           t.tags, t.block_id, t.heading, t.folder
+    FROM tasks t
+    JOIN notes n ON n.path = t.note_path
+    ${whereClause}
+    ORDER BY ${orderBy}, t.note_path ASC, t.line ASC
+    LIMIT ?
+  `
+  const rows = context.db
+    .prepare<unknown[], TaskRow>(sql)
+    .all(...queryParams, limit)
+  const taskEntries = rows.map(rowToTaskEntry)
+
+  logger.info("list tasks", {
+    status,
+    sortBy,
+    resultCount: taskEntries.length,
+    total,
+  })
+  return { total, tasks: taskEntries }
+}
+
 /** Returns all tags in the vault with their note counts. */
 export const listAllTags = (
   context: SearchQueryContext,
@@ -492,7 +732,7 @@ export const recentNotes = (
   logger: Logger,
 ): NoteMetadata[] => {
   const sortBy = params.sort_by ?? "modified"
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
   const orderClause =
@@ -593,7 +833,7 @@ export const listPropertyValues = (
   params: { key: string; folder?: string; limit?: number },
   logger: Logger,
 ): PropertyValueCount[] => {
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
@@ -645,7 +885,7 @@ export const searchByProperty = (
   params: { key: string; value: string; folder?: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
@@ -788,7 +1028,7 @@ export const findOrphans = (
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   // One exclusion clause per folder, each bound to a positional parameter
   const escapedExcludeFolders = excludeFolders.map((folder) =>
@@ -883,7 +1123,7 @@ export const modifiedOnDate = (
   params: { date: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
   const dayStart = DateTime.fromISO(params.date)
   const dayEnd = dayStart.plus({ days: 1 })
 

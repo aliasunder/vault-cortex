@@ -7,6 +7,8 @@ import type {
   NoteMetadata,
   SearchResult,
   SearchFilters,
+  TaskRow,
+  TaskEntry,
 } from "./search-index.js"
 
 // ── Type guards ────────────────────────────────────────────────
@@ -83,6 +85,31 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   leading_callout: row.leading_callout
     ? (JSON.parse(row.leading_callout) as LeadingCallout)
     : null,
+})
+
+/** Maps a tasks-table row to its wire shape: note_path becomes path, and the
+ *  JSON-encoded depends_on/tags columns are parsed back into arrays. */
+export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
+  path: row.note_path,
+  line: row.line,
+  status: row.status,
+  status_char: row.status_char,
+  description: row.description,
+  heading: row.heading,
+  folder: row.folder,
+  created: row.created,
+  scheduled: row.scheduled,
+  start: row.start,
+  due: row.due,
+  done: row.done,
+  cancelled: row.cancelled,
+  priority: row.priority,
+  recurrence: row.recurrence,
+  on_completion: row.on_completion,
+  task_id: row.task_id,
+  depends_on: JSON.parse(row.depends_on) as string[],
+  tags: JSON.parse(row.tags) as string[],
+  block_id: row.block_id,
 })
 
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.

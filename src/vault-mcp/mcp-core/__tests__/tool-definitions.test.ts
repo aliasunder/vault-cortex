@@ -6,6 +6,7 @@ import type { z } from "zod"
 import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import { logger } from "../../../logger.js"
 
@@ -17,6 +18,7 @@ const READ_ONLY_TOOLS = [
   TOOL_NAMES.VAULT_SEARCH,
   TOOL_NAMES.VAULT_SEARCH_BY_TAG,
   TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+  TOOL_NAMES.VAULT_LIST_TASKS,
   TOOL_NAMES.VAULT_LIST_TAGS,
   TOOL_NAMES.VAULT_RECENT_NOTES,
   TOOL_NAMES.VAULT_GET_MEMORY,
@@ -605,5 +607,138 @@ describe("MEMORY_ENABLED=false", () => {
         expect(description).not.toContain(memoryToolName)
       }
     }
+  })
+})
+
+describe("vault_list_tasks handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  /** Registers tools against a real in-memory search index seeded with one
+   *  task-bearing board (or caller-provided note content), so handler tests
+   *  exercise the actual query path. */
+  const registerWithTaskIndex = (
+    rawContent = [
+      "## Active",
+      "",
+      "- [ ] Open card ➕ 2026-06-20 📅 2026-07-01",
+      "- [x] Done card ✅ 2026-06-28",
+    ].join("\n"),
+  ): RegisterToolCall => {
+    const searchIndex = createSearchIndex(":memory:")
+    searchIndex.upsertNote(
+      {
+        filePath: "Projects/board.md",
+        rawContent,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    const taskMockServer = { registerTool: vi.fn() }
+    registerTools({
+      server: taskMockServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: searchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const taskCalls = taskMockServer.registerTool.mock
+      .calls as RegisterToolCall[]
+    const call = taskCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_TASKS,
+    )
+    if (!call) throw new Error("vault_list_tasks not registered")
+    return call
+  }
+
+  it("returns { total, tasks } with null and empty fields omitted", async () => {
+    const [, , handler] = registerWithTaskIndex()
+    const result = (await handler({}, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBeUndefined()
+    const payload = JSON.parse(result.content[0].text) as {
+      total: number
+      tasks: Array<Record<string, unknown>>
+    }
+    expect(payload.total).toBe(1)
+    expect(payload.tasks[0]).toEqual({
+      path: "Projects/board.md",
+      line: 3,
+      status: "todo",
+      status_char: " ",
+      description: "Open card",
+      heading: "Active",
+      folder: "Projects",
+      created: "2026-06-20",
+      due: "2026-07-01",
+    })
+  })
+
+  it("keeps non-empty tags and depends_on arrays in the response", async () => {
+    const [, , handler] = registerWithTaskIndex(
+      "- [ ] Errand run #errand ⛔ dep-1, dep-2",
+    )
+    const result = (await handler({}, mockExtra)) as {
+      content: Array<{ text: string }>
+    }
+    const payload = JSON.parse(result.content[0].text) as {
+      tasks: Array<Record<string, unknown>>
+    }
+    // The whole-object match proves the empty/null-field filter drops only
+    // null fields and empty arrays — populated arrays survive intact.
+    expect(payload.tasks).toEqual([
+      {
+        path: "Projects/board.md",
+        line: 1,
+        status: "todo",
+        status_char: " ",
+        description: "Errand run #errand",
+        folder: "Projects",
+        depends_on: ["dep-1", "dep-2"],
+        tags: ["errand"],
+      },
+    ])
+  })
+
+  it("maps sort_by and sort_direction through to the query", async () => {
+    const [, , handler] = registerWithTaskIndex()
+    const result = (await handler(
+      { status: "all", sort_by: "done", sort_direction: "desc" },
+      mockExtra,
+    )) as { content: Array<{ text: string }> }
+    const payload = JSON.parse(result.content[0].text) as {
+      tasks: Array<{ description: string }>
+    }
+    // done DESC with dateless last: the completed card leads.
+    expect(payload.tasks.map((task) => task.description)).toEqual([
+      "Done card",
+      "Open card",
+    ])
+  })
+
+  it("returns isError with remediation text for a malformed date filter", async () => {
+    const [, , handler] = registerWithTaskIndex()
+    const result = (await handler(
+      { due: { before: "not-a-date" } },
+      mockExtra,
+    )) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      'invalid due.before date: "not-a-date". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("returns { total: 0, tasks: [] } for no matches, not an error", async () => {
+    const [, , handler] = registerWithTaskIndex()
+    const result = (await handler({ tag: "no-such-tag" }, mockExtra)) as {
+      content: Array<{ text: string }>
+      isError?: boolean
+    }
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(result.content[0].text)).toEqual({ total: 0, tasks: [] })
   })
 })
