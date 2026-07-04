@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -71,7 +71,12 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({ status: "all" }, logger)
     expect(result.total).toBe(4)
-    expect(result.tasks).toHaveLength(4)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+      "Write tests",
+      "Ship release",
+      "Old idea",
+    ])
   })
 
   it("returns full attribution on every entry — dates, priority, folder, heading, block ID", () => {
@@ -106,6 +111,44 @@ describe("task indexing lifecycle", () => {
     expect(fixLoginTask).toEqual(expectedEntry)
   })
 
+  it("round-trips non-empty tags and depends_on arrays through the index", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "note.md",
+        rawContent:
+          "- [ ] Tagged and blocked #home #home/kitchen ⛔ id-1, id-2 🆔 own-id",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({}, logger)
+    const expectedEntry: TaskEntry = {
+      path: "note.md",
+      line: 1,
+      status: "todo",
+      status_char: " ",
+      description: "Tagged and blocked #home #home/kitchen",
+      heading: null,
+      folder: "",
+      created: null,
+      scheduled: null,
+      start: null,
+      due: null,
+      done: null,
+      cancelled: null,
+      priority: null,
+      recurrence: null,
+      on_completion: null,
+      task_id: "own-id",
+      depends_on: ["id-1", "id-2"],
+      tags: ["home", "home/kitchen"],
+      block_id: null,
+    }
+    expect(result.tasks).toEqual([expectedEntry])
+  })
+
   it("stores the full parent folder, not just the first path segment", () => {
     const index = createTestIndex()
     index.upsertNote(
@@ -118,8 +161,9 @@ describe("task indexing lifecycle", () => {
     )
 
     const result = index.listTasks({}, logger)
-    expect(result.tasks).toHaveLength(1)
-    expect(result.tasks[0].folder).toBe("Code Projects/vault-cortex/task-notes")
+    expect(result.tasks.map((entry) => entry.folder)).toEqual([
+      "Code Projects/vault-cortex/task-notes",
+    ])
   })
 
   it("stores an empty-string folder for root-level notes", () => {
@@ -134,8 +178,7 @@ describe("task indexing lifecycle", () => {
     )
 
     const result = index.listTasks({}, logger)
-    expect(result.tasks).toHaveLength(1)
-    expect(result.tasks[0].folder).toBe("")
+    expect(result.tasks.map((entry) => entry.folder)).toEqual([""])
   })
 
   it("replaces a note's tasks on re-upsert instead of accumulating them", () => {
@@ -148,6 +191,12 @@ describe("task indexing lifecycle", () => {
       },
       logger,
     )
+    // Confirm the first version was actually indexed, so replacement can't
+    // be satisfied by the first upsert never running.
+    expect(
+      index.listTasks({}, logger).tasks.map((entry) => entry.description),
+    ).toEqual(["Old task"])
+
     index.upsertNote(
       {
         filePath: "note.md",
@@ -159,7 +208,7 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({}, logger)
     expect(result.total).toBe(1)
-    expect(result.tasks[0].description).toBe("New task")
+    expect(result.tasks.map((entry) => entry.description)).toEqual(["New task"])
   })
 
   it("removes a note's tasks on removeNote and keeps other notes' tasks", () => {
@@ -188,41 +237,45 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({}, logger)
     expect(result.total).toBe(1)
-    expect(result.tasks[0].path).toBe("kept.md")
+    expect(result.tasks.map((entry) => entry.path)).toEqual(["kept.md"])
   })
 
   it("indexes tasks from disk during rebuildFromVault and wipes stale rows", async () => {
     const index = createTestIndex()
     const vaultDir = await mkdtemp(join(tmpdir(), "task-rebuild-test-"))
-    try {
-      await mkdir(join(vaultDir, "Projects"), { recursive: true })
-      await writeFile(join(vaultDir, "Projects/board.md"), BOARD_NOTE, "utf8")
+    onTestFinished(() => rm(vaultDir, { recursive: true, force: true }))
+    await mkdir(join(vaultDir, "Projects"), { recursive: true })
+    await writeFile(join(vaultDir, "Projects/board.md"), BOARD_NOTE, "utf8")
 
-      // A stale row from a note that no longer exists on disk must not
-      // survive the rebuild.
-      index.upsertNote(
-        {
-          filePath: "ghost.md",
-          rawContent: "- [ ] Stale task",
-          fileStat: testStat(1000),
-        },
-        logger,
-      )
+    // A stale row from a note that no longer exists on disk must not
+    // survive the rebuild. Confirm it was actually indexed first, so the
+    // post-rebuild assertion can't pass by the row never existing.
+    index.upsertNote(
+      {
+        filePath: "ghost.md",
+        rawContent: "- [ ] Stale task",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(
+      index.listTasks({}, logger).tasks.map((entry) => entry.path),
+    ).toEqual(["ghost.md"])
 
-      const { embedding } = await index.rebuildFromVault(
-        { vaultPath: vaultDir },
-        logger,
-      )
-      await embedding
+    const { embedding } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
+    await embedding
 
-      const result = index.listTasks({ status: "all" }, logger)
-      expect(result.total).toBe(4)
-      expect(
-        result.tasks.every((entry) => entry.path === "Projects/board.md"),
-      ).toBe(true)
-    } finally {
-      await rm(vaultDir, { recursive: true })
-    }
+    const result = index.listTasks({ status: "all" }, logger)
+    expect(result.total).toBe(4)
+    expect(result.tasks.map((entry) => entry.path)).toEqual([
+      "Projects/board.md",
+      "Projects/board.md",
+      "Projects/board.md",
+      "Projects/board.md",
+    ])
   })
 })
 
@@ -255,7 +308,12 @@ describe("listTasks status filter", () => {
   it("returns every status with status: all", () => {
     const index = indexWithBoard()
     const result = index.listTasks({ status: "all" }, logger)
-    expect(result.total).toBe(4)
+    expect(result.tasks.map((entry) => entry.status)).toEqual([
+      "todo",
+      "in_progress",
+      "done",
+      "cancelled",
+    ])
   })
 })
 
@@ -323,18 +381,67 @@ describe("listTasks date filters", () => {
     ])
   })
 
+  const dateColumnScenarios = [
+    {
+      column: "scheduled",
+      filter: { scheduled: { on: "2026-07-02" } },
+      expected: "Scheduled task",
+    },
+    {
+      column: "start",
+      filter: { start: { on: "2026-07-03" } },
+      expected: "Started task",
+    },
+    {
+      column: "created",
+      filter: { created: { on: "2026-07-01" } },
+      expected: "Created task",
+    },
+    {
+      column: "cancelled",
+      filter: { cancelled: { on: "2026-07-06" } },
+      expected: "Cancelled task",
+    },
+  ] as const
+
+  it.each(dateColumnScenarios)(
+    "filters the $column date on its own column, not another date field",
+    ({ filter, expected }) => {
+      const index = createTestIndex()
+      index.upsertNote(
+        {
+          filePath: "columns.md",
+          rawContent: [
+            "- [ ] Scheduled task ⏳ 2026-07-02",
+            "- [ ] Started task 🛫 2026-07-03",
+            "- [ ] Created task ➕ 2026-07-01",
+            "- [-] Cancelled task ❌ 2026-07-06",
+          ].join("\n"),
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      const result = index.listTasks({ status: "all", ...filter }, logger)
+      expect(result.tasks.map((entry) => entry.description)).toEqual([expected])
+    },
+  )
+
   it("rejects a malformed date with remediation text", () => {
     const index = createTestIndex()
     expect(() =>
       index.listTasks({ due: { before: "July 3rd" } }, logger),
-    ).toThrow('invalid due.before date: "July 3rd". Use YYYY-MM-DD')
+    ).toThrow(
+      'invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
   })
 
   it("rejects a calendar-invalid date", () => {
     const index = createTestIndex()
     expect(() =>
       index.listTasks({ due: { on: "2026-02-31" } }, logger),
-    ).toThrow('invalid due.on date: "2026-02-31". Use YYYY-MM-DD')
+    ).toThrow(
+      'invalid due.on date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
   })
 })
 
@@ -411,6 +518,33 @@ describe("listTasks scope filters", () => {
     expect(withSlash).toEqual(withoutSlash)
   })
 
+  it("treats LIKE wildcards in the folder as literal characters", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "Pro_ects/tasks.md",
+        rawContent: "- [ ] Inside underscore folder",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Without escaping, LIKE 'Pro_ects/%' would also match this note — the
+    // "_" wildcard matches the "j" in "Projects".
+    index.upsertNote(
+      {
+        filePath: "Projects/tasks.md",
+        rawContent: "- [ ] Inside plain folder",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ folder: "Pro_ects" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Inside underscore folder",
+    ])
+  })
+
   it("filters by inline tag, excluding untagged tasks", () => {
     const index = indexWithBoardAndPlain()
     const result = index.listTasks({ tag: "errand" }, logger)
@@ -433,6 +567,28 @@ describe("listTasks scope filters", () => {
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Standalone task #errand",
       "Nested tag task #errand/groceries",
+    ])
+  })
+
+  it("treats LIKE wildcards in the tag as literal characters when matching children", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "escape.md",
+        rawContent: [
+          "- [ ] Under task #a_b/x",
+          // Without escaping, LIKE 'a_b/%' would also match this tag — the
+          // "_" wildcard matches the "x" in "axb".
+          "- [ ] Wildcard task #axb/x",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ tag: "a_b" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Under task #a_b/x",
     ])
   })
 
@@ -551,13 +707,28 @@ describe("listTasks sorting and paging", () => {
   it("sorts by note_mtime newest-first by default", () => {
     const index = indexWithSortData()
     const result = index.listTasks({ sortBy: "note_mtime" }, logger)
-    expect(result.tasks[0].path).toBe("b.md")
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Due middle",
+      "Due last",
+      "Due first",
+      "No due date",
+    ])
   })
 
-  it("limits results while total reports the full match count", () => {
+  it("limits results to the top of the sort order while total reports the full match count", () => {
     const index = indexWithSortData()
     const result = index.listTasks({ limit: 2 }, logger)
-    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Due first",
+      "Due middle",
+    ])
+    expect(result.total).toBe(4)
+  })
+
+  it("clamps a negative limit to zero rows instead of SQLite's unlimited", () => {
+    const index = indexWithSortData()
+    const result = index.listTasks({ limit: -1 }, logger)
+    expect(result.tasks).toEqual([])
     expect(result.total).toBe(4)
   })
 })

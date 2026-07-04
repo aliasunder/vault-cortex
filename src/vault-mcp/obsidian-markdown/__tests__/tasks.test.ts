@@ -274,6 +274,11 @@ describe("tasks.extractTasks", () => {
       ])
     })
 
+    it("does not parse a capitalized priority word (the plugin is lowercase-only)", () => {
+      const extracted = tasks.extractTasks("- [ ] T [priority:: High]")
+      expect(extracted).toEqual([task({ description: "T [priority:: High]" })])
+    })
+
     it("does not parse mismatched brackets", () => {
       const extracted = tasks.extractTasks("- [ ] T [due:: 2026-07-04)")
       expect(extracted).toEqual([task({ description: "T [due:: 2026-07-04)" })])
