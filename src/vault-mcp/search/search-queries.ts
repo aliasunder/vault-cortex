@@ -418,11 +418,11 @@ export const searchByTag = (
 
   const condition = params.exactMatch
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%')"
+    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
 
   const queryParams: unknown[] = params.exactMatch
     ? [params.tag, limit]
-    : [params.tag, params.tag, limit]
+    : [params.tag, escapeLikeWildcards(params.tag), limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -609,9 +609,9 @@ export const listTasks = (
     // Same nested-tag semantics as searchByTag's prefix mode: "project"
     // matches both #project and #project/vault-cortex.
     conditions.push(
-      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%')",
+      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')",
     )
-    queryParams.push(params.tag, params.tag)
+    queryParams.push(params.tag, escapeLikeWildcards(params.tag))
   }
 
   if (params.heading !== undefined) {

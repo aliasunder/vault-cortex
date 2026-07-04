@@ -103,7 +103,7 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 // optional trailing comma, anchored to line end.
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
-const TASK_ID = /[a-zA-Z0-9-_]+/
+const TASK_ID = /[a-zA-Z0-9_-]+/
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
 const TASK_ID_SEQUENCE = new RegExp(
   `${TASK_ID.source}( *, *${TASK_ID.source} *)*`,

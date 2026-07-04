@@ -197,9 +197,7 @@ export const createOAuthProvider = ({
       .prepare<
         [string],
         { client_id: string; scopes: string; expires_at: number }
-      >(
-        "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
-      )
+      >("SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?")
       .get(token)
     if (!row) return null
     db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
