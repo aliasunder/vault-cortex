@@ -492,20 +492,53 @@ const assertTaskFilterDate = (value: string, filterName: string): void => {
   }
 }
 
+/** Date cascade priority — when the primary sort date is NULL, fall through
+ *  to the next most-actionable date so dateless tasks still sort meaningfully
+ *  instead of landing in arbitrary file-path order. Each date key cascades
+ *  through the remaining columns in urgency order (due → scheduled → start →
+ *  created), then note mtime as a final recency tiebreaker before file
+ *  position. `done` and `cancelled` are terminal-state dates that don't
+ *  cascade — they stand alone with an mtime tiebreaker. */
+const DATE_CASCADE: Record<string, readonly string[]> = {
+  due: ["scheduled", "start", "created"],
+  scheduled: ["due", "start", "created"],
+  start: ["due", "scheduled", "created"],
+  created: ["due", "scheduled", "start"],
+}
+
+/** Builds a cascaded ORDER BY for a date sort key: primary date column, then
+ *  each fallback date column (all with NULL-last), then note mtime descending
+ *  as a recency tiebreaker for fully dateless tasks. */
+const buildDateOrderBy = (
+  column: string,
+  direction: "ASC" | "DESC",
+): string => {
+  const cascade = DATE_CASCADE[column]
+  const primary = `t.${column} IS NULL, t.${column} ${direction}`
+  if (cascade === undefined) {
+    return `${primary}, n.mtime DESC`
+  }
+  const fallbacks = cascade
+    .map((col) => `t.${col} IS NULL, t.${col} ${direction}`)
+    .join(", ")
+  return `${primary}, ${fallbacks}, n.mtime DESC`
+}
+
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
- *  whitelisted TaskSortKey union — never raw user input. Date keys push
- *  dateless tasks last regardless of direction; priority maps levels to the
- *  plugin's numeric order (highest=0 … lowest=5, none=3 between medium and
- *  low, the ELSE arm since none is stored as NULL). */
+ *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
+ *  through related date columns so dateless tasks sort by the next available
+ *  date rather than falling to arbitrary file-path order; priority maps levels
+ *  to the plugin's numeric order (highest=0 … lowest=5, none=3 between medium
+ *  and low, the ELSE arm since none is stored as NULL). */
 const TASK_ORDER_BY: Record<
   TaskSortKey,
   (direction: "ASC" | "DESC") => string
 > = {
-  due: (direction) => `t.due IS NULL, t.due ${direction}`,
-  scheduled: (direction) => `t.scheduled IS NULL, t.scheduled ${direction}`,
-  start: (direction) => `t.start IS NULL, t.start ${direction}`,
-  created: (direction) => `t.created IS NULL, t.created ${direction}`,
-  done: (direction) => `t.done IS NULL, t.done ${direction}`,
+  due: (direction) => buildDateOrderBy("due", direction),
+  scheduled: (direction) => buildDateOrderBy("scheduled", direction),
+  start: (direction) => buildDateOrderBy("start", direction),
+  created: (direction) => buildDateOrderBy("created", direction),
+  done: (direction) => buildDateOrderBy("done", direction),
   priority: (direction) =>
     `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction}`,
   note_mtime: (direction) => `n.mtime ${direction}`,
@@ -628,10 +661,17 @@ export const listTasks = (
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
   const sortBy = params.sortBy ?? "due"
-  // note_mtime defaults to newest-first — "recently touched" is the only
-  // useful direction for it; every other key defaults ascending.
+  // "due" and "scheduled" default ascending — soonest deadline first
+  // (overdue triage). "start", "created", "done", and "note_mtime" default
+  // descending — most recent first ("what did I start/create/finish lately?").
+  const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
+    "start",
+    "created",
+    "done",
+    "note_mtime",
+  ])
   const sortDirection =
-    params.sortDirection ?? (sortBy === "note_mtime" ? "desc" : "asc")
+    params.sortDirection ?? (DESCENDING_BY_DEFAULT.has(sortBy) ? "desc" : "asc")
   const orderBy = TASK_ORDER_BY[sortBy](
     sortDirection === "desc" ? "DESC" : "ASC",
   )

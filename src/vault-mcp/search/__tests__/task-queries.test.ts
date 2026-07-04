@@ -715,6 +715,97 @@ describe("listTasks sorting and paging", () => {
     ])
   })
 
+  it("cascades dateless due tasks by scheduled → start → created before file position", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "cascade.md",
+        rawContent: [
+          "- [ ] Has due 📅 2026-07-01",
+          "- [ ] Has scheduled only ⏳ 2026-07-10",
+          "- [ ] Has start only 🛫 2026-07-05",
+          "- [ ] Has created only ➕ 2026-06-01",
+          "- [ ] Fully dateless",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.listTasks({}, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "Has scheduled only",
+      "Has start only",
+      "Has created only",
+      "Fully dateless",
+    ])
+  })
+
+  it("breaks ties among fully dateless tasks by note mtime descending", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "old.md",
+        rawContent: "- [ ] Old note task",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "new.md",
+        rawContent: "- [ ] New note task",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    const result = index.listTasks({}, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "New note task",
+      "Old note task",
+    ])
+  })
+
+  it("defaults start sort to descending (most recently started first)", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "starts.md",
+        rawContent: [
+          "- [ ] Started early 🛫 2026-06-01",
+          "- [ ] Started late 🛫 2026-07-01",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.listTasks({ sortBy: "start" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Started late",
+      "Started early",
+    ])
+  })
+
+  it("defaults created sort to descending (most recently created first)", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "created.md",
+        rawContent: [
+          "- [ ] Created early ➕ 2026-06-01",
+          "- [ ] Created late ➕ 2026-07-01",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.listTasks({ sortBy: "created" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Created late",
+      "Created early",
+    ])
+  })
+
   it("limits results to the top of the sort order while total reports the full match count", () => {
     const index = indexWithSortData()
     const result = index.listTasks({ limit: 2 }, logger)
