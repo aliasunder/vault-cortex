@@ -17,6 +17,7 @@
  *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
  *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
 
+import { DateTime } from "luxon"
 import { advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
 import { parseHeadings } from "./headings.js"
 
@@ -31,7 +32,10 @@ export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled"
 export type TaskPriority = "highest" | "high" | "medium" | "low" | "lowest"
 
 /** One parsed task line. Dates are raw `YYYY-MM-DD` strings (the only format
- *  the plugin recognizes), so they compare lexicographically. */
+ *  the plugin recognizes), so they compare lexicographically. A well-formed
+ *  but calendar-invalid date (e.g. `2026-99-99`) is stripped like any
+ *  recognized field but parsed as null, matching the plugin's exclusion of
+ *  invalid dates from date comparisons. */
 export type ParsedTask = Readonly<{
   /** 1-based line number in the full file (frontmatter included), matching
    *  what an editor or vault_read_note shows. */
@@ -356,12 +360,12 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
 
   return {
     description,
-    createdDate: dates.created,
-    scheduledDate: dates.scheduled,
-    startDate: dates.start,
-    dueDate: dates.due,
-    doneDate: dates.done,
-    cancelledDate: dates.cancelled,
+    createdDate: calendarValidOrNull(dates.created),
+    scheduledDate: calendarValidOrNull(dates.scheduled),
+    startDate: calendarValidOrNull(dates.start),
+    dueDate: calendarValidOrNull(dates.due),
+    doneDate: calendarValidOrNull(dates.done),
+    cancelledDate: calendarValidOrNull(dates.cancelled),
     priority,
     recurrence,
     onCompletion,
@@ -370,6 +374,13 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     tags: extractInlineTags(description),
   }
 }
+
+/** Drops calendar-invalid date values (e.g. "2026-99-99") after parsing. The
+ *  plugin recognizes-and-strips a well-formed-but-invalid date field the same
+ *  way, but marks it invalid and excludes it from every date comparison —
+ *  mirrored here by indexing the value as null (dateless in filters/sorts). */
+const calendarValidOrNull = (date: string | null): string | null =>
+  date !== null && DateTime.fromISO(date).isValid ? date : null
 
 /** Splits a ⛔ / `dependsOn::` value ("a, b ,c") into individual IDs. */
 const splitIdSequence = (idSequence: string): string[] =>

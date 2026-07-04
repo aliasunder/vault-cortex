@@ -180,6 +180,23 @@ describe("tasks.extractTasks", () => {
       const extracted = tasks.extractTasks("- [ ] T 📅 01/02/2026")
       expect(extracted).toEqual([task({ description: "T 📅 01/02/2026" })])
     })
+
+    it("strips a calendar-invalid emoji date but parses it as null", () => {
+      const extracted = tasks.extractTasks("- [ ] T 📅 2026-99-99")
+      expect(extracted).toEqual([task({ description: "T" })])
+    })
+
+    it("strips a calendar-invalid dataview date but parses it as null", () => {
+      const extracted = tasks.extractTasks("- [ ] T [due:: 2026-02-30]")
+      expect(extracted).toEqual([task({ description: "T" })])
+    })
+
+    it("keeps a leap-day date that is calendar-valid", () => {
+      const extracted = tasks.extractTasks("- [ ] T 📅 2028-02-29")
+      expect(extracted).toEqual([
+        task({ description: "T", dueDate: "2028-02-29" }),
+      ])
+    })
   })
 
   describe("dataview inline fields", () => {
