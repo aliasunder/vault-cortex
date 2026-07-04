@@ -498,7 +498,10 @@ const assertTaskFilterDate = (value: string, filterName: string): void => {
  *  dateless tasks last regardless of direction; priority maps levels to the
  *  plugin's numeric order (highest=0 … lowest=5, none=3 between medium and
  *  low, the ELSE arm since none is stored as NULL). */
-const TASK_ORDER_BY: Record<TaskSortKey, (direction: string) => string> = {
+const TASK_ORDER_BY: Record<
+  TaskSortKey,
+  (direction: "ASC" | "DESC") => string
+> = {
   due: (direction) => `t.due IS NULL, t.due ${direction}`,
   scheduled: (direction) => `t.scheduled IS NULL, t.scheduled ${direction}`,
   start: (direction) => `t.start IS NULL, t.start ${direction}`,
