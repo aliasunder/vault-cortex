@@ -197,7 +197,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_search_by_folder` | `folder, recursive?, limit?` | readOnlyHint |
 | `vault_list_tags`        | —                            | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
-| `vault_list_tasks`       | `status?, dates?, priority?` | readOnlyHint |
+| `vault_list_tasks`       | `status?, due?, priority?`   | readOnlyHint |
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
