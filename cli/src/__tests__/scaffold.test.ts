@@ -30,7 +30,7 @@ describe("buildFilesToWrite", () => {
     expect(envFile?.content).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
-  it("plans the two-service remote compose with the forked sync image and no init-config-perms", () => {
+  it("plans the two-service remote compose with the sync image and no init-config-perms", () => {
     const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
     const composeContent = files.find(
       (file) => file.name === "docker-compose.yml",
@@ -38,7 +38,7 @@ describe("buildFilesToWrite", () => {
 
     expect(composeContent).toContain("obsidian-sync")
     expect(composeContent).toContain(
-      "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
+      "ghcr.io/belphemur/obsidian-headless-sync-docker:latest",
     )
     expect(composeContent).not.toContain("init-config-perms")
   })

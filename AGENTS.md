@@ -6,8 +6,8 @@ Project conventions for AI-assisted development on vault-cortex — for Claude C
 
 Remote MCP server exposing an Obsidian vault over HTTPS. Two services on
 Lightsail via Docker Compose: obsidian-sync (bidirectional Obsidian Sync),
-vault-mcp (MCP server, UID 1000). The obsidian-sync image is a fork of
-Belphemur/obsidian-headless-sync-docker that chowns its config dir at build
+vault-mcp (MCP server, UID 1000). The obsidian-sync image is
+Belphemur/obsidian-headless-sync-docker, which chowns its config dir at build
 time (so no init container is needed) and registers the initial Sync device
 under DEVICE_NAME.
 Fronted by API Gateway with a smart Lambda authorizer (path-aware: OAuth

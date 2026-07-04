@@ -12,7 +12,7 @@ export type DockerRunner = {
 
 /** The image whose `get-token` entrypoint issues Obsidian Sync auth tokens. */
 export const OBSIDIAN_SYNC_IMAGE =
-  "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest"
+  "ghcr.io/belphemur/obsidian-headless-sync-docker:latest"
 
 export const createDockerRunner = (): DockerRunner => ({
   isComposeAvailable: () =>

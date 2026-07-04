@@ -13,8 +13,9 @@ name: vault-cortex
 
 services:
   obsidian-sync:
-    image: ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
+    image: ghcr.io/belphemur/obsidian-headless-sync-docker:latest
     container_name: obsidian-sync
+    hostname: ${DEVICE_NAME:-vault-cortex}
     restart: unless-stopped
     environment:
       OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}

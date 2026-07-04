@@ -151,7 +151,7 @@ VAULT_PASSWORD=${answers.vaultPassword}`
       ? `# Obsidian Sync auth token — FILL THIS IN before docker compose up.
 # Generate once with:
 #   docker run --rm -it --entrypoint get-token \\
-#     ghcr.io/aliasunder/obsidian-headless-sync-docker:latest`
+#     ghcr.io/belphemur/obsidian-headless-sync-docker:latest`
       : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

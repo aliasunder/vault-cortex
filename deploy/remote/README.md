@@ -36,7 +36,7 @@ Or clone the repo and `cd deploy/remote`.
 
 ```bash
 docker run --rm -it --entrypoint get-token \
-  ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
+  ghcr.io/belphemur/obsidian-headless-sync-docker:latest
 ```
 
 **4. Create your `.env` file:**
