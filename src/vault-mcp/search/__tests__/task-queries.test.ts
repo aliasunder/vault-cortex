@@ -113,6 +113,21 @@ describe("task indexing lifecycle", () => {
     expect(result.tasks[0].folder).toBe("Code Projects/vault-cortex/task-notes")
   })
 
+  it("stores an empty-string folder for root-level notes", () => {
+    index.upsertNote(
+      {
+        filePath: "inbox.md",
+        rawContent: "- [ ] Root task",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({}, logger)
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].folder).toBe("")
+  })
+
   it("replaces a note's tasks on re-upsert instead of accumulating them", () => {
     index.upsertNote(
       {
@@ -433,7 +448,19 @@ describe("listTasks scope filters", () => {
   })
 
   it("rejects a path without the .md extension", () => {
-    expect(() => index.listTasks({ path: "Inbox/notes" }, logger)).toThrow()
+    expect(() => index.listTasks({ path: "Inbox/notes" }, logger)).toThrow(
+      'path must end in ".md" (received "Inbox/notes")',
+    )
+  })
+
+  it("AND-combines folder, heading, and priority filters correctly", () => {
+    const result = index.listTasks(
+      { folder: "Projects", heading: "Active", priority: ["high"] },
+      logger,
+    )
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+    ])
   })
 })
 

@@ -128,19 +128,22 @@ describe("tasks.extractTasks", () => {
       {
         name: "done ✅",
         line: "- [x] T ✅ 2026-07-05",
-        field: { doneDate: "2026-07-05" },
+        field: { statusChar: "x", status: "done", doneDate: "2026-07-05" },
       },
       {
         name: "cancelled ❌",
         line: "- [-] T ❌ 2026-07-06",
-        field: { cancelledDate: "2026-07-06" },
+        field: {
+          statusChar: "-",
+          status: "cancelled",
+          cancelledDate: "2026-07-06",
+        },
       },
     ]
 
     it.each(dateScenarios)("parses $name", ({ line, field }) => {
       const extracted = tasks.extractTasks(line)
-      expect(extracted).toHaveLength(1)
-      expect(extracted[0]).toMatchObject({ description: "T", ...field })
+      expect(extracted).toEqual([task({ description: "T", ...field })])
     })
 
     it("tolerates a variant selector (U+FE0F) after the emoji", () => {
@@ -200,12 +203,16 @@ describe("tasks.extractTasks", () => {
       {
         name: "completion (not done::)",
         line: "- [x] T [completion:: 2026-07-05]",
-        field: { doneDate: "2026-07-05" },
+        field: { statusChar: "x", status: "done", doneDate: "2026-07-05" },
       },
       {
         name: "cancelled",
         line: "- [-] T [cancelled:: 2026-07-06]",
-        field: { cancelledDate: "2026-07-06" },
+        field: {
+          statusChar: "-",
+          status: "cancelled",
+          cancelledDate: "2026-07-06",
+        },
       },
       {
         name: "priority word",
@@ -220,7 +227,7 @@ describe("tasks.extractTasks", () => {
       {
         name: "onCompletion",
         line: "- [x] T [onCompletion:: delete]",
-        field: { onCompletion: "delete" },
+        field: { statusChar: "x", status: "done", onCompletion: "delete" },
       },
       {
         name: "id",
@@ -236,8 +243,7 @@ describe("tasks.extractTasks", () => {
 
     it.each(dataviewScenarios)("parses [$name:: ...]", ({ line, field }) => {
       const extracted = tasks.extractTasks(line)
-      expect(extracted).toHaveLength(1)
-      expect(extracted[0]).toMatchObject({ description: "T", ...field })
+      expect(extracted).toEqual([task({ description: "T", ...field })])
     })
 
     it("parses the parenthesized field form (due:: ...)", () => {
