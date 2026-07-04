@@ -21,6 +21,27 @@
 
 
 
+
+## [0.26.0] — 2026-07-04
+
+### Features
+
+- **tasks:** Task index + vault_list_tasks — vault-wide task querying (#255)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.25.4
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 2 updates (#254)
+- **deps:** Bump docker/build-push-action from 7.2.0 to 7.3.0 (#253)
+- **deps:** Bump picomatch from 4.0.4 to 4.0.5 in the production group (#252)
+- **deps:** Bump docker/login-action from 4.2.0 to 4.4.0 (#251)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.36.2 to 4.36.3 (#250)
+- **deps:** Bump docker/setup-buildx-action from 4.1.0 to 4.2.0 (#249)
+- **deps:** Bump docker/setup-qemu-action from 4.1.0 to 4.2.0 (#248)
+
 ## [0.25.4] — 2026-07-03
 
 ### Bug Fixes
