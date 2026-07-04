@@ -472,9 +472,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.
-- `const` per test over `let` in `beforeEach` when possible.
-  `beforeEach` is justified for shared setup that all tests in a
-  `describe` need (e.g. indexing fixture notes, creating temp dirs).
+- `const` per test over `let` in `beforeEach` — this is the strong
+  default, not a soft preference. When setup is cheap (in-memory DB,
+  small fixtures), use a factory helper and `const index =
+createTestIndex()` at the top of each test. `beforeEach` is only
+  justified when per-test creation is genuinely impractical (expensive
+  resources, complex multi-step setup that would obscure the test body).
 - Every test must actually verify the behavior it claims to test.
   A folder-filter test must include data both inside and outside the
   folder to confirm exclusion works — not just data inside.
