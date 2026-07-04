@@ -153,7 +153,7 @@ export const fullTextSearch = (
     }
   }
 
-  const limit = Math.max(0, params.filters?.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
@@ -224,7 +224,7 @@ export const hybridSearch = async (
   params: { query: string; filters?: SearchFilters },
   logger: Logger,
 ): Promise<HybridSearchResult> => {
-  const userLimit = Math.max(0, params.filters?.limit ?? 20)
+  const userLimit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   const includeLeadingCallout = params.filters?.include_leading_callout ?? false
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
@@ -413,7 +413,7 @@ export const searchByTag = (
   params: { tag: string; exactMatch?: boolean; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const condition = params.exactMatch
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
@@ -447,7 +447,7 @@ export const searchByFolder = (
   logger: Logger,
 ): NoteMetadata[] => {
   const recursive = params.recursive ?? true
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
   const condition = recursive
@@ -696,7 +696,7 @@ export const recentNotes = (
   logger: Logger,
 ): NoteMetadata[] => {
   const sortBy = params.sort_by ?? "modified"
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
   const orderClause =
@@ -797,7 +797,7 @@ export const listPropertyValues = (
   params: { key: string; folder?: string; limit?: number },
   logger: Logger,
 ): PropertyValueCount[] => {
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
@@ -849,7 +849,7 @@ export const searchByProperty = (
   params: { key: string; value: string; folder?: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 20)
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
@@ -992,7 +992,7 @@ export const findOrphans = (
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   // One exclusion clause per folder, each bound to a positional parameter
   const escapedExcludeFolders = excludeFolders.map((folder) =>
@@ -1087,7 +1087,7 @@ export const modifiedOnDate = (
   params: { date: string; limit?: number },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, params.limit ?? 50)
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
   const dayStart = DateTime.fromISO(params.date)
   const dayEnd = dayStart.plus({ days: 1 })
 

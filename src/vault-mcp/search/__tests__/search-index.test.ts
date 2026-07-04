@@ -1011,6 +1011,11 @@ describe("recentNotes", () => {
     const results = index.recentNotes({ limit: 1 }, logger)
     expect(results).toHaveLength(1)
   })
+
+  it("floors a fractional limit instead of failing with SQLite's datatype mismatch", () => {
+    const results = index.recentNotes({ limit: 1.9 }, logger)
+    expect(results.map((note) => note.path)).toEqual(["new.md"])
+  })
 })
 
 // ── Property query fixtures ──────────────────────────────────────
