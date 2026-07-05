@@ -1,5 +1,0 @@
-# Minimal config — most settings live in the workflow env vars
-# (.github/workflows/pr_agent.yml) to avoid affecting the Qodo GitHub App,
-# which reads this file too.
-#
-# Only settings that MUST be repo-wide (affecting both bots) belong here.
