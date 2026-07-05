@@ -18,7 +18,8 @@ jobs:
        github.event.pull_request.user.login == github.repository_owner) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
-       github.event.comment.user.login == github.repository_owner)
+       github.event.comment.user.login == github.repository_owner &&
+       startsWith(github.event.comment.body, '/review'))
     runs-on: ubuntu-latest
     name: AI code review
     steps:
