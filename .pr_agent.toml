@@ -1,0 +1,26 @@
+[config]
+fallback_models = ["openrouter/deepseek/deepseek-chat-v3.1"]
+
+[pr_reviewer]
+extra_instructions = """\
+Read AGENTS.md in the repo root for this project's coding conventions, \
+code style rules, naming conventions, test conventions, and module layering. \
+Review against those conventions — they take priority over general best practices. \
+Flag violations of the AGENTS.md rules explicitly.\
+"""
+num_code_suggestions = 4
+require_can_be_reviewed = true
+persistent_comment = true
+remove_previous_review_comment = true
+
+[pr_description]
+enable_pr_description = false
+
+[pr_code_suggestions]
+enable = false
+
+[pr_commands]
+/ask = false
+/improve = false
+/describe = false
+/review = true
