@@ -197,9 +197,16 @@ export const registerDailyReviewPrompt = ({
           },
           reqLogger,
         )
+        // note_mtime is constant within a single note, so the tiebreaker
+        // (t.line ASC) governs — tasks render in document order.
         const dailyNoteTasks = daily.exists
           ? search.listTasks(
-              { path: daily.path, status: "all", limit: DAILY_TASK_LIMIT },
+              {
+                path: daily.path,
+                status: "all",
+                sortBy: "note_mtime",
+                limit: DAILY_TASK_LIMIT,
+              },
               reqLogger,
             )
           : { total: 0, tasks: [] }
