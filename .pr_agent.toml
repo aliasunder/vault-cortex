@@ -17,7 +17,7 @@ enable_pr_description = false
 enable = false
 
 [pr_commands]
-/ask = false
-/improve = false
-/describe = false
-/review = true
+"/ask" = false
+"/improve" = false
+"/describe" = false
+"/review" = true
