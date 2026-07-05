@@ -220,7 +220,7 @@ Tools are model-driven — the assistant calls them. **Prompts** are workflows _
 | ------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                        |
 | `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis. Hidden when `MEMORY_ENABLED=false`. |
-| `daily-review`      | `date?`, `max_chars?` | Reviews a day's daily note with outgoing links (broken-link detection), backlinks, date-specific activity, and structured task data (due/overdue, scheduled, daily-note tasks) — guides reconciliation and follow-ups  |
+| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up  |
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 

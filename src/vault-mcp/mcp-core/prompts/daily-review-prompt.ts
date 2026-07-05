@@ -121,8 +121,8 @@ export const registerDailyReviewPrompt = ({
     {
       title: "Daily review & reconciliation",
       description: config.memoryEnabled
-        ? `Review a day's daily note — content, links, task status (due/overdue, scheduled), and activity — reconcile what happened and surface durable facts worth saving to ${config.memoryDir}/ memory.`
-        : `Review a day's daily note — content, links, task status (due/overdue, scheduled), and activity — reconcile what happened and review open tasks.`,
+        ? `Reconcile a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, and links — surface what happened, what's open, and durable facts worth saving to ${config.memoryDir}/ memory.`
+        : `Reconcile a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, and links — surface what happened, what's open, and what needs follow-up.`,
       argsSchema: {
         date: z
           .string()
