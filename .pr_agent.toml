@@ -7,8 +7,7 @@ Flag violations of the AGENTS.md rules explicitly.\
 """
 num_code_suggestions = 4
 require_can_be_reviewed = true
-persistent_comment = true
-remove_previous_review_comment = true
+persistent_comment = false
 
 [pr_description]
 enable_pr_description = false
