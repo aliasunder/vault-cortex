@@ -19,7 +19,7 @@ jobs:
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/deepseek/deepseek-v3.2' }}
+          config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"

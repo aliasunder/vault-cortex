@@ -1,6 +1,3 @@
-[config]
-fallback_models = ["openrouter/deepseek/deepseek-chat-v3.1"]
-
 [pr_reviewer]
 extra_instructions = """\
 Read AGENTS.md in the repo root for this project's coding conventions, \
