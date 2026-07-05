@@ -36,9 +36,7 @@ jobs:
             code style rules, naming conventions, test conventions, and module layering.
             Review against those conventions — they take priority over general best practices.
             Flag violations of the AGENTS.md rules explicitly.
-          pr_reviewer.num_code_suggestions: "4"
           pr_reviewer.require_can_be_reviewed: "true"
           pr_reviewer.persistent_comment: "false"
           pr_reviewer.remove_previous_review_comment: "false"
           pr_description.enable_pr_description: "false"
-          pr_code_suggestions.num_code_suggestions: "4"
