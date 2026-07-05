@@ -5,7 +5,7 @@ code style rules, naming conventions, test conventions, and module layering. \
 Review against those conventions — they take priority over general best practices. \
 Flag violations of the AGENTS.md rules explicitly.\
 """
-num_code_suggestions = 4
+num_code_suggestions = 0
 require_can_be_reviewed = true
 # Disabled: Qodo GitHub App uses the same persistent-comment markers,
 # so enabling this causes our review to silently update Qodo's comment

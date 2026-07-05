@@ -30,4 +30,5 @@ jobs:
           config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "false"
+          github_action_config.auto_improve: "true"
+          pr_code_suggestions.num_code_suggestions: "4"
