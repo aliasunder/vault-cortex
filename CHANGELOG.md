@@ -23,6 +23,33 @@
 
 
 
+
+## [0.26.2] — 2026-07-05
+
+### Features
+
+- **prompt:** Daily-review consumes task index (#259)
+- Enable PR-Agent inline code suggestions (#265)
+
+### Bug Fixes
+
+- Disable persistent comment to avoid Qodo collision (#263)
+- Quote slash-prefixed keys in .pr_agent.toml (#262)
+
+### Documentation
+
+- Add task queries to README intro feature list (#260)
+- Update CHANGELOG.md for v0.26.1
+
+### CI / Infrastructure
+
+- Add PR-Agent automated code review (#261)
+- Remove DeepSource integration
+
+### Maintenance
+
+- Add inline comment + explicit remove_previous_review_comment (#264)
+
 ## [0.26.1] — 2026-07-04
 
 ### Bug Fixes
