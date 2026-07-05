@@ -386,6 +386,7 @@ describe("daily-review handler", () => {
     expect(text).toContain("[ ] Fix overdue bug")
     expect(text).toContain("`Projects/work.md`")
     expect(text).toContain("due: 2026-06-16")
+    expect(text).toContain("priority: high")
     // Completed task excluded (status: "not_done" filter)
     expect(text).not.toContain("Already done")
   })
@@ -435,6 +436,9 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
 
+    // Positive assertion proves the prompt ran (not a silent no-op)
+    expect(text).toContain("No daily note found")
+    expect(text).toContain("## Tasks due on 2020-01-01 or overdue")
     expect(text).not.toContain("## Tasks in the daily note")
   })
 
@@ -481,23 +485,25 @@ describe("daily-review handler", () => {
 // ── Error degradation ────────────────────────────────────────────
 
 describe("daily-review error degradation", () => {
-  it("returns a fallback (no throw) when a lookup fails", async () => {
+  it("returns a fallback (no throw) when a task lookup fails", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
+    // Let modifiedOnDate succeed so the error comes from listTasks —
+    // tests that the task-layer failure path is actually caught.
     const throwingSearch = {
-      modifiedOnDate: () => {
-        throw new Error("index unavailable")
-      },
+      modifiedOnDate: () => [],
       listTasks: () => {
-        throw new Error("index unavailable")
+        throw new Error("task index unavailable")
       },
     } as unknown as SearchIndex
     const calls = registerWithSearch(vault, throwingSearch)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
+    expect(text).toContain("Could not assemble the daily review")
+    expect(text).toContain("task index unavailable")
     expect(text).toContain("vault_get_daily_note")
   })
 })

@@ -83,7 +83,7 @@ const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
     locationParts.length > 0 ? ` — ${locationParts.join(" → ")}` : ""
   const metadataParts = [
     task.due ? `due: ${task.due}` : null,
-    task.priority,
+    task.priority ? `priority: ${task.priority}` : null,
     task.scheduled ? `scheduled: ${task.scheduled}` : null,
   ].filter(Boolean)
   const metadataSuffix =
