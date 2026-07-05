@@ -341,7 +341,7 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
-    expect(text).toContain("**Task extraction**")
+    expect(text).toContain("**Scan for tasks**")
     expect(text).toContain("**Follow the links**")
     expect(text).toContain("**Pattern recognition**")
   })
@@ -358,12 +358,179 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
-    // Without memory: Reconcile(1), Follow-ups(2), Task(3), Links(4), Patterns(5)
+    // Without memory: Reconcile(1), Follow-ups(2), Scan(3), Links(4), Patterns(5)
     expect(text).toContain("1. **Reconcile")
     expect(text).toContain("2. **Capture follow-ups**")
     expect(text).not.toContain("Surface durable facts")
-    expect(text).toContain("3. **Task extraction**")
+    expect(text).toContain("3. **Scan for tasks**")
     expect(text).toContain("5. **Pattern recognition**")
+  })
+
+  it("surfaces due and overdue tasks from the index", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-due-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nJournal.\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "Projects/work.md",
+        rawContent:
+          "---\ntitle: Work\n---\n# Work\n\n## Sprint\n\n- [ ] Ship feature ⏫ 📅 2026-06-16\n- [ ] Fix overdue bug 📅 2026-06-10\n- [x] Already done 📅 2026-06-16 ✅ 2026-06-15\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 200 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Tasks due on 2026-06-16 or overdue")
+    expect(text).toContain("[ ] Ship feature")
+    expect(text).toContain("[ ] Fix overdue bug")
+    expect(text).toContain("`Projects/work.md`")
+    expect(text).toContain("due: 2026-06-16")
+    // Completed task excluded (status: "not_done" filter)
+    expect(text).not.toContain("Already done")
+  })
+
+  it("surfaces tasks scheduled for the review date", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-sched-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nJournal.\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "Projects/plan.md",
+        rawContent:
+          "---\ntitle: Plan\n---\n# Plan\n\n- [ ] Scheduled work ⏳ 2026-06-16\n- [ ] Other day ⏳ 2026-06-20\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Tasks scheduled for 2026-06-16")
+    expect(text).toContain("[ ] Scheduled work")
+    expect(text).toContain("scheduled: 2026-06-16")
+    // Task scheduled for a different date excluded
+    expect(text).not.toContain("Other day")
+  })
+
+  it("surfaces tasks in the daily note with heading but no path", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-note-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    const dailyContent =
+      "# 2026-06-16\n\n## Morning\n\n- [ ] Review PRs\n- [x] Standup ✅ 2026-06-16\n"
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      dailyContent,
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: dailyContent,
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("## Tasks in the daily note")
+    expect(text).toContain("[ ] Review PRs — Morning")
+    expect(text).toContain("[x] Standup — Morning")
+    // Daily-note tasks show heading but not the note path — extract the
+    // section between the heading and the next ## to verify.
+    const taskSection =
+      text.split("## Tasks in the daily note")[1]?.split("##")[0] ?? ""
+    expect(taskSection).not.toContain("`Daily Notes/2026-06-16.md`")
+  })
+
+  it("omits daily-note tasks section when no daily note exists", async () => {
+    const { calls } = await setupVault()
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
+
+    expect(text).not.toContain("## Tasks in the daily note")
+  })
+
+  it("shows Review tasks step when structured task data exists", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-step-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Daily Notes/2026-06-16.md",
+        rawContent: "# 2026-06-16\n\nJournal.\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
+      },
+      logger,
+    )
+    search.upsertNote(
+      {
+        filePath: "todo.md",
+        rawContent:
+          "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
+      },
+      logger,
+    )
+    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("**Review tasks**")
+    expect(text).not.toContain("**Scan for tasks**")
   })
 })
 
@@ -376,7 +543,10 @@ describe("daily-review error degradation", () => {
       await rm(vault, { recursive: true, force: true })
     })
     const throwingSearch = {
-      recentNotes: () => {
+      modifiedOnDate: () => {
+        throw new Error("index unavailable")
+      },
+      listTasks: () => {
         throw new Error("index unavailable")
       },
     } as unknown as SearchIndex
@@ -452,12 +622,24 @@ describe("daily-review full prompt output", () => {
         "- Daily Notes/2026-06-16.md — 2026-06-16",
         "- Log/note.md — Note One",
         "",
+        "## Tasks due on 2026-06-16 or overdue",
+        "",
+        "No tasks are due on 2026-06-16 or overdue.",
+        "",
+        "## Tasks scheduled for 2026-06-16",
+        "",
+        "No tasks scheduled for 2026-06-16.",
+        "",
+        "## Tasks in the daily note",
+        "",
+        "No checkbox tasks in this daily note.",
+        "",
         "## How to review",
         "",
         "1. **Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
         "2. **Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
         "3. **Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to About Me/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.",
-        "4. **Task extraction** — identify any incomplete tasks (`- [ ]`) in the daily note. Are any overdue or blocked?",
+        "4. **Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note.",
         "5. **Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
         "6. **Pattern recognition** — look for recurring themes, repeated tasks, or persistent concerns across this note and recent activity.",
       ].join("\n"),
