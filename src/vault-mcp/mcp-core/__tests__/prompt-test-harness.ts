@@ -188,6 +188,67 @@ export const setupVault = async (
   return { vault, search, calls }
 }
 
+/** Creates a temp vault with a daily note and optional extra notes, all
+ *  indexed in an in-memory search index. Use for daily-review tests that
+ *  need task or link data beyond the default fixtures. */
+export const setupDailyReviewVault = async (options: {
+  date: string
+  dailyContent?: string
+  extraNotes?: ReadonlyArray<{
+    path: string
+    content: string
+    mtimeMs?: number
+  }>
+}): Promise<{
+  vault: string
+  search: SearchIndex
+  calls: RegisterPromptCall[]
+}> => {
+  const vault = await mkdtemp(join(tmpdir(), "prompt-daily-review-"))
+  onTestFinished(async () => {
+    await rm(vault, { recursive: true, force: true })
+  })
+  await mkdir(join(vault, "Daily Notes"), { recursive: true })
+  await mkdir(join(vault, "About Me"), { recursive: true })
+
+  const dailyPath = `Daily Notes/${options.date}.md`
+  const dailyContent = options.dailyContent ?? `# ${options.date}\n\nJournal.\n`
+  await writeFile(join(vault, dailyPath), dailyContent, "utf8")
+
+  const search = createSearchIndex(":memory:")
+  search.upsertNote(
+    {
+      filePath: dailyPath,
+      rawContent: dailyContent,
+      fileStat: {
+        mtimeMs: JUNE_16_MIDDAY_MS,
+        size: Buffer.byteLength(dailyContent, "utf8"),
+      },
+    },
+    logger,
+  )
+
+  for (const note of options.extraNotes ?? []) {
+    const fullPath = join(vault, note.path)
+    await mkdir(dirname(fullPath), { recursive: true })
+    await writeFile(fullPath, note.content, "utf8")
+    search.upsertNote(
+      {
+        filePath: note.path,
+        rawContent: note.content,
+        fileStat: {
+          mtimeMs: note.mtimeMs ?? JUNE_16_MIDDAY_MS,
+          size: Buffer.byteLength(note.content, "utf8"),
+        },
+      },
+      logger,
+    )
+  }
+
+  const calls = registerWithSearch(vault, search)
+  return { vault, search, calls }
+}
+
 /** Registers the prompts against a real vault path and a caller-supplied
  *  search (used to inject failures), capturing the calls. */
 export const registerWithSearch = (

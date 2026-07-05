@@ -10,6 +10,7 @@ import {
   fakeExtra,
   JUNE_16_MIDDAY_MS,
   setupVault,
+  setupDailyReviewVault,
   registerWithSearch,
   findCall,
   textOf,
@@ -367,36 +368,16 @@ describe("daily-review handler", () => {
   })
 
   it("surfaces due and overdue tasks from the index", async () => {
-    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-due-"))
-    onTestFinished(async () => {
-      await rm(vault, { recursive: true, force: true })
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: [
+        {
+          path: "Projects/work.md",
+          content:
+            "---\ntitle: Work\n---\n# Work\n\n## Sprint\n\n- [ ] Ship feature ⏫ 📅 2026-06-16\n- [ ] Fix overdue bug 📅 2026-06-10\n- [x] Already done 📅 2026-06-16 ✅ 2026-06-15\n",
+        },
+      ],
     })
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nJournal.\n",
-      "utf8",
-    )
-    const search = createSearchIndex(":memory:")
-    search.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-16.md",
-        rawContent: "# 2026-06-16\n\nJournal.\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
-      logger,
-    )
-    search.upsertNote(
-      {
-        filePath: "Projects/work.md",
-        rawContent:
-          "---\ntitle: Work\n---\n# Work\n\n## Sprint\n\n- [ ] Ship feature ⏫ 📅 2026-06-16\n- [ ] Fix overdue bug 📅 2026-06-10\n- [x] Already done 📅 2026-06-16 ✅ 2026-06-15\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 200 },
-      },
-      logger,
-    )
-    const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -410,36 +391,16 @@ describe("daily-review handler", () => {
   })
 
   it("surfaces tasks scheduled for the review date", async () => {
-    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-sched-"))
-    onTestFinished(async () => {
-      await rm(vault, { recursive: true, force: true })
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: [
+        {
+          path: "Projects/plan.md",
+          content:
+            "---\ntitle: Plan\n---\n# Plan\n\n- [ ] Scheduled work ⏳ 2026-06-16\n- [ ] Other day ⏳ 2026-06-20\n",
+        },
+      ],
     })
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nJournal.\n",
-      "utf8",
-    )
-    const search = createSearchIndex(":memory:")
-    search.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-16.md",
-        rawContent: "# 2026-06-16\n\nJournal.\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
-      logger,
-    )
-    search.upsertNote(
-      {
-        filePath: "Projects/plan.md",
-        rawContent:
-          "---\ntitle: Plan\n---\n# Plan\n\n- [ ] Scheduled work ⏳ 2026-06-16\n- [ ] Other day ⏳ 2026-06-20\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
-      },
-      logger,
-    )
-    const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -451,29 +412,11 @@ describe("daily-review handler", () => {
   })
 
   it("surfaces tasks in the daily note with heading but no path", async () => {
-    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-note-"))
-    onTestFinished(async () => {
-      await rm(vault, { recursive: true, force: true })
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      dailyContent:
+        "# 2026-06-16\n\n## Morning\n\n- [ ] Review PRs\n- [x] Standup ✅ 2026-06-16\n",
     })
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    const dailyContent =
-      "# 2026-06-16\n\n## Morning\n\n- [ ] Review PRs\n- [x] Standup ✅ 2026-06-16\n"
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      dailyContent,
-      "utf8",
-    )
-    const search = createSearchIndex(":memory:")
-    search.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-16.md",
-        rawContent: dailyContent,
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
-      },
-      logger,
-    )
-    const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -495,37 +438,38 @@ describe("daily-review handler", () => {
     expect(text).not.toContain("## Tasks in the daily note")
   })
 
-  it("shows Review tasks step when structured task data exists", async () => {
-    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-tasks-step-"))
-    onTestFinished(async () => {
-      await rm(vault, { recursive: true, force: true })
+  it("shows overflow hint when tasks exceed the display limit", async () => {
+    const taskLines = Array.from(
+      { length: 25 },
+      (_, index) => `- [ ] Task ${index + 1} 📅 2026-06-16`,
+    ).join("\n")
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: [
+        {
+          path: "Projects/many-tasks.md",
+          content: `---\ntitle: Many Tasks\n---\n# Many Tasks\n\n${taskLines}\n`,
+        },
+      ],
     })
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nJournal.\n",
-      "utf8",
-    )
-    const search = createSearchIndex(":memory:")
-    search.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-16.md",
-        rawContent: "# 2026-06-16\n\nJournal.\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
-      logger,
-    )
-    search.upsertNote(
-      {
-        filePath: "todo.md",
-        rawContent:
-          "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
-        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
-      },
-      logger,
-    )
-    const calls = registerWithSearch(vault, search)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain("Showing 20 of 25")
+    expect(text).toContain("vault_list_tasks")
+  })
+
+  it("shows Review tasks step when structured task data exists", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: [
+        {
+          path: "todo.md",
+          content:
+            "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+        },
+      ],
+    })
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
