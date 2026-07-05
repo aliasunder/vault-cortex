@@ -1,26 +1,5 @@
-[pr_reviewer]
-extra_instructions = """\
-Read AGENTS.md in the repo root for this project's coding conventions, \
-code style rules, naming conventions, test conventions, and module layering. \
-Review against those conventions — they take priority over general best practices. \
-Flag violations of the AGENTS.md rules explicitly.\
-"""
-num_code_suggestions = 0
-require_can_be_reviewed = true
-# Disabled: Qodo GitHub App uses the same persistent-comment markers,
-# so enabling this causes our review to silently update Qodo's comment
-# instead of posting its own.
-persistent_comment = false
-remove_previous_review_comment = false
-
-[pr_description]
-enable_pr_description = false
-
-[pr_code_suggestions]
-enable = false
-
-[pr_commands]
-"/ask" = false
-"/improve" = false
-"/describe" = false
-"/review" = true
+# Minimal config — most settings live in the workflow env vars
+# (.github/workflows/pr_agent.yml) to avoid affecting the Qodo GitHub App,
+# which reads this file too.
+#
+# Only settings that MUST be repo-wide (affecting both bots) belong here.
