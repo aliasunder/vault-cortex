@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
+  issues: write # persistent_comment posts to the PR conversation thread (issue comments API)
   pull-requests: write
 
 jobs:
