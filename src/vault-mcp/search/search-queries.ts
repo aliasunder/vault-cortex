@@ -364,7 +364,8 @@ const tryRerank = async (params: {
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          { chunk_text: string } | undefined
+          | { chunk_text: string }
+          | undefined
         if (chunkRow) return chunkRow.chunk_text
       }
 
@@ -682,9 +683,10 @@ export const listTasks = (
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   const countRow = context.db
-    .prepare<unknown[], { total: number }>(
-      `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
-    )
+    .prepare<
+      unknown[],
+      { total: number }
+    >(`SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`)
     .get(...queryParams)
   const total = countRow === undefined ? 0 : countRow.total
 
@@ -870,9 +872,10 @@ export const listPropertyValues = (
   if (escapedFolder) sqlParams.folder = escapedFolder
 
   const rows = context.db
-    .prepare<Record<string, unknown>, { value: string | number; count: number }>(
-      sql,
-    )
+    .prepare<
+      Record<string, unknown>,
+      { value: string | number; count: number }
+    >(sql)
     .all(sqlParams)
   const results = rows.map((row) => ({
     value: String(row.value),
@@ -1175,7 +1178,11 @@ export const vaultStats = (
   `
   const row = context.db.prepare<unknown[], VaultStats>(sql).get()
   if (!row) {
-    const empty: VaultStats = { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
+    const empty: VaultStats = {
+      totalNotes: 0,
+      untaggedNotes: 0,
+      noPropertiesNotes: 0,
+    }
     logger.info("vault stats", empty)
     return empty
   }

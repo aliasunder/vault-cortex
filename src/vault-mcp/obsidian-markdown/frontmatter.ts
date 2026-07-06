@@ -20,7 +20,11 @@ const MATTER_OPTIONS = {
         // YAML.parse returns null for empty/comment-only input; gray-matter
         // expects an object for `data`
         const parsed: unknown = parseYaml(input)
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
           return {}
         }
         return parsed
