@@ -960,13 +960,16 @@ describe("listTasks sorting and paging", () => {
 
   it("sorts by position (file path then line number) within a single note", () => {
     const index = createTestIndex()
+    // Created dates intentionally disagree with line order — Second card is
+    // newest, so a created-DESC fallback would produce [Second, First, Third],
+    // proving the sort is genuinely by line number.
     index.upsertNote(
       {
         filePath: "board.md",
         rawContent: [
           "## Active",
-          "- [ ] First card ➕ 2026-07-06",
-          "- [ ] Second card ➕ 2026-07-01",
+          "- [ ] First card ➕ 2026-07-01",
+          "- [ ] Second card ➕ 2026-07-06",
           "## Done",
           "- [x] Third card ➕ 2026-06-01 ✅ 2026-06-28",
         ].join("\n"),
@@ -987,11 +990,14 @@ describe("listTasks sorting and paging", () => {
 
   it("position sort groups by file path across multiple notes", () => {
     const index = createTestIndex()
+    // b-note has a higher mtime so the default due-cascade tiebreaker (mtime
+    // DESC) would put it first — position ASC puts a-note first instead,
+    // proving the sort is genuinely by path.
     index.upsertNote(
       {
         filePath: "b-note.md",
         rawContent: "- [ ] B task",
-        fileStat: testStat(1000),
+        fileStat: testStat(5000),
       },
       logger,
     )
@@ -999,11 +1005,10 @@ describe("listTasks sorting and paging", () => {
       {
         filePath: "a-note.md",
         rawContent: "- [ ] A task",
-        fileStat: testStat(2000),
+        fileStat: testStat(1000),
       },
       logger,
     )
-    // Position sort orders by path ASC, so a-note before b-note regardless of mtime.
     const result = index.listTasks({ sortBy: "position" }, logger)
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "A task",
