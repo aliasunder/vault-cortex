@@ -32,17 +32,20 @@ export const signJwt = (payload: JwtPayload, secret: string): string => {
   return `${body}.${hmac(body, secret)}`
 }
 
-const isJwtPayload = (value: unknown): value is JwtPayload =>
-  typeof value === "object" &&
-  value !== null &&
-  "sub" in value &&
-  typeof value.sub === "string" &&
-  "scope" in value &&
-  typeof value.scope === "string" &&
-  "exp" in value &&
-  typeof value.exp === "number" &&
-  "iss" in value &&
-  typeof value.iss === "string"
+const isJwtPayload = (value: unknown): value is JwtPayload => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "sub" in value &&
+    typeof value.sub === "string" &&
+    "scope" in value &&
+    typeof value.scope === "string" &&
+    "exp" in value &&
+    typeof value.exp === "number" &&
+    "iss" in value &&
+    typeof value.iss === "string"
+  )
+}
 
 export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   const parts = token.split(".")
