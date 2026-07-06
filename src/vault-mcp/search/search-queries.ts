@@ -538,6 +538,17 @@ const buildDateOrderBy = (
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
 
+/** Sort keys that default to descending — "most recent first" is the natural
+ *  view for "what did I start/create/finish lately?". The remaining keys
+ *  ("due", "scheduled") default ascending — soonest deadline first (overdue
+ *  triage). "priority" also defaults ascending (highest priority first). */
+const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
+  "start",
+  "created",
+  "done",
+  "note_mtime",
+])
+
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
  *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
  *  through related date columns so dateless tasks sort by the next available
@@ -675,15 +686,6 @@ export const listTasks = (
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
   const sortBy = params.sortBy ?? "due"
-  // "due" and "scheduled" default ascending — soonest deadline first
-  // (overdue triage). "start", "created", "done", and "note_mtime" default
-  // descending — most recent first ("what did I start/create/finish lately?").
-  const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
-    "start",
-    "created",
-    "done",
-    "note_mtime",
-  ])
   const sortDirection =
     params.sortDirection ?? (DESCENDING_BY_DEFAULT.has(sortBy) ? "desc" : "asc")
   const orderBy = TASK_ORDER_BY[sortBy](
