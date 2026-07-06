@@ -759,7 +759,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if (!isErrnoException(err, "ENOENT")) throw err
     }
     await mkdir(dirPath, { recursive: true })
-    const created = DateTime.now().toISO() ?? new Date().toISOString()
+    const created = DateTime.now().toISO() ?? ""
     const templates = MEMORY_TEMPLATE_SPECS.map((spec) =>
       renderMemoryTemplate(spec, created),
     )

@@ -31,7 +31,8 @@ const LEVELS: Record<LogLevel, number> = {
   error: 3,
 }
 
-const isLogLevel = (value: string): value is LogLevel => value in LEVELS
+const isLogLevel = (value: string): value is LogLevel =>
+  Object.hasOwn(LEVELS, value)
 
 const envLevel = envVar
   .from(env)
