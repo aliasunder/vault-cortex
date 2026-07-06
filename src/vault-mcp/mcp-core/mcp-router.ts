@@ -123,6 +123,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
           config,
         })
 
+        // @ts-expect-error — SDK type bug: StreamableHTTPServerTransport
+        // declares onclose as optional, but Transport requires it. onclose
+        // is assigned above; remove this when the SDK fixes the type.
         await server.connect(transport)
         await transport.handleRequest(req, res, body)
         if (transport.sessionId) {

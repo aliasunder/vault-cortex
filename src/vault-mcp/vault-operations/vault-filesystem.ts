@@ -276,7 +276,7 @@ const readNoteSection = async (
     vaultPath: string
     path: string
     heading: string
-    headingLevel?: number
+    headingLevel?: number | undefined
   },
   logger: Logger,
 ): Promise<string> => {
@@ -317,7 +317,7 @@ const writeNote = async (
     vaultPath: string
     path: string
     body: string
-    properties?: Record<string, unknown>
+    properties?: Record<string, unknown> | undefined
   },
   logger: Logger,
 ): Promise<void> => {
@@ -422,7 +422,11 @@ const deleteNote = async (
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
 const listNotes = async (
-  params: { vaultPath: string; folder?: string; glob?: string },
+  params: {
+    vaultPath: string
+    folder?: string | undefined
+    glob?: string | undefined
+  },
   logger: Logger,
 ): Promise<string[]> => {
   const searchRoot = params.folder

@@ -90,14 +90,14 @@ export type VaultStats = {
 }
 
 export type SearchFilters = {
-  folder?: string
-  tags?: string[]
-  related?: string[]
-  type?: string
-  properties?: Record<string, string | number | boolean>
-  limit?: number
-  snippet_tokens?: number
-  include_leading_callout?: boolean
+  folder?: string | undefined
+  tags?: string[] | undefined
+  related?: string[] | undefined
+  type?: string | undefined
+  properties?: Record<string, string | number | boolean> | undefined
+  limit?: number | undefined
+  snippet_tokens?: number | undefined
+  include_leading_callout?: boolean | undefined
 }
 
 export type NoteRow = {
@@ -176,7 +176,11 @@ export type TaskStatusFilter =
 /** Date bounds for one task date field. before/after are exclusive and on is
  *  an exact match — the Tasks plugin's query vocabulary. Dates are
  *  YYYY-MM-DD, so bounds compare lexicographically. */
-export type TaskDateFilter = { before?: string; on?: string; after?: string }
+export type TaskDateFilter = {
+  before?: string | undefined
+  on?: string | undefined
+  after?: string | undefined
+}
 
 /** Priority filter value — the five explicit levels plus "none" for tasks
  *  with no priority signifier. */

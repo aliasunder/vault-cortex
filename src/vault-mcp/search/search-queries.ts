@@ -111,7 +111,7 @@ const vectorSearch = async (
 
 export const fullTextSearch = (
   context: SearchQueryContext,
-  params: { query: string; filters?: SearchFilters },
+  params: { query: string; filters?: SearchFilters | undefined },
   logger: Logger,
 ): SearchResult[] => {
   // Build WHERE clause dynamically: each filter appends a condition + its bind params
@@ -229,7 +229,7 @@ export const fullTextSearch = (
  *  embeddings are available. */
 export const hybridSearch = async (
   context: SearchQueryContext,
-  params: { query: string; filters?: SearchFilters },
+  params: { query: string; filters?: SearchFilters | undefined },
   logger: Logger,
 ): Promise<HybridSearchResult> => {
   const userLimit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
@@ -420,7 +420,11 @@ const tryRerank = async (params: {
 /** Finds notes with a specific tag. Supports hierarchical prefix matching. */
 export const searchByTag = (
   context: SearchQueryContext,
-  params: { tag: string; exactMatch?: boolean; limit?: number },
+  params: {
+    tag: string
+    exactMatch?: boolean | undefined
+    limit?: number | undefined
+  },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
@@ -453,7 +457,11 @@ export const searchByTag = (
 /** Lists notes in a folder, optionally including subfolders. */
 export const searchByFolder = (
   context: SearchQueryContext,
-  params: { folder: string; recursive?: boolean; limit?: number },
+  params: {
+    folder: string
+    recursive?: boolean | undefined
+    limit?: number | undefined
+  },
   logger: Logger,
 ): NoteMetadata[] => {
   const recursive = params.recursive ?? true
@@ -530,6 +538,17 @@ const buildDateOrderBy = (
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
 
+/** Sort keys that default to descending — "most recent first" is the natural
+ *  view for "what did I start/create/finish lately?". The remaining keys
+ *  ("due", "scheduled") default ascending — soonest deadline first (overdue
+ *  triage). "priority" also defaults ascending (highest priority first). */
+const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
+  "start",
+  "created",
+  "done",
+  "note_mtime",
+])
+
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
  *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
  *  through related date columns so dateless tasks sort by the next available
@@ -558,21 +577,21 @@ const TASK_ORDER_BY: Record<
 export const listTasks = (
   context: SearchQueryContext,
   params: {
-    status?: TaskStatusFilter
-    due?: TaskDateFilter
-    scheduled?: TaskDateFilter
-    start?: TaskDateFilter
-    done?: TaskDateFilter
-    created?: TaskDateFilter
-    cancelled?: TaskDateFilter
-    priority?: TaskPriorityFilter[]
-    folder?: string
-    tag?: string
-    heading?: string
-    path?: string
-    limit?: number
-    sortBy?: TaskSortKey
-    sortDirection?: "asc" | "desc"
+    status?: TaskStatusFilter | undefined
+    due?: TaskDateFilter | undefined
+    scheduled?: TaskDateFilter | undefined
+    start?: TaskDateFilter | undefined
+    done?: TaskDateFilter | undefined
+    created?: TaskDateFilter | undefined
+    cancelled?: TaskDateFilter | undefined
+    priority?: TaskPriorityFilter[] | undefined
+    folder?: string | undefined
+    tag?: string | undefined
+    heading?: string | undefined
+    path?: string | undefined
+    limit?: number | undefined
+    sortBy?: TaskSortKey | undefined
+    sortDirection?: "asc" | "desc" | undefined
   },
   logger: Logger,
 ): ListTasksResult => {
@@ -667,15 +686,6 @@ export const listTasks = (
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
   const sortBy = params.sortBy ?? "due"
-  // "due" and "scheduled" default ascending — soonest deadline first
-  // (overdue triage). "start", "created", "done", and "note_mtime" default
-  // descending — most recent first ("what did I start/create/finish lately?").
-  const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
-    "start",
-    "created",
-    "done",
-    "note_mtime",
-  ])
   const sortDirection =
     params.sortDirection ?? (DESCENDING_BY_DEFAULT.has(sortBy) ? "desc" : "asc")
   const orderBy = TASK_ORDER_BY[sortBy](
@@ -742,7 +752,10 @@ export const listAllTags = (
 /** Returns recently modified or created notes, sorted by chosen timestamp. */
 export const recentNotes = (
   context: SearchQueryContext,
-  params: { sort_by?: "created" | "modified"; limit?: number },
+  params: {
+    sort_by?: "created" | "modified" | undefined
+    limit?: number | undefined
+  },
   logger: Logger,
 ): NoteMetadata[] => {
   const sortBy = params.sort_by ?? "modified"
@@ -772,7 +785,7 @@ export const recentNotes = (
 /** Returns all frontmatter property keys with note counts and top 3 sample values. */
 export const listPropertyKeys = (
   context: SearchQueryContext,
-  params: { folder?: string },
+  params: { folder?: string | undefined },
   logger: Logger,
 ): PropertyKeyInfo[] => {
   const escapedFolder = params.folder
@@ -844,7 +857,11 @@ export const listPropertyKeys = (
 /** Returns distinct values for a given property key with note counts. */
 export const listPropertyValues = (
   context: SearchQueryContext,
-  params: { key: string; folder?: string; limit?: number },
+  params: {
+    key: string
+    folder?: string | undefined
+    limit?: number | undefined
+  },
   logger: Logger,
 ): PropertyValueCount[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
@@ -898,7 +915,12 @@ export const listPropertyValues = (
 /** Finds notes where a frontmatter property matches a value (exact match). */
 export const searchByProperty = (
   context: SearchQueryContext,
-  params: { key: string; value: string; folder?: string; limit?: number },
+  params: {
+    key: string
+    value: string
+    folder?: string | undefined
+    limit?: number | undefined
+  },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
@@ -1045,7 +1067,7 @@ export const getOutgoingLinks = (
 /** Finds notes with no incoming links (orphans). */
 export const findOrphans = (
   context: SearchQueryContext,
-  params: { excludeFolders?: string[]; limit?: number },
+  params: { excludeFolders?: string[] | undefined; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []
@@ -1143,7 +1165,7 @@ export const brokenLinkCount = (
  *  (server-local day boundaries, governed by the TZ env var). */
 export const modifiedOnDate = (
   context: SearchQueryContext,
-  params: { date: string; limit?: number },
+  params: { date: string; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 50))

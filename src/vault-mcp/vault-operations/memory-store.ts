@@ -359,7 +359,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   // ── Exported functions ──────────────────────────────────────────
 
   const getMemory = async (
-    params: { vaultPath: string; file?: string; section?: string },
+    params: {
+      vaultPath: string
+      file?: string | undefined
+      section?: string | undefined
+    },
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
@@ -423,8 +427,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       file: string
       section: string
       entry: string
-      date?: string
-      position?: "top" | "bottom"
+      date?: string | undefined
+      position?: "top" | "bottom" | undefined
     },
     logger: Logger,
   ): Promise<UpdateMemoryOutcome> => {
