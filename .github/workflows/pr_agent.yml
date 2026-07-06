@@ -51,5 +51,5 @@ jobs:
           # Default (-1) posts suggestions only as conversation comments.
           # Threshold >= 0 also posts them as inline review comments on the diff
           # for suggestions at or above that score (0-10 scale).
-          pr_code_suggestions.dual_publishing_score_threshold: "5"
+          pr_code_suggestions.dual_publishing_score_threshold: "4"
           pr_description.enable_pr_description: "false"
