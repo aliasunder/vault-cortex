@@ -46,21 +46,20 @@ const parseRecord = (json: string): Record<string, unknown> => {
   return parsed
 }
 
+/** Type predicate for the LeadingCallout shape ({type, title, body} — all strings). */
+const isLeadingCalloutShape = (
+  value: Record<string, unknown>,
+): value is { type: string; title: string; body: string } =>
+  typeof value.type === "string" &&
+  typeof value.title === "string" &&
+  typeof value.body === "string"
+
 /** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
 const parseLeadingCalloutJson = (json: string): LeadingCallout => {
   const parsed: unknown = JSON.parse(json)
-  if (!isRecord(parsed))
+  if (!isRecord(parsed) || !isLeadingCalloutShape(parsed))
     throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
-
-  const hasRequiredStringFields =
-    typeof parsed.type === "string" &&
-    typeof parsed.title === "string" &&
-    typeof parsed.body === "string"
-
-  if (!hasRequiredStringFields)
-    throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
-
   return { type: parsed.type, title: parsed.title, body: parsed.body }
 }
 
