@@ -107,6 +107,39 @@ describe("verifyJwt", () => {
     expect(verifyJwt(`${header}.${body}.short`, SECRET)).toBeNull()
   })
 
+  it("returns null for a payload missing required fields", () => {
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    ).toString("base64url")
+    const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString(
+      "base64url",
+    )
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
+    expect(verifyJwt(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+  })
+
+  it("returns null when exp is a string instead of number", () => {
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    ).toString("base64url")
+    const body = Buffer.from(
+      JSON.stringify({
+        sub: "x",
+        scope: "vault",
+        exp: "not-a-number",
+        iss: "vault-cortex",
+      }),
+    ).toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
+    expect(verifyJwt(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+  })
+
   it("returns null for a signature of correct length but wrong bytes", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, body, sig] = token.split(".") as [string, string, string]
