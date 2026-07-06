@@ -53,7 +53,10 @@ export type SearchQueryContext = {
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
-  readonly selectFirstChunkStmt: Database.Statement | null
+  readonly selectFirstChunkStmt: Database.Statement<
+    [string],
+    { chunk_text: string }
+  > | null
 }
 
 // ── Vector search (internal) ───────────────────────────────────
@@ -351,7 +354,10 @@ const tryRerank = async (params: {
   query: string
   mergedResults: readonly SearchResult[]
   vectorHitsByPath: ReadonlyMap<string, VectorHit>
-  selectFirstChunkStmt: Database.Statement | null
+  selectFirstChunkStmt: Database.Statement<
+    [string],
+    { chunk_text: string }
+  > | null
   logger: Logger
 }): Promise<{ results: SearchResult[] } | null> => {
   try {
@@ -363,9 +369,7 @@ const tryRerank = async (params: {
 
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
-        const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          | { chunk_text: string }
-          | undefined
+        const chunkRow = params.selectFirstChunkStmt.get(result.path)
         if (chunkRow) return chunkRow.chunk_text
       }
 
