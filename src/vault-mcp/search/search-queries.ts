@@ -397,10 +397,13 @@ const tryRerank = async (params: {
 
     const blendedScores = blendScores({ rrfScores, rerankScores, rrfRanks })
 
-    const scoredResults = params.mergedResults.map((result, index) => ({
-      ...result,
-      score: blendedScores[index],
-    }))
+    const scoredResults = params.mergedResults.map((result, index) => {
+      const score = blendedScores[index]
+      if (score === undefined) {
+        throw new Error(`blended score missing at index ${index}`)
+      }
+      return { ...result, score }
+    })
 
     return {
       results: scoredResults.sort(

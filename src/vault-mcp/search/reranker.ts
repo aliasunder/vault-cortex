@@ -108,8 +108,13 @@ export const createReranker = (logger: Logger) => {
       })
       const output = await crossEncoder.model(inputs)
       // output.logits is a Tensor [1, 1] — a single relevance score per pair.
-      const logit = Number(output.logits.data[0])
-      scores.push(logit)
+      // Number() accepts `any`, so it would silently convert an undefined
+      // indexed access to NaN — extract and guard explicitly.
+      const logitValue = output.logits.data[0]
+      if (logitValue === undefined) {
+        throw new Error("reranker output tensor has no data")
+      }
+      scores.push(Number(logitValue))
     }
 
     return scores
@@ -160,6 +165,9 @@ export const blendScores = (params: {
   return normalizedRrf.map((rrfNorm, index) => {
     const rerankNorm = normalizedRerank[index]
     const rank = params.rrfRanks[index]
+    if (rerankNorm === undefined || rank === undefined) {
+      throw new Error(`score array length mismatch at index ${index}`)
+    }
 
     const rrfWeight = rank <= 3 ? 0.75 : rank <= 10 ? 0.5 : 0.4
     const rerankWeight = 1 - rrfWeight

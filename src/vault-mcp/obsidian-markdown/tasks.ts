@@ -252,6 +252,17 @@ type TaskMetadata = Pick<
  *  well-formed line finishes in one pass; 20 covers any field permutation. */
 const MAX_STRIPPING_PASSES = 20
 
+/** Extracts a regex capture group, throwing if absent. Capture groups are
+ *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
+ *  adds `| undefined` to all indexed access. */
+const matchedText = (match: RegExpExecArray, index: number): string => {
+  const value = match[index]
+  if (value === undefined) {
+    throw new Error(`expected capture group ${index}`)
+  }
+  return value
+}
+
 /** Strips metadata fields off the end of a task body, mirroring the plugin's
  *  deserialize(): each pass tries every field regex (all `$`-anchored) and
  *  removes what matches; the loop repeats until a pass matches nothing. Tags
@@ -295,7 +306,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     key: (typeof DATE_FIELDS)[number]["key"],
   ): void => {
     extractField(regex, (match) => {
-      dates[key] = match[1]
+      dates[key] = matchedText(match, 1)
     })
   }
 
@@ -303,10 +314,10 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     matchedThisPass = false
 
     extractField(EMOJI_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_EMOJI[match[1]] ?? priority
+      priority = PRIORITY_BY_EMOJI[matchedText(match, 1)] ?? priority
     })
     extractField(DATAVIEW_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_WORD[match[1]] ?? priority
+      priority = PRIORITY_BY_WORD[matchedText(match, 1)] ?? priority
     })
 
     for (const field of DATE_FIELDS) {
@@ -315,17 +326,17 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     }
 
     extractField(EMOJI_RECURRENCE_RE, (match) => {
-      recurrence = match[1].trim()
+      recurrence = matchedText(match, 1).trim()
     })
     extractField(DATAVIEW_RECURRENCE_RE, (match) => {
-      recurrence = match[1].trim()
+      recurrence = matchedText(match, 1).trim()
     })
 
     extractField(EMOJI_ON_COMPLETION_RE, (match) => {
-      onCompletion = match[1]
+      onCompletion = matchedText(match, 1)
     })
     extractField(DATAVIEW_ON_COMPLETION_RE, (match) => {
-      onCompletion = match[1]
+      onCompletion = matchedText(match, 1)
     })
 
     // Tags may be mixed among the signifiers (`desc #a 📅 2026-01-01 #b`);
@@ -333,23 +344,23 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     // them to the description after the loop. Right-to-left matching means
     // each stripped tag is prepended to keep the original order.
     extractField(HASHTAG_FROM_END_RE, (match) => {
-      const tagText = match[0].trim()
+      const tagText = matchedText(match, 0).trim()
       trailingTags =
         trailingTags === "" ? tagText : `${tagText} ${trailingTags}`
     })
 
     extractField(EMOJI_ID_RE, (match) => {
-      taskId = match[1].trim()
+      taskId = matchedText(match, 1).trim()
     })
     extractField(DATAVIEW_ID_RE, (match) => {
-      taskId = match[1].trim()
+      taskId = matchedText(match, 1).trim()
     })
 
     extractField(EMOJI_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(match[1])
+      dependsOn = splitIdSequence(matchedText(match, 1))
     })
     extractField(DATAVIEW_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(match[1])
+      dependsOn = splitIdSequence(matchedText(match, 1))
     })
 
     if (!matchedThisPass) break
@@ -430,6 +441,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   let openFence: OpenFence = null
   for (let lineIndex = 0; lineIndex < bodyLines.length; lineIndex++) {
     const lineText = bodyLines[lineIndex]
+    if (lineText === undefined) continue
     const fenceResult = advanceFence(lineText, openFence)
     const lineIsCode = fenceResult.isFenceDelimiter || openFence !== null
     openFence = fenceResult.openFence
@@ -438,12 +450,12 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
     if (taskLineMatch === null) continue
 
-    const statusChar = taskLineMatch[1]
+    const statusChar = matchedText(taskLineMatch, 1)
     // The block link sits at the absolute end of the line — strip it before
     // metadata parsing, exactly as the plugin does.
-    const bodyWithBlockLink = taskLineMatch[2]
+    const bodyWithBlockLink = matchedText(taskLineMatch, 2)
     const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
-    const blockId = blockLinkMatch === null ? null : blockLinkMatch[1]
+    const blockId = blockLinkMatch === null ? null : (blockLinkMatch[1] ?? null)
     const taskBody =
       blockLinkMatch === null
         ? bodyWithBlockLink

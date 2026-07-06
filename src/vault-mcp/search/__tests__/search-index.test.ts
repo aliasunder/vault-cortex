@@ -104,7 +104,7 @@ describe("leading callout", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].leading_callout).toEqual({
+    expect(results[0]?.leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** identity facts.\n**Convention:** append newest first.",
@@ -121,7 +121,7 @@ describe("leading callout", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
-    expect(results[0].leading_callout).toBeNull()
+    expect(results[0]?.leading_callout).toBeNull()
   })
 
   it("omits the callout from fullTextSearch by default, includes it on request", () => {
@@ -136,13 +136,13 @@ describe("leading callout", () => {
 
     const withoutFlag = index.fullTextSearch({ query: "burnout" }, logger)
     expect(withoutFlag).toHaveLength(1)
-    expect(withoutFlag[0].leading_callout).toBeUndefined()
+    expect(withoutFlag[0]?.leading_callout).toBeUndefined()
 
     const withFlag = index.fullTextSearch(
       { query: "burnout", filters: { include_leading_callout: true } },
       logger,
     )
-    expect(withFlag[0].leading_callout?.title).toBe("Scope of this file")
+    expect(withFlag[0]?.leading_callout?.title).toBe("Scope of this file")
   })
 
   it("adds the leading_callout column to a pre-existing notes table (warm-DB migration)", async () => {
@@ -178,8 +178,8 @@ describe("leading callout", () => {
       ),
     ).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].leading_callout?.title).toBe("Scope of this file")
-    expect(results[0].bytes).toBe(100)
+    expect(results[0]?.leading_callout?.title).toBe("Scope of this file")
+    expect(results[0]?.bytes).toBe(100)
   })
 })
 
@@ -194,7 +194,7 @@ describe("bytes", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
-    expect(results[0].bytes).toBe(42)
+    expect(results[0]?.bytes).toBe(42)
   })
 
   it("includes bytes in full text search results", () => {
@@ -207,7 +207,7 @@ describe("bytes", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "searchable" }, logger)
-    expect(results[0].bytes).toBe(256)
+    expect(results[0]?.bytes).toBe(256)
   })
 
   it("includes bytes in recent notes results", () => {
@@ -220,7 +220,7 @@ describe("bytes", () => {
       logger,
     )
     const results = index.recentNotes({}, logger)
-    expect(results[0].bytes).toBe(128)
+    expect(results[0]?.bytes).toBe(128)
   })
 
   it("stores and retrieves a bytes value of 0", () => {
@@ -233,7 +233,7 @@ describe("bytes", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
-    expect(results[0].bytes).toBe(0)
+    expect(results[0]?.bytes).toBe(0)
   })
 })
 
@@ -249,9 +249,9 @@ describe("upsertNote", () => {
     )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
-    expect(results[0].title).toBe("Principles")
-    expect(results[0].tags).toEqual(["principles", "self"])
+    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results[0]?.title).toBe("Principles")
+    expect(results[0]?.tags).toEqual(["principles", "self"])
   })
 
   it("extracts title from frontmatter", () => {
@@ -264,7 +264,7 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].title).toBe("Principles")
+    expect(results[0]?.title).toBe("Principles")
   })
 
   it("falls back to filename for title when no frontmatter title", () => {
@@ -277,7 +277,7 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
-    expect(results[0].title).toBe("random")
+    expect(results[0]?.title).toBe("random")
   })
 
   it("stores folder as first path segment", () => {
@@ -290,7 +290,7 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0].folder).toBe("About Me")
+    expect(results[0]?.folder).toBe("About Me")
   })
 
   it("stores empty folder for root-level notes", () => {
@@ -303,7 +303,7 @@ describe("upsertNote", () => {
       logger,
     )
     const recent = index.recentNotes({}, logger)
-    expect(recent[0].folder).toBe("")
+    expect(recent[0]?.folder).toBe("")
   })
 
   it("updates existing note on re-index", () => {
@@ -325,7 +325,7 @@ describe("upsertNote", () => {
     )
     const results = index.fullTextSearch({ query: "new content" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].title).toBe("V2")
+    expect(results[0]?.title).toBe("V2")
   })
 
   it("handles notes with no frontmatter", () => {
@@ -339,7 +339,7 @@ describe("upsertNote", () => {
     )
     const results = index.fullTextSearch({ query: "plain text" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].tags).toEqual([])
+    expect(results[0]?.tags).toEqual([])
   })
 
   it("normalizes tags to array when given as string", () => {
@@ -408,7 +408,7 @@ describe("fullTextSearch", () => {
   it("finds notes by content keyword", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
+    expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
   it("finds notes by title", () => {
@@ -418,19 +418,20 @@ describe("fullTextSearch", () => {
 
   it("returns snippets without HTML markup", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results[0].snippet).not.toContain("<mark>")
-    expect(results[0].snippet).toContain("burnout")
+    expect(results[0]?.snippet).not.toContain("<mark>")
+    expect(results[0]?.snippet).toContain("burnout")
   })
 
   it("includes type in search results", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results[0].type).toBe("about-me")
+    expect(results[0]?.type).toBe("about-me")
   })
 
   it("rounds score to at most 4 significant figures", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    const score = results[0].score
-    expect(score).toBe(Number(score.toPrecision(4)))
+    const score = results[0]?.score
+    expect(score).toBeDefined()
+    expect(score).toBe(Number(score?.toPrecision(4)))
   })
 
   it("omits created when null", () => {
@@ -442,13 +443,13 @@ describe("fullTextSearch", () => {
   it("includes created when present", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results[0]).toHaveProperty("created")
-    expect(results[0].created).toContain("2025")
+    expect(results[0]?.created).toContain("2025")
   })
 
   it("returns modified as ISO 8601 string", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(typeof results[0].modified).toBe("string")
-    expect(results[0].modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(typeof results[0]?.modified).toBe("string")
+    expect(results[0]?.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 
   it("respects custom snippet_tokens", () => {
@@ -460,7 +461,9 @@ describe("fullTextSearch", () => {
       { query: "burnout", filters: { snippet_tokens: 60 } },
       logger,
     )
-    expect(long[0].snippet.length).toBeGreaterThan(short[0].snippet.length)
+    expect(long[0]?.snippet?.length).toBeGreaterThan(
+      short[0]?.snippet?.length ?? 0,
+    )
   })
 
   it("respects folder filter", () => {
@@ -469,7 +472,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/notes.md")
+    expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
   it("strips trailing slashes from folder filter before matching", () => {
@@ -478,7 +481,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/notes.md")
+    expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
   it("respects tags filter", () => {
@@ -487,7 +490,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/notes.md")
+    expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
   it("respects type filter", () => {
@@ -531,7 +534,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
+    expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
   it("multi-word query does not require exact phrase adjacency", () => {
@@ -545,7 +548,7 @@ describe("fullTextSearch", () => {
     )
     const results = index.fullTextSearch({ query: "alpha beta" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("spread.md")
+    expect(results[0]?.path).toBe("spread.md")
   })
 
   it("exact phrase match with quotes", () => {
@@ -597,7 +600,7 @@ describe("fullTextSearch", () => {
     )
     const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("project.md")
+    expect(results[0]?.path).toBe("project.md")
   })
 
   it("dotted query matches content containing the dotted term", () => {
@@ -619,7 +622,7 @@ describe("fullTextSearch", () => {
     )
     const results = index.fullTextSearch({ query: "mcpservers.org" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("directories.md")
+    expect(results[0]?.path).toBe("directories.md")
   })
 
   it("query with stray punctuation does not throw", () => {
@@ -696,39 +699,39 @@ describe("metadata search", () => {
   it("finds a note by a type value that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "blueprint" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/layout.md")
+    expect(results[0]?.path).toBe("garden/layout.md")
   })
 
   it("finds a note by a status value that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "overdue" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/fence.md")
+    expect(results[0]?.path).toBe("garden/fence.md")
   })
 
   it("finds a note by a tag that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/layout.md")
+    expect(results[0]?.path).toBe("garden/layout.md")
   })
 
   it("finds a note by a frontmatter key name", () => {
     const results = index.fullTextSearch({ query: "lifecycle" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/layout.md")
+    expect(results[0]?.path).toBe("garden/layout.md")
   })
 
   it("cross-field query matches a frontmatter term + body term together", () => {
     const results = index.fullTextSearch({ query: "compost gypsum" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/notes.md")
+    expect(results[0]?.path).toBe("garden/notes.md")
   })
 
   it("snippet contains body text, not metadata, for a frontmatter-only match", () => {
     const results = index.fullTextSearch({ query: "overdue" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].snippet).not.toContain("status")
-    expect(results[0].snippet).not.toContain("overdue")
-    expect(results[0].snippet).toContain("rotted posts")
+    expect(results[0]?.snippet).not.toContain("status")
+    expect(results[0]?.snippet).not.toContain("overdue")
+    expect(results[0]?.snippet).toContain("rotted posts")
   })
 
   it("does not match notes that lack the queried frontmatter term", () => {
@@ -769,7 +772,7 @@ describe("metadata search", () => {
 
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("garden/layout.md")
+    expect(results[0]?.path).toBe("garden/layout.md")
   })
 })
 
@@ -820,7 +823,7 @@ describe("searchByTag", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("a.md")
+    expect(results[0]?.path).toBe("a.md")
   })
 
   it("returns empty for non-existent tag", () => {
@@ -895,7 +898,7 @@ describe("searchByFolder", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
+    expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
   it("sorts results by most recently modified", () => {
@@ -957,7 +960,7 @@ describe("listAllTags", () => {
     expect(tags).toHaveLength(3)
     const results = index.fullTextSearch({ query: "no tags" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("bare.md")
+    expect(results[0]?.path).toBe("bare.md")
   })
 })
 
@@ -991,20 +994,20 @@ describe("recentNotes", () => {
 
   it("sorts by modified by default", () => {
     const results = index.recentNotes({}, logger)
-    expect(results[0].path).toBe("new.md")
-    expect(results[1].path).toBe("no-created.md")
-    expect(results[2].path).toBe("old.md")
+    expect(results[0]?.path).toBe("new.md")
+    expect(results[1]?.path).toBe("no-created.md")
+    expect(results[2]?.path).toBe("old.md")
   })
 
   it("sorts by created date", () => {
     const results = index.recentNotes({ sort_by: "created" }, logger)
-    expect(results[0].path).toBe("new.md")
-    expect(results[1].path).toBe("old.md")
+    expect(results[0]?.path).toBe("new.md")
+    expect(results[1]?.path).toBe("old.md")
   })
 
   it("puts nulls last for created sort", () => {
     const results = index.recentNotes({ sort_by: "created" }, logger)
-    expect(results[results.length - 1].path).toBe("no-created.md")
+    expect(results[results.length - 1]?.path).toBe("no-created.md")
   })
 
   it("respects limit", () => {
@@ -1119,7 +1122,10 @@ describe("listPropertyKeys", () => {
   it("sorts by count descending", () => {
     const keys = index.listPropertyKeys({}, logger)
     for (let i = 1; i < keys.length; i++) {
-      expect(keys[i - 1].count).toBeGreaterThanOrEqual(keys[i].count)
+      const prev = keys[i - 1]
+      const curr = keys[i]
+      if (prev === undefined || curr === undefined) continue
+      expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
 
@@ -1203,7 +1209,10 @@ describe("listPropertyValues", () => {
   it("sorts by count descending", () => {
     const values = index.listPropertyValues({ key: "tags" }, logger)
     for (let i = 1; i < values.length; i++) {
-      expect(values[i - 1].count).toBeGreaterThanOrEqual(values[i].count)
+      const prev = values[i - 1]
+      const curr = values[i]
+      if (prev === undefined || curr === undefined) continue
+      expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
 
@@ -1270,7 +1279,7 @@ describe("searchByProperty", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/active.md")
+    expect(results[0]?.path).toBe("Projects/active.md")
   })
 
   it("finds notes by array property value", () => {
@@ -1279,7 +1288,7 @@ describe("searchByProperty", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/active.md")
+    expect(results[0]?.path).toBe("Projects/active.md")
   })
 
   it("returns NoteMetadata with all fields", () => {
@@ -1289,13 +1298,14 @@ describe("searchByProperty", () => {
     )
     expect(results).toHaveLength(1)
     const result = results[0]
-    expect(result.path).toBe("Projects/done.md")
-    expect(result.title).toBe("Done Project")
-    expect(result.tags).toEqual(["project", "done"])
-    expect(result.folder).toBe("Projects")
-    expect(result.type).toBe("project")
-    expect(result.bytes).toBe(100)
-    expect(result.properties).toEqual(
+    expect(result).toBeDefined()
+    expect(result?.path).toBe("Projects/done.md")
+    expect(result?.title).toBe("Done Project")
+    expect(result?.tags).toEqual(["project", "done"])
+    expect(result?.folder).toBe("Projects")
+    expect(result?.type).toBe("project")
+    expect(result?.bytes).toBe(100)
+    expect(result?.properties).toEqual(
       expect.objectContaining({ status: "done", priority: "low" }),
     )
   })
@@ -1330,7 +1340,7 @@ describe("searchByProperty", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("Projects/active.md")
+    expect(results[0]?.path).toBe("Projects/active.md")
   })
 
   it("respects limit", () => {
@@ -1363,7 +1373,7 @@ describe("searchByProperty", () => {
       logger,
     )
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("dated.md")
+    expect(results[0]?.path).toBe("dated.md")
   })
 })
 
@@ -1437,7 +1447,7 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("About Me/Principles.md")
+    expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
   it("resolves a frontmatter wikilink whose target is indexed later (forward reference)", async () => {
@@ -1457,7 +1467,7 @@ describe("rebuildFromVault", () => {
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("a-source.md")
+    expect(backlinks[0]?.path).toBe("a-source.md")
   })
 
   it("does not count extensionless wikilinks to non-md files as broken", async () => {
@@ -1780,13 +1790,13 @@ describe("getBacklinks", () => {
   it("finds notes linking to the target", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("hub.md")
+    expect(backlinks[0]?.path).toBe("hub.md")
   })
 
   it("finds backlinks from notes that link to the target", () => {
     const backlinks = index.getBacklinks({ path: "hub.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("spoke-a.md")
+    expect(backlinks[0]?.path).toBe("spoke-a.md")
   })
 
   it("returns empty for notes with no backlinks", () => {
@@ -1796,12 +1806,12 @@ describe("getBacklinks", () => {
 
   it("includes title in results", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
-    expect(backlinks[0].title).toBe("hub")
+    expect(backlinks[0]?.title).toBe("hub")
   })
 
   it("includes bytes in results", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
-    expect(backlinks[0].bytes).toBe(100)
+    expect(backlinks[0]?.bytes).toBe(100)
   })
 })
 
@@ -2024,7 +2034,7 @@ describe("forward reference resolution", () => {
 
     const backlinks = index.getBacklinks({ path: "target.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("source.md")
+    expect(backlinks[0]?.path).toBe("source.md")
   })
 
   it("re-resolves a full-path forward reference when the target is created later", () => {
@@ -2056,7 +2066,7 @@ describe("forward reference resolution", () => {
     )
     const backlinks = index.getBacklinks({ path: "folder/target.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("source.md")
+    expect(backlinks[0]?.path).toBe("source.md")
   })
 
   it("re-resolves a relative ../ forward reference when the target is created later", () => {
@@ -2118,9 +2128,9 @@ describe("frontmatter links in the graph", () => {
     )
     const links = index.getOutgoingLinks({ path: "session.md" }, logger)
     expect(links).toHaveLength(1)
-    expect(links[0].path).toBe("task-board.md")
-    expect(links[0].exists).toBe(true)
-    expect(links[0].kind).toBe("note")
+    expect(links[0]?.path).toBe("task-board.md")
+    expect(links[0]?.exists).toBe(true)
+    expect(links[0]?.kind).toBe("note")
   })
 
   it("surfaces a frontmatter-only source in getBacklinks", () => {
@@ -2143,7 +2153,7 @@ describe("frontmatter links in the graph", () => {
     )
     const backlinks = index.getBacklinks({ path: "task-board.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("session.md")
+    expect(backlinks[0]?.path).toBe("session.md")
   })
 
   it("does not flag a frontmatter-referenced note as an orphan, but still flags a truly unreferenced one", () => {
@@ -2201,7 +2211,7 @@ describe("frontmatter links in the graph", () => {
     )
     const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
     expect(backlinks).toHaveLength(1)
-    expect(backlinks[0].path).toBe("double.md")
+    expect(backlinks[0]?.path).toBe("double.md")
   })
 })
 
@@ -3040,8 +3050,8 @@ the Lightsail budget estimates for next quarter.
       expect(search_mode).toBe("hybrid")
       expect(results).toHaveLength(2)
       // a.md appears in both FTS and vector → higher RRF score → ranked first
-      expect(results[0].path).toBe("a.md")
-      expect(results[0].score).toBeGreaterThan(results[1].score)
+      expect(results[0]?.path).toBe("a.md")
+      expect(results[0]?.score).toBeGreaterThan(results[1]?.score ?? 0)
     })
 
     it("includes vector-only results with full metadata", async () => {
@@ -3682,7 +3692,9 @@ This is a note with many words that should be truncated when using a small snipp
       await rerankIndex.hybridSearch({ query: "career goals" }, logger)
 
       expect(mockReranker.rerankPairs).toHaveBeenCalledOnce()
-      const [query, documents] = mockReranker.rerankPairs.mock.calls[0]
+      const callArgs = mockReranker.rerankPairs.mock.calls[0]
+      expect(callArgs).toBeDefined()
+      const [query, documents] = callArgs ?? []
       expect(query).toBe("career goals")
       expect(documents).toHaveLength(2)
       // Each document text should be non-empty (chunk text from vector hits)

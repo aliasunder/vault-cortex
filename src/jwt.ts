@@ -52,6 +52,7 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   const parts = token.split(".")
   if (parts.length !== 3) return null
   const [header, payload, sig] = parts
+  if (!header || !payload || !sig) return null
 
   const expected = hmac(`${header}.${payload}`, secret)
 

@@ -106,7 +106,11 @@ export const chunkNoteContent = (
   }
 
   // Content before the first heading (preamble)
-  const preambleLines = bodyLines.slice(0, headings[0].startLine)
+  const firstHeading = headings[0]
+  if (firstHeading === undefined) {
+    return toChunks(splitLargeText(strippedBody), noteTitle)
+  }
+  const preambleLines = bodyLines.slice(0, firstHeading.startLine)
   const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
 
   const rawSections: string[] = []
