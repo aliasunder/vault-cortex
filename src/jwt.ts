@@ -46,6 +46,7 @@ const isJwtPayload = (value: unknown): value is JwtPayload =>
 
 export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   const parts = token.split(".")
+  if (parts.length !== 3) return null
   const header = parts[0]
   const payload = parts[1]
   const sig = parts[2]
