@@ -252,11 +252,6 @@ type TaskMetadata = Pick<
  *  well-formed line finishes in one pass; 20 covers any field permutation. */
 const MAX_STRIPPING_PASSES = 20
 
-/** Strips metadata fields off the end of a task body, mirroring the plugin's
- *  deserialize(): each pass tries every field regex (all `$`-anchored) and
- *  removes what matches; the loop repeats until a pass matches nothing. Tags
- *  interleaved with signifiers are stripped too, then re-appended, so they
- *  stay part of the description without blocking fields to their left. */
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
@@ -268,6 +263,11 @@ const matchedText = (match: RegExpExecArray, index: number): string => {
   return value
 }
 
+/** Strips metadata fields off the end of a task body, mirroring the plugin's
+ *  deserialize(): each pass tries every field regex (all `$`-anchored) and
+ *  removes what matches; the loop repeats until a pass matches nothing. Tags
+ *  interleaved with signifiers are stripped too, then re-appended, so they
+ *  stay part of the description without blocking fields to their left. */
 const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   // The stripping loop is inherently sequential — every match shortens the
   // line and later passes depend on it — so mutable locals thread the parser
