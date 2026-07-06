@@ -121,7 +121,8 @@ const countDatedEntries = (
 ): number => {
   let count = 0
   for (let lineIndex = start; lineIndex < end; lineIndex++) {
-    if (ENTRY_PATTERN.test(lines[lineIndex])) count += 1
+    const entryLine = lines[lineIndex]
+    if (entryLine !== undefined && ENTRY_PATTERN.test(entryLine)) count += 1
   }
   return count
 }
@@ -725,9 +726,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
 
         // Remove the single matched line, preserving everything before and after it
+        const matchIndex = matchingIndices[0]
+        if (matchIndex === undefined) {
+          throw new Error("expected at least one matching index")
+        }
         const updatedLines = [
-          ...lines.slice(0, matchingIndices[0]),
-          ...lines.slice(matchingIndices[0] + 1),
+          ...lines.slice(0, matchIndex),
+          ...lines.slice(matchIndex + 1),
         ]
 
         const newContent = updatedLines.join("\n")

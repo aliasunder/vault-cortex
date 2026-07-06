@@ -347,7 +347,7 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe('note not found: "nonexistent.md"')
+    expect(result.content[0]?.text).toBe('note not found: "nonexistent.md"')
   })
 
   it("error text does not contain stack traces", async () => {
@@ -355,8 +355,8 @@ describe("error handling", () => {
     const result = (await handler({ path: "nonexistent.md" }, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    expect(result.content[0].text).not.toContain("    at ")
-    expect(result.content[0].text).not.toContain("node:internal")
+    expect(result.content[0]?.text).not.toContain("    at ")
+    expect(result.content[0]?.text).not.toContain("node:internal")
   })
 
   it("vault_get_memory rejects section without file", async () => {
@@ -369,7 +369,7 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe("section requires a file")
+    expect(result.content[0]?.text).toBe("section requires a file")
   })
 
   it("vault_get_memory handler returns isError on failure", async () => {
@@ -382,7 +382,7 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe(
+    expect(result.content[0]?.text).toBe(
       'memory file not found: "About Me/Nonexistent.md"',
     )
   })
@@ -397,7 +397,7 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe(
+    expect(result.content[0]?.text).toBe(
       "outline, heading, and properties_only are mutually exclusive — set at most one",
     )
   })
@@ -412,7 +412,7 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe("heading_level requires a heading")
+    expect(result.content[0]?.text).toBe("heading_level requires a heading")
   })
 })
 
@@ -438,15 +438,15 @@ describe("vault_update_memory input schema", () => {
     "$field rejects an empty string and accepts a non-empty one",
     ({ field, validValue }) => {
       const schema = requireUpdateMemorySchema()
-      expect(schema[field].safeParse("").success).toBe(false)
-      expect(schema[field].safeParse(validValue).success).toBe(true)
+      expect(schema[field]?.safeParse("").success).toBe(false)
+      expect(schema[field]?.safeParse(validValue).success).toBe(true)
     },
   )
 
   it("options.date rejects an empty string and accepts a date", () => {
     const schema = requireUpdateMemorySchema()
-    expect(schema.options.safeParse({ date: "" }).success).toBe(false)
-    expect(schema.options.safeParse({ date: "2026-07-02" }).success).toBe(true)
+    expect(schema.options?.safeParse({ date: "" }).success).toBe(false)
+    expect(schema.options?.safeParse({ date: "2026-07-02" }).success).toBe(true)
   })
 })
 
@@ -493,7 +493,7 @@ describe("vault_update_memory handler", () => {
       isError?: boolean
     }
     expect(firstResult.isError).toBeUndefined()
-    expect(firstResult.content[0].text).toBe(
+    expect(firstResult.content[0]?.text).toBe(
       "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
     )
 
@@ -503,7 +503,7 @@ describe("vault_update_memory handler", () => {
       isError?: boolean
     }
     expect(retryResult.isError).toBeUndefined()
-    expect(retryResult.content[0].text).toBe(
+    expect(retryResult.content[0]?.text).toBe(
       "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
     )
   })
@@ -657,7 +657,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0].text) as {
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
       total: number
       tasks: Array<Record<string, unknown>>
     }
@@ -682,7 +682,7 @@ describe("vault_list_tasks handler", () => {
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0].text) as {
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
       tasks: Array<Record<string, unknown>>
     }
     // The whole-object match proves the empty/null-field filter drops only
@@ -707,7 +707,7 @@ describe("vault_list_tasks handler", () => {
       { status: "all", sort_by: "done", sort_direction: "desc" },
       mockExtra,
     )) as { content: Array<{ text: string }> }
-    const payload = JSON.parse(result.content[0].text) as {
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
       tasks: Array<{ description: string }>
     }
     // done DESC with dateless last: the completed card leads.
@@ -727,7 +727,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe(
+    expect(result.content[0]?.text).toBe(
       'invalid due.before date: "not-a-date". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })
@@ -739,6 +739,9 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0].text)).toEqual({ total: 0, tasks: [] })
+    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+      total: 0,
+      tasks: [],
+    })
   })
 })

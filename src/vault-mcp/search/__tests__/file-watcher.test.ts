@@ -73,7 +73,7 @@ describe("file-watcher", () => {
     )
     const results = index.fullTextSearch({ query: "watcher" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("test.md")
+    expect(results[0]?.path).toBe("test.md")
   })
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
@@ -221,7 +221,7 @@ describe("file-watcher", () => {
     )
     const results = index.fullTextSearch({ query: "polled" }, logger)
     expect(results).toHaveLength(1)
-    expect(results[0].path).toBe("polled.md")
+    expect(results[0]?.path).toBe("polled.md")
   })
 })
 
@@ -256,7 +256,7 @@ describe("startFileWatcher — chokidar watch options", () => {
     onTestFinished(() => watchMock.mockRestore())
     await startFileWatcher("/vault", index, watcherOptions)
     expect(watchMock).toHaveBeenCalledTimes(1)
-    return watchMock.mock.calls[0][1] as Record<string, unknown>
+    return watchMock.mock.calls[0]?.[1] as Record<string, unknown>
   }
 
   it("defaults to native events (usePolling false) with no interval when unset", async () => {

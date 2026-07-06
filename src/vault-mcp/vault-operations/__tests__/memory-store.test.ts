@@ -1076,8 +1076,8 @@ describe("listMemoryFiles", () => {
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines).toHaveLength(2)
-    expect(outlines[0].file).toBe("Opinions")
-    expect(outlines[1].file).toBe("Principles")
+    expect(outlines[0]?.file).toBe("Opinions")
+    expect(outlines[1]?.file).toBe("Principles")
   })
 
   it("includes byte size per file", async () => {
@@ -1090,8 +1090,8 @@ describe("listMemoryFiles", () => {
 
   it("uses frontmatter title", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    expect(outlines[0].title).toBe("Opinions — About Me")
-    expect(outlines[1].title).toBe("Principles — About Me")
+    expect(outlines[0]?.title).toBe("Opinions — About Me")
+    expect(outlines[1]?.title).toBe("Principles — About Me")
   })
 
   it("surfaces each file's leading scope callout (null when absent)", async () => {
@@ -1180,7 +1180,7 @@ describe("listMemoryFiles", () => {
     const h1s = principles.headings.filter((heading) => heading.level === 1)
     const h2s = principles.headings.filter((heading) => heading.level === 2)
     expect(h1s).toHaveLength(1)
-    expect(h1s[0].text).toBe("Principles")
+    expect(h1s[0]?.text).toBe("Principles")
     expect(h2s).toHaveLength(3)
   })
 

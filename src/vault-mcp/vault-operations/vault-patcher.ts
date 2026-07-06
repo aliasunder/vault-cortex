@@ -139,7 +139,13 @@ const resolveAnchorLine = (params: {
       `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}. Use a longer, unique anchor, or set first_match: true.`,
     )
   }
-  return matchingLineIndices[0]
+  const matchedIndex = matchingLineIndices[0]
+  if (matchedIndex === undefined) {
+    throw new Error(
+      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+    )
+  }
+  return matchedIndex
 }
 
 // ── Exported functions ──────────────────────────────────────────

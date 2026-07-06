@@ -88,7 +88,7 @@ describe("parseHeadings", () => {
     ]
     // bodyEndLine absorbs the blank line before %% → ends at line 2.
     const headings = parseHeadings(lines)
-    expect(headings[0].bodyEndLine).toBe(2)
+    expect(headings[0]?.bodyEndLine).toBe(2)
   })
 
   it("returns an empty array when there are no headings", () => {

@@ -45,6 +45,7 @@ const firstBodyLineIndex = (
 ): number => {
   if (index >= lines.length) return index
   const line = lines[index]
+  if (line === undefined) return index
   if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
   if (!skippedH1 && H1_REGEX.test(line))
     return firstBodyLineIndex(lines, index + 1, true)
@@ -75,14 +76,16 @@ export const parseLeadingCallout = (
   // Find where the first real body content begins (past blank lines + one H1).
   const cursor = firstBodyLineIndex(normalizedLines)
 
+  const openerLine = normalizedLines[cursor]
   const openerMatch =
-    cursor < normalizedLines.length
-      ? CALLOUT_OPENER_REGEX.exec(normalizedLines[cursor])
-      : null
+    openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null
   if (!openerMatch) return null
 
-  const type = openerMatch[1].toLowerCase()
-  const title = openerMatch[3].trim()
+  const matchedType = openerMatch[1]
+  const matchedTitle = openerMatch[3]
+  if (matchedType === undefined || matchedTitle === undefined) return null
+  const type = matchedType.toLowerCase()
+  const title = matchedTitle.trim()
 
   // Body = consecutive `>` lines after the opener, until the next callout
   // opener (stacked callout), a non-blockquote line (incl. a blank line), or EOF.

@@ -15,7 +15,8 @@
     "isolatedModules": true,
     "declaration": true,
     "noImplicitOverride": true,
-    "exactOptionalPropertyTypes": true
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "sst-env.d.ts"],
   "exclude": ["node_modules", "dist", ".sst"]

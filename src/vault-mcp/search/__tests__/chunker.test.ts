@@ -18,7 +18,7 @@ describe("chunkNoteContent", () => {
     it("prefixes the chunk with the note title", () => {
       const chunks = chunkNoteContent("Title", "Body content.")
 
-      expect(chunks[0].text).toBe("Title\n\nBody content.")
+      expect(chunks[0]?.text).toBe("Title\n\nBody content.")
     })
 
     it("returns a single chunk for exactly 499 tokens", () => {
@@ -41,7 +41,7 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Title", "")
 
       expect(chunks).toHaveLength(1)
-      expect(chunks[0].text).toBe("Title")
+      expect(chunks[0]?.text).toBe("Title")
     })
   })
 
@@ -81,8 +81,8 @@ describe("chunkNoteContent", () => {
 
       // Total tokens > 500 → heading-based path, preamble becomes its own chunk
       expect(chunks).toHaveLength(2)
-      expect(chunks[0].text).toContain("preamble0")
-      expect(chunks[0].text).toContain("preamble299")
+      expect(chunks[0]?.text).toContain("preamble0")
+      expect(chunks[0]?.text).toContain("preamble299")
     })
   })
 
@@ -142,18 +142,18 @@ describe("chunkNoteContent", () => {
       const body = `Some text with [[Target|display text]] and more ${generateTokens(10)}`
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks[0].text).toContain("display text")
-      expect(chunks[0].text).not.toContain("[[")
+      expect(chunks[0]?.text).toContain("display text")
+      expect(chunks[0]?.text).not.toContain("[[")
     })
 
     it("strips bold/italic markers in chunk text", () => {
       const body = `This has **bold** and *italic* text ${generateTokens(10)}`
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks[0].text).toContain("bold")
-      expect(chunks[0].text).toContain("italic")
-      expect(chunks[0].text).not.toContain("**")
-      expect(chunks[0].text).not.toContain("*italic*")
+      expect(chunks[0]?.text).toContain("bold")
+      expect(chunks[0]?.text).toContain("italic")
+      expect(chunks[0]?.text).not.toContain("**")
+      expect(chunks[0]?.text).not.toContain("*italic*")
     })
 
     it("strips heading markers in chunk text", () => {
