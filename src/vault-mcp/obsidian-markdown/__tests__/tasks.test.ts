@@ -524,6 +524,78 @@ describe("tasks.extractTasks", () => {
         task({ line: 2, description: "Task under a horizontal rule" }),
       ])
     })
+
+    it("excludes task lines inside a fenced code block within a callout", () => {
+      const content = [
+        "> [!info] Example",
+        "> ```",
+        "> - [ ] not really a task",
+        "> ```",
+        "> - [ ] Real callout task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 5, description: "Real callout task" }),
+      ])
+    })
+
+    it("still extracts real tasks inside callouts without fences", () => {
+      const content = [
+        "> [!todo] Board",
+        "> - [ ] Buy milk",
+        "> - [x] Walk dog",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "Buy milk" }),
+        task({
+          line: 3,
+          statusChar: "x",
+          status: "done",
+          description: "Walk dog",
+        }),
+      ])
+    })
+
+    it("extracts tasks after a blockquote-scoped fence implicitly closes", () => {
+      const content = [
+        "> ```",
+        "> - [ ] hidden in fence",
+        "- [ ] visible after blockquote ends",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 3, description: "visible after blockquote ends" }),
+      ])
+    })
+
+    it("excludes task lines inside a tilde fenced code block within a callout", () => {
+      const content = [
+        "> [!info] Example",
+        "> ~~~",
+        "> - [ ] not really a task",
+        "> ~~~",
+        "> - [ ] Real tilde callout task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 5, description: "Real tilde callout task" }),
+      ])
+    })
+
+    it("excludes task lines inside a depth-2 fence that implicitly closes", () => {
+      const content = [
+        "> [!info] Example",
+        "> > ```",
+        "> > - [ ] nested task hidden in fence",
+        "> Back to depth 1, fence implicitly closed",
+        "> - [ ] Task after nested fence",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 5, description: "Task after nested fence" }),
+      ])
+    })
   })
 
   describe("heading attribution", () => {

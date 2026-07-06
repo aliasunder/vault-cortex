@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { splitIntoLines, advanceFence, classifyLines } from "../lines.js"
+import {
+  splitIntoLines,
+  advanceFence,
+  classifyLines,
+  type OpenFence,
+} from "../lines.js"
 
 // ── splitIntoLines ───────────────────────────────────────────────
 
@@ -23,11 +28,20 @@ describe("splitIntoLines", () => {
 
 // ── advanceFence ─────────────────────────────────────────────────
 
+/** Shorthand for an open fence at a given depth (default 0). */
+const fence = (delimiter: string, quoteDepth = 0): OpenFence => ({
+  delimiter,
+  quoteDepth,
+})
+
 describe("advanceFence", () => {
+  // ── depth-0 (backward-compatible) ────────────────────────────
+
   it("opens a fence on a delimiter line outside a fence", () => {
     expect(advanceFence("```", null)).toEqual({
-      openFence: "```",
+      openFence: fence("```"),
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
@@ -35,55 +49,63 @@ describe("advanceFence", () => {
     expect(advanceFence("plain", null)).toEqual({
       openFence: null,
       isFenceDelimiter: false,
+      lineIsCode: false,
     })
   })
 
   it("keeps the fence open for an interior non-fence line", () => {
-    expect(advanceFence("code", "```")).toEqual({
-      openFence: "```",
+    expect(advanceFence("code", fence("```"))).toEqual({
+      openFence: fence("```"),
       isFenceDelimiter: false,
+      lineIsCode: true,
     })
   })
 
   it("closes the fence on a matching closer", () => {
-    expect(advanceFence("```", "```")).toEqual({
+    expect(advanceFence("```", fence("```"))).toEqual({
       openFence: null,
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
   it("does not close a backtick fence on a tilde delimiter", () => {
-    expect(advanceFence("~~~", "```")).toEqual({
-      openFence: "```",
+    expect(advanceFence("~~~", fence("```"))).toEqual({
+      openFence: fence("```"),
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
   it("does not close on a delimiter shorter than the opener", () => {
-    expect(advanceFence("```", "````")).toEqual({
-      openFence: "````",
+    expect(advanceFence("```", fence("````"))).toEqual({
+      openFence: fence("````"),
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
   it("closes on a delimiter longer than the opener", () => {
-    expect(advanceFence("`````", "```")).toEqual({
+    expect(advanceFence("`````", fence("```"))).toEqual({
       openFence: null,
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
   it("does not close on a delimiter carrying a trailing info string", () => {
-    expect(advanceFence("``` js", "```")).toEqual({
-      openFence: "```",
+    expect(advanceFence("``` js", fence("```"))).toEqual({
+      openFence: fence("```"),
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
   it("opens a fence indented up to three spaces (CommonMark §4.5)", () => {
     expect(advanceFence("   ```", null)).toEqual({
-      openFence: "```",
+      openFence: fence("```"),
       isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 
@@ -91,6 +113,97 @@ describe("advanceFence", () => {
     expect(advanceFence("    ```", null)).toEqual({
       openFence: null,
       isFenceDelimiter: false,
+      lineIsCode: false,
+    })
+  })
+
+  // ── blockquote depth awareness ───────────────────────────────
+
+  it("opens a fence inside a blockquote at depth 1", () => {
+    expect(advanceFence("> ```", null)).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("recognizes content inside a blockquoted fence as code", () => {
+    expect(advanceFence("> code", fence("```", 1))).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: false,
+      lineIsCode: true,
+    })
+  })
+
+  it("closes a blockquoted fence at matching depth", () => {
+    expect(advanceFence("> ```", fence("```", 1))).toEqual({
+      openFence: null,
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("implicitly closes fence when blockquote depth drops", () => {
+    expect(advanceFence("plain text", fence("```", 1))).toEqual({
+      openFence: null,
+      isFenceDelimiter: false,
+      lineIsCode: false,
+    })
+  })
+
+  it("implicitly closes fence and opens a new one at lower depth", () => {
+    expect(advanceFence("```", fence("```", 1))).toEqual({
+      openFence: fence("```", 0),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("treats deeper-depth lines as content inside the fence", () => {
+    expect(advanceFence("> > text", fence("```", 1))).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: false,
+      lineIsCode: true,
+    })
+  })
+
+  it("treats blockquoted lines inside a depth-0 fence as content", () => {
+    expect(advanceFence("> text", fence("```", 0))).toEqual({
+      openFence: fence("```", 0),
+      isFenceDelimiter: false,
+      lineIsCode: true,
+    })
+  })
+
+  it("opens a fence at depth 2 with nested blockquote markers", () => {
+    expect(advanceFence("> > ```", null)).toEqual({
+      openFence: fence("```", 2),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("opens a fence with an info string inside a blockquote", () => {
+    expect(advanceFence("> ```js", null)).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("opens a tilde fence inside a blockquote", () => {
+    expect(advanceFence("> ~~~", null)).toEqual({
+      openFence: fence("~~~", 1),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
+
+  it("opens a fence when a tab follows the blockquote marker", () => {
+    expect(advanceFence(">\t```", null)).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: true,
+      lineIsCode: true,
     })
   })
 })
@@ -174,6 +287,34 @@ describe("classifyLines", () => {
       { text: "inside", inCode: true },
       { text: "  ```", inCode: true },
       { text: "after", inCode: false },
+    ])
+  })
+
+  // ── blockquote-aware classification ──────────────────────────
+
+  it("classifies lines inside a blockquoted fence as code", () => {
+    const content = [
+      "before",
+      "> ```",
+      "> inside fence",
+      "> ```",
+      "after",
+    ].join("\n")
+    expect([...classifyLines(content)]).toEqual([
+      { text: "before", inCode: false },
+      { text: "> ```", inCode: true },
+      { text: "> inside fence", inCode: true },
+      { text: "> ```", inCode: true },
+      { text: "after", inCode: false },
+    ])
+  })
+
+  it("implicitly closes the fence when the blockquote ends", () => {
+    const content = ["> ```", "> code", "not code anymore"].join("\n")
+    expect([...classifyLines(content)]).toEqual([
+      { text: "> ```", inCode: true },
+      { text: "> code", inCode: true },
+      { text: "not code anymore", inCode: false },
     ])
   })
 })
