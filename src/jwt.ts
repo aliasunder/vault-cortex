@@ -48,6 +48,7 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
 }
 
 export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
+  // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
   const header = parts[0]
