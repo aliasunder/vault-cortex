@@ -31,7 +31,8 @@ jobs:
           # PR-Agent only calls models in its hardcoded MAX_TOKENS table;
           # models not listed (e.g. deepseek-v3.2 via OpenRouter) fail silently
           # and fall back. This tells PR-Agent the model's context window directly.
-          config.custom_model_max_tokens: "128000"
+          # Update alongside PR_AGENT_MODEL when switching models.
+          config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '128000' }}
           # Default fallback is gpt-5.4-mini (hardcoded in PR-Agent), which routes
           # through OpenRouter to OpenAI — unexpected model and unexpected charges.
           # Override to keep everything on the configured provider.
