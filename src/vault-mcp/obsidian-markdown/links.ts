@@ -155,12 +155,11 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const encodedPath = parts[2]
   const heading = parts[3] ?? ""
   const closeParen = parts[4]
-  if (
-    prefix === undefined ||
-    encodedPath === undefined ||
-    closeParen === undefined
-  )
-    return null
+  const hasRequiredGroups =
+    prefix !== undefined &&
+    encodedPath !== undefined &&
+    closeParen !== undefined
+  if (!hasRequiredGroups) return null
   return {
     prefix,
     path: safeDecodeURIComponent(encodedPath),
