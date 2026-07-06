@@ -54,6 +54,31 @@ describe("parseHeadings", () => {
     expect(headingTexts).toEqual(["Real", "Also real"])
   })
 
+  it("ignores ATX headings inside a blockquoted fenced code block", () => {
+    const lines = [
+      "# Real",
+      "> ```",
+      "> ## Not a heading",
+      "> ```",
+      "## Also real",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+      "Also real",
+    ])
+  })
+
+  it("recognizes a heading after a blockquoted fence implicitly closes", () => {
+    const lines = [
+      "> ```",
+      "> ## Hidden inside fence",
+      "## Visible after implicit close",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Visible after implicit close",
+    ])
+  })
+
   it("ignores ATX headings inside an indented fenced code block (CommonMark §4.5)", () => {
     // The fence is indented 3 spaces — recognized via the shared lines.ts fence
     // grammar. The previous heading-local matcher required column 0, so it would

@@ -546,16 +546,15 @@ describe("tasks.extractTasks", () => {
         "> - [x] Walk dog",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toHaveLength(2)
-      expect(extracted[0]).toEqual(task({ line: 2, description: "Buy milk" }))
-      expect(extracted[1]).toEqual(
+      expect(extracted).toEqual([
+        task({ line: 2, description: "Buy milk" }),
         task({
           line: 3,
           statusChar: "x",
           status: "done",
           description: "Walk dog",
         }),
-      )
+      ])
     })
 
     it("extracts tasks after a blockquote-scoped fence implicitly closes", () => {
