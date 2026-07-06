@@ -22,6 +22,47 @@ export const isString = (value: unknown): value is string =>
 export const coerceToArray = (value: unknown): string[] =>
   Array.isArray(value) ? value : value ? [String(value)] : []
 
+// ── JSON column parsers (private) ──────────────────────────────
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/** Parses a JSON column that must contain a string array (tags, related,
+ *  depends_on). Throws on corruption — these columns are serialized by the
+ *  indexer, so a non-array value indicates index corruption. */
+const parseStringArray = (json: string): string[] => {
+  const parsed: unknown = JSON.parse(json)
+  if (!Array.isArray(parsed) || !parsed.every(isString))
+    throw new Error(`expected string[] from JSON column, got: ${json}`)
+  return parsed
+}
+
+/** Parses a JSON column that must contain a record (properties).
+ *  Throws on corruption — the indexer stores JSON.stringify(frontmatter). */
+const parseRecord = (json: string): Record<string, unknown> => {
+  const parsed: unknown = JSON.parse(json)
+  if (!isRecord(parsed))
+    throw new Error(`expected object from JSON column, got: ${json}`)
+  return parsed
+}
+
+/** Type predicate for the LeadingCallout shape ({type, title, body} — all strings). */
+const isLeadingCalloutShape = (
+  value: Record<string, unknown>,
+): value is { type: string; title: string; body: string } =>
+  typeof value.type === "string" &&
+  typeof value.title === "string" &&
+  typeof value.body === "string"
+
+/** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
+ *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
+const parseLeadingCalloutJson = (json: string): LeadingCallout => {
+  const parsed: unknown = JSON.parse(json)
+  if (!isRecord(parsed) || !isLeadingCalloutShape(parsed))
+    throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
+  return { type: parsed.type, title: parsed.title, body: parsed.body }
+}
+
 // ── LIKE escaping ─────────────────────────────────────────────
 
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
@@ -74,16 +115,16 @@ export const mtimeToIso = (mtime: number): string => {
 export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   path: row.path,
   title: row.title,
-  tags: JSON.parse(row.tags) as string[],
-  related: JSON.parse(row.related) as string[],
+  tags: parseStringArray(row.tags),
+  related: parseStringArray(row.related),
   folder: row.folder,
   type: row.type,
   created: row.created,
   modified: mtimeToIso(row.mtime),
   bytes: row.bytes ?? 0,
-  properties: JSON.parse(row.properties) as Record<string, unknown>,
+  properties: parseRecord(row.properties),
   leading_callout: row.leading_callout
-    ? (JSON.parse(row.leading_callout) as LeadingCallout)
+    ? parseLeadingCalloutJson(row.leading_callout)
     : null,
 })
 
@@ -107,8 +148,8 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   recurrence: row.recurrence,
   on_completion: row.on_completion,
   task_id: row.task_id,
-  depends_on: JSON.parse(row.depends_on) as string[],
-  tags: JSON.parse(row.tags) as string[],
+  depends_on: parseStringArray(row.depends_on),
+  tags: parseStringArray(row.tags),
   block_id: row.block_id,
 })
 
@@ -134,7 +175,7 @@ export const noteRowToSearchResult = (params: {
   title: params.row.title,
   snippet: params.snippet,
   score: params.score,
-  tags: JSON.parse(params.row.tags) as string[],
+  tags: parseStringArray(params.row.tags),
   folder: params.row.folder,
   type: params.row.type,
   ...(params.row.created !== null ? { created: params.row.created } : {}),
@@ -142,9 +183,7 @@ export const noteRowToSearchResult = (params: {
   bytes: params.row.bytes ?? 0,
   ...(params.includeLeadingCallout && params.row.leading_callout
     ? {
-        leading_callout: JSON.parse(
-          params.row.leading_callout,
-        ) as LeadingCallout,
+        leading_callout: parseLeadingCalloutJson(params.row.leading_callout),
       }
     : {}),
 })
@@ -166,23 +205,20 @@ export const noteMatchesSearchFilters = (
     return false
 
   if (filters.tags) {
-    const noteTags = JSON.parse(note.tags) as string[]
+    const noteTags = parseStringArray(note.tags)
     if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
   }
 
   if (filters.type && note.type !== filters.type) return false
 
   if (filters.related) {
-    const noteRelated = JSON.parse(note.related) as string[]
+    const noteRelated = parseStringArray(note.related)
     if (!filters.related.every((link) => noteRelated.includes(link)))
       return false
   }
 
   if (filters.properties) {
-    const noteProperties = JSON.parse(note.properties) as Record<
-      string,
-      unknown
-    >
+    const noteProperties = parseRecord(note.properties)
     for (const [key, value] of Object.entries(filters.properties)) {
       if (noteProperties[key] !== value) return false
     }

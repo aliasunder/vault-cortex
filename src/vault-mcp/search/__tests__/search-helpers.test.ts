@@ -4,12 +4,15 @@ import {
   coerceToArray,
   buildFtsMetadataText,
   mtimeToIso,
+  rowToMetadata,
+  rowToTaskEntry,
+  noteRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
 } from "../search-helpers.js"
-import type { NoteRow } from "../search-index.js"
+import type { NoteRow, TaskRow } from "../search-index.js"
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -114,6 +117,242 @@ describe("mtimeToIso", () => {
 
   it("throws on invalid mtime", () => {
     expect(() => mtimeToIso(NaN)).toThrow("invalid mtime: NaN")
+  })
+})
+
+// ── Row mapper factories ────────────────────────────────────────
+
+const makeNoteRow = (overrides: Partial<NoteRow> = {}): NoteRow => ({
+  path: "Projects/Alpha/note.md",
+  title: "Test Note",
+  tags: JSON.stringify(["project", "alpha"]),
+  related: JSON.stringify(["Other.md"]),
+  folder: "Projects/Alpha",
+  type: "note",
+  created: "2024-01-01",
+  mtime: 1700000000000,
+  properties: JSON.stringify({ status: "active" }),
+  leading_callout: JSON.stringify({
+    type: "info",
+    title: "Note",
+    body: "Important context",
+  }),
+  bytes: 1024,
+  ...overrides,
+})
+
+const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
+  note_path: "Projects/Alpha/tasks.md",
+  line: 5,
+  status_char: " ",
+  status: "todo",
+  description: "Fix the bug",
+  created: "2024-01-01",
+  scheduled: null,
+  start: null,
+  due: "2024-03-01",
+  done: null,
+  cancelled: null,
+  priority: null,
+  recurrence: null,
+  on_completion: null,
+  task_id: "abc123",
+  depends_on: JSON.stringify(["def456"]),
+  tags: JSON.stringify(["bug"]),
+  block_id: null,
+  heading: "Tasks",
+  folder: "Projects/Alpha",
+  ...overrides,
+})
+
+// ── rowToMetadata ────────────────────────────────────────────────
+
+describe("rowToMetadata", () => {
+  it("maps a complete NoteRow to NoteMetadata with parsed JSON columns", () => {
+    const metadata = rowToMetadata(makeNoteRow())
+    expect(metadata).toEqual({
+      path: "Projects/Alpha/note.md",
+      title: "Test Note",
+      tags: ["project", "alpha"],
+      related: ["Other.md"],
+      folder: "Projects/Alpha",
+      type: "note",
+      created: "2024-01-01",
+      modified: mtimeToIso(1700000000000),
+      bytes: 1024,
+      properties: { status: "active" },
+      leading_callout: {
+        type: "info",
+        title: "Note",
+        body: "Important context",
+      },
+    })
+  })
+
+  it("sets leading_callout to null when the column is null", () => {
+    const metadata = rowToMetadata(makeNoteRow({ leading_callout: null }))
+    expect(metadata.leading_callout).toBeNull()
+  })
+
+  it("throws when tags column contains a non-array value", () => {
+    expect(() =>
+      rowToMetadata(makeNoteRow({ tags: '"not-an-array"' })),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when tags column contains an array with non-string elements", () => {
+    expect(() =>
+      rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) })),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when properties column contains a non-object value", () => {
+    expect(() =>
+      rowToMetadata(makeNoteRow({ properties: '"string"' })),
+    ).toThrow("expected object from JSON column")
+  })
+
+  it("throws when leading_callout column has missing fields", () => {
+    expect(() =>
+      rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' })),
+    ).toThrow("expected LeadingCallout from JSON column")
+  })
+})
+
+// ── rowToTaskEntry ───────────────────────────────────────────────
+
+describe("rowToTaskEntry", () => {
+  it("maps a complete TaskRow to TaskEntry with parsed JSON columns", () => {
+    const entry = rowToTaskEntry(makeTaskRow())
+    expect(entry).toEqual({
+      path: "Projects/Alpha/tasks.md",
+      line: 5,
+      status: "todo",
+      status_char: " ",
+      description: "Fix the bug",
+      heading: "Tasks",
+      folder: "Projects/Alpha",
+      created: "2024-01-01",
+      scheduled: null,
+      start: null,
+      due: "2024-03-01",
+      done: null,
+      cancelled: null,
+      priority: null,
+      recurrence: null,
+      on_completion: null,
+      task_id: "abc123",
+      depends_on: ["def456"],
+      tags: ["bug"],
+      block_id: null,
+    })
+  })
+
+  it("renames note_path to path", () => {
+    const entry = rowToTaskEntry(
+      makeTaskRow({ note_path: "Journal/2024-01-01.md" }),
+    )
+    expect(entry.path).toBe("Journal/2024-01-01.md")
+    expect("note_path" in entry).toBe(false)
+  })
+
+  it("throws when depends_on column contains a non-array value", () => {
+    expect(() =>
+      rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' })),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when tags column contains a non-array value", () => {
+    expect(() =>
+      rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' })),
+    ).toThrow("expected string[] from JSON column")
+  })
+})
+
+// ── noteRowToSearchResult ────────────────────────────────────────
+
+describe("noteRowToSearchResult", () => {
+  it("builds a SearchResult with parsed tags and computed modified timestamp", () => {
+    const result = noteRowToSearchResult({
+      row: makeNoteRow(),
+      snippet: "matched text",
+      score: 0.95,
+      includeLeadingCallout: false,
+    })
+    expect(result).toEqual({
+      path: "Projects/Alpha/note.md",
+      title: "Test Note",
+      snippet: "matched text",
+      score: 0.95,
+      tags: ["project", "alpha"],
+      folder: "Projects/Alpha",
+      type: "note",
+      created: "2024-01-01",
+      modified: mtimeToIso(1700000000000),
+      bytes: 1024,
+    })
+  })
+
+  it("includes leading_callout when includeLeadingCallout is true and column is present", () => {
+    const result = noteRowToSearchResult({
+      row: makeNoteRow(),
+      snippet: "text",
+      score: 0.5,
+      includeLeadingCallout: true,
+    })
+    expect(result.leading_callout).toEqual({
+      type: "info",
+      title: "Note",
+      body: "Important context",
+    })
+  })
+
+  it("omits leading_callout when includeLeadingCallout is false", () => {
+    const result = noteRowToSearchResult({
+      row: makeNoteRow(),
+      snippet: "text",
+      score: 0.5,
+      includeLeadingCallout: false,
+    })
+    expect(result.leading_callout).toBeUndefined()
+  })
+
+  it("omits created when the column is null", () => {
+    const result = noteRowToSearchResult({
+      row: makeNoteRow({ created: null }),
+      snippet: "text",
+      score: 0.5,
+      includeLeadingCallout: false,
+    })
+    expect("created" in result).toBe(false)
+  })
+
+  it("throws when tags column contains invalid data", () => {
+    expect(() =>
+      noteRowToSearchResult({
+        row: makeNoteRow({ tags: "42" }),
+        snippet: "text",
+        score: 0.5,
+        includeLeadingCallout: false,
+      }),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when leading_callout column contains invalid data", () => {
+    expect(() =>
+      noteRowToSearchResult({
+        row: makeNoteRow({
+          leading_callout: JSON.stringify({
+            type: "note",
+            title: "Invalid",
+            body: 42,
+          }),
+        }),
+        snippet: "text",
+        score: 0.5,
+        includeLeadingCallout: true,
+      }),
+    ).toThrow("expected LeadingCallout from JSON column")
   })
 })
 
