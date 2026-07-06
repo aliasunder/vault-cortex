@@ -65,6 +65,7 @@ export const findTrailingCommentBlockStart = (
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    if (line === undefined) continue
 
     // Fence state advances only outside comments: inside a `%%` comment, `%%`
     // takes precedence and fence delimiters are just comment text (matching
@@ -88,7 +89,7 @@ export const findTrailingCommentBlockStart = (
       if (comment) {
         // Validate that the closer ends its own line — otherwise the block
         // isn't cleanly separable from body text and can't be preserved.
-        const validCloser = lines[i].trimEnd().endsWith(COMMENT_DELIMITER)
+        const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
         lastClosedBlock = validCloser
           ? { startLine: comment.openLine, endLine: i }
           : null
@@ -113,8 +114,10 @@ export const findTrailingCommentBlockStart = (
   if (!trailingBlock) return lines.length
 
   // The opener must start its own line.
+  const blockOpenerLine = lines[trailingBlock.startLine]
   if (
-    !lines[trailingBlock.startLine].trimStart().startsWith(COMMENT_DELIMITER)
+    blockOpenerLine === undefined ||
+    !blockOpenerLine.trimStart().startsWith(COMMENT_DELIMITER)
   ) {
     return lines.length
   }
@@ -154,14 +157,16 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       }
 
       const match = HEADING_REGEX.exec(line)
-      if (match) {
+      const matchedHashes = match?.[1]
+      const matchedText = match?.[2]
+      if (matchedHashes !== undefined && matchedText !== undefined) {
         return {
           headings: [
             ...state.headings,
             {
               // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
-              text: match[2].replace(/\s+#+\s*$/, "").trim(),
-              level: match[1].length,
+              text: matchedText.replace(/\s+#+\s*$/, "").trim(),
+              level: matchedHashes.length,
               startLine: i,
             },
           ],
@@ -224,7 +229,10 @@ export const findHeading = (
     const matchedHeadings = matches
       .map((h) => `${"#".repeat(h.level)} ${h.text} (line ${h.startLine + 1})`)
       .join(", ")
-    const allSameLevel = matches.every((h) => h.level === matches[0].level)
+    const firstMatch = matches[0]
+    const allSameLevel =
+      firstMatch !== undefined &&
+      matches.every((h) => h.level === firstMatch.level)
     const hint = allSameLevel
       ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
       : "Use heading_level to disambiguate."
@@ -233,5 +241,9 @@ export const findHeading = (
     )
   }
 
-  return matches[0]
+  const result = matches[0]
+  if (result === undefined) {
+    throw new Error(`heading not found: "${searchText}"`)
+  }
+  return result
 }

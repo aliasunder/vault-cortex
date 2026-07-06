@@ -160,6 +160,9 @@ export const blendScores = (params: {
   return normalizedRrf.map((rrfNorm, index) => {
     const rerankNorm = normalizedRerank[index]
     const rank = params.rrfRanks[index]
+    if (rerankNorm === undefined || rank === undefined) {
+      throw new Error(`score array length mismatch at index ${index}`)
+    }
 
     const rrfWeight = rank <= 3 ? 0.75 : rank <= 10 ? 0.5 : 0.4
     const rerankWeight = 1 - rrfWeight
