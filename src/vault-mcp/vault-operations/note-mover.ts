@@ -364,7 +364,11 @@ const rewriteNoteContent = (
   if (linksRewritten === 0) return null
 
   const rewrittenData = frontmatterResult.value
-  if (typeof rewrittenData !== "object" || rewrittenData === null) return null
+  if (typeof rewrittenData !== "object" || rewrittenData === null) {
+    throw new Error(
+      "rewriteFrontmatterValue returned non-object after rewriting links",
+    )
+  }
   const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
 }

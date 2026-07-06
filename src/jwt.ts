@@ -51,11 +51,7 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
-  const header = parts[0]
-  const payload = parts[1]
-  const sig = parts[2]
-  if (header === undefined || payload === undefined || sig === undefined)
-    return null
+  const [header, payload, sig] = parts
 
   const expected = hmac(`${header}.${payload}`, secret)
 

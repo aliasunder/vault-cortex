@@ -13,6 +13,7 @@ import type { VaultConfig } from "../config.js"
 import { registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
 import { logger } from "../../logger.js"
+import { headerAsString } from "../../auth.js"
 
 type McpRouterOptions = {
   vaultPath: string
@@ -36,12 +37,6 @@ const SERVER_ICONS = [
 ]
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
-
-// Express parses multi-value headers as string[]; single-value headers
-// (like mcp-session-id) are string — coerce both to string | undefined.
-const headerAsString = (
-  value: string | string[] | undefined,
-): string | undefined => (Array.isArray(value) ? value[0] : value)
 
 export const createMcpRouter = ({
   vaultPath,

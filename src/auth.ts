@@ -13,6 +13,11 @@ export const safeEqual = (a: string, b: string): boolean => {
   return timingSafeEqual(aBuf, bBuf)
 }
 
+/** Coerces multi-value Express headers (string[]) to a single string. */
+export const headerAsString = (
+  value: string | string[] | undefined,
+): string | undefined => (Array.isArray(value) ? value[0] : value)
+
 /** Extracts the token from an `Authorization: Bearer <token>` header. Case-insensitive prefix. */
 export const parseBearer = (header: string | undefined): string | null => {
   if (!header) return null

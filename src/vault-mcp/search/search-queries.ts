@@ -1110,7 +1110,8 @@ export const brokenLinkCount = (
            AND target NOT IN (SELECT path FROM non_md_files)`,
       )
       .get()
-    const count = row?.count ?? 0
+    if (!row) throw new Error("aggregate COUNT query returned no row")
+    const count = row.count
     logger.info("broken link count", { count })
     return { count, excludedFolder: null, excludedCount: 0 }
   }
