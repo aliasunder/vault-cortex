@@ -32,6 +32,8 @@ const BLOCKQUOTE_MARKER = /^ {0,3}> ?/
 const stripBlockquotePrefix = (
   line: string,
 ): { depth: number; innerContent: string } => {
+  // Iterative prefix stripping — depth and remaining track the cursor across
+  // successive `> ` markers.
   let depth = 0
   let remaining = line
   for (;;) {

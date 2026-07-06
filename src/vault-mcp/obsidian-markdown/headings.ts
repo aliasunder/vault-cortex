@@ -72,11 +72,8 @@ export const findTrailingCommentBlockStart = (
     // Obsidian's parser). A fence-delimiter line never toggles comment state.
     if (!comment) {
       const fenceResult = advanceFence(line, openFence)
-      if (fenceResult.lineIsCode) {
-        openFence = fenceResult.openFence
-        continue
-      }
       openFence = fenceResult.openFence
+      if (fenceResult.lineIsCode) continue
     }
 
     // Outside fences (or inside a comment): `%%` at the start or end of the
