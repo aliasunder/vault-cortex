@@ -151,6 +151,7 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   depends_on: parseStringArray(row.depends_on),
   tags: parseStringArray(row.tags),
   block_id: row.block_id,
+  is_kanban_task: Boolean(row.is_kanban_task),
 })
 
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
