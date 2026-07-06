@@ -1185,13 +1185,8 @@ export const vaultStats = (
   `
   const row = context.db.prepare<unknown[], VaultStats>(sql).get()
   if (!row) {
-    const empty: VaultStats = {
-      totalNotes: 0,
-      untaggedNotes: 0,
-      noPropertiesNotes: 0,
-    }
-    logger.info("vault stats", empty)
-    return empty
+    logger.info("vault stats empty")
+    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
   }
   logger.info("vault stats", row)
   return row
