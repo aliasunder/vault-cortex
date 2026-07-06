@@ -2,6 +2,7 @@ import { env } from "node:process"
 import { mkdirSync, readdirSync, unlinkSync, appendFileSync } from "node:fs"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import envVar from "env-var"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -32,7 +33,12 @@ const LEVELS: Record<LogLevel, number> = {
 
 const isLogLevel = (value: string): value is LogLevel => value in LEVELS
 
-const envLevel = (env.LOG_LEVEL ?? "info").toLowerCase()
+const envLevel = envVar
+  .from(env)
+  .get("LOG_LEVEL")
+  .default("info")
+  .asString()
+  .toLowerCase()
 const threshold = isLogLevel(envLevel) ? LEVELS[envLevel] : LEVELS.info
 
 /** Extracts "filename.ts:line" from the call stack — the frame that called the log method. */
