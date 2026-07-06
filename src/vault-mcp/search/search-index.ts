@@ -417,23 +417,23 @@ export const createSearchIndex = (
   )
   /** Direct path match for targets that already include a non-md extension
    *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
-  const resolveNonMdByFullPathStmt = db.prepare(
+  const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
   )
   /** All three base_path/basename/suffix queries use ORDER BY length(path), path
    *  so resolution is deterministic when multiple non-md files share a stem —
    *  shortest path wins, matching links.resolve's note-resolution heuristic. */
-  const resolveNonMdByBasePathStmt = db.prepare(
+  const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
   )
-  const resolveNonMdByBasenameStmt = db.prepare(
+  const resolveNonMdByBasenameStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
   )
   /** Suffix-path match: finds non-md files whose base_path ends with the target
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
    *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
    *  and `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdBySuffixPathStmt = db.prepare(
+  const resolveNonMdBySuffixPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── Vector prepared statements (conditional on embedder) ──────
@@ -449,7 +449,7 @@ export const createSearchIndex = (
       )
     : null
   const selectChunkIdStmt = embedder
-    ? db.prepare(
+    ? db.prepare<[string, number], { id: number }>(
         `SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`,
       )
     : null
@@ -481,7 +481,10 @@ export const createSearchIndex = (
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
-    ? db.prepare(
+    ? db.prepare<
+        unknown[],
+        { note_path: string; chunk_text: string; distance: number }
+      >(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
          FROM note_vectors nv
          JOIN note_chunks nc ON nc.id = nv.chunk_id
@@ -528,20 +531,17 @@ export const createSearchIndex = (
     // (e.g. [[photo.png]], ![[diagram.svg]]). Checked first because the
     // base_path column strips the extension, so "photo.png" wouldn't match
     // base_path "photo".
-    const fullPathMatch = resolveNonMdByFullPathStmt.get(target) as
-      { path: string } | undefined
+    const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
-    const exactMatch = resolveNonMdByBasePathStmt.get(target) as
-      { path: string } | undefined
+    const exactMatch = resolveNonMdByBasePathStmt.get(target)
     if (exactMatch) return exactMatch.path
 
     // Relative-to-source match ("path from current file")
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
-      const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget) as
-        { path: string } | undefined
+      const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
       if (relativeMatch) return relativeMatch.path
     }
 
@@ -552,11 +552,10 @@ export const createSearchIndex = (
     if (target.includes("/")) {
       const suffixMatch = resolveNonMdBySuffixPathStmt.get(
         escapeLikeWildcards(target),
-      ) as { path: string } | undefined
+      )
       return suffixMatch?.path ?? null
     }
-    const basenameMatch = resolveNonMdByBasenameStmt.get(target) as
-      { path: string } | undefined
+    const basenameMatch = resolveNonMdByBasenameStmt.get(target)
     return basenameMatch?.path ?? null
   }
 
@@ -811,8 +810,7 @@ export const createSearchIndex = (
       // chunk upsert and vector insert from permanently marking the chunk
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
-        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index) as
-          { id: number } | undefined
+        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index)
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -824,9 +822,8 @@ export const createSearchIndex = (
           content_hash: hash,
         })
 
-        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index) as {
-          id: number
-        }
+        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
+        if (!chunkRow) return
         insertVectorStmt.run(
           BigInt(chunkRow.id),
           Buffer.from(
@@ -963,9 +960,9 @@ export const createSearchIndex = (
       // Pass 2: re-extract links now that all paths are in the notes table,
       // resolving targets that the per-note upsertNote pass may have missed
       // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-      const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
-        path: string
-      }>
+      const allPaths = db
+        .prepare<[], { path: string }>("SELECT path FROM notes")
+        .all()
       const pathList = allPaths.map((row) => row.path)
 
       db.exec("DELETE FROM links")
@@ -1041,7 +1038,7 @@ export const createSearchIndex = (
           // notes table mtime is updated by upsertNote (file watcher) and
           // removeNote deletes the row — so a mismatch or absence means this
           // snapshot entry is stale and should be skipped.
-          const selectNoteMtimeStmt = db.prepare(
+          const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
             "SELECT mtime FROM notes WHERE path = ?",
           )
 
@@ -1049,8 +1046,7 @@ export const createSearchIndex = (
           let chunksEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
-            const currentNote = selectNoteMtimeStmt.get(note.relativePath) as
-              { mtime: number } | undefined
+            const currentNote = selectNoteMtimeStmt.get(note.relativePath)
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
             if (noteIsStale) {

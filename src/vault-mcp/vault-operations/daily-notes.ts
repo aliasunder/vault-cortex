@@ -38,8 +38,8 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
   // Single quotes inside literals are doubled per Luxon's escape convention.
   const withLiteralsConverted = momentFormat.replace(
     MOMENT_ESCAPE_RE,
-    (_, literal) => {
-      const escapedContent = ((literal as string) ?? "").replace(/'/g, "''")
+    (_, literal: string) => {
+      const escapedContent = literal.replace(/'/g, "''")
       return `'${escapedContent}'`
     },
   )

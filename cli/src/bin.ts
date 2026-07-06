@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url"
 
 import { minimumNodeVersion, satisfiesMinimum } from "./node-version.js"
 
-const { version, engines } = JSON.parse(
+const pkg: { version: string; engines: { node: string } } = JSON.parse(
   readFileSync(
     fileURLToPath(new URL("../package.json", import.meta.url)),
     "utf8",
   ),
-) as { version: string; engines: { node: string } }
+)
+const { version, engines } = pkg
 
 // npm only warns (EBADENGINE) on an engines mismatch but runs the CLI anyway,
 // which would surface as a cryptic crash inside a dependency. Fail with a

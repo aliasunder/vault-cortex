@@ -151,12 +151,21 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
   if (!parts) return null
-  const [, prefix, encodedPath, heading = "", closeParen] = parts
+  const prefix = parts[1]
+  const encodedPath = parts[2]
+  const heading = parts[3] ?? ""
+  const closeParen = parts[4]
+  if (
+    prefix === undefined ||
+    encodedPath === undefined ||
+    closeParen === undefined
+  )
+    return null
   return {
-    prefix: prefix!,
-    path: safeDecodeURIComponent(encodedPath!),
+    prefix,
+    path: safeDecodeURIComponent(encodedPath),
     heading,
-    closeParen: closeParen!,
+    closeParen,
   }
 }
 
@@ -175,11 +184,15 @@ const extractFromBody = (content: string): string[] => {
       .replace(TEMPLATER_RE, (match) => " ".repeat(match.length))
 
     for (const match of linkExtractableLine.matchAll(WIKILINK_RE)) {
-      const target = stripEscapedPipe(match[1]!.trim())
+      const rawTarget = match[1]
+      if (rawTarget === undefined) continue
+      const target = stripEscapedPipe(rawTarget.trim())
       if (target.length > 0) targets.add(target)
     }
     for (const match of linkExtractableLine.matchAll(MD_LINK_RE)) {
-      const target = safeDecodeURIComponent(match[1]!.trim())
+      const rawTarget = match[1]
+      if (rawTarget === undefined) continue
+      const target = safeDecodeURIComponent(rawTarget.trim())
       if (target.length > 0) targets.add(target)
     }
   }
@@ -204,7 +217,9 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
     // Leaf: a string may hold one or more wikilinks — pull out each target.
     if (typeof frontmatterValue === "string") {
       for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
-        const target = stripEscapedPipe(match[1]!.trim())
+        const rawTarget = match[1]
+        if (rawTarget === undefined) continue
+        const target = stripEscapedPipe(rawTarget.trim())
         if (target.length > 0) targets.add(target)
       }
       return
@@ -262,7 +277,9 @@ const resolve = (
       candidatePath === targetWithExtension ||
       candidatePath.endsWith(`/${targetWithExtension}`),
   )
-  if (basenameMatches.length === 1) return basenameMatches[0]!
+  const onlyMatch =
+    basenameMatches.length === 1 ? basenameMatches[0] : undefined
+  if (onlyMatch) return onlyMatch
   // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
   if (basenameMatches.length > 1) {
     return basenameMatches.reduce((shortest, candidatePath) =>

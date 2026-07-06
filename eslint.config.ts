@@ -26,6 +26,7 @@ export default defineConfig(
         "warn",
         { assertionStyle: "never" },
       ],
+      "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
   {

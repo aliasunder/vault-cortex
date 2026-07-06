@@ -22,7 +22,9 @@ export const createErrorMiddleware =
   () =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
-      sessionId: req.headers["mcp-session-id"] as string | undefined,
+      sessionId: Array.isArray(req.headers["mcp-session-id"])
+        ? req.headers["mcp-session-id"][0]
+        : req.headers["mcp-session-id"],
       clientIp: req.ip,
       method: req.method,
       path: req.path,

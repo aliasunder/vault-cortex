@@ -46,9 +46,8 @@ export const advanceFence = (
   openFence: OpenFence,
 ): { openFence: OpenFence; isFenceDelimiter: boolean } => {
   const fenceMatch = FENCE_OPEN.exec(line)
-  if (!fenceMatch) return { openFence, isFenceDelimiter: false }
-
-  const fenceChars = fenceMatch[1]!
+  const fenceChars = fenceMatch?.[1]
+  if (!fenceChars) return { openFence, isFenceDelimiter: false }
   // Outside a fence: this line opens one.
   if (openFence === null) {
     return { openFence: fenceChars, isFenceDelimiter: true }

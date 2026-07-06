@@ -27,7 +27,9 @@ const MATTER_OPTIONS = {
         ) {
           return {}
         }
-        return parsed
+        // parseYaml returns a plain object for valid YAML mappings;
+        // round-trip through entries to satisfy Record<string, unknown>
+        return Object.fromEntries(Object.entries(parsed))
       },
       stringify: (data: object): string =>
         stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
