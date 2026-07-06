@@ -683,6 +683,8 @@ export const listTasks = (
     .get(...queryParams)
   const total = countRow === undefined ? 0 : countRow.total
 
+  // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
+  // so their tasks need lane moves (not checkbox toggles) to complete.
   const sql = `
     SELECT t.note_path, t.line, t.status_char, t.status, t.description,
            t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
