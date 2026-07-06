@@ -28,6 +28,15 @@ jobs:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
+          # PR-Agent only calls models in its hardcoded MAX_TOKENS table;
+          # models not listed (e.g. deepseek-v3.2 via OpenRouter) fail silently
+          # and fall back. This tells PR-Agent the model's context window directly.
+          # Update alongside PR_AGENT_MODEL when switching models.
+          config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '200000' }}
+          # Default fallback is gpt-5.4-mini (hardcoded in PR-Agent), which routes
+          # through OpenRouter to OpenAI — unexpected model and unexpected charges.
+          # Override to keep everything on the configured provider.
+          config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
@@ -39,4 +48,8 @@ jobs:
           pr_reviewer.require_can_be_reviewed: "true"
           pr_reviewer.persistent_comment: "false"
           pr_reviewer.remove_previous_review_comment: "false"
+          # Default (-1) posts suggestions only as conversation comments.
+          # Threshold >= 0 also posts them as inline review comments on the diff
+          # for suggestions at or above that score (0-10 scale).
+          pr_code_suggestions.dual_publishing_score_threshold: "5"
           pr_description.enable_pr_description: "false"
