@@ -20,13 +20,11 @@ const MATTER_OPTIONS = {
         // YAML.parse returns null for empty/comment-only input; gray-matter
         // expects an object for `data`
         const parsed: unknown = parseYaml(input)
-        if (
-          typeof parsed !== "object" ||
-          parsed === null ||
-          Array.isArray(parsed)
-        ) {
-          return {}
-        }
+        const isPlainObject =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          !Array.isArray(parsed)
+        if (!isPlainObject) return {}
         // parseYaml returns a plain object for valid YAML mappings;
         // round-trip through entries to satisfy Record<string, unknown>
         return Object.fromEntries(Object.entries(parsed))
