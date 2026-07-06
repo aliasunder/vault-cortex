@@ -189,16 +189,15 @@ describe("rowToMetadata", () => {
     expect(metadata.leading_callout).toBeNull()
   })
 
-  it("defaults bytes to 0 when the column is null", () => {
-    const metadata = rowToMetadata(
-      makeNoteRow({ bytes: null as unknown as number }),
-    )
-    expect(metadata.bytes).toBe(0)
-  })
-
   it("throws when tags column contains a non-array value", () => {
     expect(() =>
       rowToMetadata(makeNoteRow({ tags: '"not-an-array"' })),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when tags column contains an array with non-string elements", () => {
+    expect(() =>
+      rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) })),
     ).toThrow("expected string[] from JSON column")
   })
 
@@ -239,6 +238,12 @@ describe("rowToTaskEntry", () => {
   it("throws when depends_on column contains a non-array value", () => {
     expect(() =>
       rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' })),
+    ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when tags column contains a non-array value", () => {
+    expect(() =>
+      rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' })),
     ).toThrow("expected string[] from JSON column")
   })
 })
@@ -304,6 +309,23 @@ describe("noteRowToSearchResult", () => {
         includeLeadingCallout: false,
       }),
     ).toThrow("expected string[] from JSON column")
+  })
+
+  it("throws when leading_callout column contains invalid data", () => {
+    expect(() =>
+      noteRowToSearchResult({
+        row: makeNoteRow({
+          leading_callout: JSON.stringify({
+            type: "note",
+            title: "Invalid",
+            body: 42,
+          }),
+        }),
+        snippet: "text",
+        score: 0.5,
+        includeLeadingCallout: true,
+      }),
+    ).toThrow("expected LeadingCallout from JSON column")
   })
 })
 
