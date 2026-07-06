@@ -171,12 +171,7 @@ export type TaskEntry = {
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
  *  exclude cancelled tasks. */
 export type TaskStatusFilter =
-  | "not_done"
-  | "todo"
-  | "in_progress"
-  | "done"
-  | "cancelled"
-  | "all"
+  "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
 
 /** Date bounds for one task date field. before/after are exclusive and on is
  *  an exact match — the Tasks plugin's query vocabulary. Dates are

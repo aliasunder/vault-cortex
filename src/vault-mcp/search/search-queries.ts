@@ -717,10 +717,9 @@ export const listTasks = (
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   const countRow = context.db
-    .prepare<
-      unknown[],
-      { total: number }
-    >(`SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`)
+    .prepare<unknown[], { total: number }>(
+      `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
+    )
     .get(...queryParams)
   const total = countRow === undefined ? 0 : countRow.total
 
