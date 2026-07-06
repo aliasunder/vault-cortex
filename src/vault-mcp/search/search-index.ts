@@ -825,7 +825,11 @@ export const createSearchIndex = (
         })
 
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
-        if (!chunkRow) return
+        if (!chunkRow) {
+          throw new Error(
+            `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
+          )
+        }
         insertVectorStmt.run(
           BigInt(chunkRow.id),
           Buffer.from(
