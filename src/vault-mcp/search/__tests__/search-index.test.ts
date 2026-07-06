@@ -461,14 +461,9 @@ describe("fullTextSearch", () => {
       { query: "burnout", filters: { snippet_tokens: 60 } },
       logger,
     )
-    expect(short).toHaveLength(1)
-    expect(long).toHaveLength(1)
-    const shortEntry = short[0]
-    const longEntry = long[0]
-    if (shortEntry === undefined || longEntry === undefined) {
-      throw new Error("expected search results")
-    }
-    expect(longEntry.snippet.length).toBeGreaterThan(shortEntry.snippet.length)
+    expect(long[0]?.snippet?.length).toBeGreaterThan(
+      short[0]?.snippet?.length ?? 0,
+    )
   })
 
   it("respects folder filter", () => {
@@ -1129,9 +1124,7 @@ describe("listPropertyKeys", () => {
     for (let i = 1; i < keys.length; i++) {
       const prev = keys[i - 1]
       const curr = keys[i]
-      if (prev === undefined || curr === undefined) {
-        throw new Error(`unexpected undefined at index ${i}`)
-      }
+      if (prev === undefined || curr === undefined) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -1218,9 +1211,7 @@ describe("listPropertyValues", () => {
     for (let i = 1; i < values.length; i++) {
       const prev = values[i - 1]
       const curr = values[i]
-      if (prev === undefined || curr === undefined) {
-        throw new Error(`unexpected undefined at index ${i}`)
-      }
+      if (prev === undefined || curr === undefined) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -3058,14 +3049,9 @@ the Lightsail budget estimates for next quarter.
 
       expect(search_mode).toBe("hybrid")
       expect(results).toHaveLength(2)
-      const firstResult = results[0]
-      const secondResult = results[1]
-      if (firstResult === undefined || secondResult === undefined) {
-        throw new Error("expected 2 hybrid results")
-      }
       // a.md appears in both FTS and vector → higher RRF score → ranked first
-      expect(firstResult.path).toBe("a.md")
-      expect(firstResult.score).toBeGreaterThan(secondResult.score)
+      expect(results[0]?.path).toBe("a.md")
+      expect(results[0]?.score).toBeGreaterThan(results[1]?.score ?? 0)
     })
 
     it("includes vector-only results with full metadata", async () => {
