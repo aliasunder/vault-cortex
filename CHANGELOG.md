@@ -24,6 +24,30 @@
 
 
 
+
+## [0.26.3] — 2026-07-06
+
+### Features
+
+- **search:** Add is_kanban_task to TaskEntry (#269)
+
+### Bug Fixes
+
+- **ci:** PR-Agent model fallback + inline suggestions (#268)
+
+### Refactoring
+
+- Replace JSON.parse as T casts with runtime-validated parse helpers (#267)
+- Replace `as NodeJS.ErrnoException` casts with runtime type guard (#266)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.26.2
+
+### Other Changes
+
+- Upgrade to strict config + eliminate production `as` assertions (#270)
+
 ## [0.26.2] — 2026-07-05
 
 ### Features
