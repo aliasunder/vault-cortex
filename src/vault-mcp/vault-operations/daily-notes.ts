@@ -143,7 +143,7 @@ type DailyNoteResult = {
 /** Reads a daily note by date. Returns the resolved path, content
  *  (if the note exists), and an exists flag. */
 export const getDailyNote = async (
-  params: { vaultPath: string; date?: string },
+  params: { vaultPath: string; date?: string | undefined },
   logger: Logger,
 ): Promise<DailyNoteResult> => {
   const path = await getDailyNotePath(params.vaultPath, params.date)

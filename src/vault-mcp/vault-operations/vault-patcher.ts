@@ -151,8 +151,8 @@ const patchNote = async (
     path: string
     operation: Operation
     content: string
-    heading?: string
-    headingLevel?: number
+    heading?: string | undefined
+    headingLevel?: number | undefined
   },
   logger: Logger,
 ): Promise<string> => {
@@ -236,7 +236,7 @@ const replaceInNote = async (
     path: string
     oldText: string
     newText: string
-    replaceAllOccurrences?: boolean
+    replaceAllOccurrences?: boolean | undefined
   },
   logger: Logger,
 ): Promise<{ message: string; count: number }> => {
@@ -301,8 +301,8 @@ const deleteSpan = async (
     vaultPath: string
     path: string
     startAnchor: string
-    endAnchor?: string
-    firstMatch?: boolean
+    endAnchor?: string | undefined
+    firstMatch?: boolean | undefined
   },
   logger: Logger,
 ): Promise<string> => {

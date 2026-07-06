@@ -98,7 +98,10 @@ export type MemoryFileOutline = Readonly<{
  *  (e.g. nudge the caller to fill in a new file's scope callout, or report
  *  that an identical entry already existed and nothing was written). */
 type UpdateMemoryOutcome =
-  "created-file" | "created-section" | "appended" | "unchanged"
+  | "created-file"
+  | "created-section"
+  | "appended"
+  | "unchanged"
 
 type ParsedSection = Readonly<{
   heading: string
@@ -359,7 +362,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   // ── Exported functions ──────────────────────────────────────────
 
   const getMemory = async (
-    params: { vaultPath: string; file?: string; section?: string },
+    params: {
+      vaultPath: string
+      file?: string | undefined
+      section?: string | undefined
+    },
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
@@ -423,8 +430,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       file: string
       section: string
       entry: string
-      date?: string
-      position?: "top" | "bottom"
+      date?: string | undefined
+      position?: "top" | "bottom" | undefined
     },
     logger: Logger,
   ): Promise<UpdateMemoryOutcome> => {

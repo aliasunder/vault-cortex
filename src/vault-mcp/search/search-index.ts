@@ -90,14 +90,14 @@ export type VaultStats = {
 }
 
 export type SearchFilters = {
-  folder?: string
-  tags?: string[]
-  related?: string[]
-  type?: string
-  properties?: Record<string, string | number | boolean>
-  limit?: number
-  snippet_tokens?: number
-  include_leading_callout?: boolean
+  folder?: string | undefined
+  tags?: string[] | undefined
+  related?: string[] | undefined
+  type?: string | undefined
+  properties?: Record<string, string | number | boolean> | undefined
+  limit?: number | undefined
+  snippet_tokens?: number | undefined
+  include_leading_callout?: boolean | undefined
 }
 
 export type NoteRow = {
@@ -171,12 +171,21 @@ export type TaskEntry = {
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
  *  exclude cancelled tasks. */
 export type TaskStatusFilter =
-  "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
+  | "not_done"
+  | "todo"
+  | "in_progress"
+  | "done"
+  | "cancelled"
+  | "all"
 
 /** Date bounds for one task date field. before/after are exclusive and on is
  *  an exact match — the Tasks plugin's query vocabulary. Dates are
  *  YYYY-MM-DD, so bounds compare lexicographically. */
-export type TaskDateFilter = { before?: string; on?: string; after?: string }
+export type TaskDateFilter = {
+  before?: string | undefined
+  on?: string | undefined
+  after?: string | undefined
+}
 
 /** Priority filter value — the five explicit levels plus "none" for tasks
  *  with no priority signifier. */
@@ -185,7 +194,13 @@ export type TaskPriorityFilter = TaskPriority | "none"
 /** Sort keys for listTasks. The five task dates and priority sort on the
  *  task's own metadata; note_mtime sorts on the owning note's modified time. */
 export type TaskSortKey =
-  "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime"
+  | "due"
+  | "scheduled"
+  | "start"
+  | "created"
+  | "done"
+  | "priority"
+  | "note_mtime"
 
 /** listTasks response: tasks is the limit-capped page, total the full match
  *  count — so callers can tell "50 of 338" from "all 50". */
