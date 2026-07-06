@@ -523,6 +523,11 @@ const DATE_CASCADE: Record<string, readonly string[]> = {
   created: ["due", "scheduled", "start"],
 }
 
+const toSqlDirection = (
+  direction: "asc" | "desc" | undefined,
+): "ASC" | "DESC" | undefined =>
+  direction === undefined ? undefined : direction === "desc" ? "DESC" : "ASC"
+
 /** Builds a cascaded ORDER BY for a date sort key: primary date column, then
  *  each fallback date column (all with NULL-last), then note mtime descending
  *  as a recency tiebreaker for fully dateless tasks.
@@ -704,13 +709,8 @@ export const listTasks = (
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
   const sortBy = params.sortBy ?? "due"
-  const explicitSqlDirection: "ASC" | "DESC" | undefined =
-    params.sortDirection === undefined
-      ? undefined
-      : params.sortDirection === "desc"
-        ? "DESC"
-        : "ASC"
-  const orderBy = TASK_ORDER_BY[sortBy](explicitSqlDirection)
+  const explicitDirection = toSqlDirection(params.sortDirection)
+  const orderBy = TASK_ORDER_BY[sortBy](explicitDirection)
 
   // Math.floor: SQLite rejects a non-integer LIMIT binding with a cryptic
   // "datatype mismatch" error, so a fractional limit is floored instead.
