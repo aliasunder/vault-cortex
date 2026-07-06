@@ -522,18 +522,26 @@ const DATE_CASCADE: Record<string, readonly string[]> = {
 
 /** Builds a cascaded ORDER BY for a date sort key: primary date column, then
  *  each fallback date column (all with NULL-last), then note mtime descending
- *  as a recency tiebreaker for fully dateless tasks. */
+ *  as a recency tiebreaker for fully dateless tasks.
+ *
+ *  When explicitDirection is provided the caller asked for a uniform direction
+ *  — every column sorts that way. When undefined each column uses its own
+ *  natural default so the cascade doesn't force ASC-defaulting fields onto
+ *  DESC-defaulting fallbacks (or vice-versa). */
 const buildDateOrderBy = (
   column: string,
-  direction: "ASC" | "DESC",
+  explicitDirection: "ASC" | "DESC" | undefined,
 ): string => {
+  const directionFor = (col: string): "ASC" | "DESC" =>
+    explicitDirection ?? (DESCENDING_BY_DEFAULT.has(col) ? "DESC" : "ASC")
+
   const cascade = DATE_CASCADE[column]
-  const primary = `t.${column} IS NULL, t.${column} ${direction}`
+  const primary = `t.${column} IS NULL, t.${column} ${directionFor(column)}`
   if (cascade === undefined) {
     return `${primary}, n.mtime DESC`
   }
   const fallbacks = cascade
-    .map((col) => `t.${col} IS NULL, t.${col} ${direction}`)
+    .map((col) => `t.${col} IS NULL, t.${col} ${directionFor(col)}`)
     .join(", ")
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
@@ -552,12 +560,15 @@ const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
  *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
  *  through related date columns so dateless tasks sort by the next available
- *  date rather than falling to arbitrary file-path order; priority maps levels
+ *  date rather than falling to arbitrary file-path order; when direction is
+ *  omitted each cascade column uses its own default so the primary field's
+ *  direction doesn't bleed into unrelated fallbacks. Priority maps levels
  *  to the plugin's numeric order (highest=0 … lowest=5, none=3 between medium
- *  and low, the ELSE arm since none is stored as NULL). */
+ *  and low, the ELSE arm since none is stored as NULL). Position sorts by file
+ *  path then line number — the natural order for Kanban boards. */
 const TASK_ORDER_BY: Record<
   TaskSortKey,
-  (direction: "ASC" | "DESC") => string
+  (explicitDirection: "ASC" | "DESC" | undefined) => string
 > = {
   due: (direction) => buildDateOrderBy("due", direction),
   scheduled: (direction) => buildDateOrderBy("scheduled", direction),
@@ -565,8 +576,12 @@ const TASK_ORDER_BY: Record<
   created: (direction) => buildDateOrderBy("created", direction),
   done: (direction) => buildDateOrderBy("done", direction),
   priority: (direction) =>
-    `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction}`,
-  note_mtime: (direction) => `n.mtime ${direction}`,
+    `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction ?? "ASC"}`,
+  note_mtime: (direction) => `n.mtime ${direction ?? "DESC"}`,
+  position: (direction) => {
+    const d = direction ?? "ASC"
+    return `n.path ${d}, t.line ${d}`
+  },
 }
 
 /** Lists indexed tasks with structured filters and sorting. All filters
@@ -686,20 +701,23 @@ export const listTasks = (
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
   const sortBy = params.sortBy ?? "due"
-  const sortDirection =
-    params.sortDirection ?? (DESCENDING_BY_DEFAULT.has(sortBy) ? "desc" : "asc")
-  const orderBy = TASK_ORDER_BY[sortBy](
-    sortDirection === "desc" ? "DESC" : "ASC",
-  )
+  const explicitSqlDirection: "ASC" | "DESC" | undefined =
+    params.sortDirection === undefined
+      ? undefined
+      : params.sortDirection === "desc"
+        ? "DESC"
+        : "ASC"
+  const orderBy = TASK_ORDER_BY[sortBy](explicitSqlDirection)
 
   // Math.floor: SQLite rejects a non-integer LIMIT binding with a cryptic
   // "datatype mismatch" error, so a fractional limit is floored instead.
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   const countRow = context.db
-    .prepare<unknown[], { total: number }>(
-      `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
-    )
+    .prepare<
+      unknown[],
+      { total: number }
+    >(`SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`)
     .get(...queryParams)
   const total = countRow === undefined ? 0 : countRow.total
 

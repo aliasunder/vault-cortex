@@ -71,11 +71,12 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({ status: "all" }, logger)
     expect(result.total).toBe(4)
+    // Due-dated first (ASC), then scheduled, then created-only (DESC — newest first).
     expect(result.tasks.map((entry) => entry.description)).toEqual([
       "Fix login bug",
       "Write tests",
-      "Ship release",
       "Old idea",
+      "Ship release",
     ])
   })
 
@@ -334,11 +335,12 @@ describe("listTasks status filter", () => {
   it("returns every status with status: all", () => {
     const index = indexWithBoard()
     const result = index.listTasks({ status: "all" }, logger)
+    // Created-only tasks sort DESC (newest first): Old idea (2026-06-02) before Ship release (2026-06-01).
     expect(result.tasks.map((entry) => entry.status)).toEqual([
       "todo",
       "in_progress",
-      "done",
       "cancelled",
+      "done",
     ])
   })
 })
@@ -621,9 +623,10 @@ describe("listTasks scope filters", () => {
   it("filters by heading (Kanban lane), excluding other lanes", () => {
     const index = indexWithBoardAndPlain()
     const result = index.listTasks({ status: "all", heading: "Done" }, logger)
+    // Created-only tasks sort DESC (newest first): Old idea (2026-06-02) before Ship release (2026-06-01).
     expect(result.tasks.map((entry) => entry.description)).toEqual([
-      "Ship release",
       "Old idea",
+      "Ship release",
     ])
   })
 
@@ -857,5 +860,206 @@ describe("listTasks sorting and paging", () => {
       "Due middle",
     ])
     expect(result.total).toBe(4)
+  })
+
+  it("cascade uses each fallback field's own default direction when sort_direction is omitted", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "cascade-dir.md",
+        rawContent: [
+          "- [ ] Old created only ➕ 2026-01-15",
+          "- [ ] New created only ➕ 2026-07-06",
+          "- [ ] Has due 📅 2026-08-01 ➕ 2026-06-01",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Default sort_by: "due", no explicit direction.
+    // Due-dated tasks sort first (ASC — due's default).
+    // Created-only tasks sort second, but DESC (created's default) — newest first.
+    const result = index.listTasks({}, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "New created only",
+      "Old created only",
+    ])
+  })
+
+  it("explicit sort_direction overrides cascade to a uniform direction", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "cascade-explicit.md",
+        rawContent: [
+          "- [ ] Old created only ➕ 2026-01-15",
+          "- [ ] New created only ➕ 2026-07-06",
+          "- [ ] Has due 📅 2026-08-01 ➕ 2026-06-01",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Explicit ASC overrides all cascade steps — created-only tasks sort ASC (oldest first).
+    const result = index.listTasks({ sortDirection: "asc" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "Old created only",
+      "New created only",
+    ])
+  })
+
+  it("cascade direction applies to start fallback (DESC default) within a due cascade", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "start-cascade.md",
+        rawContent: [
+          "- [ ] Old start 🛫 2026-06-01",
+          "- [ ] New start 🛫 2026-07-05",
+          "- [ ] Has due 📅 2026-07-10",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Due-dated first (ASC), then start-only tasks sort DESC (start's default) — newest first.
+    const result = index.listTasks({}, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "New start",
+      "Old start",
+    ])
+  })
+
+  it("start cascade uses per-field defaults (both start and created default DESC)", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "start-sort.md",
+        rawContent: [
+          "- [ ] Has start 🛫 2026-07-01",
+          "- [ ] Old created only ➕ 2026-01-01",
+          "- [ ] New created only ➕ 2026-07-06",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // sort_by: "start" cascades to [due, scheduled, created].
+    // start defaults DESC — most recently started first.
+    // created also defaults DESC — newest created first.
+    const result = index.listTasks({ sortBy: "start" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has start",
+      "New created only",
+      "Old created only",
+    ])
+  })
+
+  it("sorts by position (file path then line number) within a single note", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: [
+          "## Active",
+          "- [ ] First card ➕ 2026-07-06",
+          "- [ ] Second card ➕ 2026-07-01",
+          "## Done",
+          "- [x] Third card ➕ 2026-06-01 ✅ 2026-06-28",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.listTasks(
+      { path: "board.md", status: "all", sortBy: "position" },
+      logger,
+    )
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "First card",
+      "Second card",
+      "Third card",
+    ])
+  })
+
+  it("position sort groups by file path across multiple notes", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "b-note.md",
+        rawContent: "- [ ] B task",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "a-note.md",
+        rawContent: "- [ ] A task",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    // Position sort orders by path ASC, so a-note before b-note regardless of mtime.
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "A task",
+      "B task",
+    ])
+  })
+
+  it("position sort with explicit desc reverses file and line order", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: ["- [ ] First line", "- [ ] Second line"].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const result = index.listTasks(
+      { path: "board.md", sortBy: "position", sortDirection: "desc" },
+      logger,
+    )
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Second line",
+      "First line",
+    ])
+  })
+
+  it("position sort with heading filter returns lane tasks in file order", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "kanban.md",
+        rawContent: [
+          "---",
+          "kanban-plugin: board",
+          "---",
+          "## Active",
+          "- [ ] Third priority ➕ 2026-07-01",
+          "- [ ] First priority ➕ 2026-07-06",
+          "- [ ] Second priority ➕ 2026-07-03",
+          "## Done",
+          "- [x] Completed ➕ 2026-06-01 ✅ 2026-06-28",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Position sort preserves the file order — the user arranged these cards intentionally.
+    const result = index.listTasks(
+      { heading: "Active", sortBy: "position" },
+      logger,
+    )
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Third priority",
+      "First priority",
+      "Second priority",
+    ])
   })
 })

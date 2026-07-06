@@ -740,6 +740,7 @@ Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage;
 Example: vault_list_tasks({ folder: "Code Projects/vault-cortex", heading: "Active" }) — one project's Active Kanban lane
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ priority: ["highest", "high"], sort_by: "priority" }) — most urgent open work first
+Example: vault_list_tasks({ path: "TASKS.md", sort_by: "position" }) — tasks in file order (Kanban card position)
 
 When to use: Any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
 Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
@@ -749,7 +750,7 @@ Parameters:
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
 - folder: note path prefix (e.g. "Code Projects/vault-cortex"). tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text, case-sensitive (a Kanban lane name). path: one note, must end in ".md".
-- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary date is null — due falls through to scheduled → start → created, so a task with no due date but a scheduled date still sorts meaningfully. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. sort_direction defaults to "asc" for due and scheduled (soonest deadline first), "desc" for start, created, done, and note_mtime (most recent first).
+- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. "position" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.
 - limit: max results (default 50). The total field always reports the full match count, so "50 of 338" is distinguishable from "all 50".
 
 Errors:
@@ -823,16 +824,17 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
             "done",
             "priority",
             "note_mtime",
+            "position",
           ])
           .optional()
           .describe(
-            'Sort key (default "due" — ascending, dateless tasks last)',
+            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
           ),
         sort_direction: z
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            'Sort direction (default "asc" for due/scheduled, "desc" for start/created/done/note_mtime)',
+            'Sort direction. Default per field: "asc" for due/scheduled/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
       annotations: {
