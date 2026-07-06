@@ -98,10 +98,7 @@ export type MemoryFileOutline = Readonly<{
  *  (e.g. nudge the caller to fill in a new file's scope callout, or report
  *  that an identical entry already existed and nothing was written). */
 type UpdateMemoryOutcome =
-  | "created-file"
-  | "created-section"
-  | "appended"
-  | "unchanged"
+  "created-file" | "created-section" | "appended" | "unchanged"
 
 type ParsedSection = Readonly<{
   heading: string
