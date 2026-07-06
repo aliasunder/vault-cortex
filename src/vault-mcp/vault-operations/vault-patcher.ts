@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
@@ -81,7 +82,7 @@ const readNoteForPatch = async (
       beforeBytes: Buffer.byteLength(fileContent, "utf8"),
     }
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isErrnoException(err, "ENOENT")) {
       throw new Error(`note not found: "${path}"`, { cause: err })
     }
     throw err
