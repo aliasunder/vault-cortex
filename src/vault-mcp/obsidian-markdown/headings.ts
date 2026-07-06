@@ -71,14 +71,12 @@ export const findTrailingCommentBlockStart = (
     // takes precedence and fence delimiters are just comment text (matching
     // Obsidian's parser). A fence-delimiter line never toggles comment state.
     if (!comment) {
-      const { openFence: nextFence, isFenceDelimiter } = advanceFence(
-        line,
-        openFence,
-      )
-      if (openFence !== null || isFenceDelimiter) {
-        openFence = nextFence
+      const fenceResult = advanceFence(line, openFence)
+      if (fenceResult.lineIsCode) {
+        openFence = fenceResult.openFence
         continue
       }
+      openFence = fenceResult.openFence
     }
 
     // Outside fences (or inside a comment): `%%` at the start or end of the
@@ -146,14 +144,10 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     openFence: OpenFence
   }>(
     (state, line, i) => {
-      const { openFence, isFenceDelimiter } = advanceFence(
-        line,
-        state.openFence,
-      )
+      const fenceResult = advanceFence(line, state.openFence)
 
-      // A fence delimiter, or any line while a fence is open, is never a heading.
-      if (isFenceDelimiter || state.openFence !== null) {
-        return { headings: state.headings, openFence }
+      if (fenceResult.lineIsCode) {
+        return { headings: state.headings, openFence: fenceResult.openFence }
       }
 
       const match = HEADING_REGEX.exec(line)
@@ -170,11 +164,11 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
               startLine: i,
             },
           ],
-          openFence,
+          openFence: fenceResult.openFence,
         }
       }
 
-      return { headings: state.headings, openFence }
+      return { headings: state.headings, openFence: fenceResult.openFence }
     },
     { headings: [], openFence: null },
   )

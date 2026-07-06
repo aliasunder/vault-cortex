@@ -524,6 +524,51 @@ describe("tasks.extractTasks", () => {
         task({ line: 2, description: "Task under a horizontal rule" }),
       ])
     })
+
+    it("excludes task lines inside a fenced code block within a callout", () => {
+      const content = [
+        "> [!info] Example",
+        "> ```",
+        "> - [ ] not really a task",
+        "> ```",
+        "> - [ ] Real callout task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 5, description: "Real callout task" }),
+      ])
+    })
+
+    it("still extracts real tasks inside callouts without fences", () => {
+      const content = [
+        "> [!todo] Board",
+        "> - [ ] Buy milk",
+        "> - [x] Walk dog",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toHaveLength(2)
+      expect(extracted[0]).toEqual(task({ line: 2, description: "Buy milk" }))
+      expect(extracted[1]).toEqual(
+        task({
+          line: 3,
+          statusChar: "x",
+          status: "done",
+          description: "Walk dog",
+        }),
+      )
+    })
+
+    it("extracts tasks after a blockquote-scoped fence implicitly closes", () => {
+      const content = [
+        "> ```",
+        "> - [ ] hidden in fence",
+        "- [ ] visible after blockquote ends",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 3, description: "visible after blockquote ends" }),
+      ])
+    })
   })
 
   describe("heading attribution", () => {
