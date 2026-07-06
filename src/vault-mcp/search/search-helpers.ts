@@ -50,13 +50,17 @@ const parseRecord = (json: string): Record<string, unknown> => {
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
 const parseLeadingCalloutJson = (json: string): LeadingCallout => {
   const parsed: unknown = JSON.parse(json)
-  if (
-    !isRecord(parsed) ||
-    typeof parsed.type !== "string" ||
-    typeof parsed.title !== "string" ||
-    typeof parsed.body !== "string"
-  )
+  if (!isRecord(parsed))
     throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
+
+  const hasRequiredStringFields =
+    typeof parsed.type === "string" &&
+    typeof parsed.title === "string" &&
+    typeof parsed.body === "string"
+
+  if (!hasRequiredStringFields)
+    throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
+
   return { type: parsed.type, title: parsed.title, body: parsed.body }
 }
 
