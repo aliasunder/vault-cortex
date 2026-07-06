@@ -6,6 +6,7 @@ import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -305,7 +306,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     try {
       return await readFile(memoryFilePath(vaultPath, file), "utf8")
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      if (isErrnoException(err, "ENOENT")) {
         throw new Error(`memory file not found: "${memoryDir}/${file}.md"`, {
           cause: err,
         })
@@ -363,7 +364,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       try {
         entries = await readdir(dir)
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        if (isErrnoException(err, "ENOENT")) {
           logger.info("get memory", { mode: "all", fileCount: 0 })
           return ""
         }
@@ -596,7 +597,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     try {
       entries = await readdir(dir)
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+      if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
 
@@ -651,7 +652,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     try {
       entries = await readdir(dir)
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+      if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
     const names = entries
@@ -751,7 +752,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       await access(dirPath, constants.F_OK)
       return
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
+      if (!isErrnoException(err, "ENOENT")) throw err
     }
     await mkdir(dirPath, { recursive: true })
     const created = DateTime.now().toISO()!

@@ -35,6 +35,7 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
 import { fileExists } from "../../utils/fs.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -582,7 +583,7 @@ const moveNote = async (
         hardLinksSupported: !params.windowsBindMount,
       })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      if (isErrnoException(error, "EEXIST")) {
         throw new Error(`destination exists: "${newPath}"`, { cause: error })
       }
       logger.error(
