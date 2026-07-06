@@ -170,18 +170,23 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
 describe("rowToMetadata", () => {
   it("maps a complete NoteRow to NoteMetadata with parsed JSON columns", () => {
     const metadata = rowToMetadata(makeNoteRow())
-    expect(metadata.path).toBe("Projects/Alpha/note.md")
-    expect(metadata.title).toBe("Test Note")
-    expect(metadata.tags).toEqual(["project", "alpha"])
-    expect(metadata.related).toEqual(["Other.md"])
-    expect(metadata.properties).toEqual({ status: "active" })
-    expect(metadata.leading_callout).toEqual({
-      type: "info",
-      title: "Note",
-      body: "Important context",
+    expect(metadata).toEqual({
+      path: "Projects/Alpha/note.md",
+      title: "Test Note",
+      tags: ["project", "alpha"],
+      related: ["Other.md"],
+      folder: "Projects/Alpha",
+      type: "note",
+      created: "2024-01-01",
+      modified: mtimeToIso(1700000000000),
+      bytes: 1024,
+      properties: { status: "active" },
+      leading_callout: {
+        type: "info",
+        title: "Note",
+        body: "Important context",
+      },
     })
-    expect(metadata.bytes).toBe(1024)
-    expect(metadata.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 
   it("sets leading_callout to null when the column is null", () => {
@@ -219,12 +224,28 @@ describe("rowToMetadata", () => {
 describe("rowToTaskEntry", () => {
   it("maps a complete TaskRow to TaskEntry with parsed JSON columns", () => {
     const entry = rowToTaskEntry(makeTaskRow())
-    expect(entry.path).toBe("Projects/Alpha/tasks.md")
-    expect(entry.depends_on).toEqual(["def456"])
-    expect(entry.tags).toEqual(["bug"])
-    expect(entry.status).toBe("todo")
-    expect(entry.description).toBe("Fix the bug")
-    expect(entry.due).toBe("2024-03-01")
+    expect(entry).toEqual({
+      path: "Projects/Alpha/tasks.md",
+      line: 5,
+      status: "todo",
+      status_char: " ",
+      description: "Fix the bug",
+      heading: "Tasks",
+      folder: "Projects/Alpha",
+      created: "2024-01-01",
+      scheduled: null,
+      start: null,
+      due: "2024-03-01",
+      done: null,
+      cancelled: null,
+      priority: null,
+      recurrence: null,
+      on_completion: null,
+      task_id: "abc123",
+      depends_on: ["def456"],
+      tags: ["bug"],
+      block_id: null,
+    })
   })
 
   it("renames note_path to path", () => {
@@ -258,12 +279,18 @@ describe("noteRowToSearchResult", () => {
       score: 0.95,
       includeLeadingCallout: false,
     })
-    expect(result.path).toBe("Projects/Alpha/note.md")
-    expect(result.tags).toEqual(["project", "alpha"])
-    expect(result.snippet).toBe("matched text")
-    expect(result.score).toBe(0.95)
-    expect(result.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(result.leading_callout).toBeUndefined()
+    expect(result).toEqual({
+      path: "Projects/Alpha/note.md",
+      title: "Test Note",
+      snippet: "matched text",
+      score: 0.95,
+      tags: ["project", "alpha"],
+      folder: "Projects/Alpha",
+      type: "note",
+      created: "2024-01-01",
+      modified: mtimeToIso(1700000000000),
+      bytes: 1024,
+    })
   })
 
   it("includes leading_callout when includeLeadingCallout is true and column is present", () => {
