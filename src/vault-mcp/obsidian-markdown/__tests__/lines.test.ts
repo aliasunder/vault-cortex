@@ -198,6 +198,14 @@ describe("advanceFence", () => {
       lineIsCode: true,
     })
   })
+
+  it("opens a fence when a tab follows the blockquote marker", () => {
+    expect(advanceFence(">\t```", null)).toEqual({
+      openFence: fence("```", 1),
+      isFenceDelimiter: true,
+      lineIsCode: true,
+    })
+  })
 })
 
 // ── classifyLines ────────────────────────────────────────────────

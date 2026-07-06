@@ -23,8 +23,8 @@ export const splitIntoLines = (content: string): string[] =>
 // ── Blockquote prefix stripping ─────────────────────────────────
 
 /** Matches one blockquote marker: up to 3 spaces indent + `>` + optional
- *  space (CommonMark §5.1). Applied iteratively to count nesting depth. */
-const BLOCKQUOTE_MARKER = /^ {0,3}> ?/
+ *  space or tab (CommonMark §5.1). Applied iteratively to count nesting depth. */
+const BLOCKQUOTE_MARKER = /^ {0,3}>[ \t]?/
 
 /** Counts the blockquote nesting depth of a line and returns the content
  *  after all markers are stripped, so fence matching runs on the inner
