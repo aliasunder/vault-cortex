@@ -15,6 +15,7 @@ import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { loadConfig } from "./config.js"
 import { readDailyNotesConfig } from "./vault-operations/daily-notes.js"
 import { logger } from "../logger.js"
+import { headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
@@ -22,7 +23,7 @@ export const createErrorMiddleware =
   () =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
-      sessionId: req.headers["mcp-session-id"] as string | undefined,
+      sessionId: headerAsString(req.headers["mcp-session-id"]),
       clientIp: req.ip,
       method: req.method,
       path: req.path,

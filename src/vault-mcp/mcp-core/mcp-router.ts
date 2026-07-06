@@ -13,6 +13,7 @@ import type { VaultConfig } from "../config.js"
 import { registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
 import { logger } from "../../logger.js"
+import { headerAsString } from "../../auth.js"
 
 type McpRouterOptions = {
   vaultPath: string
@@ -48,18 +49,19 @@ export const createMcpRouter = ({
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
   router.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
+    const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
 
-    if (sessionId && transports.has(sessionId)) {
+    const existingTransport = sessionId ? transports.get(sessionId) : undefined
+    if (existingTransport) {
       logger.info("mcp_response", {
         sessionId,
         clientIp,
         status: 200,
         outcome: "routed to existing session",
       })
-      await transports.get(sessionId)!.handleRequest(req, res, req.body)
+      await existingTransport.handleRequest(req, res, req.body)
       return
     }
 
@@ -158,7 +160,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
   // server-initiated messages, so a held stream would only ever sit idle
   // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
   router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
+    const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
     logger.info("mcp_response", {
@@ -174,10 +176,11 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
   })
 
   router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
+    const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = req.ip
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
-    if (!sessionId || !transports.has(sessionId)) {
+    const transport = sessionId ? transports.get(sessionId) : undefined
+    if (!sessionId || !transport) {
       logger.warn("mcp_response", {
         sessionId,
         clientIp,
@@ -187,7 +190,6 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       res.status(404).json({ error: "session not found" })
       return
     }
-    const transport = transports.get(sessionId)!
     await transport.close()
     transports.delete(sessionId)
     logger.info("mcp_response", {

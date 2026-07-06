@@ -46,12 +46,14 @@ export type Prompts = {
 }
 
 // User pressed ctrl-C mid-prompt: 130 = 128 + SIGINT, the shell convention.
+// clack.isCancel is a type guard (value is symbol), so after the early exit
+// TypeScript narrows `value` to `T` — no assertion needed.
 const exitOnCancel = <T>(value: T | symbol): T => {
   if (clack.isCancel(value)) {
     clack.cancel("Cancelled.")
     process.exit(130)
   }
-  return value as T
+  return value
 }
 
 /**

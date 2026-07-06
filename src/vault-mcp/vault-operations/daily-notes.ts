@@ -38,8 +38,8 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
   // Single quotes inside literals are doubled per Luxon's escape convention.
   const withLiteralsConverted = momentFormat.replace(
     MOMENT_ESCAPE_RE,
-    (_, literal) => {
-      const escapedContent = ((literal as string) ?? "").replace(/'/g, "''")
+    (_, literal: string) => {
+      const escapedContent = literal.replace(/'/g, "''")
       return `'${escapedContent}'`
     },
   )
@@ -83,10 +83,7 @@ export const readDailyNotesConfig = async (
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
     )
-    const parsedConfig = JSON.parse(configFileContent) as Record<
-      string,
-      unknown
-    >
+    const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
     cachedConfig = {
       folder:
         typeof parsedConfig.folder === "string" &&

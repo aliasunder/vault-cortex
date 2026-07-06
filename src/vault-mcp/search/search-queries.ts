@@ -42,16 +42,21 @@ import type { Embedder } from "./embedder.js"
 
 // ── Context ────────────────────────────────────────────────────
 
+type VectorHitRow = { note_path: string; chunk_text: string; distance: number }
+
 export type SearchQueryContext = {
   readonly db: Database.Database
   readonly getDailyNotesFolder: () => string | null
   readonly vector: {
     readonly embedder: Embedder | undefined
-    readonly knnSearchStmt: Database.Statement | null
+    readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
-  readonly selectFirstChunkStmt: Database.Statement | null
+  readonly selectFirstChunkStmt: Database.Statement<
+    [string],
+    { chunk_text: string }
+  > | null
 }
 
 // ── Vector search (internal) ───────────────────────────────────
@@ -73,7 +78,7 @@ const vectorSearch = async (
         queryEmbedding.byteLength,
       ),
       params.limit,
-    ) as Array<{ note_path: string; chunk_text: string; distance: number }>
+    )
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
@@ -174,23 +179,26 @@ export const fullTextSearch = (
   `
 
   try {
-    const rows = context.db.prepare(sql).all(...queryParams) as Array<
-      Pick<
-        NoteRow,
-        | "path"
-        | "title"
-        | "tags"
-        | "folder"
-        | "type"
-        | "created"
-        | "mtime"
-        | "bytes"
-      > & {
-        snippet: string
-        score: number
-        leading_callout?: string | null
-      }
-    >
+    const rows = context.db
+      .prepare<
+        unknown[],
+        Pick<
+          NoteRow,
+          | "path"
+          | "title"
+          | "tags"
+          | "folder"
+          | "type"
+          | "created"
+          | "mtime"
+          | "bytes"
+        > & {
+          snippet: string
+          score: number
+          leading_callout?: string | null
+        }
+      >(sql)
+      .all(...queryParams)
 
     const results: SearchResult[] = rows.map((row) =>
       noteRowToSearchResult({
@@ -346,7 +354,10 @@ const tryRerank = async (params: {
   query: string
   mergedResults: readonly SearchResult[]
   vectorHitsByPath: ReadonlyMap<string, VectorHit>
-  selectFirstChunkStmt: Database.Statement | null
+  selectFirstChunkStmt: Database.Statement<
+    [string],
+    { chunk_text: string }
+  > | null
   logger: Logger
 }): Promise<{ results: SearchResult[] } | null> => {
   try {
@@ -358,8 +369,7 @@ const tryRerank = async (params: {
 
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
-        const chunkRow = params.selectFirstChunkStmt.get(result.path) as
-          { chunk_text: string } | undefined
+        const chunkRow = params.selectFirstChunkStmt.get(result.path)
         if (chunkRow) return chunkRow.chunk_text
       }
 
@@ -431,7 +441,7 @@ export const searchByTag = (
     LIMIT ?
   `
 
-  const rows = context.db.prepare(sql).all(...queryParams) as NoteRow[]
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
   const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
@@ -466,7 +476,7 @@ export const searchByFolder = (
     LIMIT ?
   `
 
-  const rows = context.db.prepare(sql).all(...queryParams) as NoteRow[]
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
   const results = rows.map(rowToMetadata)
   logger.info("search by folder", {
     folder: params.folder,
@@ -724,7 +734,7 @@ export const listAllTags = (
     GROUP BY value
     ORDER BY count DESC
   `
-  const results = context.db.prepare(sql).all() as TagCount[]
+  const results = context.db.prepare<unknown[], TagCount>(sql).all()
   logger.info("listed all tags", { count: results.length })
   return results
 }
@@ -751,7 +761,7 @@ export const recentNotes = (
     LIMIT ?
   `
 
-  const rows = context.db.prepare(sql).all(limit) as NoteRow[]
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(limit)
   const results = rows.map(rowToMetadata)
   logger.info("recent notes", { sortBy, resultCount: results.length })
   return results
@@ -782,10 +792,9 @@ export const listPropertyKeys = (
   const keySqlParams: Record<string, string> = escapedFolder
     ? { folder: escapedFolder }
     : {}
-  const keyRows = context.db.prepare(keySql).all(keySqlParams) as Array<{
-    key: string
-    count: number
-  }>
+  const keyRows = context.db
+    .prepare<Record<string, unknown>, { key: string; count: number }>(keySql)
+    .all(keySqlParams)
 
   const sampleFolderCondition = escapedFolder
     ? "AND path LIKE @folder || '/%' ESCAPE '\\'"
@@ -811,15 +820,16 @@ export const listPropertyKeys = (
     ORDER BY count DESC
     LIMIT 3
   `
-  const sampleStmt = context.db.prepare(sampleSql)
+  const sampleStmt = context.db.prepare<
+    Record<string, unknown>,
+    { value: string }
+  >(sampleSql)
 
   const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
     const sqlParams: Record<string, string> = escapedFolder
       ? { key: keyRow.key, folder: escapedFolder }
       : { key: keyRow.key }
-    const sampleRows = sampleStmt.all(sqlParams) as Array<{
-      value: string
-    }>
+    const sampleRows = sampleStmt.all(sqlParams)
     return {
       key: keyRow.key,
       count: keyRow.count,
@@ -868,10 +878,12 @@ export const listPropertyValues = (
   const sqlParams: Record<string, unknown> = { key: params.key, limit }
   if (escapedFolder) sqlParams.folder = escapedFolder
 
-  const rows = context.db.prepare(sql).all(sqlParams) as Array<{
-    value: string | number
-    count: number
-  }>
+  const rows = context.db
+    .prepare<
+      Record<string, unknown>,
+      { value: string | number; count: number }
+    >(sql)
+    .all(sqlParams)
   const results = rows.map((row) => ({
     value: String(row.value),
     count: row.count,
@@ -927,7 +939,9 @@ export const searchByProperty = (
   }
   if (escapedFolder) sqlParams.folder = escapedFolder
 
-  const rows = context.db.prepare(sql).all(sqlParams) as NoteRow[]
+  const rows = context.db
+    .prepare<Record<string, unknown>, NoteRow>(sql)
+    .all(sqlParams)
   const results = rows.map(rowToMetadata)
   logger.info("search by property", {
     key: params.key,
@@ -953,11 +967,9 @@ export const getBacklinks = (
     WHERE l.target = ?
     ORDER BY n.title
   `
-  const rows = context.db.prepare(sql).all(params.path) as Array<{
-    path: string
-    title: string
-    bytes: number
-  }>
+  const rows = context.db
+    .prepare<unknown[], { path: string; title: string; bytes: number }>(sql)
+    .all(params.path)
   const results: BacklinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -998,13 +1010,18 @@ export const getOutgoingLinks = (
     WHERE l.source = ?
     ORDER BY l.target
   `
-  const rows = context.db.prepare(sql).all(params.path) as Array<{
-    path: string
-    title: string | null
-    exists_flag: number
-    kind: "note" | "asset"
-    bytes: number | null
-  }>
+  const rows = context.db
+    .prepare<
+      unknown[],
+      {
+        path: string
+        title: string | null
+        exists_flag: number
+        kind: "note" | "asset"
+        bytes: number | null
+      }
+    >(sql)
+    .all(params.path)
   const folder = context.getDailyNotesFolder()
   const folderPrefix = folder !== null ? `${folder}/` : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
@@ -1056,8 +1073,8 @@ export const findOrphans = (
   `
 
   const rows = context.db
-    .prepare(sql)
-    .all(...escapedExcludeFolders, limit) as NoteRow[]
+    .prepare<unknown[], NoteRow>(sql)
+    .all(...escapedExcludeFolders, limit)
   const results = rows.map(rowToMetadata)
   logger.info("find orphans", { count: results.length })
   return results
@@ -1086,26 +1103,28 @@ export const brokenLinkCount = (
 
   if (folder === null) {
     const row = context.db
-      .prepare(
+      .prepare<unknown[], { count: number }>(
         `SELECT COUNT(DISTINCT target) as count
          FROM links
          WHERE target NOT IN (SELECT path FROM notes)
            AND target NOT IN (SELECT path FROM non_md_files)`,
       )
-      .get() as { count: number }
-    logger.info("broken link count", { count: row.count })
-    return { count: row.count, excludedFolder: null, excludedCount: 0 }
+      .get()
+    if (!row) throw new Error("aggregate COUNT query returned no row")
+    const count = row.count
+    logger.info("broken link count", { count })
+    return { count, excludedFolder: null, excludedCount: 0 }
   }
 
   const folderPrefix = `${folder}/`
   const brokenTargets = context.db
-    .prepare(
+    .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target
        FROM links
        WHERE target NOT IN (SELECT path FROM notes)
          AND target NOT IN (SELECT path FROM non_md_files)`,
     )
-    .all() as Array<{ target: string }>
+    .all()
 
   const count = brokenTargets.filter(
     (row) => !row.target.startsWith(folderPrefix),
@@ -1139,8 +1158,8 @@ export const modifiedOnDate = (
     LIMIT ?
   `
   const rows = context.db
-    .prepare(sql)
-    .all(dayStart.toMillis(), dayEnd.toMillis(), limit) as NoteRow[]
+    .prepare<unknown[], NoteRow>(sql)
+    .all(dayStart.toMillis(), dayEnd.toMillis(), limit)
   const results = rows.map(rowToMetadata)
   logger.info("modified on date", {
     date: params.date,
@@ -1165,7 +1184,11 @@ export const vaultStats = (
       COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
     FROM notes
   `
-  const row = context.db.prepare(sql).get() as VaultStats
+  const row = context.db.prepare<unknown[], VaultStats>(sql).get()
+  if (!row) {
+    logger.info("vault stats empty")
+    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
+  }
   logger.info("vault stats", row)
   return row
 }

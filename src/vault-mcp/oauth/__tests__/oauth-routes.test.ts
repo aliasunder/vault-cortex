@@ -166,6 +166,62 @@ describe("OAuth consent token submission", () => {
   )
 })
 
+describe("OAuth consent body validation", () => {
+  let dir: string
+  let server: Server
+  let baseUrl: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "oauth-body-val-"))
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      logger,
+    })
+    const app = express()
+    app.use(router)
+    server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    const { port } = server.address() as AddressInfo
+    baseUrl = `http://localhost:${port}`
+  })
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it("returns 400 for duplicate form fields that produce arrays", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "request_id=a&request_id=b&token=t&action=approve",
+    })
+    expect(response.status).toBe(400)
+    const text = await response.text()
+    expect(text).toBe("Invalid form submission.")
+  })
+
+  it("returns 400 when required fields are missing", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "request_id=a",
+    })
+    expect(response.status).toBe(400)
+    const text = await response.text()
+    expect(text).toBe("Invalid form submission.")
+  })
+})
+
 describe("OAuth consent audit logging", () => {
   let dir: string
   let logs: LogCall[]

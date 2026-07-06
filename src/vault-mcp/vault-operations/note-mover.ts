@@ -355,7 +355,7 @@ const rewriteNoteContent = (
   rewriteLink: RewriteLink,
 ): { content: string; linksRewritten: number } | null => {
   const parsed = parseNote(rawContent)
-  const frontmatter = parsed.data as Record<string, unknown>
+  const frontmatter: Record<string, unknown> = parsed.data
 
   const bodyResult = rewriteBody(parsed.content, rewriteLink)
   const frontmatterResult = rewriteFrontmatterValue(frontmatter, rewriteLink)
@@ -363,10 +363,13 @@ const rewriteNoteContent = (
     bodyResult.linksRewritten + frontmatterResult.linksRewritten
   if (linksRewritten === 0) return null
 
-  const content = stringifyNote(
-    bodyResult.body,
-    frontmatterResult.value as Record<string, unknown>,
-  )
+  const rewrittenData = frontmatterResult.value
+  if (typeof rewrittenData !== "object" || rewrittenData === null) {
+    throw new Error(
+      "rewriteFrontmatterValue returned non-object after rewriting links",
+    )
+  }
+  const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
 }
 

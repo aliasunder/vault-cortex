@@ -338,7 +338,17 @@ throughout the codebase.
 - No `any`. No `as` or `!` (non-null assertion) — both are type
   assertions that bypass the compiler. Use runtime guards (`if (x ===
 undefined) return`) or schema validation to narrow types instead.
-  Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
+  When a library method returns `T | null` but the null case is
+  unreachable (e.g. `DateTime.now().toISO()`), throw on null — never
+  fall back to an empty string or other sentinel. `?? ""` is a code
+  smell: it silently degrades data instead of failing fast, it
+  propagates a meaningless value downstream where it can cause
+  harder-to-debug failures far from the source, it passes the type
+  checker without proving correctness, and it masks the real invariant
+  ("this can't be null") behind an expression that looks like "null is
+  fine, just use empty." A throw documents the invariant explicitly and
+  surfaces the bug immediately if the assumption ever breaks.
+- Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative

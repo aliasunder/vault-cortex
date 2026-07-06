@@ -74,7 +74,7 @@ const readNoteForPatch = async (
     const parsed = parseNote(fileContent)
     return {
       fullPath,
-      data: parsed.data as Record<string, unknown>,
+      data: parsed.data,
       // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
       // so body matching and blank-run collapse (collapseBlankRuns) stay
       // consistent, and the note is rewritten as LF.

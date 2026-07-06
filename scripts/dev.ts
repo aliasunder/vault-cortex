@@ -27,7 +27,10 @@ const loadDotEnv = (): Record<string, string> => {
   const out: Record<string, string> = {}
   for (const line of readFileSync(ENV_PATH, "utf8").split("\n")) {
     const match = /^([A-Z0-9_]+)=(.*)$/i.exec(line.trim())
-    if (match) out[match[1]!] = match[2]!.replace(/^['"]|['"]$/g, "")
+    const key = match?.[1]
+    const value = match?.[2]
+    if (key !== undefined && value !== undefined)
+      out[key] = value.replace(/^['"]|['"]$/g, "")
   }
   return out
 }

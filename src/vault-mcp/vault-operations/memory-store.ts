@@ -137,12 +137,13 @@ const countDatedEntries = (
  * sole consumer, listMemoryFiles, discards the H1's), so the H1 — whose span runs
  * to EOF — is not scanned.
  */
-const parseSections = (lines: readonly string[]): ParsedSection[] =>
-  parseHeadings(lines)
-    .filter((heading) => heading.level <= 2)
-    .map((heading) => ({
+const parseSections = (lines: readonly string[]): ParsedSection[] => {
+  const sections: ParsedSection[] = []
+  for (const heading of parseHeadings(lines)) {
+    if (heading.level !== 1 && heading.level !== 2) continue
+    sections.push({
       heading: heading.text,
-      level: heading.level as 1 | 2,
+      level: heading.level,
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
@@ -150,7 +151,10 @@ const parseSections = (lines: readonly string[]): ParsedSection[] =>
         heading.level === 2
           ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine)
           : 0,
-    }))
+    })
+  }
+  return sections
+}
 
 /** Case-insensitive section lookup by heading text. */
 const findSection = (
@@ -755,7 +759,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if (!isErrnoException(err, "ENOENT")) throw err
     }
     await mkdir(dirPath, { recursive: true })
-    const created = DateTime.now().toISO()!
+    const created = DateTime.now().toISO()
+    if (!created) {
+      throw new Error("DateTime.now().toISO() returned null")
+    }
     const templates = MEMORY_TEMPLATE_SPECS.map((spec) =>
       renderMemoryTemplate(spec, created),
     )

@@ -32,11 +32,27 @@ export const signJwt = (payload: JwtPayload, secret: string): string => {
   return `${body}.${hmac(body, secret)}`
 }
 
+const isJwtPayload = (value: unknown): value is JwtPayload => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "sub" in value &&
+    typeof value.sub === "string" &&
+    "scope" in value &&
+    typeof value.scope === "string" &&
+    "exp" in value &&
+    typeof value.exp === "number" &&
+    "iss" in value &&
+    typeof value.iss === "string"
+  )
+}
+
 export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
+  // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
+  const [header, payload, sig] = parts
 
-  const [header, payload, sig] = parts as [string, string, string]
   const expected = hmac(`${header}.${payload}`, secret)
 
   const sigBuf = Buffer.from(sig, "base64url")
@@ -45,13 +61,12 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
   if (!timingSafeEqual(sigBuf, expBuf)) return null
 
   try {
-    const decoded = JSON.parse(
+    const decoded: unknown = JSON.parse(
       Buffer.from(payload, "base64url").toString(),
-    ) as JwtPayload
+    )
+    if (!isJwtPayload(decoded)) return null
     // Reject expired tokens (exp is Unix seconds)
-    if (typeof decoded.exp === "number" && decoded.exp < Date.now() / 1000) {
-      return null
-    }
+    if (decoded.exp < Date.now() / 1000) return null
     return decoded
   } catch {
     return null

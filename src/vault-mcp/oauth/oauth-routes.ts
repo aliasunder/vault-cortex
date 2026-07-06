@@ -65,7 +65,16 @@ export const createOAuthRoutes = ({
     "/oauth/decide",
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
-      const { request_id, token, action } = req.body as Record<string, string>
+      const body: Record<string, unknown> = req.body
+      const { request_id, token, action } = body
+      const hasStringFields =
+        typeof request_id === "string" &&
+        typeof token === "string" &&
+        typeof action === "string"
+      if (!hasStringFields) {
+        res.status(400).send("Invalid form submission.")
+        return
+      }
       const clientIp = extractClientIp(req)
       const pending = getPendingRequest(
         request_id,
