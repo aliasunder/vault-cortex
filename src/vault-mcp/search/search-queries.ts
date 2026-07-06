@@ -1164,7 +1164,7 @@ export const brokenLinkCount = (
  *  (server-local day boundaries, governed by the TZ env var). */
 export const modifiedOnDate = (
   context: SearchQueryContext,
-  params: { date: string; limit?: number },
+  params: { date: string; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
