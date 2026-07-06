@@ -579,8 +579,8 @@ const TASK_ORDER_BY: Record<
     `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction ?? "ASC"}`,
   note_mtime: (direction) => `n.mtime ${direction ?? "DESC"}`,
   position: (direction) => {
-    const d = direction ?? "ASC"
-    return `n.path ${d}, t.line ${d}`
+    const sortDirection = direction ?? "ASC"
+    return `n.path ${sortDirection}, t.line ${sortDirection}`
   },
 }
 
