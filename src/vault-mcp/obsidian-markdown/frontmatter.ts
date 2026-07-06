@@ -20,7 +20,10 @@ const MATTER_OPTIONS = {
         // YAML.parse returns null for empty/comment-only input; gray-matter
         // expects an object for `data`
         const parsed: unknown = parseYaml(input)
-        return (parsed ?? {}) as Record<string, unknown>
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          return {}
+        }
+        return parsed
       },
       stringify: (data: object): string =>
         stringifyYaml(data, { lineWidth: 0, nullStr: "" }),

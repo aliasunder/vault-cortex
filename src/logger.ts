@@ -30,17 +30,26 @@ const LEVELS: Record<LogLevel, number> = {
   error: 3,
 }
 
-const threshold =
-  LEVELS[(env.LOG_LEVEL ?? "info").toLowerCase() as LogLevel] ?? LEVELS.info
+const isLogLevel = (value: string): value is LogLevel => value in LEVELS
+
+const envLevel = (env.LOG_LEVEL ?? "info").toLowerCase()
+const threshold = isLogLevel(envLevel) ? LEVELS[envLevel] : LEVELS.info
 
 /** Extracts "filename.ts:line" from the call stack — the frame that called the log method. */
 const getCallerSource = (): string => {
   const original = Error.prepareStackTrace
-  Error.prepareStackTrace = (_err, stack) => stack
-  const stack = new Error().stack as unknown as NodeJS.CallSite[]
+  // Mutable — captured by the prepareStackTrace callback, which V8 calls during .stack access
+  let capturedStack: NodeJS.CallSite[] | undefined
+  Error.prepareStackTrace = (_err, callSites) => {
+    capturedStack = callSites
+    return callSites
+  }
+  void new Error().stack
   Error.prepareStackTrace = original
+
+  if (!capturedStack) return "unknown"
   // V8 stack: [0] getCallerSource → [1] emit → [2] debug/info/warn/error → [3] actual caller
-  const frame = stack[3]
+  const frame = capturedStack[3]
   if (!frame) return "unknown"
   const file = frame.getFileName()?.split("/").pop() ?? "unknown"
   return `${file}:${frame.getLineNumber()}`

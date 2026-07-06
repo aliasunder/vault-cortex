@@ -65,7 +65,7 @@ export const createOAuthRoutes = ({
     "/oauth/decide",
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
-      const { request_id, token, action } = req.body as Record<string, string>
+      const { request_id, token, action }: Record<string, string> = req.body
       const clientIp = extractClientIp(req)
       const pending = getPendingRequest(
         request_id,

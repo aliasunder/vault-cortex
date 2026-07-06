@@ -83,10 +83,7 @@ export const readDailyNotesConfig = async (
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
     )
-    const parsedConfig = JSON.parse(configFileContent) as Record<
-      string,
-      unknown
-    >
+    const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
     cachedConfig = {
       folder:
         typeof parsedConfig.folder === "string" &&

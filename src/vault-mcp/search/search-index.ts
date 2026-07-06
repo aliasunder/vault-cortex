@@ -243,9 +243,9 @@ export const createSearchIndex = (
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
   // that lacks the metadata column, drop the table so the CREATE below rebuilds
   // it with the new schema. rebuildFromVault repopulates on every startup.
-  const ftsColumns = db.prepare("PRAGMA table_info(notes_fts)").all() as Array<{
-    name: string
-  }>
+  const ftsColumns = db
+    .prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)")
+    .all()
   if (
     ftsColumns.length > 0 &&
     !ftsColumns.some((column) => column.name === "metadata")
@@ -344,9 +344,9 @@ export const createSearchIndex = (
   // (and the upsert below would throw). Add it idempotently when absent. The
   // column is not FTS-indexed — the callout text already lives in `content`, so
   // it's searchable; this column only stores the parsed block for cheap retrieval.
-  const noteColumns = db.prepare(`PRAGMA table_info(notes)`).all() as Array<{
-    name: string
-  }>
+  const noteColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(notes)`)
+    .all()
   if (!noteColumns.some((column) => column.name === "leading_callout")) {
     db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
   }
@@ -389,7 +389,10 @@ export const createSearchIndex = (
   // Links whose target isn't a known note or non-md file — stored as raw text
   // because they were unresolved when indexed (e.g. a forward reference).
   // Used by both note and non-md re-resolution to find candidates to upgrade.
-  const selectUnresolvedLinksStmt = db.prepare(
+  const selectUnresolvedLinksStmt = db.prepare<
+    unknown[],
+    { source: string; target: string }
+  >(
     `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
   )
   // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
@@ -441,7 +444,7 @@ export const createSearchIndex = (
       )
     : null
   const selectChunkHashesStmt = embedder
-    ? db.prepare(
+    ? db.prepare<unknown[], { chunk_index: number; content_hash: string }>(
         `SELECT chunk_index, content_hash FROM note_chunks WHERE note_path = ?`,
       )
     : null
@@ -599,10 +602,7 @@ export const createSearchIndex = (
 
     // Re-resolve unresolved links that now match this non-md file — upgrade
     // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
-    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
-      source: string
-      target: string
-    }>
+    const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
       const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
       if (resolvedPath !== null) {
@@ -727,9 +727,9 @@ export const createSearchIndex = (
 
     if (skipLinks) return
 
-    const allPaths = db.prepare("SELECT path FROM notes").all() as Array<{
-      path: string
-    }>
+    const allPaths = db
+      .prepare<unknown[], { path: string }>("SELECT path FROM notes")
+      .all()
     const pathList = allPaths.map((row) => row.path)
 
     deleteLinksStmt.run(note.path)
@@ -747,10 +747,7 @@ export const createSearchIndex = (
     // Re-run resolveLink with each link's own source so every form upgrades
     // uniformly — basename, full path, and source-relative ("../") — covering
     // Obsidian's "link first, create the note later" workflow.
-    const unresolvedLinks = selectUnresolvedLinksStmt.all() as Array<{
-      source: string
-      target: string
-    }>
+    const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
       const resolved = links.resolve(link.target, pathList, link.source)
       if (resolved !== null) {
@@ -793,12 +790,9 @@ export const createSearchIndex = (
 
     // Load existing hashes for content-hash gating
     const existingHashes = new Map(
-      (
-        selectChunkHashesStmt.all(notePath) as Array<{
-          chunk_index: number
-          content_hash: string
-        }>
-      ).map((row) => [row.chunk_index, row.content_hash]),
+      selectChunkHashesStmt
+        .all(notePath)
+        .map((row) => [row.chunk_index, row.content_hash]),
     )
 
     // Counter tracking how many chunks were actually (re-)embedded — returned for logging
@@ -1018,11 +1012,12 @@ export const createSearchIndex = (
           const currentPaths = new Set(
             notesForEmbedding.map((note) => note.relativePath),
           )
-          const indexedChunkPaths = (
-            db
-              .prepare("SELECT DISTINCT note_path FROM note_chunks")
-              .all() as Array<{ note_path: string }>
-          ).map((row) => row.note_path)
+          const indexedChunkPaths = db
+            .prepare<unknown[], { note_path: string }>(
+              "SELECT DISTINCT note_path FROM note_chunks",
+            )
+            .all()
+            .map((row) => row.note_path)
 
           const deletedPaths = indexedChunkPaths.filter(
             (path) => !currentPaths.has(path),

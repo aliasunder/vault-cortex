@@ -104,11 +104,13 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     const row = this.db
-      .prepare("SELECT data FROM clients WHERE client_id = ?")
-      .get(clientId) as { data: string } | undefined
-    return row
-      ? (JSON.parse(row.data) as OAuthClientInformationFull)
-      : undefined
+      .prepare<unknown[], { data: string }>(
+        "SELECT data FROM clients WHERE client_id = ?",
+      )
+      .get(clientId)
+    if (!row) return undefined
+    const parsed: OAuthClientInformationFull = JSON.parse(row.data)
+    return parsed
   }
 
   registerClient(
