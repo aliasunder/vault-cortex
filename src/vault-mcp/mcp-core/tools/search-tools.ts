@@ -750,7 +750,7 @@ Parameters:
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
 - folder: note path prefix (e.g. "Code Projects/vault-cortex"). tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text, case-sensitive (a Kanban lane name). path: one note, must end in ".md".
-- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. "position" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.
+- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created; scheduled, start, and created cascade similarly through the remaining date fields. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. "done" does not cascade — it sorts by done date alone, with a modified-time tiebreaker for undated tasks. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. "position" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.
 - limit: max results (default 50). The total field always reports the full match count, so "50 of 338" is distinguishable from "all 50".
 
 Errors:
@@ -834,7 +834,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            'Sort direction. Default per field: "asc" for due/scheduled/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
+            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
       annotations: {
