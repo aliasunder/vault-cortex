@@ -137,6 +137,7 @@ export type TaskRow = {
   block_id: string | null
   heading: string | null
   folder: string
+  is_kanban_task: number
 }
 
 /** One task on the wire — snake_case multi-word fields match the JSON
@@ -163,6 +164,7 @@ export type TaskEntry = {
   depends_on: string[]
   tags: string[]
   block_id: string | null
+  is_kanban_task: boolean
 }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers

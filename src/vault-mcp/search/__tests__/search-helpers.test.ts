@@ -162,6 +162,7 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   block_id: null,
   heading: "Tasks",
   folder: "Projects/Alpha",
+  is_kanban_task: 0,
   ...overrides,
 })
 
@@ -245,6 +246,7 @@ describe("rowToTaskEntry", () => {
       depends_on: ["def456"],
       tags: ["bug"],
       block_id: null,
+      is_kanban_task: false,
     })
   })
 

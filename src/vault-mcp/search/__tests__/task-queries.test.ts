@@ -107,6 +107,7 @@ describe("task indexing lifecycle", () => {
       depends_on: [],
       tags: [],
       block_id: "fix-login",
+      is_kanban_task: true,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
   })
@@ -145,6 +146,7 @@ describe("task indexing lifecycle", () => {
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
       block_id: null,
+      is_kanban_task: false,
     }
     expect(result.tasks).toEqual([expectedEntry])
   })
@@ -179,6 +181,30 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({}, logger)
     expect(result.tasks.map((entry) => entry.folder)).toEqual([""])
+  })
+
+  it("marks tasks from kanban-plugin notes as is_kanban_task true", () => {
+    const result = indexWithBoardAndPlain().listTasks({ status: "all" }, logger)
+    const boardTasks = result.tasks.filter(
+      (entry) => entry.path === "Projects/board.md",
+    )
+
+    expect(boardTasks).toHaveLength(4)
+    expect(boardTasks.every((entry) => entry.is_kanban_task === true)).toBe(
+      true,
+    )
+  })
+
+  it("marks tasks from plain notes as is_kanban_task false", () => {
+    const result = indexWithBoardAndPlain().listTasks({ status: "all" }, logger)
+    const plainTasks = result.tasks.filter(
+      (entry) => entry.path === "Inbox/notes.md",
+    )
+
+    expect(plainTasks).toHaveLength(2)
+    expect(plainTasks.every((entry) => entry.is_kanban_task === false)).toBe(
+      true,
+    )
   })
 
   it("replaces a note's tasks on re-upsert instead of accumulating them", () => {
