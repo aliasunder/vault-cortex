@@ -81,11 +81,11 @@ export const parseLeadingCallout = (
     openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null
   if (!openerMatch) return null
 
-  const capturedType = openerMatch[1]
-  const capturedTitle = openerMatch[3]
-  if (capturedType === undefined || capturedTitle === undefined) return null
-  const type = capturedType.toLowerCase()
-  const title = capturedTitle.trim()
+  const matchedType = openerMatch[1]
+  const matchedTitle = openerMatch[3]
+  if (matchedType === undefined || matchedTitle === undefined) return null
+  const type = matchedType.toLowerCase()
+  const title = matchedTitle.trim()
 
   // Body = consecutive `>` lines after the opener, until the next callout
   // opener (stacked callout), a non-blockquote line (incl. a blank line), or EOF.
