@@ -643,7 +643,7 @@ export const listTasks = (
   const isAllStatuses = ALL_REAL_STATUSES.every((real) =>
     expandedStatuses.includes(real),
   )
-  if (!isAllStatuses) {
+  if (!isAllStatuses && expandedStatuses.length > 0) {
     conditions.push(
       `t.status IN (${expandedStatuses.map(() => "?").join(", ")})`,
     )
@@ -719,8 +719,10 @@ export const listTasks = (
     const headings = Array.isArray(params.heading)
       ? params.heading
       : [params.heading]
-    conditions.push(`t.heading IN (${headings.map(() => "?").join(", ")})`)
-    queryParams.push(...headings)
+    if (headings.length > 0) {
+      conditions.push(`t.heading IN (${headings.map(() => "?").join(", ")})`)
+      queryParams.push(...headings)
+    }
   }
 
   if (params.path !== undefined) {
