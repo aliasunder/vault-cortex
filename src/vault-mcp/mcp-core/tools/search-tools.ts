@@ -738,7 +738,9 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
 Example: vault_list_tasks({ folder: "Code Projects/vault-cortex", heading: "Active" }) — one project's Active Kanban lane
+Example: vault_list_tasks({ folder: "Code Projects/vault-cortex", heading: ["Active", "Up Next", "Waiting On"] }) — one project's actionable Kanban lanes in one call
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
+Example: vault_list_tasks({ status: ["todo", "in_progress"] }) — explicit equivalent of "not_done"
 Example: vault_list_tasks({ priority: ["highest", "high"], sort_by: "priority" }) — most urgent open work first
 Example: vault_list_tasks({ path: "TASKS.md", sort_by: "position" }) — tasks in file order (Kanban card position)
 
@@ -746,10 +748,10 @@ When to use: Any vault-wide task triage question — "what's overdue?", "what's 
 Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
 
 Parameters:
-- status: "not_done" (default — todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", or "all". Checkbox chars map to statuses the way the Tasks plugin maps them: " " todo, "/" in_progress, "x"/"X" done, "-" cancelled, any other char todo.
+- status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done. Checkbox chars map to statuses the way the Tasks plugin maps them: " " todo, "/" in_progress, "x"/"X" done, "-" cancelled, any other char todo.
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
-- folder: note path prefix (e.g. "Code Projects/vault-cortex"). tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text, case-sensitive (a Kanban lane name). path: one note, must end in ".md".
+- folder: note path prefix (e.g. "Code Projects/vault-cortex"). tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text or array of headings, case-sensitive, OR-combined (e.g. ["Active", "Up Next"] returns tasks under either heading — useful for querying multiple Kanban lanes at once). path: one note, must end in ".md".
 - sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created; scheduled, start, and created cascade similarly through the remaining date fields. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. "done" does not cascade — it sorts by done date alone, with a modified-time tiebreaker for undated tasks. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. "position" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.
 - limit: max results (default 50). The total field always reports the full match count, so "50 of 338" is distinguishable from "all 50".
 
@@ -761,10 +763,31 @@ Errors:
 Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
-          .enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])
+          .union([
+            z.enum([
+              "not_done",
+              "todo",
+              "in_progress",
+              "done",
+              "cancelled",
+              "all",
+            ]),
+            z
+              .array(
+                z.enum([
+                  "not_done",
+                  "todo",
+                  "in_progress",
+                  "done",
+                  "cancelled",
+                  "all",
+                ]),
+              )
+              .min(1),
+          ])
           .optional()
           .describe(
-            'Status filter (default "not_done" = todo + in_progress, excluding done and cancelled)',
+            'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
           ),
         due: taskDateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
         scheduled: taskDateFilterSchema.describe(
@@ -803,11 +826,10 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
             'Inline task tag, bare name without "#"; parent tags match children',
           ),
         heading: z
-          .string()
-          .min(1)
+          .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
           .optional()
           .describe(
-            'Exact heading text above the task (case-sensitive) — a Kanban lane name (e.g. "Active")',
+            'Exact heading text or array of headings, OR-combined, case-sensitive (e.g. "Active" or ["Active", "Up Next"])',
           ),
         path: z
           .string()

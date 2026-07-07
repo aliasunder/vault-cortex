@@ -1068,3 +1068,160 @@ describe("listTasks sorting and paging", () => {
     ])
   })
 })
+
+describe("listTasks array params", () => {
+  /** A Kanban board with four lanes for testing multi-heading filters. */
+  const MULTI_LANE_BOARD = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [/] Implement feature ➕ 2026-07-01
+
+## Up Next
+
+- [ ] Write docs ➕ 2026-07-02
+
+## Waiting On
+
+- [ ] Blocked on review ➕ 2026-07-03
+
+## Someday
+
+- [ ] Nice to have ➕ 2026-07-04
+`
+
+  const indexWithMultiLaneBoard = () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "Projects/board.md",
+        rawContent: MULTI_LANE_BOARD,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    return index
+  }
+
+  // ── heading array ──
+
+  it("accepts a single-element heading array, equivalent to a scalar", () => {
+    const index = indexWithMultiLaneBoard()
+    const arrayResult = index.listTasks(
+      { status: "all", heading: ["Active"] },
+      logger,
+    )
+    const scalarResult = index.listTasks(
+      { status: "all", heading: "Active" },
+      logger,
+    )
+    expect(arrayResult).toEqual(scalarResult)
+    expect(arrayResult.tasks).toHaveLength(1)
+    expect(arrayResult.tasks[0]?.description).toBe("Implement feature")
+  })
+
+  it("returns tasks from multiple headings, excluding unselected lanes", () => {
+    const index = indexWithMultiLaneBoard()
+    const result = index.listTasks(
+      { status: "all", heading: ["Active", "Up Next", "Waiting On"] },
+      logger,
+    )
+    // Default sort is due ASC; all dateless, so cascade falls through to
+    // created DESC (newest first): 07-03 → 07-02 → 07-01.
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Blocked on review",
+      "Write docs",
+      "Implement feature",
+    ])
+    expect(result.total).toBe(3)
+  })
+
+  it("excludes tasks under headings not in the array", () => {
+    const index = indexWithMultiLaneBoard()
+    const result = index.listTasks(
+      { status: "all", heading: ["Active", "Up Next"] },
+      logger,
+    )
+    // Exact match proves inclusion of Active + Up Next AND exclusion of
+    // Someday + Waiting On — a vacuous empty result cannot satisfy this.
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Write docs",
+      "Implement feature",
+    ])
+  })
+
+  // ── status array ──
+
+  it("accepts an array of real statuses, OR-combined", () => {
+    const index = indexWithBoard()
+    const result = index.listTasks({ status: ["done", "cancelled"] }, logger)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Old idea",
+      "Ship release",
+    ])
+  })
+
+  it("treats a single-element status array as equivalent to the scalar", () => {
+    const index = indexWithBoard()
+    const arrayResult = index.listTasks({ status: ["todo"] }, logger)
+    const scalarResult = index.listTasks({ status: "todo" }, logger)
+    expect(arrayResult).toEqual(scalarResult)
+  })
+
+  it("expands not_done in an array to todo + in_progress", () => {
+    const index = indexWithBoard()
+    const result = index.listTasks({ status: ["not_done", "done"] }, logger)
+    // Exact ordered match: due ASC puts Fix login bug first (due 2026-07-01),
+    // then dateless tasks cascade through related dates.
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+      "Write tests",
+      "Ship release",
+    ])
+  })
+
+  it("deduplicates when not_done overlaps with an explicit status", () => {
+    const index = indexWithBoard()
+    const result = index.listTasks({ status: ["not_done", "todo"] }, logger)
+    // not_done expands to todo + in_progress; the explicit "todo" is a duplicate
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+      "Write tests",
+    ])
+  })
+
+  it("treats all in an array as a no-filter, returning every status", () => {
+    const index = indexWithBoard()
+    const arrayResult = index.listTasks({ status: ["all"] }, logger)
+    const scalarResult = index.listTasks({ status: "all" }, logger)
+    expect(arrayResult).toEqual(scalarResult)
+    expect(arrayResult.tasks).toHaveLength(4)
+  })
+
+  it("matches explicit real statuses equivalent to not_done", () => {
+    const index = indexWithBoard()
+    const arrayResult = index.listTasks(
+      { status: ["todo", "in_progress"] },
+      logger,
+    )
+    const defaultResult = index.listTasks({}, logger)
+    expect(arrayResult).toEqual(defaultResult)
+  })
+
+  // ── combined array filters ──
+
+  it("AND-combines heading array with status array", () => {
+    const index = indexWithMultiLaneBoard()
+    const result = index.listTasks(
+      { heading: ["Active", "Someday"], status: ["todo"] },
+      logger,
+    )
+    // Only "Nice to have" is todo under Active or Someday;
+    // "Implement feature" is in_progress so excluded by status filter
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Nice to have",
+    ])
+  })
+})

@@ -600,7 +600,7 @@ const TASK_ORDER_BY: Record<
 export const listTasks = (
   context: SearchQueryContext,
   params: {
-    status?: TaskStatusFilter | undefined
+    status?: TaskStatusFilter | TaskStatusFilter[] | undefined
     due?: TaskDateFilter | undefined
     scheduled?: TaskDateFilter | undefined
     start?: TaskDateFilter | undefined
@@ -610,7 +610,7 @@ export const listTasks = (
     priority?: TaskPriorityFilter[] | undefined
     folder?: string | undefined
     tag?: string | undefined
-    heading?: string | undefined
+    heading?: string | string[] | undefined
     path?: string | undefined
     limit?: number | undefined
     sortBy?: TaskSortKey | undefined
@@ -621,12 +621,34 @@ export const listTasks = (
   const conditions: string[] = []
   const queryParams: unknown[] = []
 
-  const status = params.status ?? "not_done"
-  if (status === "not_done") {
-    conditions.push("t.status IN ('todo', 'in_progress')")
-  } else if (status !== "all") {
-    conditions.push("t.status = ?")
-    queryParams.push(status)
+  // Normalize status to concrete DB values (todo/in_progress/done/cancelled),
+  // expanding virtual values: not_done → todo + in_progress, all → skip the filter.
+  const statusInput = params.status ?? "not_done"
+  const statusValues = Array.isArray(statusInput) ? statusInput : [statusInput]
+  const CONCRETE_STATUSES = [
+    "todo",
+    "in_progress",
+    "done",
+    "cancelled",
+  ] as const
+  // Expand virtual values to concrete DB statuses, then deduplicate so
+  // ["not_done", "todo"] doesn't double-bind "todo" in the IN clause.
+  const statusValuesWithExpansions = statusValues.flatMap((value) => {
+    if (value === "all") return [...CONCRETE_STATUSES]
+    if (value === "not_done") return ["todo", "in_progress"] as const
+    return [value]
+  })
+  const expandedStatusValues = [...new Set(statusValuesWithExpansions)]
+  const coversAllStatuses = CONCRETE_STATUSES.every((status) =>
+    expandedStatusValues.includes(status),
+  )
+  const needsStatusFilter =
+    expandedStatusValues.length > 0 && !coversAllStatuses
+  if (needsStatusFilter) {
+    conditions.push(
+      `t.status IN (${expandedStatusValues.map(() => "?").join(", ")})`,
+    )
+    queryParams.push(...expandedStatusValues)
   }
 
   // A date filter only ever matches tasks that HAVE that date — SQL comparison
@@ -695,8 +717,13 @@ export const listTasks = (
   }
 
   if (params.heading !== undefined) {
-    conditions.push("t.heading = ?")
-    queryParams.push(params.heading)
+    const headings = Array.isArray(params.heading)
+      ? params.heading
+      : [params.heading]
+    if (headings.length > 0) {
+      conditions.push(`t.heading IN (${headings.map(() => "?").join(", ")})`)
+      queryParams.push(...headings)
+    }
   }
 
   if (params.path !== undefined) {
@@ -744,7 +771,7 @@ export const listTasks = (
   const taskEntries = rows.map(rowToTaskEntry)
 
   logger.info("list tasks", {
-    status,
+    status: statusInput,
     sortBy,
     resultCount: taskEntries.length,
     total,
