@@ -43,8 +43,10 @@ mechanism-level detail.
 
 ### TOCTOU race prevention
 
-- `atomicWriteFileExclusive()` uses `link()` (POSIX no-clobber) to
-  atomically create the destination — no check-then-write window
+- `atomicWriteFileExclusive()` uses `link()` on POSIX, or an `O_EXCL`
+  reserve + rename fallback when hard links are unavailable (Windows-drive
+  Docker bind mounts), to atomically create the destination — no
+  check-then-write window
 - `moveNote` reads and plans every rewrite before writing anything;
   existence checks run inside the lock so the vault state is stable
   during the entire read-plan-write span
