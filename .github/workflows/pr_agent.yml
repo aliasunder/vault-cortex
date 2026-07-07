@@ -37,7 +37,7 @@ jobs:
           # through OpenRouter to OpenAI — unexpected model and unexpected charges.
           # Override to keep everything on the configured provider.
           config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
-          github_action_config.auto_review: "true"
+          github_action_config.auto_review: "false"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
           pr_reviewer.extra_instructions: >-
@@ -45,11 +45,14 @@ jobs:
             code style rules, naming conventions, test conventions, and module layering.
             Review against those conventions — they take priority over general best practices.
             Flag violations of the AGENTS.md rules explicitly.
-          pr_reviewer.require_can_be_reviewed: "true"
           pr_reviewer.persistent_comment: "false"
           pr_reviewer.remove_previous_review_comment: "false"
+          pr_code_suggestions.extra_instructions: >-
+            Read AGENTS.md in the repo root for this project's coding conventions,
+            code style rules, naming conventions, test conventions, and module layering.
+            Review against those conventions — they take priority over general best practices.
+            Flag violations of the AGENTS.md rules explicitly.
           # Default (-1) posts suggestions only as conversation comments.
           # Threshold >= 0 also posts them as inline review comments on the diff
           # for suggestions at or above that score (0-10 scale).
-          pr_code_suggestions.dual_publishing_score_threshold: "4"
-          pr_description.enable_pr_description: "false"
+          pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
