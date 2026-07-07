@@ -119,6 +119,51 @@ describe("parseHeadings", () => {
   it("returns an empty array when there are no headings", () => {
     expect(parseHeadings(["just", "prose"])).toEqual([])
   })
+
+  // ── comment-block awareness ───────────────────────────────────
+
+  it("ignores headings inside a %% %% comment block", () => {
+    const lines = ["# Real", "%%", "## Hidden", "%%", "## Also real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+      "Also real",
+    ])
+  })
+
+  it("recognizes a heading after a comment block closes", () => {
+    const lines = ["%%", "## Hidden", "%%", "## Visible"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Visible",
+    ])
+  })
+
+  it("does not open a fence inside a comment block", () => {
+    const lines = [
+      "%%",
+      "```",
+      "## Hidden inside comment",
+      "```",
+      "%%",
+      "## Visible",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Visible",
+    ])
+  })
+
+  it("does not toggle comment state inside a fenced code block", () => {
+    const lines = [
+      "```",
+      "%%",
+      "## Hidden inside fence",
+      "%%",
+      "```",
+      "## Real",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+    ])
+  })
 })
 
 describe("findHeading", () => {

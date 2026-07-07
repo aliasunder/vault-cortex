@@ -18,7 +18,12 @@
  *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
 
 import { DateTime } from "luxon"
-import { advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
+import {
+  advanceComment,
+  advanceFence,
+  type OpenFence,
+  splitIntoLines,
+} from "./lines.js"
 import { parseHeadings } from "./headings.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -426,9 +431,10 @@ const findBodyStartLine = (lines: readonly string[]): number => {
 
 /** Extracts every task line from raw note content (frontmatter included — it
  *  is skipped here so reported line numbers stay file-relative). Lines inside
- *  fenced code blocks are excluded via the shared fence state machine. Each
- *  task carries the text of the nearest heading above it (its Kanban lane on
- *  a board), or null before the first heading. */
+ *  fenced code blocks and `%% %%` comment blocks are excluded via the shared
+ *  fence and comment state machines. Each task carries the text of the nearest
+ *  heading above it (its Kanban lane on a board), or null before the first
+ *  heading. */
 const extractTasks = (rawContent: string): ParsedTask[] => {
   const allLines = splitIntoLines(rawContent)
   const bodyStartLine = findBodyStartLine(allLines)
@@ -436,15 +442,26 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   const headings = parseHeadings(bodyLines)
 
   const extractedTasks: ParsedTask[] = []
-  // A fenced-code scan is inherently sequential, so the open fence threads
-  // through the loop mutably (same pattern as classifyLines).
+  // Fence and comment scans are inherently sequential — both thread mutable
+  // state across the loop (same pattern as classifyLines).
   let openFence: OpenFence = null
+  let commentOpen = false
   for (let lineIndex = 0; lineIndex < bodyLines.length; lineIndex++) {
     const lineText = bodyLines[lineIndex]
     if (lineText === undefined) continue
-    const fenceResult = advanceFence(lineText, openFence)
-    openFence = fenceResult.openFence
-    if (fenceResult.lineIsCode) continue
+
+    // Fence/comment precedence: fence state advances only outside comments
+    // (inside a comment, fence delimiters are just text). Comment toggles
+    // run only outside fences (inside a fence, `%%` is just text).
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+      if (fenceResult.lineIsCode) continue
+    }
+
+    const commentResult = advanceComment(lineText, commentOpen)
+    commentOpen = commentResult.commentOpen
+    if (commentResult.lineIsComment) continue
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
     if (taskLineMatch === null) continue
