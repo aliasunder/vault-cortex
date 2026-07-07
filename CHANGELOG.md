@@ -27,6 +27,14 @@
 
 
 
+
+## [0.26.6] — 2026-07-07
+
+### Documentation
+
+- **search:** Fix vault_list_tasks Kanban examples and clarify folder scope (#280)
+- Update CHANGELOG.md for v0.26.5
+
 ## [0.26.5] — 2026-07-07
 
 ### Features
