@@ -1,12 +1,10 @@
-/** Low-level Markdown line and fenced-code primitives, shared across the parsing
- *  domain: the link grammar (links.ts), the heading/section parser (headings.ts),
- *  and — via splitIntoLines — the note-editing layer that turns raw note content
- *  into lines.
+/** Low-level Markdown line primitives shared across the parsing domain: the link
+ *  grammar (links.ts), the heading/section parser (headings.ts), and — via
+ *  splitIntoLines — the note-editing layer that turns raw note content into lines.
  *
- *  This is the single home of the CommonMark §4.5 fenced-code state machine
- *  (advanceFence). classifyLines (a content -> {text, inCode} generator) and the
- *  heading parser both thread their fence state through advanceFence, so they can
- *  never disagree about where a code fence opens or closes. */
+ *  Two per-line state machines live here — advanceFence (CommonMark §4.5 fenced-code)
+ *  and advanceComment (Obsidian `%% %%` comments) — so every consumer threads the
+ *  same logic and they can never disagree about where code or comments begin. */
 
 // ── Line splitting ──────────────────────────────────────────────
 
@@ -152,6 +150,61 @@ export const advanceFence = (
     openFence: closesFence ? null : openFence,
     isFenceDelimiter: true,
     lineIsCode: true,
+  }
+}
+
+// ── Obsidian comment state machine ─────────────────────────────
+
+/** Obsidian comment delimiter — toggles comment state when it occurs at a
+ *  line boundary (start or end of trimmed line). Mid-line `%%` (e.g. `100%%`
+ *  embedded in card text) is not a delimiter. */
+export const COMMENT_DELIMITER = "%%"
+
+/**
+ * Counts how many comment-state toggles a single line produces. Obsidian
+ * treats `%%` as a comment delimiter only at line boundaries — mid-line
+ * occurrences like `100%%` or `text %% mid` do not toggle state.
+ *
+ * Returns 0, 1, or 2:
+ * - 0 — trimmed line has no `%%` at start or end
+ * - 1 — trimmed line is exactly `%%`, OR starts XOR ends with `%%`
+ * - 2 — trimmed line both starts and ends with `%%` (inline `%% comment %%`)
+ */
+const countCommentToggles = (line: string): number => {
+  const trimmed = line.trim()
+  if (trimmed === COMMENT_DELIMITER) return 1
+  const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER)
+  const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER)
+  return (startsWithDelimiter ? 1 : 0) + (endsWithDelimiter ? 1 : 0)
+}
+
+export type CommentResult = {
+  commentOpen: boolean
+  lineIsComment: boolean
+}
+
+/** Advances the Obsidian `%% %%` comment state machine by one line — the
+ *  single comment transition shared by every comment-aware walk.
+ *
+ *  `lineIsComment` is true when the line is inside a comment block (the entry
+ *  state was open) OR the line contains a `%%` delimiter (opener, closer, or
+ *  inline `%% text %%`). Delimiter lines themselves are comment content because
+ *  Obsidian does not render them.
+ *
+ *  Callers orchestrate fence/comment precedence: advance fences only outside
+ *  comments, and call advanceComment only outside fences. This matches
+ *  Obsidian's parser — inside a comment, fence delimiters are just text;
+ *  inside a fence, `%%` is just text. */
+export const advanceComment = (
+  line: string,
+  commentOpen: boolean,
+): CommentResult => {
+  const toggleCount = countCommentToggles(line)
+  // Each toggle flips the state; an even count nets no change.
+  const currentlyOpen = toggleCount % 2 === 0 ? commentOpen : !commentOpen
+  return {
+    commentOpen: currentlyOpen,
+    lineIsComment: commentOpen || toggleCount > 0,
   }
 }
 

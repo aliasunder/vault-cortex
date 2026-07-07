@@ -1225,3 +1225,37 @@ kanban-plugin: board
     ])
   })
 })
+
+describe("comment block exclusion", () => {
+  it("does not index tasks inside %% %% comment blocks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: [
+          "## Active",
+          "",
+          "- [ ] Visible task ➕ 2026-07-01",
+          "",
+          "%%",
+          "- [ ] Hidden by comment ➕ 2026-07-02",
+          "%%",
+          "",
+          "- [ ] Also visible ➕ 2026-07-03",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks(
+      { status: "all", sortBy: "created", sortDirection: "asc" },
+      logger,
+    )
+    expect(result.total).toBe(2)
+    expect(result.tasks.map((task) => task.description)).toEqual([
+      "Visible task",
+      "Also visible",
+    ])
+  })
+})

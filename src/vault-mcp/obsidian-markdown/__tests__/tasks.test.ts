@@ -598,6 +598,105 @@ describe("tasks.extractTasks", () => {
     })
   })
 
+  describe("comment blocks", () => {
+    it("excludes task lines inside a %% %% comment block", () => {
+      const content = [
+        "- [ ] Visible task",
+        "%%",
+        "- [ ] Hidden task",
+        "%%",
+        "- [ ] Another visible task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Visible task" }),
+        task({ line: 5, description: "Another visible task" }),
+      ])
+    })
+
+    it("excludes a single-line inline comment containing a task", () => {
+      const content = [
+        "- [ ] Visible task",
+        "%% - [ ] Hidden inline task %%",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Visible task" }),
+      ])
+    })
+
+    it("skips all tasks after an unclosed comment running to EOF", () => {
+      const content = [
+        "- [ ] Visible task",
+        "%%",
+        "- [ ] Hidden by unclosed comment",
+        "- [ ] Also hidden",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Visible task" }),
+      ])
+    })
+
+    it("does not open a fence inside a comment block", () => {
+      const content = [
+        "%%",
+        "```",
+        "- [ ] Hidden inside comment, fence is just text",
+        "```",
+        "%%",
+        "- [ ] Visible after comment closes",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 6, description: "Visible after comment closes" }),
+      ])
+    })
+
+    it("does not toggle comment state inside a fenced code block", () => {
+      const content = [
+        "```",
+        "%%",
+        "- [ ] Inside fence, %% is just text",
+        "%%",
+        "```",
+        "- [ ] Visible after fence closes",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 6, description: "Visible after fence closes" }),
+      ])
+    })
+
+    it("does not toggle on mid-line %% in card text", () => {
+      const content = ["- [ ] Card with 100%% off", "- [ ] Another card"].join(
+        "\n",
+      )
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Card with 100%% off" }),
+        task({ line: 2, description: "Another card" }),
+      ])
+    })
+
+    it("attributes tasks after a comment block to the heading before it", () => {
+      const content = [
+        "## Active",
+        "- [ ] Active task",
+        "%%",
+        "## Hidden Heading",
+        "- [ ] Hidden task",
+        "%%",
+        "- [ ] Still under Active",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "Active task", heading: "Active" }),
+        task({ line: 7, description: "Still under Active", heading: "Active" }),
+      ])
+    })
+  })
+
   describe("heading attribution", () => {
     it("attributes each task to the nearest heading above it", () => {
       const content = [

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   splitIntoLines,
   advanceFence,
+  advanceComment,
   classifyLines,
   type OpenFence,
 } from "../lines.js"
@@ -23,6 +24,94 @@ describe("splitIntoLines", () => {
 
   it("returns a single empty line for empty content", () => {
     expect(splitIntoLines("")).toEqual([""])
+  })
+})
+
+// ── advanceComment ──────────────────────────────────────────────
+
+describe("advanceComment", () => {
+  it("reports a plain line outside a comment as not comment", () => {
+    expect(advanceComment("some text", false)).toEqual({
+      commentOpen: false,
+      lineIsComment: false,
+    })
+  })
+
+  it("reports a plain line inside an open comment as comment", () => {
+    expect(advanceComment("some text", true)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("opens a comment on a standalone %% delimiter", () => {
+    expect(advanceComment("%%", false)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("closes a comment on a standalone %% delimiter", () => {
+    expect(advanceComment("%%", true)).toEqual({
+      commentOpen: false,
+      lineIsComment: true,
+    })
+  })
+
+  it("opens a comment when line starts with %%", () => {
+    expect(advanceComment("%% hidden text", false)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("closes a comment when line ends with %%", () => {
+    expect(advanceComment("end of comment %%", true)).toEqual({
+      commentOpen: false,
+      lineIsComment: true,
+    })
+  })
+
+  it("handles inline comment (2 toggles) from closed state — net unchanged", () => {
+    expect(advanceComment("%% inline comment %%", false)).toEqual({
+      commentOpen: false,
+      lineIsComment: true,
+    })
+  })
+
+  it("handles inline comment (2 toggles) from open state — net unchanged", () => {
+    expect(advanceComment("%% inline comment %%", true)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("does not toggle on mid-line %% surrounded by other text", () => {
+    expect(advanceComment("Card with 100%% off", false)).toEqual({
+      commentOpen: false,
+      lineIsComment: false,
+    })
+  })
+
+  it("does not toggle on mid-line %% inside an open comment", () => {
+    expect(advanceComment("100%% done items", true)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("treats a whitespace-padded %% as a delimiter", () => {
+    expect(advanceComment("  %%  ", false)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
+
+  it("counts only the boundary %% when a non-boundary %% sits mid-line", () => {
+    expect(advanceComment("%% note %% more text", false)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
   })
 })
 

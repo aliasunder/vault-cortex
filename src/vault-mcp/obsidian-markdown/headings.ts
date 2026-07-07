@@ -5,7 +5,12 @@
  * parser: "read section X" and "edit section X" resolve to the exact same span.
  */
 
-import { advanceFence, type OpenFence } from "./lines.js"
+import {
+  advanceComment,
+  advanceFence,
+  COMMENT_DELIMITER,
+  type OpenFence,
+} from "./lines.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -22,83 +27,66 @@ export type HeadingInfo = Readonly<{
 /** Matches markdown headings H1–H6: captures the `#` prefix and heading text. */
 const HEADING_REGEX = /^(#{1,6}) (.+)$/
 
-/** Obsidian comment delimiter — toggles comment state when it occurs at a
- * line boundary (start or end of trimmed line). Mid-line `%%` (e.g. `100%%`
- * embedded in card text) is not a delimiter. */
-const COMMENT_DELIMITER = "%%"
-
-/**
- * Counts how many comment-state toggles a single line produces. Obsidian
- * treats `%%` as a comment delimiter only at line boundaries — mid-line
- * occurrences like `100%%` or `text %% mid` do not toggle state.
- *
- * Returns 0, 1, or 2:
- * - 0 — trimmed line has no `%%` at start or end
- * - 1 — trimmed line is exactly `%%`, OR starts XOR ends with `%%`
- * - 2 — trimmed line both starts and ends with `%%` (inline `%% comment %%`)
- */
-const countCommentToggles = (line: string): number => {
-  const trimmed = line.trim()
-  if (trimmed === COMMENT_DELIMITER) return 1
-  const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER)
-  const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER)
-  return (startsWithDelimiter ? 1 : 0) + (endsWithDelimiter ? 1 : 0)
-}
-
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
  * final section's body can stop short of it. Returns `lines.length` when none
  * exists. A block is "trailing" when only blank lines follow its closing `%%`
  * (or when an unclosed comment runs to EOF).
- *
- * Known limitation: heading detection in `parseHeadings` is NOT comment-aware,
- * so a `## heading` inside a `%% %%` block is still treated as a real heading.
  */
 export const findTrailingCommentBlockStart = (
   lines: readonly string[],
 ): number => {
-  // `let` carries fence + comment parser state across lines — a per-line
-  // reduce can't express the per-`%%` toggle cleanly.
+  // `let` carries fence + comment parser state and block-tracking across
+  // lines — the block-tracking logic (where a comment opened/closed) is
+  // domain-specific to trailing-block detection, layered on top of the
+  // shared advanceComment state machine.
   let openFence: OpenFence = null
-  let comment: { openLine: number } | null = null
+  let commentOpen = false
+  let commentOpenLine = -1
   let lastClosedBlock: { startLine: number; endLine: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (line === undefined) continue
 
-    // Fence state advances only outside comments: inside a `%%` comment, `%%`
-    // takes precedence and fence delimiters are just comment text (matching
-    // Obsidian's parser). A fence-delimiter line never toggles comment state.
-    if (!comment) {
+    // Fence/comment precedence: fence state advances only outside comments;
+    // comment toggles run only outside fences.
+    if (!commentOpen) {
       const fenceResult = advanceFence(line, openFence)
       openFence = fenceResult.openFence
       if (fenceResult.lineIsCode) continue
     }
 
-    // Outside fences (or inside a comment): `%%` at the start or end of the
-    // trimmed line toggles comment state. Mid-line `%%` (e.g. `100%%` in card
-    // text) is not a delimiter and is ignored.
-    const toggleCount = countCommentToggles(line)
-    for (let occurrence = 0; occurrence < toggleCount; occurrence++) {
-      if (comment) {
-        // Validate that the closer ends its own line — otherwise the block
-        // isn't cleanly separable from body text and can't be preserved.
-        const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
-        lastClosedBlock = validCloser
-          ? { startLine: comment.openLine, endLine: i }
-          : null
-        comment = null
-      } else {
-        comment = { openLine: i }
-      }
+    const wasOpen = commentOpen
+    const commentResult = advanceComment(line, commentOpen)
+    commentOpen = commentResult.commentOpen
+
+    // Derive block-tracking transitions from before/after state.
+    if (!wasOpen && commentOpen) {
+      commentOpenLine = i
+      continue
+    }
+
+    if (wasOpen && !commentOpen) {
+      const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
+      lastClosedBlock = validCloser
+        ? { startLine: commentOpenLine, endLine: i }
+        : null
+      continue
+    }
+
+    const isInlineComment =
+      !wasOpen && !commentOpen && commentResult.lineIsComment
+    if (isInlineComment) {
+      const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
+      lastClosedBlock = validCloser ? { startLine: i, endLine: i } : null
     }
   }
 
   // An unclosed comment runs to EOF and is trailing by definition. A closed
   // block is trailing only when nothing but blank lines follow it.
-  const trailingBlock = comment
-    ? { startLine: comment.openLine }
+  const trailingBlock = commentOpen
+    ? { startLine: commentOpenLine }
     : lastClosedBlock &&
         lines
           .slice(lastClosedBlock.endLine + 1)
@@ -129,22 +117,42 @@ export const findTrailingCommentBlockStart = (
 // ── Exported parser ─────────────────────────────────────────────
 
 /**
- * Single-pass heading parser for H1–H6 with code-block awareness.
+ * Single-pass heading parser for H1–H6 with code-block and comment awareness.
  * Section body = heading+1 through next heading of same-or-higher level (or EOF).
  */
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
-  // Phase 1: collect headings, skipping content inside fenced code blocks. Fence
-  // state is threaded through advanceFence in the accumulator (no mutable
-  // external state).
+  // Phase 1: collect headings, skipping content inside fenced code blocks and
+  // `%% %%` comment blocks. Fence and comment state are threaded through the
+  // accumulator (no mutable external state).
   const { headings: collectedHeadings } = lines.reduce<{
     headings: Array<{ text: string; level: number; startLine: number }>
     openFence: OpenFence
+    commentOpen: boolean
   }>(
     (state, line, i) => {
-      const fenceResult = advanceFence(line, state.openFence)
+      // Fence/comment precedence: fence state advances only outside comments
+      // (inside a comment, fence delimiters are just text); comment toggles
+      // run only outside fences (inside a fence, `%%` is just text).
+      const fenceResult = state.commentOpen
+        ? null
+        : advanceFence(line, state.openFence)
+      // fenceResult is null when inside a comment (fence processing skipped);
+      // fenceResult.openFence is null when a fence just closed — both are valid
+      // states, so `??` can't distinguish them.
+      const openFence =
+        fenceResult !== null ? fenceResult.openFence : state.openFence
 
-      if (fenceResult.lineIsCode) {
-        return { headings: state.headings, openFence: fenceResult.openFence }
+      if (fenceResult?.lineIsCode) {
+        return { headings: state.headings, openFence, commentOpen: false }
+      }
+
+      const commentResult = advanceComment(line, state.commentOpen)
+      if (commentResult.lineIsComment) {
+        return {
+          headings: state.headings,
+          openFence,
+          commentOpen: commentResult.commentOpen,
+        }
       }
 
       const match = HEADING_REGEX.exec(line)
@@ -161,13 +169,14 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
               startLine: i,
             },
           ],
-          openFence: fenceResult.openFence,
+          openFence,
+          commentOpen: false,
         }
       }
 
-      return { headings: state.headings, openFence: fenceResult.openFence }
+      return { headings: state.headings, openFence, commentOpen: false }
     },
-    { headings: [], openFence: null },
+    { headings: [], openFence: null, commentOpen: false },
   )
 
   // Phase 2: compute body ranges — each section's body ends where the next

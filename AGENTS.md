@@ -416,7 +416,10 @@ undefined) return`) or schema validation to narrow types instead.
   explaining the overall strategy before the query.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
-  lines in `if (!done) { ... }`.
+  lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
+continue }` over `if/else if` chains — each branch is
+  self-contained and the reader doesn't have to track mutual
+  exclusivity across the chain.
 - Extract multi-clause conditionals into a named boolean when the `if`
   condition spans more than one line or combines unrelated checks. A
   reader should understand the guard's intent from the variable name
