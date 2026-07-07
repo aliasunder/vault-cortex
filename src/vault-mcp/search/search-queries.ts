@@ -639,9 +639,10 @@ export const listTasks = (
     return [value]
   })
   const expandedStatuses = [...new Set(withExpansions)]
-  const needsStatusFilter =
-    expandedStatuses.length > 0 &&
-    !CONCRETE_STATUSES.every((status) => expandedStatuses.includes(status))
+  const coversAllStatuses = CONCRETE_STATUSES.every((status) =>
+    expandedStatuses.includes(status),
+  )
+  const needsStatusFilter = expandedStatuses.length > 0 && !coversAllStatuses
   if (needsStatusFilter) {
     conditions.push(
       `t.status IN (${expandedStatuses.map(() => "?").join(", ")})`,
