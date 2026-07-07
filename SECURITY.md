@@ -22,6 +22,93 @@ The attack surface includes:
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
+## Runtime Hardening
+
+Beyond the authentication and scanning protections described above, the
+following runtime patterns address specific attack classes. See
+[ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for
+mechanism-level detail.
+
+### Path traversal
+
+- `resolveSafePath()` resolves then prefix-checks every user-supplied
+  path — `../../etc/passwd` throws before any filesystem access
+- `toVaultRelativePath()` normalizes backslashes and collapses `../`
+  before protected-path checks (prevents evasion via
+  `X/../Protected/file.md`)
+- `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
+  names at config parse time
+- Memory file names reject `/` and `\` — prevents `../../outside`-style
+  escapes from the memory directory
+
+### TOCTOU race prevention
+
+- `atomicWriteFileExclusive()` uses `link()` (POSIX no-clobber) to
+  atomically create the destination — no check-then-write window
+- `moveNote` reads and plans every rewrite before writing anything;
+  existence checks run inside the lock so the vault state is stable
+  during the entire read-plan-write span
+- `deleteNote` checks existence inside the lock — prevents racing with a
+  concurrent patch that could recreate the file after unlink
+
+### Injection
+
+- **SQL:** all queries use parameterized statements.
+  `sanitizeFtsQuery()` strips FTS5 metacharacters and reserved words.
+  `escapeLikeWildcards()` escapes `\`, `%`, `_` in LIKE clauses
+- **Prompt (tag breakout):** `escapeVaultContentClosingTag()` prevents
+  vault content from breaking out of the `<vault-content>` data boundary
+  in assembled prompts — relevant in shared/synced vaults where
+  untrusted content could reach an LLM context
+- **XSS:** `escapeHtml()` on the OAuth consent page escapes `&`, `<`,
+  `>`, `"` in client-supplied values (client name, client ID, scopes,
+  error messages, request ID)
+
+### Data corruption prevention
+
+- Atomic writes: temp-then-rename — readers never see partial content
+- Per-file mutex: three modes (serializing, fail-fast, multi-file)
+  prevent concurrent writes from corrupting each other
+- Memory shrink guard: refuses writes that would remove >50% of a file's
+  bytes — catches template-clobber bugs during the Obsidian Sync startup
+  race
+- Memory idempotency guard: exact-bullet dedup prevents duplicates from
+  retried writes after gateway timeouts
+- Memory line-break rejection: entry, date, and section reject `\r`/`\n`
+  — prevents format corruption that would evade the duplicate guard
+- Content-hash gating: SHA-256 per chunk ensures only changed content
+  re-embeds
+
+### Information leak prevention
+
+- `safeHandler()` catches all exceptions and returns `.message` only —
+  no stack traces reach the client
+- In-lock existence checks return vault-relative "not found" instead of
+  ENOENT (whose message leaks the container's absolute path)
+- Error middleware returns `"internal server error"` to clients; full
+  context is logged server-side only
+
+### Container hardening
+
+- Non-root user (`USER node`, UID 1000)
+- PID 1 init (`tini`) — forwards SIGTERM for clean SQLite WAL closure
+- Package-manager removal (`npm`/`npx`/`corepack`/`yarn` stripped from
+  runtime)
+- Multi-stage build — build deps (`python3`, `make`, `g++`) never enter
+  the runtime image
+- Digest-pinned base image (`node:24-slim@sha256:...`)
+- Debian security fixes applied at build time (`apt-get upgrade`)
+- Log rotation per service (Compose: `max-size: 10m`, `max-file: 3`)
+- Graceful shutdown: SIGTERM handler drains in-flight requests (10s
+  timeout) before exiting
+
+### Symlink safety
+
+- `filterValidSymlinks()` excludes broken symlinks and symlinks to
+  non-file targets from directory listings before indexing or tool output
+- Bounded concurrency (16) prevents resource exhaustion on large
+  directories with many symlinks
+
 ## Automated Scanning
 
 Several scanners already run against this repository:

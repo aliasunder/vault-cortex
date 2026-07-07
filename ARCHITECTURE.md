@@ -487,6 +487,22 @@ initial sync has _completed_ — so the guarantee is "sync is up and has had its
 `start_period` to land files", not "sync is finished". Combined with the
 memory-write shrink guard, that's enough to prevent the fresh-volume clobber.
 
+### Docker runtime hardening
+
+The runtime image (`Dockerfile`) minimizes the attack surface:
+
+| Measure                     | What it does                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Multi-stage build           | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image          |
+| Digest-pinned base          | `node:24-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk                     |
+| Non-root user               | `USER node` (UID 1000) — matches obsidian-sync's `PUID` for shared-volume writes                       |
+| PID 1 init (`tini`)         | Forwards SIGTERM so SQLite WAL closes cleanly; reaps zombies                                           |
+| Package-manager removal     | `npm`, `npx`, `corepack`, `yarn` stripped from the runtime — reduces CVE surface                       |
+| Debian security fixes       | `apt-get upgrade` at build time covers the node-image rebuild window                                   |
+| Log rotation (Compose)      | `max-size: 10m`, `max-file: 3` per service — prevents disk exhaustion                                  |
+| `trust proxy` = 1 (Express) | Trusts exactly one proxy hop (API Gateway); prevents client IP spoofing via injected `X-Forwarded-For` |
+| `Object.freeze` on config   | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors         |
+
 ### Durability
 
 Four layers cover different failure classes:
@@ -506,6 +522,119 @@ Pulumi-driven replacement.
 Restore procedures, the intentional-replace flow (unprotect → deploy →
 re-protect, e.g. for a bundle upgrade), SST state reconciliation,
 and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
+
+### Data integrity
+
+The vault is source of truth — every write path is built to prevent
+corruption, not just errors. These patterns complement the authentication,
+Docker hardening, and durability seatbelts above.
+
+#### File I/O safety
+
+- **Atomic writes** (`atomicWriteFile` in `vault-filesystem.ts`):
+  write-to-temp-then-rename. The target is never truncated — the
+  obsidian-sync container sees either old content or new content, never a
+  0-byte or partial write. The temp file is cleaned up in a `finally`
+  block on failure.
+- **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
+  `link()` for POSIX no-clobber semantics — fails atomically with
+  `EEXIST` if the target already exists, closing the TOCTOU race on
+  `vault_move_note`'s destination. Falls back to `writeFile` with `'wx'`
+  flag on Windows-drive bind mounts where hard links aren't supported.
+- **Per-file mutex** (`file-write-lock.ts`): three modes sharing one
+  lock map. `withFileLock` (serializing) queues writes behind the
+  previous write on the same path — used by memory-store where
+  append/delete must read inside the lock. `withExclusiveFileLock`
+  (fail-fast) rejects immediately if a write is in progress — used by
+  patch/replace/write where callers work from stale state.
+  `withExclusiveMultiFileLock` (all-or-nothing fail-fast) acquires all
+  locks in one synchronous tick — used by note-mover, which must lock the
+  source, destination, and every backlink source for the whole
+  read-plan-write span.
+- **Preflight-then-commit move** (`note-mover.ts`): `moveNote` reads
+  every affected file and computes every rewrite _before_ touching
+  anything. If any read fails, no file is mutated. Destination is written
+  first via exclusive create; source is deleted last — a failure at any
+  step leaves both copies rather than losing content.
+- **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
+  changed content re-embeds on both incremental updates and full rebuilds
+  — a correctness guarantee (not just performance).
+- **Symlink safety** (`filterValidSymlinks` in
+  `utils/filter-valid-symlinks.ts`): broken symlinks and symlinks to
+  non-file targets are filtered from directory listings before indexing
+  or tool output. Bounded concurrency (16).
+
+#### Path traversal + boundary enforcement
+
+- **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
+  prefix check. Every vault-relative path passes through it before any
+  filesystem access. Throws on traversal (`../../etc/passwd`).
+- **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
+  backslashes and collapses `../` _before_ the protected-path prefix
+  check, so `X/../About Me/Principles.md` cannot evade protection.
+- **`vaultFolderName`** (Zod schema in `config.ts`): config-time
+  validation rejects absolute paths, traversal (`..`), and blank names
+  before they reach any file operation.
+- **Memory file separator rejection** (`memory-store.ts`):
+  `memoryFilePath()` rejects `/` and `\` in memory file names — a name
+  like `../../outside` cannot escape the memory directory.
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`, `Daily
+Notes`) blocks deletion and move-into for configured folders, checked
+  after normalization.
+
+#### SQL + search safety
+
+- **Parameterized statements**: every SQLite query uses `?` parameters,
+  never string interpolation — no user input reaches SQL syntax.
+- **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
+  (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
+  compound-joiner punctuation so user input can never produce FTS5 syntax
+  errors or operator injection.
+- **`escapeLikeWildcards()`** (`search-helpers.ts`): escapes `\`, `%`,
+  `_` in LIKE clause values so folder and tag names are matched
+  literally.
+
+#### Prompt boundary safety
+
+- **`wrapWithDataMarkers()`** (`prompt-helpers.ts`): vault content
+  embedded in prompts is wrapped in `<vault-content>` XML tags with
+  source-identifying attributes. LLMs treat the wrapper as a
+  data/instruction boundary.
+- **`escapeVaultContentClosingTag()`** (`prompt-helpers.ts`): any
+  `</vault-content>` in vault content is HTML-entity-escaped, preventing
+  tag-breakout injection from notes a synced collaborator could control.
+
+#### Error boundary + info-leak prevention
+
+- **`safeHandler()`** (`tool-helpers.ts`): wraps every MCP tool handler
+  with try/catch. Errors return a structured `isError` response with the
+  message only — no stack traces, no absolute paths. A buggy tool never
+  crashes the server.
+- **In-lock existence checks**: `deleteNote` and `moveNote` check file
+  existence inside the lock, returning a vault-relative "not found"
+  instead of ENOENT (whose message leaks the absolute container path).
+- **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
+  requests with a 10-second force-exit fallback, so a write is never
+  interrupted mid-rename.
+- **Error middleware**: catch-all Express middleware logs full context
+  server-side but returns only `"internal server error"` to the client.
+
+#### Memory layer safety
+
+- **Shrink guard** (`guardAgainstShrink` in `memory-store.ts`): refuses
+  a write that would remove >50% of a file's bytes (floor: 200 B) —
+  catches template-clobber bugs from the Obsidian Sync startup race.
+- **Idempotency guard**: if the exact bullet already exists in the target
+  section, `updateMemory` no-ops — prevents duplicate entries from MCP
+  client retries after gateway timeouts.
+- **Line-break rejection**: entry text, date, and section name all reject
+  `\r` and `\n` — a multiline entry would corrupt the dated-bullet format
+  and evade the duplicate guard.
+- **Serializing locks**: `withFileLock` (serializing mode) ensures
+  concurrent appends to the same memory file execute one at a time.
+- **Ambiguity guard on delete**: `deleteMemory` refuses to delete when
+  more than one line matches — forces the caller to disambiguate rather
+  than silently deleting the wrong entry.
 
 ## Cost
 
@@ -540,7 +669,7 @@ and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 | 405 on `GET /mcp` (no standalone stream)   | The server never sends server-initiated messages, so the optional GET-opened SSE stream would only ever sit idle until an upstream proxy timeout kills it — surfacing as gateway 5xx noise in monitoring. The Streamable HTTP spec explicitly allows servers that don't offer the stream to reject the GET with 405 (`Allow: POST, DELETE`). Clients fall back cleanly; POST responses still stream per request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | GHCR over ECR                              | GITHUB_TOKEN auth, no AWS IAM for images.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Express 5 over Fastify/Hono                | Ecosystem maturity, middleware compatibility. Express 5's native async error handling eliminated wrapper boilerplate. MCP SDK reference implementation uses Express.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Atomic writes + per-file mutex             | MCP handlers are concurrent — two tools could write the same file. Write-to-tmp-then-rename prevents partial writes; per-file mutex prevents conflicting operations (fail-fast for intent-based writes, serializing for read-inside-lock writes).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Atomic writes + per-file mutex             | MCP handlers are concurrent — two tools could write the same file. Write-to-tmp-then-rename prevents partial writes; `link()` no-clobber (`atomicWriteFileExclusive`) closes the TOCTOU race on moves. Per-file mutex prevents conflicting operations: fail-fast for intent-based writes (patch/replace), serializing for read-inside-lock writes (memory append). Multi-file locking (`withExclusiveMultiFileLock`) covers moves, which must read and write the moved note plus every backlink source as one unit. (→ [Data Integrity](#data-integrity))                                                                                                                                                                                                                                                                                                                                 |
 | Factory over class                         | Functional style. Closure holds db ref, no `this`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `type` over `interface`                    | Uniform syntax — `type` handles unions, intersections, tuples, mapped types, and object shapes; `interface` only handles objects, so you'd need both anyway. No accidental declaration merging (interfaces with the same name silently merge — a library augmentation feature that's a footgun in application code). Negligible performance difference in practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Hybrid search over LightRAG                | 30% of natural-language queries fail on FTS-only (vocabulary mismatch), but vector-only loses precision on exact terms and technical jargon where keyword matching excels. Hybrid keeps both strengths. LightRAG requires a ≥32B LLM for entity extraction — far too heavy for a VPS — and the vault's wikilinks already encode a hand-authored knowledge graph. [qmd](https://github.com/tobi/qmd) demonstrated how lightweight hybrid search can be: FTS5 + sqlite-vec + RRF in a single SQLite file, all application-layer code. vault-cortex applies the same patterns with lighter ONNX models ([bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) 33M/~25MB vs [qmd](https://github.com/tobi/qmd)'s ~2GB GGUF stack). Opt-out via `EMBEDDING_ENABLED=false` — no model download, no vector tables — and graceful FTS-only fallback when vectors aren't available. |
