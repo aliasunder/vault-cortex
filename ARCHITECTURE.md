@@ -535,7 +535,8 @@ Docker hardening, and durability seatbelts above.
   write-to-temp-then-rename. The target is never truncated — the
   obsidian-sync container sees either old content or new content, never a
   0-byte or partial write. The temp file is cleaned up in a `finally`
-  block on failure.
+  block on failure (`catch` in `atomicWriteFile`; `finally` in
+  `atomicWriteFileExclusive`).
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
@@ -616,8 +617,9 @@ Notes`) blocks deletion and move-into for configured folders, checked
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.
-- **Error middleware**: catch-all Express middleware logs full context
-  server-side but returns only `"internal server error"` to the client.
+- **Error middleware**: catch-all Express middleware logs request
+  metadata and the error message server-side but returns only
+  `"internal server error"` to the client.
 
 #### Memory layer safety
 

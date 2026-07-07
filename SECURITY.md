@@ -85,8 +85,8 @@ mechanism-level detail.
   no stack traces reach the client
 - In-lock existence checks return vault-relative "not found" instead of
   ENOENT (whose message leaks the container's absolute path)
-- Error middleware returns `"internal server error"` to clients; full
-  context is logged server-side only
+- Error middleware returns `"internal server error"` to clients;
+  request metadata and the error message are logged server-side only
 
 ### Container hardening
 
