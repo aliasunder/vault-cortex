@@ -39,7 +39,7 @@
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#tools-26)** — dated entries, section targeting, auto-initialization for AI personalization
-- **[Task queries](#tools-26)** — Kanban-aware, vault-wide task index parsing both [Tasks-plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — query multiple Kanban lanes at once and sort by board position.
+- **[Task queries](#tools-26)** — Kanban-aware, vault-wide task index parsing both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — query multiple Kanban lanes at once and sort by board position.
 - **[Link graph](#tools-26)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
@@ -333,7 +333,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 | **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                         | Complete  |
 | **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                   | Complete  |
 | **2b** | Reranker — cross-encoder reranking, position-aware score blending                                    | Complete  |
-| **3a** | Task layer — vault-wide task index + structured task queries (Tasks-plugin emoji + Dataview formats) | Complete  |
+| **3a** | Task layer — vault-wide task index + structured task queries (Tasks plugin emoji + Dataview formats) | Complete  |
 | **3b** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)  | Exploring |
 | **3c** | Memory recall — entry-granular retrieval across the memory layer's dated history                     | Exploring |
 
