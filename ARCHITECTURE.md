@@ -31,16 +31,17 @@ The server provides three capability layers, each additive:
 
 ## User Requirements
 
-| ID  | Requirement                     | Phase | Summary                                                                                   |
-| --- | ------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
-| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                             |
-| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                       |
-| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                               |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                 |
-| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                               |
-| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
+| ID  | Requirement                     | Phase | Summary                                                                                     |
+| --- | ------------------------------- | ----- | ------------------------------------------------------------------------------------------- |
+| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                               |
+| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                         |
+| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                                 |
+| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                   |
+| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                           |
+| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                     |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                                 |
+| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite.   |
+| R9  | Vault-wide task queries         | 3     | Task index parsing Tasks-plugin emoji + Dataview formats. Kanban-aware, structured filters. |
 
 ## Component Diagram
 
@@ -197,7 +198,6 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_search_by_folder` | `folder, recursive?, limit?` | readOnlyHint |
 | `vault_list_tags`        | —                            | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
-| `vault_list_tasks`       | `status?, due?, priority?`   | readOnlyHint |
 
 `filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
@@ -246,6 +246,22 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
+### Task Queries (R9)
+
+| Tool               | Input                                                                                               | Annotation   |
+| ------------------ | --------------------------------------------------------------------------------------------------- | ------------ |
+| `vault_list_tasks` | `status?, dates (6)?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
+
+A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
+
+Each row carries its full attribution: note path, full parent folder, nearest heading (the Kanban lane on a board), and 1-based file line number — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+
+`vault_list_tasks` queries the table with structured filters (status, six date fields with range bounds, priority, folder/tag/heading/path scoping) and whitelisted sort keys. Three design choices shape the query surface:
+
+- **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
+- **Date cascade sorting** — when the primary sort field is absent on a task, the sort falls back through related date fields (due → scheduled → start → created), each using its own natural direction. Tasks with sparse dates sort usably instead of clustering at the end.
+- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order.
+
 ### Hybrid Search (R8)
 
 `vault_search` combines FTS5 keyword results with sqlite-vec vector similarity using [Reciprocal Rank Fusion](https://github.com/tobi/qmd#score-normalization--fusion) (RRF), refined by a cross-encoder reranker. All models run in-process — no external API, fully rebuildable from vault files, and a progressive enhancement (FTS5 works identically if embeddings are absent).
@@ -266,7 +282,7 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
-**Task index:** A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the Tasks plugin's own parser (right-to-left signifier stripping; both emoji and Dataview inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Each row carries its attribution: note path, full parent folder, nearest heading (the Kanban lane), and 1-based file line. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows. `vault_list_tasks` queries the table with structured filters (status, date ranges, priority, folder/tag/heading/path) and whitelisted sort keys.
+**Task index:** See [Task Queries](#task-queries-r9) — the `tasks` table lives in the same SQLite database alongside FTS5 and vector tables, with the same lifecycle (replaced per note in `upsertNote`, wiped on rebuild).
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
