@@ -8,8 +8,8 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
+  issues: read
+  pull-requests: read
 
 jobs:
   review:
@@ -25,13 +25,14 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ secrets.UMM_APP_ID }}
           private-key: ${{ secrets.UMM_PRIVATE_KEY }}
 
       # Phase 1 — Correctness & Security
       - name: "Phase 1: Correctness & security"
+        if: github.event_name == 'pull_request'
         uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
@@ -67,6 +68,7 @@ jobs:
 
       # Phase 2 — Code Quality & Conventions
       - name: "Phase 2: Code quality & conventions"
+        if: github.event_name == 'pull_request'
         uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
@@ -94,6 +96,7 @@ jobs:
 
       # Phase 3 — Test Quality
       - name: "Phase 3: Test quality"
+        if: github.event_name == 'pull_request'
         uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
@@ -121,6 +124,7 @@ jobs:
 
       # Phase 4 — Bug Patterns
       - name: "Phase 4: Bug patterns"
+        if: github.event_name == 'pull_request'
         uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
