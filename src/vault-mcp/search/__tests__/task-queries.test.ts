@@ -1144,9 +1144,12 @@ kanban-plugin: board
       { status: "all", heading: ["Active", "Up Next"] },
       logger,
     )
-    const headings = result.tasks.map((entry) => entry.heading)
-    expect(headings).not.toContain("Someday")
-    expect(headings).not.toContain("Waiting On")
+    // Exact match proves inclusion of Active + Up Next AND exclusion of
+    // Someday + Waiting On — a vacuous empty result cannot satisfy this.
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Write docs",
+      "Implement feature",
+    ])
   })
 
   // ── status array ──
@@ -1154,10 +1157,10 @@ kanban-plugin: board
   it("accepts an array of real statuses, OR-combined", () => {
     const index = indexWithBoard()
     const result = index.listTasks({ status: ["done", "cancelled"] }, logger)
-    expect(result.tasks.map((entry) => entry.status)).toEqual(
-      expect.arrayContaining(["done", "cancelled"]),
-    )
-    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Old idea",
+      "Ship release",
+    ])
   })
 
   it("treats a single-element status array as equivalent to the scalar", () => {
@@ -1170,11 +1173,13 @@ kanban-plugin: board
   it("expands not_done in an array to todo + in_progress", () => {
     const index = indexWithBoard()
     const result = index.listTasks({ status: ["not_done", "done"] }, logger)
-    const statuses = result.tasks.map((entry) => entry.status)
-    expect(statuses).toContain("todo")
-    expect(statuses).toContain("in_progress")
-    expect(statuses).toContain("done")
-    expect(statuses).not.toContain("cancelled")
+    // Exact ordered match: due ASC puts Fix login bug first (due 2026-07-01),
+    // then dateless tasks cascade through related dates.
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+      "Write tests",
+      "Ship release",
+    ])
   })
 
   it("deduplicates when not_done overlaps with an explicit status", () => {
