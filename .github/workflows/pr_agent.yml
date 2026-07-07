@@ -33,8 +33,7 @@ jobs:
           permission-pull-requests: write
           permission-issues: write
 
-      # Phase 1 — Correctness & Security
-      - name: "Phase 1: Correctness & security"
+      - name: Code suggestions
         if: github.event_name == 'pull_request'
         uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
         env:
@@ -49,141 +48,67 @@ jobs:
           # Default fallback is gpt-5.4-mini (hardcoded in PR-Agent), which
           # routes through OpenRouter to OpenAI — unexpected model and charges.
           config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
-          # Run /review — posts a summary comment ("PR Reviewer Guide").
-          # Off for phases (inline suggestions only); on for manual /review.
           github_action_config.auto_review: "false"
-          # Run /describe — auto-generates PR title + description.
           github_action_config.auto_describe: "false"
-          # Run /improve — posts inline code suggestions on the diff.
           github_action_config.auto_improve: "true"
-          # Max suggestions per /improve run (default 4 in PR-Agent).
           pr_code_suggestions.num_code_suggestions: ${{ vars.PR_AGENT_MAX_SUGGESTIONS || '10' }}
           pr_code_suggestions.extra_instructions: >-
-            FOCUS: Correctness and security only. Ignore style, naming, and test quality.
+            Read AGENTS.md in the repo root for project conventions. Review against those
+            conventions — they take priority over general best practices.
 
-            Read AGENTS.md in the repo root for project conventions.
 
+            DIMENSION 1 — CORRECTNESS & SECURITY.
             Look for: logic errors, incorrect conditions, off-by-one errors, null/undefined
             access, race conditions, unhandled error paths, missing edge cases, security
             vulnerabilities (injection, path traversal, auth bypass), and performance issues
             (unbounded queries, missing indices, O(n^2) in hot paths).
+
+
+            DIMENSION 2 — CODE QUALITY & CONVENTIONS.
+            Review against AGENTS.md rules: naming conventions (explicit names over
+            abbreviations, descriptive function names), structure (early returns over nested
+            if/else, immutable by default, no disguised mutation in reduce), module layering
+            (dependency direction, export style), comment conventions (comments above complex
+            logic, regex doc comments), and simplicity (simple code over clever code, no
+            premature abstractions). Only flag violations of AGENTS.md rules.
+
+
+            DIMENSION 3 — TEST QUALITY & COVERAGE.
+            For test files: check that each it() tests what its name claims, assertions are
+            exact (toHaveLength(2) not toBeGreaterThanOrEqual(1)), tests include both positive
+            and negative cases, tests would fail if the behavior broke (not pass by coincidence),
+            and const-per-test is preferred over let+beforeEach. For production files: check if
+            new functions, branches, or error paths have corresponding tests. Flag missing
+            coverage with the specific untested scenario.
+
+
+            DIMENSION 4 — SUBTLE BUG PATTERNS.
+            Apply these checks systematically:
+            (a) Description-vs-implementation mismatch — do comments, tool descriptions, error
+            messages accurately describe what the code actually does?
+            (b) SQL correctness — missing quotes around LIKE patterns, wrong JOIN type, missing
+            WHERE clauses, injection via string interpolation.
+            (c) Type safety — JSON.parse without runtime validation, type assertions (as/!)
+            that bypass the compiler.
+            (d) Boundary and off-by-one — fencepost errors in slicing, pagination, or loop
+            bounds; empty-input handling.
+            (e) Behavioral asymmetry — create/update/delete paths that handle the same field
+            differently.
+            (f) Input validation gaps — user inputs that reach data layer unchecked; path
+            traversal (../) in file paths.
+            (g) Platform/encoding — path separator assumptions, Unicode normalization,
+            locale-dependent string operations, timezone-naive date handling.
+
+
+            For CI/workflow files (.yml), also check action pinning (full commit SHA, not
+            mutable tags), permissions least privilege, and multi-trigger event guards.
+
 
             For each suggestion, explain the concrete failure scenario — what input or state
             triggers the bug and what goes wrong.
           # Default (-1) posts suggestions only as conversation comments.
           # Threshold >= 0 also posts them as inline review comments on the
           # diff for suggestions at or above that score (0-10 scale).
-          pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
-
-      # Phase 2 — Code Quality & Conventions
-      - name: "Phase 2: Code quality & conventions"
-        if: github.event_name == 'pull_request'
-        uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
-        env:
-          OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
-          config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '200000' }}
-          config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
-          github_action_config.auto_review: "false"
-          github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "true"
-          pr_code_suggestions.num_code_suggestions: ${{ vars.PR_AGENT_MAX_SUGGESTIONS || '10' }}
-          pr_code_suggestions.extra_instructions: >-
-            FOCUS: Code quality and convention compliance only. Skip correctness bugs and
-            test files — other passes handle those.
-
-            Read AGENTS.md in the repo root. Review ONLY against its rules:
-            naming conventions (explicit names over abbreviations, descriptive function names),
-            structure (early returns over nested if/else, immutable by default, no disguised
-            mutation in reduce), module layering (dependency direction, export style),
-            comment conventions (comments above complex logic, regex doc comments),
-            and simplicity (simple code over clever code, no premature abstractions).
-
-            Only flag violations of AGENTS.md rules. Do not invent conventions the project
-            doesn't have.
-          pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
-
-      # Phase 3 — Test Quality
-      - name: "Phase 3: Test quality"
-        if: github.event_name == 'pull_request'
-        uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
-        env:
-          OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
-          config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '200000' }}
-          config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
-          github_action_config.auto_review: "false"
-          github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "true"
-          pr_code_suggestions.num_code_suggestions: ${{ vars.PR_AGENT_MAX_SUGGESTIONS || '10' }}
-          pr_code_suggestions.extra_instructions: >-
-            FOCUS: Test quality and coverage gaps only. Skip production code style and
-            correctness — other passes handle those.
-
-            Read AGENTS.md in the repo root for test conventions.
-
-            For test files: check that each it() tests what its name claims, assertions are
-            exact (toHaveLength(2) not toBeGreaterThanOrEqual(1)), tests include both positive
-            and negative cases, tests would fail if the behavior broke (not pass by coincidence),
-            and const-per-test is preferred over let+beforeEach.
-
-            For production files: check if new functions, branches, or error paths have
-            corresponding tests. Flag missing coverage with the specific untested scenario.
-          pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
-
-      # Phase 4 — Bug Patterns
-      - name: "Phase 4: Bug patterns"
-        if: github.event_name == 'pull_request'
-        uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
-        env:
-          OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
-          config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '200000' }}
-          config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
-          github_action_config.auto_review: "false"
-          github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "true"
-          pr_code_suggestions.num_code_suggestions: ${{ vars.PR_AGENT_MAX_SUGGESTIONS || '10' }}
-          pr_code_suggestions.extra_instructions: >-
-            FOCUS: Subtle bug patterns that survive normal code review. Skip style, naming,
-            and test quality — other passes handle those.
-
-            Read AGENTS.md in the repo root for project conventions.
-
-            Apply these 7 checks systematically:
-            1. Description-vs-implementation mismatch — do comments, tool descriptions, error
-               messages, and docstrings accurately describe what the code actually does?
-            2. SQL correctness — missing quotes around LIKE patterns, wrong JOIN type, missing
-               WHERE clauses, injection via string interpolation.
-            3. Type safety — JSON.parse without runtime validation, type assertions (as/!)
-               that bypass the compiler, implicit any from untyped library calls.
-            4. Boundary and off-by-one — fencepost errors in slicing, pagination, or loop
-               bounds; empty-input handling; integer overflow in arithmetic.
-            5. Behavioral asymmetry — create/update/delete paths that handle the same field
-               differently; format-on-write vs format-on-read inconsistency.
-            6. Input validation gaps — user inputs that reach data layer unchecked; path
-               traversal (../) in file paths; missing length/range bounds.
-            7. Platform/encoding — path separator assumptions, Unicode normalization,
-               locale-dependent string operations, timezone-naive date handling.
-
-            For CI/workflow files (.yml), also check:
-            8. Action pinning — third-party actions must be pinned to a full commit SHA,
-               not a mutable tag (v2, v3, latest). Pin to SHA with a version comment:
-               `uses: org/action@<sha> # v2.1.0`. First-party `actions/*` are lower risk
-               but should still be pinned in security-sensitive workflows.
-            9. Permissions least privilege — `permissions:` should grant only what the job
-               needs. If all steps use a GitHub App token (create-github-app-token), the
-               default GITHUB_TOKEN only needs `read`. Write permissions on an unused
-               GITHUB_TOKEN is unnecessary attack surface.
-            10. Multi-trigger event guards — when a workflow has multiple triggers in `on:`
-                (e.g. pull_request + issue_comment), check whether each step should run for
-                all triggers or only specific ones. Steps meant only for PRs need
-                `if: github.event_name == 'pull_request'` guards.
-
-            For each finding, state the specific input or sequence that triggers the bug.
           pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
 
       # Manual /review — only runs when triggered by comment
