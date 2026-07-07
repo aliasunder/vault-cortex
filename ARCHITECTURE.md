@@ -259,7 +259,7 @@ Each row carries its full attribution: note path, full parent folder, nearest he
 `vault_list_tasks` queries the table with structured filters (status, six date fields — due, scheduled, start, created, done, cancelled — each with before/on/after bounds, priority, folder/tag/heading/path scoping) and eight sort keys (`due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`). Three design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
-- **Date cascade sorting** — when the primary sort field is absent on a task, the sort falls back through related date fields (due → scheduled → start → created), each using its own natural direction. Tasks with sparse dates sort usably instead of clustering at the end.
+- **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
 - **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order.
 
 ### Hybrid Search (R8)
