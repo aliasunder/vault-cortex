@@ -26,6 +26,26 @@
 
 
 
+
+## [0.26.5] — 2026-07-07
+
+### Features
+
+- **search:** Accept arrays for heading and status in vault_list_tasks (#277)
+
+### Bug Fixes
+
+- **parser:** Make task and heading parsers comment-aware (#278)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.26.4
+
+### CI / Infrastructure
+
+- Make PR-Agent suggestion count configurable (#279)
+- Switch PR review to Umm-actually bot with 4-phase pipeline (#276)
+
 ## [0.26.4] — 2026-07-07
 
 ### Bug Fixes
