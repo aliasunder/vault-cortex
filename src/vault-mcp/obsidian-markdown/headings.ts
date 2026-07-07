@@ -62,20 +62,22 @@ export const findTrailingCommentBlockStart = (
     commentOpen = commentResult.commentOpen
 
     // Derive block-tracking transitions from before/after state.
-    const isInlineComment =
-      !wasOpen && !commentOpen && commentResult.lineIsComment
     if (!wasOpen && commentOpen) {
-      // Comment just opened on this line.
       commentOpenLine = i
-    } else if (wasOpen && !commentOpen) {
-      // Comment just closed on this line. Validate that the closer ends its
-      // own line — otherwise the block isn't cleanly separable from body text.
+      continue
+    }
+
+    if (wasOpen && !commentOpen) {
       const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
       lastClosedBlock = validCloser
         ? { startLine: commentOpenLine, endLine: i }
         : null
-    } else if (isInlineComment) {
-      // Inline comment (`%% text %%`) — opened and closed on the same line.
+      continue
+    }
+
+    const isInlineComment =
+      !wasOpen && !commentOpen && commentResult.lineIsComment
+    if (isInlineComment) {
       const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
       lastClosedBlock = validCloser ? { startLine: i, endLine: i } : null
     }
