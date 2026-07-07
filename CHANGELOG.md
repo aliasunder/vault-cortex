@@ -25,6 +25,27 @@
 
 
 
+
+## [0.26.4] — 2026-07-07
+
+### Bug Fixes
+
+- **search:** Cascade sort uses per-field default directions + add position sort (#273)
+- **parser:** Make fence state machine blockquote-aware (#274)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.26.3
+
+### CI / Infrastructure
+
+- Make PR-Agent suggestion threshold configurable (#275)
+
+### Other Changes
+
+- Enable noUncheckedIndexedAccess (#272)
+- Enable noImplicitOverride + exactOptionalPropertyTypes (#271)
+
 ## [0.26.3] — 2026-07-06
 
 ### Features
