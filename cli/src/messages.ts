@@ -14,11 +14,21 @@ type TextStyle = Parameters<typeof styleText>[0]
 const paint = (style: TextStyle, text: string): string =>
   process.stdout.isTTY && !process.env.NO_COLOR ? styleText(style, text) : text
 
-// Section header that replaces the old clack note box: a bold title over a
-// dim rule. The rule is its own line (not a per-line prefix), so it never
-// touches a copyable command.
-const connectHeader = (): string =>
-  `${paint("bold", "Connect")}\n${paint("dim", "─".repeat(56))}`
+const RULE_WIDTH = 56
+
+const topRule = (label: string): string =>
+  paint(
+    "dim",
+    `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`,
+  )
+
+const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - 2)}╯`)
+
+const sectionRule = (label: string): string =>
+  paint(
+    "dim",
+    `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
+  )
 
 const composeUpCommand = (targetDir: string): string =>
   `cd ${targetDir} && docker compose up -d`
@@ -120,9 +130,11 @@ export const buildLocalConnectMessage = (params: {
   // that claude.ai can't reach localhost at all and Claude Desktop needs the
   // mcp-remote bridge (the dialog rejects http, but mcp-remote exempts
   // localhost, so no --allow-http).
-  const connectMessage = `${connectHeader()}
+  const connectMessage = `${topRule("Connect")}
 
 ${startLine}
+
+${sectionRule("MCP client")}
 
 ${connectUrlBlock(`${baseUrl}/mcp`, tokenLine)}
 
@@ -138,15 +150,21 @@ it with mcp-remote:
       "--header", "Authorization: Bearer <token above>"]
   }
 
+${sectionRule("Non-OAuth")}
+
 ${curlGuidance(`${baseUrl}/mcp`)}
 
 ${smokeTest(`${baseUrl}/healthz`)}
+
+${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging) are commented
 out in ${targetDir}/.env — uncomment, set a value, then apply with
 "docker compose up -d" (restart alone does not re-read .env).
 
-Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`
+Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md
+
+${bottomRule()}`
 
   return connectMessage
 }
@@ -200,17 +218,23 @@ Claude Desktop only accept https URLs — set up HTTPS for those clients
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation.
-  const connectMessage = `${connectHeader()}
+  const connectMessage = `${topRule("Connect")}
 
 ${startLine}
+
+${sectionRule("MCP client")}
 
 ${connectUrlBlock(`${publicUrl}/mcp`, tokenLine)}
 
 ${clientGuidance}
 
+${sectionRule("Non-OAuth")}
+
 ${curlGuidance(`${publicUrl}/mcp`)}
 
 ${smokeTest(`${publicUrl}/healthz`)}
+
+${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
@@ -218,7 +242,9 @@ value, then apply with "docker compose up -d" (restart alone does not
 re-read .env).
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
-https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access`
+https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access
+
+${bottomRule()}`
 
   return connectMessage
 }
