@@ -29,6 +29,9 @@ jobs:
         with:
           app-id: ${{ secrets.UMM_APP_ID }}
           private-key: ${{ secrets.UMM_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-issues: write
 
       # Phase 1 — Correctness & Security
       - name: "Phase 1: Correctness & security"
