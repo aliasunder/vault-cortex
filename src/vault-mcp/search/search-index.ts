@@ -187,9 +187,17 @@ export type TaskDateFilter = {
 export type TaskPriorityFilter = TaskPriority | "none"
 
 /** Sort keys for listTasks. The five task dates and priority sort on the
- *  task's own metadata; note_mtime sorts on the owning note's modified time. */
+ *  task's own metadata; note_mtime sorts on the owning note's modified time;
+ *  position sorts by file path then line number (Kanban card order). */
 export type TaskSortKey =
-  "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime"
+  | "due"
+  | "scheduled"
+  | "start"
+  | "created"
+  | "done"
+  | "priority"
+  | "note_mtime"
+  | "position"
 
 /** listTasks response: tasks is the limit-capped page, total the full match
  *  count — so callers can tell "50 of 338" from "all 50". */
