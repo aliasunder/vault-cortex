@@ -5,6 +5,19 @@ import {
   buildRemoteConnectMessage,
 } from "../messages.js"
 
+// ── Expected rules (mirrors the module-private helpers at RULE_WIDTH = 56) ────
+// Tests run in non-TTY, so paint() is a no-op — these are the raw strings.
+
+const RULE_WIDTH = 56
+
+const expectedTopRule = (label: string): string =>
+  `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`
+
+const expectedBottomRule = (): string => `╰${"─".repeat(RULE_WIDTH - 2)}╯`
+
+const expectedSectionRule = (label: string): string =>
+  `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const localDefaults = {
@@ -31,19 +44,16 @@ describe("buildLocalConnectMessage", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
     const lines = message.split("\n")
-    expect(lines[0]).toContain("╭──")
-    expect(lines[0]).toContain("Connect")
-    expect(lines[0]).toContain("╮")
-    expect(lines[lines.length - 1]).toContain("╰")
-    expect(lines[lines.length - 1]).toContain("╯")
+    expect(lines[0]).toBe(expectedTopRule("Connect"))
+    expect(lines[lines.length - 1]).toBe(expectedBottomRule())
   })
 
   it("includes MCP client, Non-OAuth, and Settings section dividers", () => {
-    const message = buildLocalConnectMessage(localDefaults)
+    const lines = buildLocalConnectMessage(localDefaults).split("\n")
 
-    expect(message).toContain("── MCP client ")
-    expect(message).toContain("── Non-OAuth ")
-    expect(message).toContain("── Settings ")
+    expect(lines).toContain(expectedSectionRule("MCP client"))
+    expect(lines).toContain(expectedSectionRule("Non-OAuth"))
+    expect(lines).toContain(expectedSectionRule("Settings"))
   })
 
   it("builds URLs from the given port", () => {
@@ -137,19 +147,16 @@ describe("buildRemoteConnectMessage", () => {
     const message = buildRemoteConnectMessage(remoteDefaults)
 
     const lines = message.split("\n")
-    expect(lines[0]).toContain("╭──")
-    expect(lines[0]).toContain("Connect")
-    expect(lines[0]).toContain("╮")
-    expect(lines[lines.length - 1]).toContain("╰")
-    expect(lines[lines.length - 1]).toContain("╯")
+    expect(lines[0]).toBe(expectedTopRule("Connect"))
+    expect(lines[lines.length - 1]).toBe(expectedBottomRule())
   })
 
   it("includes MCP client, Non-OAuth, and Settings section dividers", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults)
+    const lines = buildRemoteConnectMessage(remoteDefaults).split("\n")
 
-    expect(message).toContain("── MCP client ")
-    expect(message).toContain("── Non-OAuth ")
-    expect(message).toContain("── Settings ")
+    expect(lines).toContain(expectedSectionRule("MCP client"))
+    expect(lines).toContain(expectedSectionRule("Non-OAuth"))
+    expect(lines).toContain(expectedSectionRule("Settings"))
   })
 
   it("builds URLs from the given publicUrl", () => {
