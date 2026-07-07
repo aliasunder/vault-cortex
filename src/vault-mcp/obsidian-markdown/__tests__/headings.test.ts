@@ -151,6 +151,26 @@ describe("parseHeadings", () => {
     ])
   })
 
+  it("ignores a heading inside a single-line inline comment", () => {
+    const lines = ["# Real", "%% ## Hidden %%", "## Also real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+      "Also real",
+    ])
+  })
+
+  it("ignores headings inside an unclosed comment running to EOF", () => {
+    const lines = [
+      "# Real",
+      "%%",
+      "## Hidden by unclosed comment",
+      "## Also hidden",
+    ]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+    ])
+  })
+
   it("does not toggle comment state inside a fenced code block", () => {
     const lines = [
       "```",
