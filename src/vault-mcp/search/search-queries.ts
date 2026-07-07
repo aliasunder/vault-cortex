@@ -638,16 +638,17 @@ export const listTasks = (
     if (value === "not_done") return ["todo", "in_progress"] as const
     return [value]
   })
-  const expandedStatuses = [...new Set(statusValuesWithExpansions)]
+  const expandedStatusValues = [...new Set(statusValuesWithExpansions)]
   const coversAllStatuses = CONCRETE_STATUSES.every((status) =>
-    expandedStatuses.includes(status),
+    expandedStatusValues.includes(status),
   )
-  const needsStatusFilter = expandedStatuses.length > 0 && !coversAllStatuses
+  const needsStatusFilter =
+    expandedStatusValues.length > 0 && !coversAllStatuses
   if (needsStatusFilter) {
     conditions.push(
-      `t.status IN (${expandedStatuses.map(() => "?").join(", ")})`,
+      `t.status IN (${expandedStatusValues.map(() => "?").join(", ")})`,
     )
-    queryParams.push(...expandedStatuses)
+    queryParams.push(...expandedStatusValues)
   }
 
   // A date filter only ever matches tasks that HAVE that date — SQL comparison

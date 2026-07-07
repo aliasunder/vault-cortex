@@ -386,8 +386,8 @@ undefined) return`) or schema validation to narrow types instead.
   normalized → expanded → deduplicated), keep a consistent prefix
   so every variable clearly belongs to the same chain:
   `statusInput` → `statusValues` → `statusValuesWithExpansions` →
-  `expandedStatuses`, not `input` → `values` → `withExpansions` →
-  `result`. A reader scanning the function should see the domain
+  `expandedStatusValues`, not `input` → `values` → `withExpansions`
+  → `expanded`. A reader scanning the function should see the domain
   noun on every intermediate, not just the first and last.
 - Lean toward named records over positional tuples, and named locals over
   inline expressions, where it helps a line read on its own — `{ start, end }`
