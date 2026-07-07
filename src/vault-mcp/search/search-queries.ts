@@ -633,12 +633,12 @@ export const listTasks = (
   ] as const
   // Expand virtual values to concrete DB statuses, then deduplicate so
   // ["not_done", "todo"] doesn't double-bind "todo" in the IN clause.
-  const withExpansions = statusValues.flatMap((value) => {
+  const statusValuesWithExpansions = statusValues.flatMap((value) => {
     if (value === "all") return [...CONCRETE_STATUSES]
     if (value === "not_done") return ["todo", "in_progress"] as const
     return [value]
   })
-  const expandedStatuses = [...new Set(withExpansions)]
+  const expandedStatuses = [...new Set(statusValuesWithExpansions)]
   const coversAllStatuses = CONCRETE_STATUSES.every((status) =>
     expandedStatuses.includes(status),
   )
