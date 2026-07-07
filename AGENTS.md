@@ -378,12 +378,23 @@ undefined) return`) or schema validation to narrow types instead.
   This applies everywhere: function params, callback params (`row`
   not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
   (`element` not `je`), destructured bindings, and loop variables.
+  For constants representing a category, name them for the domain
+  contrast they represent — `CONCRETE_STATUSES` communicates the
+  virtual/concrete distinction; `ALL_REAL_STATUSES` doesn't (what
+  makes a status "real"?).
 - Lean toward named records over positional tuples, and named locals over
   inline expressions, where it helps a line read on its own — `{ start, end }`
   over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
   `const linkText = match[0]` over an inline `match[0].length`. Judgment,
   not a hard rule: an inline expression that's obvious in its context is
   fine. Optimize for readability in context, not mechanical extraction.
+- Break nested functional composition into named intermediate steps.
+  `[...new Set(items.flatMap(transform))]` nests three operations
+  (spread, Set, flatMap) — a reader has to unpack inside-out. Split into
+  `const withExpansions = items.flatMap(transform)` then
+  `const deduplicated = [...new Set(withExpansions)]` so each line reads
+  top-to-bottom. The threshold is ~2 nesting levels; a single
+  `items.map(f)` or `[...new Set(items)]` is fine inline.
 - Function and helper names state what they _do_, specifically — a reader
   should know what a function does without reading its body
   (`collectWikilinksFrom` not `collect`,
@@ -407,7 +418,10 @@ undefined) return`) or schema validation to narrow types instead.
 - Name booleans (params, flags, locals) for the affirmative state, and
   let the value carry the negation: `hardLinksSupported: false` reads
   clearer than `hardLinksUnsupported: true`, and a double negative like
-  `if (!notReady)` is a smell. A positively-named flag also keeps the
+  `if (!notReady)` is a smell. This extends to guard booleans: name
+  them for the action the guard controls — `needsStatusFilter` over
+  `!isUnfiltered`, because the guard's intent is "do we need a filter?"
+  not "is it not unfiltered?". A positively-named flag also keeps the
   guard's condition positive (`if (hardLinksSupported) { … return }`),
   so it pairs naturally with the early-return rule above — the common
   path returns, the fallback flows beneath it, no `else`.

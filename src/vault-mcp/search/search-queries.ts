@@ -631,21 +631,18 @@ export const listTasks = (
     "done",
     "cancelled",
   ] as const
-  // Virtual → concrete: "not_done" becomes ["todo","in_progress"], "all" becomes
-  // every concrete status. Deduplicated so ["not_done","todo"] doesn't double-bind.
-  const expandedStatuses = [
-    ...new Set(
-      statusValues.flatMap((value) => {
-        if (value === "all") return [...CONCRETE_STATUSES]
-        if (value === "not_done") return ["todo", "in_progress"] as const
-        return [value]
-      }),
-    ),
-  ]
-  const isUnfiltered = CONCRETE_STATUSES.every((status) =>
-    expandedStatuses.includes(status),
-  )
-  if (!isUnfiltered && expandedStatuses.length > 0) {
+  // Expand virtual values to concrete DB statuses, then deduplicate so
+  // ["not_done", "todo"] doesn't double-bind "todo" in the IN clause.
+  const withExpansions = statusValues.flatMap((value) => {
+    if (value === "all") return [...CONCRETE_STATUSES]
+    if (value === "not_done") return ["todo", "in_progress"] as const
+    return [value]
+  })
+  const expandedStatuses = [...new Set(withExpansions)]
+  const needsStatusFilter =
+    expandedStatuses.length > 0 &&
+    !CONCRETE_STATUSES.every((status) => expandedStatuses.includes(status))
+  if (needsStatusFilter) {
     conditions.push(
       `t.status IN (${expandedStatuses.map(() => "?").join(", ")})`,
     )
