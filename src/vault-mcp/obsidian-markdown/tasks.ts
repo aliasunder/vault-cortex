@@ -443,9 +443,8 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     const lineText = bodyLines[lineIndex]
     if (lineText === undefined) continue
     const fenceResult = advanceFence(lineText, openFence)
-    const lineIsCode = fenceResult.isFenceDelimiter || openFence !== null
     openFence = fenceResult.openFence
-    if (lineIsCode) continue
+    if (fenceResult.lineIsCode) continue
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
     if (taskLineMatch === null) continue
