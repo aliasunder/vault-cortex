@@ -200,17 +200,11 @@ export const advanceComment = (
   commentOpen: boolean,
 ): CommentResult => {
   const toggleCount = countCommentToggles(line)
-  const wasOpen = commentOpen
-  // Apply toggles sequentially: each occurrence flips the state.
-  // For 2 toggles (inline `%% text %%`), the state flips twice — net
-  // unchanged when starting closed, net unchanged when starting open.
-  let currentlyOpen = commentOpen
-  for (let toggle = 0; toggle < toggleCount; toggle++) {
-    currentlyOpen = !currentlyOpen
-  }
+  // Each toggle flips the state; an even count nets no change.
+  const currentlyOpen = toggleCount % 2 === 0 ? commentOpen : !commentOpen
   return {
     commentOpen: currentlyOpen,
-    lineIsComment: wasOpen || toggleCount > 0,
+    lineIsComment: commentOpen || toggleCount > 0,
   }
 }
 

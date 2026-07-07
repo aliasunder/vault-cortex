@@ -106,6 +106,13 @@ describe("advanceComment", () => {
       lineIsComment: true,
     })
   })
+
+  it("counts only the boundary %% when a non-boundary %% sits mid-line", () => {
+    expect(advanceComment("%% note %% more text", false)).toEqual({
+      commentOpen: true,
+      lineIsComment: true,
+    })
+  })
 })
 
 // ── advanceFence ─────────────────────────────────────────────────
