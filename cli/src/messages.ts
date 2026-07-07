@@ -8,11 +8,14 @@ import { styleText } from "node:util"
 // so a colored URL or token still copies clean.
 type TextStyle = Parameters<typeof styleText>[0]
 
-// Strip styling when stdout isn't a color TTY (piped output, NO_COLOR, CI) so
+// Strip styling when stdout isn't a color TTY (piped output, CI) or NO_COLOR
+// is set (any value, including empty — per the NO_COLOR spec) so
 // captured/redirected output stays plain — no stray escape codes in copied
 // commands or logs.
 const paint = (style: TextStyle, text: string): string =>
-  process.stdout.isTTY && !process.env.NO_COLOR ? styleText(style, text) : text
+  process.stdout.isTTY && !("NO_COLOR" in process.env)
+    ? styleText(style, text)
+    : text
 
 const RULE_WIDTH = 56
 
