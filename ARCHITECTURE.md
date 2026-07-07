@@ -248,15 +248,15 @@ Link queries use a `links` table populated during indexing:
 
 ### Task Queries (R9)
 
-| Tool               | Input                                                                                               | Annotation   |
-| ------------------ | --------------------------------------------------------------------------------------------------- | ------------ |
-| `vault_list_tasks` | `status?, dates (6)?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
+| Tool               | Input                                                                                                                                          | Annotation   |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `vault_list_tasks` | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
 
 Each row carries its full attribution: note path, full parent folder, nearest heading (the Kanban lane on a board), and 1-based file line number — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
 
-`vault_list_tasks` queries the table with structured filters (status, six date fields with range bounds, priority, folder/tag/heading/path scoping) and whitelisted sort keys. Three design choices shape the query surface:
+`vault_list_tasks` queries the table with structured filters (status, six date fields — due, scheduled, start, created, done, cancelled — each with before/on/after bounds, priority, folder/tag/heading/path scoping) and eight sort keys (`due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`). Three design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
 - **Date cascade sorting** — when the primary sort field is absent on a task, the sort falls back through related date fields (due → scheduled → start → created), each using its own natural direction. Tasks with sparse dates sort usably instead of clustering at the end.
