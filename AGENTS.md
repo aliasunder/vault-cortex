@@ -382,6 +382,13 @@ undefined) return`) or schema validation to narrow types instead.
   contrast they represent — `CONCRETE_STATUSES` communicates the
   virtual/concrete distinction; `ALL_REAL_STATUSES` doesn't (what
   makes a status "real"?).
+  When a value flows through a multi-step pipeline (input →
+  normalized → expanded → deduplicated), keep a consistent prefix
+  so every variable clearly belongs to the same chain:
+  `statusInput` → `statusValues` → `statusValuesWithExpansions` →
+  `expandedStatuses`, not `input` → `values` → `withExpansions` →
+  `result`. A reader scanning the function should see the domain
+  noun on every intermediate, not just the first and last.
 - Lean toward named records over positional tuples, and named locals over
   inline expressions, where it helps a line read on its own — `{ start, end }`
   over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
