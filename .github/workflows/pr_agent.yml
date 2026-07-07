@@ -157,6 +157,20 @@ jobs:
             7. Platform/encoding — path separator assumptions, Unicode normalization,
                locale-dependent string operations, timezone-naive date handling.
 
+            For CI/workflow files (.yml), also check:
+            8. Action pinning — third-party actions must be pinned to a full commit SHA,
+               not a mutable tag (v2, v3, latest). Pin to SHA with a version comment:
+               `uses: org/action@<sha> # v2.1.0`. First-party `actions/*` are lower risk
+               but should still be pinned in security-sensitive workflows.
+            9. Permissions least privilege — `permissions:` should grant only what the job
+               needs. If all steps use a GitHub App token (create-github-app-token), the
+               default GITHUB_TOKEN only needs `read`. Write permissions on an unused
+               GITHUB_TOKEN is unnecessary attack surface.
+            10. Multi-trigger event guards — when a workflow has multiple triggers in `on:`
+                (e.g. pull_request + issue_comment), check whether each step should run for
+                all triggers or only specific ones. Steps meant only for PRs need
+                `if: github.event_name == 'pull_request'` guards.
+
             For each finding, state the specific input or sequence that triggers the bug.
           pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
 
