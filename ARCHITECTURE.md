@@ -41,7 +41,7 @@ The server provides three capability layers, each additive:
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                     |
 | R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                                 |
 | R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite.   |
-| R9  | Vault-wide task queries         | 3     | Task index parsing Tasks-plugin emoji + Dataview formats. Kanban-aware, structured filters. |
+| R9  | Vault-wide task queries         | 3     | Task index parsing Tasks plugin emoji + Dataview formats. Kanban-aware, structured filters. |
 
 ## Component Diagram
 
