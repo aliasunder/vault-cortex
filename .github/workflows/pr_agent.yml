@@ -36,8 +36,14 @@ jobs:
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # PR-Agent only calls models in its hardcoded MAX_TOKENS table;
+          # models not listed (e.g. deepseek-v3.2 via OpenRouter) fail silently
+          # and fall back. custom_model_max_tokens tells PR-Agent the context
+          # window directly. Update alongside PR_AGENT_MODEL when switching.
           config.model: ${{ vars.PR_AGENT_MODEL || 'openrouter/anthropic/claude-sonnet-4-6' }}
           config.custom_model_max_tokens: ${{ vars.PR_AGENT_MAX_TOKENS || '200000' }}
+          # Default fallback is gpt-5.4-mini (hardcoded in PR-Agent), which
+          # routes through OpenRouter to OpenAI — unexpected model and charges.
           config.fallback_models: '["openrouter/anthropic/claude-sonnet-4-6"]'
           github_action_config.auto_review: "false"
           github_action_config.auto_describe: "false"
@@ -54,6 +60,9 @@ jobs:
 
             For each suggestion, explain the concrete failure scenario — what input or state
             triggers the bug and what goes wrong.
+          # Default (-1) posts suggestions only as conversation comments.
+          # Threshold >= 0 also posts them as inline review comments on the
+          # diff for suggestions at or above that score (0-10 scale).
           pr_code_suggestions.dual_publishing_score_threshold: ${{ vars.PR_AGENT_SUGGESTION_THRESHOLD || '3' }}
 
       # Phase 2 — Code Quality & Conventions
