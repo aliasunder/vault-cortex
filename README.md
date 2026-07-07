@@ -16,7 +16,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task queries, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 26 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-26) · [Prompts](#prompts-3) · [Config](#configuration) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-26) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -269,6 +269,18 @@ All settings are environment variables with sensible defaults.
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list. When `MEMORY_ENABLED` is `false`, the memory layer is fully disabled — memory tools are hidden and the memory folder is not auto-created.
 
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
+
+## Data Integrity
+
+Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
+
+- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note. Exclusive creates use `link()` (POSIX no-clobber) to close the TOCTOU window on note moves.
+- **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
+- **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
+- **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
+- **Container hardening** — non-root user, PID 1 init (`tini`), no package managers in the runtime image, digest-pinned base, log rotation.
+
+See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for the full attack-surface inventory.
 
 ## Authentication
 
