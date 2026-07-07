@@ -631,6 +631,8 @@ export const listTasks = (
     "done",
     "cancelled",
   ] as const
+  // Virtual → concrete: "not_done" becomes ["todo","in_progress"], "all" becomes
+  // every concrete status. Deduplicated so ["not_done","todo"] doesn't double-bind.
   const expandedStatuses = [
     ...new Set(
       statusValues.flatMap((value) => {
