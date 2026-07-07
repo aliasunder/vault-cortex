@@ -122,9 +122,10 @@ export default $config({
 
     // ── Lightsail ─────────────────────────────────────────────────
     // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
-    // Hybrid search with local embeddings needs 4 GB RAM (small_3_0
-    // at 2 GB is insufficient). To downgrade, change bundleId to
-    // "small_3_0" — no snapshot needed, just redeploy.
+    // Upgraded from small_3_0 for the second vCPU (concurrent ONNX
+    // inference) and page-cache headroom. small_3_0 (1 vCPU, 2 GB,
+    // $12/mo) handles semantic search fine for a typical vault.
+    // Downgrade path is a snapshot-based restore — see RECOVERY.md.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,

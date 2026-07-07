@@ -39,7 +39,7 @@ The server provides three capability layers, each additive:
 | R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                   |
 | R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                           |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                     |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. ~$12–24/mo. IaC via SST.                                 |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. Free local, low-cost VPS remote. IaC via SST.            |
 | R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite.   |
 | R9  | Vault-wide task queries         | 3     | Task index parsing Tasks plugin emoji + Dataview formats. Kanban-aware, structured filters. |
 
@@ -656,14 +656,19 @@ Notes`) blocks deletion and move-into for configured folders, checked
 
 ## Cost
 
-| Component                          | Keyword-only (`EMBEDDING_ENABLED=false`)   | Full (hybrid + reranker) |
-| ---------------------------------- | ------------------------------------------ | ------------------------ |
-| Lightsail                          | $12/mo (2 GB)                              | $24/mo (4 GB)            |
-| Lightsail auto-snapshots           | ~$0.50–1.50/mo (used disk × 7d × $0.05/GB) | same                     |
-| API Gateway                        | ~$0                                        | ~$0                      |
-| Obsidian Sync                      | existing                                   | same                     |
-| Local embeddings (in-process ONNX) | —                                          | $0 (no API)              |
-| **Total**                          | **~$13/mo**                                | **~$25/mo**              |
+**Local-only** is free — Docker on your machine, vault bind-mounted. No VPS, no Sync subscription.
+
+**Remote** adds a Lightsail instance and [Obsidian Sync](https://obsidian.md/sync) ($5/mo). The server runs on modest hardware — a 2 GiB instance handles full semantic search for a typical vault (~1,000 notes); 4 GiB adds headroom for concurrent ONNX inference and larger vaults. Skip semantic search entirely (`EMBEDDING_ENABLED=false`) and even smaller instances work — the keyword-only footprint is under 200 MiB. Embeddings are generated locally by in-process ONNX models (~45 MB total) — no external API, no per-query cost.
+
+| Component          | Cost                                               |
+| ------------------ | -------------------------------------------------- |
+| Lightsail instance | $12/mo (1 vCPU / 2 GiB) or $24/mo (2 vCPU / 4 GiB) |
+| Auto-snapshots     | ~$0.50–1.50/mo (used disk × 7d × $0.05/GiB)        |
+| API Gateway        | <$1/mo                                             |
+| Obsidian Sync      | $5/mo                                              |
+| **Total**          | **~$18–30/mo**                                     |
+
+Vault Cortex runs anywhere Docker does — the reference deployment uses Lightsail, but any VPS with comparable specs works.
 
 ## Key Decisions
 

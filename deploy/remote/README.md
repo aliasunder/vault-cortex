@@ -86,12 +86,12 @@ Create an HTTP API in API Gateway with a route that proxies to
 URL. See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
 approach, which adds a Lambda authorizer for an extra auth layer.
 
-> **Need a VPS?** [AWS Lightsail](https://aws.amazon.com/lightsail/) runs
-> Vault Cortex on a 2 GB RAM / 60 GB SSD instance for about $12/mo. Paired with
-> API Gateway (effectively $0) and this compose file, that's the whole bill. For
-> a fully automated setup, Vault Cortex also includes an
-> [SST IaC deployment](../../DEPLOY.md) that provisions Lightsail, API Gateway,
-> and a Lambda authorizer in one command.
+> **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
+> DigitalOcean, Hetzner, etc. A 2 GiB instance handles semantic search fine for
+> a typical vault; 4 GiB adds headroom for concurrent search and larger vaults.
+> Add $5/mo for [Obsidian Sync](https://obsidian.md/sync). For a fully automated
+> AWS setup, Vault Cortex also includes an [SST IaC deployment](../../DEPLOY.md)
+> that provisions Lightsail, API Gateway, and a Lambda authorizer in one command.
 
 ### Reverse proxy (requires a domain)
 

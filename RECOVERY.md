@@ -75,7 +75,7 @@ RESTORE_NAME="${INSTANCE_NAME}-restore-$(date +%s)"
 aws lightsail create-instances-from-snapshot \
   --instance-names "${RESTORE_NAME}" \
   --availability-zone us-east-1a \
-  --bundle-id small_3_0 \
+  --bundle-id medium_3_0 \
   --source-instance-name "${INSTANCE_NAME}" \
   --restore-date "${SNAPSHOT_DATE}" \
   --key-pair-name "vault-cortex-key-${STAGE}"
