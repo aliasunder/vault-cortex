@@ -28,6 +28,15 @@
 
 
 
+
+## [0.26.7] — 2026-07-07
+
+### Documentation
+
+- Task query highlights, cost reframing, and instance size corrections (#282)
+- Document safety and hardening patterns (#281)
+- Update CHANGELOG.md for v0.26.6
+
 ## [0.26.6] — 2026-07-07
 
 ### Documentation
