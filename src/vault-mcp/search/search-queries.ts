@@ -621,11 +621,11 @@ export const listTasks = (
   const conditions: string[] = []
   const queryParams: unknown[] = []
 
-  // Normalize status to an array of real DB values (todo/in_progress/done/cancelled),
+  // Normalize status to concrete DB values (todo/in_progress/done/cancelled),
   // expanding virtual values: not_done → todo + in_progress, all → skip the filter.
   const statusInput = params.status ?? "not_done"
   const statusValues = Array.isArray(statusInput) ? statusInput : [statusInput]
-  const ALL_REAL_STATUSES = [
+  const CONCRETE_STATUSES = [
     "todo",
     "in_progress",
     "done",
@@ -634,16 +634,16 @@ export const listTasks = (
   const expandedStatuses = [
     ...new Set(
       statusValues.flatMap((value) => {
-        if (value === "all") return [...ALL_REAL_STATUSES]
+        if (value === "all") return [...CONCRETE_STATUSES]
         if (value === "not_done") return ["todo", "in_progress"] as const
         return [value]
       }),
     ),
   ]
-  const isAllStatuses = ALL_REAL_STATUSES.every((real) =>
-    expandedStatuses.includes(real),
+  const isUnfiltered = CONCRETE_STATUSES.every((status) =>
+    expandedStatuses.includes(status),
   )
-  if (!isAllStatuses && expandedStatuses.length > 0) {
+  if (!isUnfiltered && expandedStatuses.length > 0) {
     conditions.push(
       `t.status IN (${expandedStatuses.map(() => "?").join(", ")})`,
     )
