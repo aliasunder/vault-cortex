@@ -347,7 +347,9 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe('note not found: "nonexistent.md"')
+    expect(result.content[0]?.text).toBe(
+      '[Error]: note not found: "nonexistent.md"',
+    )
   })
 
   it("error text does not contain stack traces", async () => {
@@ -383,7 +385,7 @@ describe("error handling", () => {
     }
     expect(result.isError).toBe(true)
     expect(result.content[0]?.text).toBe(
-      'memory file not found: "About Me/Nonexistent.md"',
+      '[Error]: memory file not found: "About Me/Nonexistent.md"',
     )
   })
 
@@ -728,7 +730,7 @@ describe("vault_list_tasks handler", () => {
     }
     expect(result.isError).toBe(true)
     expect(result.content[0]?.text).toBe(
-      'invalid due.before date: "not-a-date". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      '[Error]: invalid due.before date: "not-a-date". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })
 
