@@ -85,6 +85,9 @@ describe("createErrorMiddleware", () => {
       path: "/mcp",
     })
     const err = new Error("kaboom")
+    // Replace V8's generated stack with a predictable value so the assertion
+    // below is an exact match — otherwise `stack: err.stack` in the assertion
+    // passes trivially even if the middleware never sets the field.
     Object.defineProperty(err, "stack", {
       value: "Error: kaboom\n    at test",
     })
@@ -113,6 +116,9 @@ describe("createErrorMiddleware", () => {
       path: "/healthz",
     })
     const err = new Error("nope")
+    // Replace V8's generated stack with a predictable value so the assertion
+    // below is an exact match — otherwise `stack: err.stack` in the assertion
+    // passes trivially even if the middleware never sets the field.
     Object.defineProperty(err, "stack", {
       value: "Error: nope\n    at test",
     })
