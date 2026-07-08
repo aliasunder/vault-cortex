@@ -95,8 +95,13 @@ describe("createErrorMiddleware", () => {
       method: "POST",
       path: "/mcp",
       error: "[Error]: kaboom",
-      stack: err.stack,
+      stack: expect.any(String),
     })
+    // Verify stack has content, not just `undefined` matching `undefined`
+    const [[, data]] = errorSpy.mock.calls as [
+      ["unhandled_error", Record<string, unknown>],
+    ]
+    expect(data.stack).toBeTruthy()
   })
 
   it("logs sessionId as undefined, error, and stack when mcp-session-id header is absent", () => {
@@ -119,7 +124,36 @@ describe("createErrorMiddleware", () => {
       method: "GET",
       path: "/healthz",
       error: "[Error]: nope",
-      stack: err.stack,
+      stack: expect.any(String),
+    })
+    const [[, data]] = errorSpy.mock.calls as [
+      ["unhandled_error", Record<string, unknown>],
+    ]
+    expect(data.stack).toBeTruthy()
+  })
+
+  it("logs stack as undefined when the error has no stack property", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
+    const middleware = createErrorMiddleware()
+    const { req, res, next } = createMockReqRes({
+      headers: { "mcp-session-id": "session-456" },
+      ip: "10.0.0.2",
+      method: "PUT",
+      path: "/api",
+    })
+    const err = { name: "Error", message: "no stack" } as Error
+    delete (err as { stack?: string }).stack
+
+    middleware(err, req, res, next)
+
+    expect(errorSpy).toHaveBeenCalledWith("unhandled_error", {
+      sessionId: "session-456",
+      clientIp: "10.0.0.2",
+      method: "PUT",
+      path: "/api",
+      error: "[Error]: no stack",
+      stack: undefined,
     })
   })
 
