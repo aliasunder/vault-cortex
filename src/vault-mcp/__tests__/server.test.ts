@@ -85,6 +85,9 @@ describe("createErrorMiddleware", () => {
       path: "/mcp",
     })
     const err = new Error("kaboom")
+    Object.defineProperty(err, "stack", {
+      value: "Error: kaboom\n    at test",
+    })
 
     middleware(err, req, res, next)
 
@@ -95,13 +98,8 @@ describe("createErrorMiddleware", () => {
       method: "POST",
       path: "/mcp",
       error: "[Error]: kaboom",
-      stack: expect.any(String),
+      stack: "Error: kaboom\n    at test",
     })
-    // Verify stack has content, not just `undefined` matching `undefined`
-    const [[, data]] = errorSpy.mock.calls as [
-      ["unhandled_error", Record<string, unknown>],
-    ]
-    expect(data.stack).toBeTruthy()
   })
 
   it("logs sessionId as undefined, error, and stack when mcp-session-id header is absent", () => {
@@ -115,6 +113,9 @@ describe("createErrorMiddleware", () => {
       path: "/healthz",
     })
     const err = new Error("nope")
+    Object.defineProperty(err, "stack", {
+      value: "Error: nope\n    at test",
+    })
 
     middleware(err, req, res, next)
 
@@ -124,12 +125,8 @@ describe("createErrorMiddleware", () => {
       method: "GET",
       path: "/healthz",
       error: "[Error]: nope",
-      stack: expect.any(String),
+      stack: "Error: nope\n    at test",
     })
-    const [[, data]] = errorSpy.mock.calls as [
-      ["unhandled_error", Record<string, unknown>],
-    ]
-    expect(data.stack).toBeTruthy()
   })
 
   it("logs stack as undefined when the error has no stack property", () => {
