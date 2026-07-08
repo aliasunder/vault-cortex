@@ -156,7 +156,7 @@ export const getDailyNote = async (
     return { path, content, exists: true }
   } catch (err) {
     const errorMessage = describeError(err)
-    if (errorMessage.startsWith("note not found")) {
+    if (errorMessage.startsWith("[Error]: note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }
     }

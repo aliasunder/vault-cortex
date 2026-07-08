@@ -58,4 +58,4 @@ RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "dist/src/vault-mcp/server.js"]
+CMD ["node", "--enable-source-maps", "dist/src/vault-mcp/server.js"]

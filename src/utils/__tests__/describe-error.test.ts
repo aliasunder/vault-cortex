@@ -4,14 +4,14 @@ import { describeError } from "../describe-error.js"
 describe("describeError", () => {
   const scenarios = [
     {
-      name: "returns an Error's message",
+      name: "returns an Error's name and message",
       input: new Error("boom"),
-      expected: "boom",
+      expected: "[Error]: boom",
     },
     {
-      name: "returns the message of an Error subclass",
+      name: "returns the name and message of an Error subclass",
       input: new TypeError("bad type"),
-      expected: "bad type",
+      expected: "[TypeError]: bad type",
     },
     {
       name: "stringifies a non-Error string",

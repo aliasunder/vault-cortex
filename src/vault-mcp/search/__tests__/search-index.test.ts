@@ -2891,7 +2891,7 @@ It has multiple sentences to verify chunking works correctly.
       // One note failed, warn logged with the specific error
       expect(warnSpy).toHaveBeenCalledWith(
         "failed to embed note",
-        expect.objectContaining({ error: "embedding failed" }),
+        expect.objectContaining({ error: "[Error]: embedding failed" }),
       )
       // Both notes attempted embedding (first failed, second succeeded)
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
@@ -3012,7 +3012,7 @@ the Lightsail budget estimates for next quarter.
       expect(search_mode).toBe("fts")
       expect(warnSpy).toHaveBeenCalledWith(
         "vector search failed, falling back to FTS-only",
-        expect.objectContaining({ error: "model unavailable" }),
+        expect.objectContaining({ error: "[Error]: model unavailable" }),
       )
     })
   })
@@ -3659,7 +3659,7 @@ This is a note with many words that should be truncated when using a small snipp
       expect(results).toHaveLength(2)
       expect(warnSpy).toHaveBeenCalledWith(
         "reranker failed, using RRF-only ordering",
-        expect.objectContaining({ error: "model failed to load" }),
+        expect.objectContaining({ error: "[Error]: model failed to load" }),
       )
       warnSpy.mockRestore()
     })
