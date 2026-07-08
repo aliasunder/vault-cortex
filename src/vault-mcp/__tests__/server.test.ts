@@ -74,7 +74,7 @@ describe("createErrorMiddleware", () => {
     expect(resJson).not.toHaveBeenCalled()
   })
 
-  it("logs unhandled_error with session, ip, method, path, and error message", () => {
+  it("logs unhandled_error with session, ip, method, path, error, and stack", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
@@ -94,11 +94,12 @@ describe("createErrorMiddleware", () => {
       clientIp: "192.0.2.5",
       method: "POST",
       path: "/mcp",
-      error: "kaboom",
+      error: "[Error]: kaboom",
+      stack: err.stack,
     })
   })
 
-  it("logs sessionId as undefined when mcp-session-id header is absent", () => {
+  it("logs sessionId as undefined, error, and stack when mcp-session-id header is absent", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
     const middleware = createErrorMiddleware()
@@ -117,7 +118,8 @@ describe("createErrorMiddleware", () => {
       clientIp: "192.0.2.6",
       method: "GET",
       path: "/healthz",
-      error: "nope",
+      error: "[Error]: nope",
+      stack: err.stack,
     })
   })
 

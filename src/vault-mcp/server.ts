@@ -27,7 +27,8 @@ export const createErrorMiddleware =
       clientIp: req.ip,
       method: req.method,
       path: req.path,
-      error: err.message,
+      error: `[${err.name}]: ${err.message}`,
+      stack: err.stack,
     })
     if (!res.headersSent) {
       res.status(500).json({ error: "internal server error" })
