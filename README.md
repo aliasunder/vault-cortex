@@ -353,7 +353,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Acknowledgments
 
-This project uses a maintained fork of [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker) — thank you to Belphemur for the original work. The fork ([aliasunder/obsidian-headless-sync-docker](https://github.com/aliasunder/obsidian-headless-sync-docker)) is maintained in lockstep with vault-cortex's release cycle.
+Obsidian sync is powered by [obsidian-headless](https://obsidian.md/help/headless) — containerization approach inspired by [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker). The [maintained fork](https://github.com/aliasunder/obsidian-headless-sync-docker) is released in lockstep with vault-cortex.
 
 The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, position-aware score blending for cross-encoder reranking, content-hash gating, and heading-aware chunking.
 
