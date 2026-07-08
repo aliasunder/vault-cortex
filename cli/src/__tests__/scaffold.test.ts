@@ -38,7 +38,7 @@ describe("buildFilesToWrite", () => {
 
     expect(composeContent).toContain("obsidian-sync")
     expect(composeContent).toContain(
-      "ghcr.io/belphemur/obsidian-headless-sync-docker:latest",
+      "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
     )
     expect(composeContent).not.toContain("init-config-perms")
   })
