@@ -129,13 +129,15 @@ const defaultExtensions: LogExtension[] = fileSinkExtension
  *  transport's session id, generated during the initialize request). */
 const resolveLazyProps = (
   props: Record<string, unknown>,
-): Record<string, unknown> =>
-  Object.fromEntries(
-    Object.entries(props).map(([key, value]) => [
+): Record<string, unknown> => {
+  const resolvedEntries = Object.entries(props).map(
+    ([key, value]): [string, unknown] => [
       key,
       typeof value === "function" ? value() : value,
-    ]),
+    ],
   )
+  return Object.fromEntries(resolvedEntries)
+}
 
 const createLogger = (
   name: string,
