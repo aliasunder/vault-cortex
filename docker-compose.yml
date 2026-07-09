@@ -80,8 +80,10 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
 volumes:
-  # Names preserved from the two-service stack so the cutover keeps the
-  # synced vault, search index, and Obsidian login state without migration.
+  # Explicit names pin these to the volumes that already exist on the
+  # host — a rename (or project-name drift) silently creates fresh empty
+  # volumes, detaching the synced vault, search index, and Obsidian
+  # login state.
   vault_data: { name: vault-cortex_vault_data }
   mcp_index_data: { name: vault-cortex_mcp_index_data }
   obsidian_config: { name: vault-cortex_obsidian_config }
