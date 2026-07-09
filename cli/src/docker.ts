@@ -11,8 +11,7 @@ export type DockerRunner = {
 }
 
 /** The image whose `get-token` entrypoint issues Obsidian Sync auth tokens. */
-export const OBSIDIAN_SYNC_IMAGE =
-  "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest"
+export const GET_TOKEN_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
 
 export const createDockerRunner = (): DockerRunner => ({
   isComposeAvailable: () =>
@@ -25,7 +24,7 @@ export const createDockerRunner = (): DockerRunner => ({
   runGetToken: () =>
     spawnSync(
       "docker",
-      ["run", "--rm", "-it", "--entrypoint", "get-token", OBSIDIAN_SYNC_IMAGE],
+      ["run", "--rm", "-it", "--entrypoint", "get-token", GET_TOKEN_IMAGE],
       {
         stdio: "inherit",
       },

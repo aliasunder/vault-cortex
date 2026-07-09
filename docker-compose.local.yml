@@ -9,7 +9,11 @@ name: vault-cortex-local
 
 services:
   vault-mcp:
-    build: .
+    # target pinned explicitly — the local stage is also the Dockerfile
+    # default, but repo tooling doesn't rely on stage ordering.
+    build:
+      context: .
+      target: local
     container_name: vault-mcp-local
     environment:
       NODE_ENV: development

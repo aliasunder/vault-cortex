@@ -5,7 +5,7 @@ import {
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "./messages.js"
-import { OBSIDIAN_SYNC_IMAGE, pollHealth, type DockerRunner } from "./docker.js"
+import { GET_TOKEN_IMAGE, pollHealth, type DockerRunner } from "./docker.js"
 import {
   buildFilesToWrite,
   readEnvPort,
@@ -57,7 +57,7 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
 }
 
 const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
-  ${OBSIDIAN_SYNC_IMAGE}`
+  ${GET_TOKEN_IMAGE}`
 
 /**
  * Offers to run the obsidian-headless-sync get-token flow in this terminal.

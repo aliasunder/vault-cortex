@@ -14,9 +14,9 @@
 name: vault-cortex
 
 services:
-  vault-mcp:
-    image: ghcr.io/aliasunder/vault-mcp:latest
-    container_name: vault-mcp
+  vault-cortex:
+    image: ghcr.io/aliasunder/vault-cortex:latest
+    container_name: vault-cortex
     restart: unless-stopped
     environment:
       PORT: "8000"

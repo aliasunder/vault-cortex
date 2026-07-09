@@ -1,10 +1,12 @@
 # Runs on the Lightsail instance at /opt/vault-cortex/docker-compose.yml
 #
-# Two services sharing the vault volume:
-#   1. obsidian-sync: keeps /vault in sync with Obsidian Sync (bidirectional)
-#   2. vault-mcp: MCP server with FTS5 search, listens on :8000
+# Single service: the vault-cortex :remote image bundles obsidian-sync and
+# the MCP server under s6-overlay supervision — sync keeps /vault current
+# (bidirectional Obsidian Sync) and the MCP server listens on :8000.
+# Compose remains here as an operational wrapper (declarative restart
+# policy, --wait healthcheck gating, log rotation), not a user requirement.
 #
-# API Gateway handles TLS + auth upstream. vault-mcp ALSO validates
+# API Gateway handles TLS + auth upstream. vault-cortex ALSO validates
 # the bearer token in-process (Express middleware) as defense in
 # depth — see src/vault-mcp/server.ts. Port 8000 is publicly bound
 # but unauthenticated requests are rejected at the application layer.
@@ -12,12 +14,13 @@
 name: vault-cortex
 
 services:
-  obsidian-sync:
-    image: ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
-    container_name: obsidian-sync
+  vault-cortex:
+    image: ghcr.io/${GHCR_USER:?GHCR_USER required}/vault-cortex:${VAULT_CORTEX_TAG:-remote}
+    container_name: vault-cortex
     hostname: ${DEVICE_NAME:-vault-cortex}
     restart: unless-stopped
     environment:
+      # --- Obsidian Sync (s6 init chain + svc-obsidian-sync) ---
       OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}
       VAULT_NAME: ${VAULT_NAME}
       VAULT_PASSWORD: ${VAULT_PASSWORD:-}
@@ -26,28 +29,7 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
-      TZ: ${TZ:-UTC}
-    volumes:
-      - vault_data:/vault
-      - obsidian_config:/home/obsidian/.config
-    healthcheck:
-      test: ["CMD-SHELL", "test -d /vault && pgrep -f 'ob sync' >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "3" }
-
-  vault-mcp:
-    image: ghcr.io/${GHCR_USER:?GHCR_USER required}/vault-mcp:${VAULT_MCP_TAG:-latest}
-    container_name: vault-mcp
-    restart: unless-stopped
-    depends_on:
-      obsidian-sync:
-        condition: service_healthy
-    environment:
+      # --- MCP server (svc-vault-mcp) ---
       NODE_ENV: production
       PORT: "8000"
       HOST: "0.0.0.0"
@@ -73,10 +55,14 @@ services:
       ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
       SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
     volumes:
-      - vault_data:/vault:rw
+      - vault_data:/vault
       - mcp_index_data:/data
+      - obsidian_config:/home/obsidian/.config
     ports:
       - "0.0.0.0:8000:8000"
+    # start_period covers the s6 init chain (Obsidian login + sync-setup)
+    # that runs before the MCP server boots. Failures during start_period
+    # don't count against retries; a fast boot flips healthy immediately.
     healthcheck:
       test:
         [
@@ -87,13 +73,15 @@ services:
         ]
       interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 60s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
 volumes:
+  # Names preserved from the two-service stack so the cutover keeps the
+  # synced vault, search index, and Obsidian login state without migration.
   vault_data: { name: vault-cortex_vault_data }
   mcp_index_data: { name: vault-cortex_mcp_index_data }
   obsidian_config: { name: vault-cortex_obsidian_config }

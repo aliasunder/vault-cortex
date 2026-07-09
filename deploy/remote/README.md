@@ -4,6 +4,13 @@ Run Vault Cortex on a VPS with Obsidian Sync for remote access from any device.
 Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client — anywhere.
 
+Everything runs in **one container**: the `vault-cortex:remote` image bundles
+the Obsidian Sync process and the MCP server under
+[s6-overlay](https://github.com/just-containers/s6-overlay) supervision. Docker
+Compose is used below for its restart policy and log rotation, but it's
+optional — the same container runs with [plain `docker run`](#docker-run-no-compose),
+Podman, or any OCI runtime.
+
 > **Tip:** if your server has Node.js >= 20.12 installed,
 > `npx vault-cortex@latest init --mode remote` walks through steps 2–6
 > interactively. The manual steps below work on any box with Docker.
@@ -36,7 +43,7 @@ Or clone the repo and `cd deploy/remote`.
 
 ```bash
 docker run --rm -it --entrypoint get-token \
-  ghcr.io/aliasunder/obsidian-headless-sync-docker:latest
+  ghcr.io/aliasunder/vault-cortex:remote
 ```
 
 **4. Create your `.env` file:**
@@ -60,9 +67,26 @@ cp .env.example .env
 docker compose up -d
 ```
 
-First start pulls images and syncs your vault from Obsidian's servers. The
-initial sync takes 30–120 seconds depending on vault size. vault-mcp builds its
-search index as files arrive.
+First start pulls the image, logs in to Obsidian Sync, and syncs your vault
+from Obsidian's servers. The initial sync takes 30–120 seconds depending on
+vault size. The MCP server starts once sync is running and builds its search
+index as files arrive.
+
+### docker run (no Compose)
+
+The same `.env` file works with any OCI runtime — swap `docker` for `podman`
+or `nerdctl` as needed:
+
+```bash
+docker run -d --name vault-cortex \
+  --env-file .env \
+  -v vault_data:/vault \
+  -v mcp_data:/data \
+  -v obsidian_config:/home/obsidian/.config \
+  -p 8000:8000 \
+  --restart unless-stopped \
+  ghcr.io/aliasunder/vault-cortex:remote
+```
 
 ## HTTPS access
 
@@ -162,23 +186,18 @@ curl -H "Authorization: Bearer <your-MCP_AUTH_TOKEN>" <PUBLIC_URL>/mcp
 curl http://localhost:8000/healthz
 # → {"ok":true}
 
-# Check obsidian-sync is downloading your vault:
-docker logs obsidian-sync
-
-# Check vault-mcp indexed your notes:
-docker logs vault-mcp
+# One log stream for both processes — s6 prefixes sync lines with
+# [obsidian-sync]; MCP server lines are structured JSON:
+docker logs vault-cortex
 ```
 
 ## Monitoring
 
 ```bash
-# Follow vault-mcp logs:
-docker logs -f vault-mcp
+# Follow the container logs (sync + MCP server):
+docker logs -f vault-cortex
 
-# Follow obsidian-sync logs:
-docker logs -f obsidian-sync
-
-# Check container status:
+# Container status — "healthy" tracks the MCP server's /healthz:
 docker compose ps
 ```
 
@@ -189,10 +208,8 @@ memory template files if the memory folder doesn't exist, and starts the file
 watcher. To re-run the startup flow (e.g., to test bootstrap behavior):
 
 ```bash
-# Restart just vault-mcp (obsidian-sync keeps running):
-docker compose restart vault-mcp
-
-# Restart all services:
+# Restart the container (sync and the MCP server both restart —
+# s6 replays the init chain, which is idempotent):
 docker compose restart
 ```
 
