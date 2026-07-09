@@ -280,9 +280,9 @@ export default $config({
 
     // Lambda authorizer — validates Bearer tokens (static MCP_AUTH_TOKEN
     // or JWT) on protected routes only. OAuth discovery paths are wired as
-    // separate unauthenticated routes below, so the authorizer no longer
-    // needs to pass them through (it keeps the path check as defense in
-    // depth). Express also validates in-process via requireBearerAuth.
+    // separate unauthenticated routes below and never invoke the authorizer;
+    // its own open-path check is defense in depth in case that wiring
+    // changes. Express also validates in-process via requireBearerAuth.
     //
     // identitySources is the load-bearing detail: with the Authorization
     // header registered as the identity source, API Gateway answers
