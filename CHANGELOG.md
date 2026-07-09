@@ -30,6 +30,18 @@
 
 
 
+
+## [0.26.9] — 2026-07-09
+
+### Documentation
+
+- Order cross-section move as add-at-target before remove-from-source (#294)
+- Update CHANGELOG.md for v0.26.8
+
+### CI / Infrastructure
+
+- Add Test Deploy workflow — deploy any branch to the instance without a release (#293)
+
 ## [0.26.8] — 2026-07-09
 
 ### Features
