@@ -29,13 +29,3 @@ jobs:
           owner: ${{ vars.GHCR_USER }}
           delete-untagged: true
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-
-      # Pre-rename package, dual-published until 2026-08-08 — drop this step
-      # when the legacy vault-mcp tags stop being pushed.
-      - name: Delete untagged GHCR images (legacy vault-mcp)
-        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
-        with:
-          package: vault-mcp
-          owner: ${{ vars.GHCR_USER }}
-          delete-untagged: true
-          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}

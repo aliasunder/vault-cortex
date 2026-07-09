@@ -42,10 +42,6 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
       SST_STAGE: ${{ secrets.SST_STAGE }}
       IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
-      # Pre-rename image name, dual-published until 2026-08-08 so existing
-      # `vault-mcp:latest` users keep receiving updates during the migration
-      # window. Remove LEGACY_IMAGE and its tag lines after that date.
-      LEGACY_IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
       TAILSCALE_ENABLED: ${{ secrets.TAILSCALE_SSH_HOST != '' }}
     steps:
       # Build from the release tag, not the default checkout SHA. On a manual
@@ -175,9 +171,6 @@ jobs:
             ${{ env.IMAGE }}:v${{ inputs.version }}
             ${{ env.IMAGE }}:${{ inputs.version }}
             ${{ env.IMAGE }}:latest
-            ${{ env.LEGACY_IMAGE }}:v${{ inputs.version }}
-            ${{ env.LEGACY_IMAGE }}:${{ inputs.version }}
-            ${{ env.LEGACY_IMAGE }}:latest
           # GHCR shows a multi-arch package's description from the image *index*
           # annotation (a Dockerfile LABEL alone doesn't surface on the package
           # page). Mirror the server.json / Dockerfile description here.

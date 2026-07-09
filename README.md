@@ -308,7 +308,7 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 Both paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 
 > [!NOTE]
-> **Migrating from `vault-mcp`?** The image was renamed to `ghcr.io/aliasunder/vault-cortex`. The old `vault-mcp` name keeps receiving release tags until **2026-08-08**; already-published tags remain pullable indefinitely, they just stop updating.
+> **Migrating from `vault-mcp`?** The image was renamed to `ghcr.io/aliasunder/vault-cortex`. The old `vault-mcp` name no longer receives release tags — already-published tags remain pullable indefinitely, frozen at the last pre-rename release.
 >
 > - **Local setup** (single `vault-mcp` service): update the `image:` line to `ghcr.io/aliasunder/vault-cortex:latest`.
 > - **Remote setup** (two services, `obsidian-sync` + `vault-mcp`): replace your compose file with the new single-service [`deploy/remote/docker-compose.yml`](./deploy/remote/docker-compose.yml) — the `:remote` image bundles sync, and the standalone `obsidian-headless-sync-docker` image no longer receives lockstep releases. Your `.env` carries over unchanged.
