@@ -330,6 +330,13 @@ describe("config interpolation in descriptions", () => {
     expect(config.description).not.toContain("About Me/")
   })
 
+  it("vault_delete_note description includes memory hint when memory is enabled", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_NOTE)
+    expect(config.description).toContain(
+      "use vault_delete_memory for memory entries",
+    )
+  })
+
   it("vault_find_orphans description references configured exclusion folders", () => {
     const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
     expect(config.description).toContain(CUSTOM_MEMORY_DIR)
