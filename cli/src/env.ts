@@ -48,6 +48,18 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Memory folder name in your vault (default: About Me).
 # MEMORY_DIR=About Me
 
+# Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
+# If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
+# PROTECTED_PATHS=About Me,Daily Notes
+
+# Comma-separated folders excluded from orphan detection
+# (default: Daily Notes, Templates, MEMORY_DIR).
+# ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
+
+# URL shown in OAuth discovery metadata
+# (default: https://github.com/aliasunder/vault-cortex).
+# SERVICE_DOCUMENTATION_URL=https://github.com/youruser/your-fork
+
 # Host port to expose (default: 8000).
 # PORT=8000
 
@@ -91,11 +103,29 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # Only takes effect when EMBEDDING_ENABLED=true.
 # RERANK_MODE=blended
 
+# Windows bind-mount mode (default: false).
+# Set to true when your vault is on a Windows drive (Docker Desktop).
+# Enables polling for the file watcher and rename-based moves across
+# the Docker Desktop/WSL2 bridge.
+# WINDOWS_MODE=false
+
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 # MEMORY_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 # MEMORY_DIR=About Me
+
+# Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
+# If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
+# PROTECTED_PATHS=About Me,Daily Notes
+
+# Comma-separated folders excluded from orphan detection
+# (default: Daily Notes, Templates, MEMORY_DIR).
+# ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
+
+# URL shown in OAuth discovery metadata
+# (default: https://github.com/aliasunder/vault-cortex).
+# SERVICE_DOCUMENTATION_URL=https://github.com/youruser/your-fork
 
 # Host port to expose (default: 8000).
 # PORT=8000
