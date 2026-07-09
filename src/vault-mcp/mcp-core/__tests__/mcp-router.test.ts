@@ -383,6 +383,52 @@ describe("createMcpRouter — POST /mcp", () => {
     })
   })
 
+  it("logs a warn with the real status when the transport rejects the initialize request without creating a session", async () => {
+    const harness = await setupHarness()
+    // Shadows the harness transport for the next construction only: mimics the
+    // SDK rejecting the initialize request (e.g. missing Accept header → 406)
+    // before it generates a session id.
+    vi.mocked(StreamableHTTPServerTransport).mockImplementationOnce(
+      function MockRejectingTransport() {
+        const transport: TransportMock = {
+          sessionId: undefined,
+          handleRequest: vi.fn(
+            async (_req: express.Request, res: express.Response) => {
+              res.status(406).json({ error: "not acceptable" })
+            },
+          ),
+          close: vi.fn(async () => {}),
+          onclose: undefined,
+        }
+        harness.transportInstances.push(transport)
+        return transport
+      } as unknown as typeof StreamableHTTPServerTransport,
+    )
+
+    const response = await fetch(harness.url(), {
+      method: "POST",
+      headers: baseHeaders,
+      body: JSON.stringify(initializeBody),
+    })
+    await response.arrayBuffer()
+
+    expect(response.status).toBe(406)
+    // The rejecting transport was actually constructed and handled the request
+    expect(harness.transportInstances).toHaveLength(1)
+    expect(harness.transportInstances[0]?.handleRequest).toHaveBeenCalledTimes(
+      1,
+    )
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
+      clientIp: FORWARDED_IP,
+      status: 406,
+      outcome: "initialize rejected, no session created",
+    })
+    expect(mockedLogger.info).not.toHaveBeenCalledWith(
+      "mcp_response",
+      expect.objectContaining({ outcome: "session created" }),
+    )
+  })
+
   it("routes a follow-up POST to the existing transport when the session id matches", async () => {
     const harness = await setupHarness()
     const { sessionId, transport } = await createSession(harness)

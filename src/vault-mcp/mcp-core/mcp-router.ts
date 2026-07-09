@@ -130,9 +130,18 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         // is assigned above; remove this when the SDK fixes the type.
         await server.connect(transport)
         await transport.handleRequest(req, res, body)
-        if (transport.sessionId) {
-          transports.set(transport.sessionId, transport)
+        if (!transport.sessionId) {
+          // The transport rejected the initialize request before generating a
+          // session id (e.g. missing Accept header → 406) — no session exists,
+          // so don't log "session created" with a hardcoded 200.
+          logger.warn("mcp_response", {
+            clientIp,
+            status: res.statusCode,
+            outcome: "initialize rejected, no session created",
+          })
+          return
         }
+        transports.set(transport.sessionId, transport)
         logger.info("mcp_response", {
           sessionId: transport.sessionId,
           clientIp,
