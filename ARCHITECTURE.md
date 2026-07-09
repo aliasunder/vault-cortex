@@ -491,7 +491,12 @@ signed with the new key on their next token refresh.
 
 Inside the `:remote` container, s6-rc runs an init chain of oneshots, then
 starts two supervised longruns in dependency order (service definitions live
-in `rootfs/etc/s6-overlay/`):
+in `rootfs/etc/s6-overlay/`). Background reading:
+[s6-overlay](https://github.com/just-containers/s6-overlay) (the
+container-init distribution this image uses — env knobs, service format),
+built on skarnet's [s6 supervision suite](https://skarnet.org/software/s6/overview.html)
+with [s6-rc](https://skarnet.org/software/s6-rc/) providing the
+dependency-ordered service database.
 
 1. **Init chain** — `init-setup-user` (adjusts the `obsidian` user to
    PUID/PGID and fixes ownership of `/vault`, `/data`, and `/home/obsidian`) →
