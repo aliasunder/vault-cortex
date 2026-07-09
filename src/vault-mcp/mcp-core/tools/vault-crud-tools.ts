@@ -273,8 +273,9 @@ Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Act
 
 Cross-section move (e.g. completing a task on a board):
 1. vault_read_note to get current content and verify exact text
-2. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span)
-3. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
+2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
+3. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone
+Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.
 
 When to use: Modifying part of an existing note without overwriting the entire body.
 Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
@@ -382,7 +383,7 @@ Returns: Confirmation message.`,
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text). To relocate content between headings, remove from source (new_text="") then vault_patch_note to append at the target.
+To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text). To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.
 
 Parameters:
 - old_text is matched in the body only — frontmatter properties are never searched. Include enough surrounding context to ensure uniqueness when the target text appears in multiple places.
