@@ -37,7 +37,7 @@ Pulumi-driven replacement.
 
 ## Restore scenarios
 
-### Scenario A — VM alive, containers crashed
+### Scenario A — VM alive, container crashed
 
 Don't restore from snapshot. Just bring the stack back up.
 
