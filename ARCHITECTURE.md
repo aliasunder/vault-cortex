@@ -159,8 +159,7 @@ graph LR
 ```
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
-the MCP server as PID 1's only child, exactly as the pre-rename `vault-mcp`
-image did.
+the MCP server as PID 1's only child.
 
 ## Data Flow
 
