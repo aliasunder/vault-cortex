@@ -397,6 +397,25 @@ describe("deleteNote", () => {
     },
   )
 
+  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
+    "protected-path rejection for %s is structural — no MCP tool name",
+    async (path) => {
+      await expect(
+        deleteNote(
+          {
+            vaultPath: vault,
+            path,
+            protectedPaths: DEFAULT_PROTECTED,
+            pruneEmptyFolders: false,
+          },
+          logger,
+        ),
+      ).rejects.toMatchObject({
+        message: `cannot delete protected path "${path}"`,
+      })
+    },
+  )
+
   it("rejects custom protected paths", async () => {
     await expect(
       deleteNote(

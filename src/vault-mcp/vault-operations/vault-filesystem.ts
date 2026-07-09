@@ -392,9 +392,7 @@ const deleteNote = async (
     folder.endsWith("/") ? folder : `${folder}/`,
   )
   if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
-    throw new Error(
-      `cannot delete protected path "${path}" (use vault_delete_memory for individual entries)`,
-    )
+    throw new Error(`cannot delete protected path "${path}"`)
   }
 
   const fullPath = resolveSafePath(params.vaultPath, path)
