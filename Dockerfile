@@ -154,9 +154,9 @@ VOLUME ["/vault", "/data", "/home/obsidian/.config"]
 ENTRYPOINT ["/init"]
 
 # ---------------------------------------------------------------------------
-# local: the MCP server alone — behaviorally identical to the pre-rename
-# vault-mcp image. LAST stage on purpose: `docker build .` with no --target
-# must produce this target (`:latest` semantics). Keep it last.
+# local: the MCP server alone — no Obsidian Sync, no s6. LAST stage on
+# purpose: `docker build .` with no --target must produce this target
+# (`:latest` semantics). Keep it last.
 # ---------------------------------------------------------------------------
 FROM base AS local
 # The runtime is `node dist/...` only — npm, npx, corepack, and yarn are

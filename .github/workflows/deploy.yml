@@ -263,10 +263,11 @@ jobs:
         env:
           IP: ${{ steps.ssh.outputs.host }}
         run: |
-          # --remove-orphans retires the pre-single-image containers
-          # (obsidian-sync + vault-mcp) on the first deploy of the merged
-          # stack. --wait-timeout 300: the s6 init chain (Obsidian login +
-          # sync-setup) runs inside the container before /healthz comes up.
+          # --remove-orphans retires containers whose services no longer
+          # exist in the compose file, so stack reshapes clean up after
+          # themselves. --wait-timeout 300: the s6 init chain (Obsidian
+          # login + sync-setup) runs inside the container before /healthz
+          # comes up.
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
             'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'
 
