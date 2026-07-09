@@ -45,10 +45,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # The vault-cortex package only exists after the first post-rename
-      # release — this job also fires on every push to main, so gate the
-      # scans on the manifests being pullable rather than failing the run
-      # (and the README badge) during the merge → first-release window.
+      # The images may not be pullable — a fresh fork, or a repo that
+      # hasn't cut its first release — and this job also fires on every
+      # push to main, so gate the scans on the manifests existing rather
+      # than failing the run (and the README badge).
       - name: Check published images exist
         id: images
         run: |
