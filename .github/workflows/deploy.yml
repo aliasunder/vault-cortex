@@ -41,7 +41,11 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
       SST_STAGE: ${{ secrets.SST_STAGE }}
-      IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
+      IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
+      # Pre-rename image name, dual-published until 2026-08-08 so existing
+      # `vault-mcp:latest` users keep receiving updates during the migration
+      # window. Remove LEGACY_IMAGE and its tag lines after that date.
+      LEGACY_IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp
       TAILSCALE_ENABLED: ${{ secrets.TAILSCALE_SSH_HOST != '' }}
     steps:
       # Build from the release tag, not the default checkout SHA. On a manual
@@ -133,23 +137,49 @@ jobs:
           username: ${{ vars.GHCR_USER }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Build and push image
+      # Two build-push steps, one per Dockerfile target. The deps/build/base
+      # stages are shared, so the gha cache makes the second step cheap.
+      - name: Build and push image (local target)
         if: ${{ !inputs.skip_build }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
+          target: local
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE }}:v${{ inputs.version }}
             ${{ env.IMAGE }}:${{ inputs.version }}
             ${{ env.IMAGE }}:latest
+            ${{ env.LEGACY_IMAGE }}:v${{ inputs.version }}
+            ${{ env.LEGACY_IMAGE }}:${{ inputs.version }}
+            ${{ env.LEGACY_IMAGE }}:latest
           # GHCR shows a multi-arch package's description from the image *index*
           # annotation (a Dockerfile LABEL alone doesn't surface on the package
           # page). Mirror the server.json / Dockerfile description here.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
             index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults — hybrid search, structured memory, 25 tools + 3 prompts, OAuth 2.1.
+            index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
+            index:org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push image (remote target)
+        if: ${{ !inputs.skip_build }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: remote
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:v${{ inputs.version }}-remote
+            ${{ env.IMAGE }}:remote
+          # Mirror the remote-stage Dockerfile LABEL description.
+          annotations: |
+            index:org.opencontainers.image.title=vault-cortex
+            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, structured memory, OAuth 2.1.
             index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
             index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha
@@ -236,8 +266,12 @@ jobs:
         env:
           IP: ${{ steps.ssh.outputs.host }}
         run: |
+          # --remove-orphans retires the pre-single-image containers
+          # (obsidian-sync + vault-mcp) on the first deploy of the merged
+          # stack. --wait-timeout 300: the s6 init chain (Obsidian login +
+          # sync-setup) runs inside the container before /healthz comes up.
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
-            'cd /opt/vault-cortex && docker compose pull && docker compose up -d --wait --wait-timeout 180 && docker image prune -f'
+            'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'
 
       - name: Healthcheck
         if: ${{ !inputs.skip_instance }}

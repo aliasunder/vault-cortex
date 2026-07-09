@@ -3,13 +3,15 @@
  * Deployment helper.
  *
  * Subcommands:
- *   docker:build    Build the vault-mcp image locally
+ *   docker:build    Build the vault-cortex image locally
  *   docker:push     Push to GHCR
  *   docker:publish  Build + push
  *   lightsail:up    SCP docker-compose.yml + ~/.config/vault-cortex/.env
  *                   to the VM, then `docker compose pull && up -d` over SSH
  *
- * The image is always `ghcr.io/${GHCR_USER}/vault-mcp:latest`. The
+ * The image is always `ghcr.io/${GHCR_USER}/vault-cortex:remote` — the
+ * Dockerfile's remote target, because this script's purpose is the
+ * Lightsail deployment and that's the tag its compose file pulls. The
  * Lightsail IP is fetched from AWS (`aws lightsail get-static-ip`)
  * using the stage in `.sst/stage` — it's deliberately not an SST
  * output, so deploys never print it (CI logs are public).
@@ -50,7 +52,7 @@ if (!ghcrUser) {
   console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
   process.exit(1)
 }
-const image = `ghcr.io/${ghcrUser}/vault-mcp:latest`
+const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
 const run = (cmd: string): void => {
   console.log(`> ${cmd}`)
@@ -128,7 +130,7 @@ const sub = process.argv[2]
 
 switch (sub) {
   case "docker:build":
-    run(`docker build --platform linux/amd64 -t ${image} .`)
+    run(`docker build --target remote --platform linux/amd64 -t ${image} .`)
     break
 
   case "docker:push":
@@ -136,7 +138,7 @@ switch (sub) {
     break
 
   case "docker:publish":
-    run(`docker build --platform linux/amd64 -t ${image} .`)
+    run(`docker build --target remote --platform linux/amd64 -t ${image} .`)
     run(`docker push ${image}`)
     break
 
@@ -173,9 +175,9 @@ switch (sub) {
     )
     run(`scp ${id} ${sshOpts} ${ENV_PATH} ubuntu@${ip}:/opt/vault-cortex/.env`)
     run(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d && docker image prune -f'`,
+      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans && docker image prune -f'`,
     )
-    console.log(`✓ vault-mcp deployed to ${ip}:8000`)
+    console.log(`✓ vault-cortex deployed to ${ip}:8000`)
     break
   }
 
