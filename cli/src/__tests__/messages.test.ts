@@ -81,7 +81,7 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Start the server:")
     expect(message).toContain(
-      `cd ${localDefaults.targetDir} && docker compose up -d`,
+      `cd "${localDefaults.targetDir}" && docker compose up -d`,
     )
   })
 
@@ -124,7 +124,7 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `cd ${localDefaults.targetDir} && docker compose pull && docker compose up -d`,
+      `cd "${localDefaults.targetDir}" && docker compose pull && docker compose up -d`,
     )
   })
 
@@ -210,7 +210,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Start the server:")
     expect(message).toContain(
-      `cd ${remoteDefaults.targetDir} && docker compose up -d`,
+      `cd "${remoteDefaults.targetDir}" && docker compose up -d`,
     )
   })
 
@@ -270,7 +270,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `cd ${remoteDefaults.targetDir} && docker compose pull && docker compose up -d`,
+      `cd "${remoteDefaults.targetDir}" && docker compose pull && docker compose up -d`,
     )
   })
 

@@ -33,8 +33,10 @@ const sectionRule = (label: string): string =>
     `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
   )
 
+// targetDir is quoted: these lines are meant to be copy-pasted into a
+// shell, and an unquoted path breaks on spaces or special characters.
 const composeUpCommand = (targetDir: string): string =>
-  `cd ${targetDir} && docker compose up -d`
+  `cd "${targetDir}" && docker compose up -d`
 
 const startServerLine = (targetDir: string): string =>
   `Start the server:\n  ${composeUpCommand(targetDir)}`
@@ -109,7 +111,7 @@ const smokeTest = (healthUrl: string): string =>
 // on the image from init day forever while believing they track releases.
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
-  cd ${targetDir} && docker compose pull && docker compose up -d`
+  cd "${targetDir}" && docker compose pull && docker compose up -d`
 
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
