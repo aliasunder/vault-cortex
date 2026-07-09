@@ -20,6 +20,8 @@ export type Logger = {
   info: (message: string, data?: Record<string, unknown>) => void
   warn: (message: string, data?: Record<string, unknown>) => void
   error: (message: string, data?: Record<string, unknown>) => void
+  /** Function-valued props are resolved at emit time, per log line — use
+   *  `() => value` for context not yet available when the child is created. */
   child: (props: Record<string, unknown>) => Logger
 }
 
@@ -122,6 +124,21 @@ const defaultExtensions: LogExtension[] = fileSinkExtension
   ? [fileSinkExtension]
   : []
 
+/** Resolves function-valued child props at emit time — lets a child logger
+ *  carry context that doesn't exist yet at child creation (e.g. the MCP
+ *  transport's session id, generated during the initialize request). */
+const resolveLazyProps = (
+  props: Record<string, unknown>,
+): Record<string, unknown> => {
+  const resolvedEntries = Object.entries(props).map(
+    ([key, value]): [string, unknown] => [
+      key,
+      typeof value === "function" ? value() : value,
+    ],
+  )
+  return Object.fromEntries(resolvedEntries)
+}
+
 const createLogger = (
   name: string,
   options?: {
@@ -142,7 +159,7 @@ const createLogger = (
     // Capture source location for info/warn/error (skip debug to avoid overhead)
     const source = level !== "debug" ? getCallerSource() : undefined
 
-    const mergedData = { ...baseProps, ...data }
+    const mergedData = { ...resolveLazyProps(baseProps), ...data }
     const entry: LogEntry = {
       timestamp: DateTime.now().toISO(),
       level,
