@@ -1,0 +1,74 @@
+#!/command/with-contenv sh
+# Set up the vault and apply optional sync configuration.
+# All ob commands run as the obsidian user via s6-setuidgid.
+set -e
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+mkdir -p "$VAULT_PATH"
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# First-time vault setup
+# ---------------------------------------------------------------------------
+
+# Run `ob sync-setup` as the obsidian user, adding --device-name when DEVICE_NAME
+# is set so the INITIAL device registration uses it. Without this the CLI registers
+# the first device under the container hostname (DEVICE_NAME is only applied later
+# via sync-config), so every container recreation spawns a new Obsidian Sync device.
+# A function with "$@" keeps the device name intact even when it contains spaces.
+run_sync_setup() {
+  if [ -n "$DEVICE_NAME" ]; then
+    s6-setuidgid obsidian ob sync-setup "$@" --device-name "$DEVICE_NAME"
+  else
+    s6-setuidgid obsidian ob sync-setup "$@"
+  fi
+}
+
+if [ -n "$VAULT_NAME" ]; then
+  echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
+  set -- sync-setup --vault "$VAULT_NAME"
+  if [ -n "$VAULT_PASSWORD" ]; then
+    set -- "$@" --password "$VAULT_PASSWORD"
+  fi
+  if [ -n "$CONFIG_DIR_NAME" ]; then
+    set -- "$@" --config-dir "$CONFIG_DIR_NAME"
+  fi
+  if ! run_sync_setup "$@"; then
+    echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
+    echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
+    if [ -z "$VAULT_PASSWORD" ]; then
+      echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
+    fi
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Apply optional sync config
+# ---------------------------------------------------------------------------
+if [ -n "$DEVICE_NAME" ]; then
+  s6-setuidgid obsidian ob sync-config --device-name "$DEVICE_NAME" 2>/dev/null || true
+fi
+
+if [ -n "$CONFLICT_STRATEGY" ]; then
+  s6-setuidgid obsidian ob sync-config --conflict-strategy "$CONFLICT_STRATEGY" 2>/dev/null || true
+fi
+
+if [ -n "$EXCLUDED_FOLDERS" ]; then
+  s6-setuidgid obsidian ob sync-config --excluded-folders "$EXCLUDED_FOLDERS" 2>/dev/null || true
+fi
+
+if [ -n "$FILE_TYPES" ]; then
+  s6-setuidgid obsidian ob sync-config --file-types "$FILE_TYPES" 2>/dev/null || true
+fi
+
+if [ -n "$SYNC_MODE" ]; then
+  s6-setuidgid obsidian ob sync-config --mode "$SYNC_MODE" 2>/dev/null || true
+fi
+
+if [ -n "$SYNC_CONFIGS" ]; then
+  s6-setuidgid obsidian ob sync-config --configs "$SYNC_CONFIGS" 2>/dev/null || true
+fi

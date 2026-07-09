@@ -1,0 +1,11 @@
+#!/command/with-contenv sh
+# Authenticate with Obsidian using the provided auth token.
+set -e
+
+echo "[obsidian-sync] Logging in to Obsidian..."
+if ! s6-setuidgid obsidian ob login; then
+  echo "[obsidian-sync] ERROR: ob login failed." >&2
+  exit 1
+fi
+
+echo "[obsidian-sync] Login successful."

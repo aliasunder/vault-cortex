@@ -1,0 +1,40 @@
+#!/command/with-contenv sh
+# Adjust the obsidian user/group UID/GID to match PUID/PGID env vars.
+set -e
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+VAULT_PATH="${VAULT_PATH:-/vault}"
+
+CURRENT_UID=$(id -u obsidian)
+CURRENT_GID=$(id -g obsidian)
+
+ID_CHANGED=false
+
+if [ "$PGID" != "$CURRENT_GID" ]; then
+  echo "[obsidian-sync] Adjusting obsidian group GID: ${CURRENT_GID} → ${PGID}"
+  groupmod -o -g "$PGID" obsidian
+  ID_CHANGED=true
+fi
+
+if [ "$PUID" != "$CURRENT_UID" ]; then
+  echo "[obsidian-sync] Adjusting obsidian user UID: ${CURRENT_UID} → ${PUID}"
+  usermod -o -u "$PUID" obsidian
+  ID_CHANGED=true
+fi
+
+# Ensure the vault and index directories exist.
+# /data is vault-cortex's index volume (INDEX_DB_PATH) — it must follow
+# PUID/PGID alongside /vault so svc-vault-mcp can write the search index.
+mkdir -p "$VAULT_PATH" /data
+
+if [ "$ID_CHANGED" = true ]; then
+  # Recursive chown needed when IDs changed so existing volume contents stay accessible
+  echo "[obsidian-sync] UID/GID changed — fixing ownership recursively..."
+  chown -R "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+else
+  # Just fix top-level ownership (fast, handles first-run case)
+  chown "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+fi
+
+echo "[obsidian-sync] Running as UID=${PUID} GID=${PGID}"

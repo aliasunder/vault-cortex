@@ -1,0 +1,21 @@
+#!/command/with-contenv sh
+# Long-running sync service supervised by s6.
+# Drops privileges to the obsidian user before exec-ing the sync process.
+set -e
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+if [ ! -d "$VAULT_PATH" ]; then
+  echo "[obsidian-sync] ERROR: VAULT_PATH='$VAULT_PATH' does not exist. Ensure the volume is mounted." >&2
+  exit 1
+fi
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# Startup context banner — surfaces which device/config this sync is running
+# under so an unexpected device (e.g. an unset DEVICE_NAME falling back to the
+# container hostname) is visible in `docker logs`. Never log the auth token or
+# vault password.
+echo "[obsidian-sync] Starting continuous sync — device=${DEVICE_NAME:-<container hostname>} conflict=${CONFLICT_STRATEGY:-<ob default>} vault=${VAULT_NAME:-<unset>} path=$VAULT_PATH"
+exec s6-setuidgid obsidian ob sync --continuous
