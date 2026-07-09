@@ -46,9 +46,9 @@ package.json                           # single package, all deps
 tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
 Dockerfile                             # Two-target build: local (default) + remote
-rootfs/                                # s6-overlay service definitions (remote target)
+rootfs/                                # Container filesystem overlay (remote target)
   etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
-get-token.sh                           # Interactive Obsidian Sync token helper (remote target)
+  usr/local/bin/get-token              #   interactive Obsidian Sync token helper
 docker-compose.yml                     # Lightsail: single vault-cortex:remote service
 docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env
