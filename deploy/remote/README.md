@@ -207,6 +207,30 @@ docker logs -f vault-cortex
 docker compose ps
 ```
 
+## Updating
+
+Compose does **not** pull new images on `up` — once `:remote` is on the
+server, you stay on that exact image until you pull explicitly:
+
+```bash
+# Pull the latest image and recreate the container:
+docker compose pull && docker compose up -d
+```
+
+Named volumes persist across updates: your synced vault, search index, and
+Obsidian login state all carry over — no re-sync, no device re-registration,
+and unchanged notes are not re-embedded.
+
+Running with plain `docker run` instead of Compose? There's no in-place
+update — pull, then recreate the container with the same `docker run`
+command you started it with:
+
+```bash
+docker pull ghcr.io/aliasunder/vault-cortex:remote
+docker rm -f vault-cortex
+# then re-run your original docker run command
+```
+
 ## Restart
 
 The server runs startup tasks on every boot: rebuilds the search index, creates

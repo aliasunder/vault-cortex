@@ -119,6 +119,15 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain("deploy/local/README.md")
   })
 
+  it("includes the image update command with the targetDir", () => {
+    const message = buildLocalConnectMessage(localDefaults)
+
+    expect(message).toContain("Update to the latest release:")
+    expect(message).toContain(
+      `cd ${localDefaults.targetDir} && docker compose pull && docker compose up -d`,
+    )
+  })
+
   it("includes the OAuth connect walkthrough", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
@@ -253,6 +262,15 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain(
       `use the existing MCP_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env`,
+    )
+  })
+
+  it("includes the image update command with the targetDir", () => {
+    const message = buildRemoteConnectMessage(remoteDefaults)
+
+    expect(message).toContain("Update to the latest release:")
+    expect(message).toContain(
+      `cd ${remoteDefaults.targetDir} && docker compose pull && docker compose up -d`,
     )
   })
 

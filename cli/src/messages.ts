@@ -105,6 +105,12 @@ const smokeTest = (healthUrl: string): string =>
   `Smoke test:
   curl ${healthUrl}`
 
+// Compose does not pull new images on `up` — without this hint users stay
+// on the image from init day forever while believing they track releases.
+const updateGuidance = (targetDir: string): string =>
+  `Update to the latest release:
+  cd ${targetDir} && docker compose pull && docker compose up -d`
+
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
  * may override the default, so the message must describe the server that will
@@ -164,6 +170,8 @@ ${sectionRule("Settings")}
 Optional settings (timezone, memory folder, port, logging) are commented
 out in ${targetDir}/.env — uncomment, set a value, then apply with
 "docker compose up -d" (restart alone does not re-read .env).
+
+${updateGuidance(targetDir)}
 
 Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md
 
@@ -243,6 +251,8 @@ Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
 value, then apply with "docker compose up -d" (restart alone does not
 re-read .env).
+
+${updateGuidance(targetDir)}
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access

@@ -116,6 +116,20 @@ curl http://localhost:8000/healthz
 curl http://localhost:8000/.well-known/oauth-protected-resource
 ```
 
+## Updating
+
+Compose does **not** pull new images on `up` — once `:latest` is on your
+machine, you stay on that exact image until you pull explicitly:
+
+```bash
+# Pull the latest image and recreate the container:
+docker compose pull && docker compose up -d
+```
+
+Your search index persists in its Docker volume across updates; unchanged
+notes are not re-embedded (content-hash cache), so restarts after an update
+are fast.
+
 ## Stop
 
 ```bash
