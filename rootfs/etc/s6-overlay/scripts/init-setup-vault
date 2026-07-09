@@ -29,7 +29,10 @@ run_sync_setup() {
 
 if [ -n "$VAULT_NAME" ]; then
   echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
-  set -- sync-setup --vault "$VAULT_NAME"
+  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only. (The
+  # fork's 460f7d4 upstream merge kept a duplicate leading `sync-setup`
+  # token here — `ob sync-setup sync-setup …` — fixed during absorption.)
+  set -- --vault "$VAULT_NAME"
   if [ -n "$VAULT_PASSWORD" ]; then
     set -- "$@" --password "$VAULT_PASSWORD"
   fi
