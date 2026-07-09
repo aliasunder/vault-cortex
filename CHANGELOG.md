@@ -29,6 +29,31 @@
 
 
 
+
+## [0.26.8] — 2026-07-09
+
+### Features
+
+- Switch obsidian-sync image to maintained fork (#288)
+
+### Bug Fixes
+
+- Carry sessionId into tool and data-layer logs via lazy child props (#292)
+- Strip MCP tool name from protected-path delete error (#290)
+- Log error name and stack trace in error middleware, enable source maps (#289)
+- **docs:** Rewrite wiki.json overview to lead with capabilities (#287)
+- **cli:** Add bookend rules and section dividers to connect output (#283)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.26.7
+
+### CI / Infrastructure
+
+- Guard server.json description length in publish workflow (#286)
+- Enrich umm-actually review instructions from ship-check (#285)
+- Consolidate umm-actually bot to single /improve run (#284)
+
 ## [0.26.7] — 2026-07-07
 
 ### Documentation
