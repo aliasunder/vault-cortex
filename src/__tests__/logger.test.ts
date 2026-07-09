@@ -1,4 +1,4 @@
-import { describe, it, expect, onTestFinished } from "vitest"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
 import {
   mkdtempSync,
   rmSync,
@@ -10,7 +10,7 @@ import {
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
-import { createFileSinkExtension, pruneOldLogFiles } from "../logger.js"
+import { createFileSinkExtension, pruneOldLogFiles, logger } from "../logger.js"
 
 const createTempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
@@ -190,5 +190,98 @@ describe("pruneOldLogFiles", () => {
 
     const remaining = readdirSync(logDir)
     expect(remaining).toHaveLength(0)
+  })
+})
+
+describe("logger child lazy props", () => {
+  /** Captures JSON log lines emitted to stdout while the spy is active.
+   *  Non-JSON stdout writes (test-runner output) are filtered out. */
+  const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
+    const writtenChunks: string[] = []
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk) => {
+        writtenChunks.push(String(chunk))
+        return true
+      })
+    onTestFinished(() => stdoutSpy.mockRestore())
+    return () =>
+      writtenChunks
+        .filter((chunk) => chunk.startsWith("{"))
+        .map((chunk) => JSON.parse(chunk))
+  }
+
+  it("resolves a function-valued prop at emit time, not at child creation", () => {
+    const emittedLines = captureEmittedLines()
+    // Mutable — models the MCP transport, whose sessionId is assigned only
+    // after the session logger child has been created
+    const transport: { sessionId: string | undefined } = {
+      sessionId: undefined,
+    }
+    const childLogger = logger.child({ sessionId: () => transport.sessionId })
+
+    transport.sessionId = "session-abc"
+    childLogger.info("tool_call")
+
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
+  })
+
+  it("re-resolves the prop on every emit", () => {
+    const emittedLines = captureEmittedLines()
+    // Mutable — the test verifies each emit reads the current value
+    const transport: { sessionId: string | undefined } = {
+      sessionId: "first-session",
+    }
+    const childLogger = logger.child({ sessionId: () => transport.sessionId })
+
+    childLogger.info("first line")
+    transport.sessionId = "second-session"
+    childLogger.info("second line")
+
+    expect(emittedLines()[0]?.sessionId).toBe("first-session")
+    expect(emittedLines()[1]?.sessionId).toBe("second-session")
+  })
+
+  it("omits a lazy prop that resolves to undefined", () => {
+    const emittedLines = captureEmittedLines()
+    const childLogger = logger.child({ sessionId: () => undefined })
+
+    childLogger.info("tool_call")
+
+    const emittedLine = emittedLines()[0]
+    expect(emittedLine?.message).toBe("tool_call")
+    expect(emittedLine).not.toHaveProperty("sessionId")
+  })
+
+  it("passes static props through unchanged alongside a lazy prop", () => {
+    const emittedLines = captureEmittedLines()
+    const childLogger = logger.child({
+      sessionId: () => "session-abc",
+      clientIp: "203.0.113.7",
+    })
+
+    childLogger.info("tool_call")
+
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
+    expect(emittedLines()[0]?.clientIp).toBe("203.0.113.7")
+  })
+
+  it("resolves a lazy prop inherited through a grandchild logger", () => {
+    const emittedLines = captureEmittedLines()
+    // Mirrors the production chain: session logger (lazy sessionId) →
+    // request logger child({ requestId, tool }) → tool_call line
+    const transport: { sessionId: string | undefined } = {
+      sessionId: undefined,
+    }
+    const sessionLogger = logger.child({
+      sessionId: () => transport.sessionId,
+    })
+    const requestLogger = sessionLogger.child({ requestId: 12 })
+
+    transport.sessionId = "session-abc"
+    requestLogger.info("tool_call")
+
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
+    expect(emittedLines()[0]?.requestId).toBe(12)
   })
 })

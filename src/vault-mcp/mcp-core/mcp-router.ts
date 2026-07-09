@@ -105,7 +105,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         )
 
         const sessionLogger = logger.child({
-          sessionId: transport.sessionId,
+          // Lazy: the transport generates its session id while handling the
+          // initialize request — after this child is created. Resolved per-emit.
+          sessionId: () => transport.sessionId,
           clientIp,
         })
         registerTools({

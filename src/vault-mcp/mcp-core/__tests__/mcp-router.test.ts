@@ -126,9 +126,12 @@ const setupHarness = async (
   vi.mocked(StreamableHTTPServerTransport).mockImplementation(
     function MockStreamableHTTPServerTransport() {
       const transport: TransportMock = {
-        sessionId: randomUUID(),
+        // Mimics the real SDK: the session id doesn't exist at construction —
+        // the transport generates it while handling the initialize request.
+        sessionId: undefined,
         handleRequest: vi.fn(
           async (_req: express.Request, res: express.Response) => {
+            transport.sessionId ??= randomUUID()
             res.status(202).json({ ok: true, handled: "transport-mock" })
           },
         ),
@@ -322,12 +325,38 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(promptRegistration.logger).toBe(toolRegistration.logger)
     })
 
-    it("scopes the logger for registerTools to the sessionId and clientIp", async () => {
+    it("scopes the logger for registerTools to a lazy sessionId and clientIp", async () => {
       const { sessionId } = await setupInitializedSession()
       expect(mockedLogger.child).toHaveBeenCalledWith({
-        sessionId,
+        sessionId: expect.any(Function),
         clientIp: FORWARDED_IP,
       })
+      // The lazy prop must resolve to the id the transport generated during
+      // the initialize request — after the child logger was created.
+      const sessionIdProp = mockedLogger.child.mock.calls[0]![0].sessionId
+      if (typeof sessionIdProp !== "function") {
+        throw new Error("sessionId child prop is not a function")
+      }
+      expect(sessionIdProp()).toBe(sessionId)
+    })
+
+    it("session logger emits lines carrying the generated sessionId", async () => {
+      const { sessionId } = await setupInitializedSession()
+      const sessionLogger = mockedLogger.child.mock.results[0]!.value
+
+      const writtenChunks: string[] = []
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((chunk) => {
+          writtenChunks.push(String(chunk))
+          return true
+        })
+      sessionLogger.info("tool_call")
+      stdoutSpy.mockRestore()
+
+      const emittedLine = JSON.parse(writtenChunks[0]!)
+      expect(emittedLine.sessionId).toBe(sessionId)
+      expect(emittedLine.clientIp).toBe(FORWARDED_IP)
     })
 
     it("logs the 'session created' response", async () => {
