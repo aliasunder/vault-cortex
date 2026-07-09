@@ -224,8 +224,9 @@ jobs:
           IP: ${{ steps.ssh.outputs.host }}
         run: |
           # --remove-orphans + --wait-timeout 300: same flags as deploy.yml —
-          # retires pre-single-image containers and covers the s6 init chain
-          # (Obsidian login + sync-setup) that runs before /healthz comes up.
+          # retires containers whose services no longer exist in the compose
+          # file and covers the s6 init chain (Obsidian login + sync-setup)
+          # that runs before /healthz comes up.
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
             'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'
 

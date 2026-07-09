@@ -517,12 +517,10 @@ dependency-ordered service database.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after login and vault setup have completed and the
-sync process has spawned. This is slightly weaker than the previous
-two-container stack's `depends_on: service_healthy`, which also waited for
-the first pgrep healthcheck probe (~30s after sync start) — under s6 the MCP
-server starts as soon as sync spawns. Neither ordering ever guaranteed "the
-initial sync has _completed_": on a fresh volume the memory bootstrap can
-race arriving files either way, and the memory-write shrink guard is what
+sync process has spawned. The dependency does not wait for sync health — the
+MCP server starts as soon as sync spawns — and no startup ordering guarantees
+"the initial sync has _completed_": on a fresh volume the memory bootstrap can
+race arriving files, and the memory-write shrink guard is what
 actually prevents the fresh-volume clobber. s6-rc dependencies gate startup
 order only — a later sync crash restarts just that service, not the MCP
 server.
