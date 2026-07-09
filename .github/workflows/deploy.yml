@@ -139,6 +139,30 @@ jobs:
 
       # Two build-push steps, one per Dockerfile target. The deps/build/base
       # stages are shared, so the gha cache makes the second step cheap.
+      # Remote pushes FIRST on purpose: both steps annotate the same GHCR
+      # package, and the package page shows the most recently pushed index
+      # description — pushing local last keeps the page description matching
+      # server.json / the base Dockerfile LABEL.
+      - name: Build and push image (remote target)
+        if: ${{ !inputs.skip_build }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: remote
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:v${{ inputs.version }}-remote
+            ${{ env.IMAGE }}:remote
+          # Mirror the remote-stage Dockerfile LABEL description.
+          annotations: |
+            index:org.opencontainers.image.title=vault-cortex
+            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, structured memory, OAuth 2.1.
+            index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
+            index:org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Build and push image (local target)
         if: ${{ !inputs.skip_build }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -160,26 +184,6 @@ jobs:
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
             index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults — hybrid search, structured memory, 25 tools + 3 prompts, OAuth 2.1.
-            index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
-            index:org.opencontainers.image.licenses=MIT
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push image (remote target)
-        if: ${{ !inputs.skip_build }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          target: remote
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:v${{ inputs.version }}-remote
-            ${{ env.IMAGE }}:remote
-          # Mirror the remote-stage Dockerfile LABEL description.
-          annotations: |
-            index:org.opencontainers.image.title=vault-cortex
-            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, structured memory, OAuth 2.1.
             index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
             index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha

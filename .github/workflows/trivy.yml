@@ -45,7 +45,28 @@ jobs:
         with:
           persist-credentials: false
 
+      # The vault-cortex package only exists after the first post-rename
+      # release — this job also fires on every push to main, so gate the
+      # scans on the manifests being pullable rather than failing the run
+      # (and the README badge) during the merge → first-release window.
+      - name: Check published images exist
+        id: images
+        run: |
+          if docker manifest inspect "ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:latest" >/dev/null 2>&1; then
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::vault-cortex:latest not published yet — skipping scan"
+          fi
+          if docker manifest inspect "ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote" >/dev/null 2>&1; then
+            echo "remote=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "remote=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::vault-cortex:remote not published yet — skipping scan"
+          fi
+
       - name: Scan published image (local target)
+        if: steps.images.outputs.latest == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           # Manifest list resolves per-runner (amd64 here); the Debian OS
@@ -58,8 +79,11 @@ jobs:
           output: trivy-results.sarif
           exit-code: "0"
 
+      # hashFiles guards: skip the upload when the corresponding scan was
+      # skipped or died before writing its SARIF, instead of layering a
+      # missing-file error on top of the real outcome.
       - name: Upload SARIF to the Security tab
-        if: always()
+        if: always() && hashFiles('trivy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results.sarif
@@ -68,6 +92,7 @@ jobs:
       # The :remote target layers s6-overlay + obsidian-headless on top of
       # the local target — its extra packages need their own CVE watch.
       - name: Scan published image (remote target)
+        if: steps.images.outputs.remote == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote
@@ -79,7 +104,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload remote SARIF to the Security tab
-        if: always()
+        if: always() && hashFiles('trivy-results-remote.sarif') != ''
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results-remote.sarif
@@ -148,15 +173,18 @@ jobs:
 
       # Fork PRs don't get security-events write access, so the upload
       # would 403 — scan results still show in the job log for forks.
+      # hashFiles guard: no SARIF exists if the build failed before the scan.
       - name: Upload SARIF to the Security tab
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && hashFiles('trivy-results.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results.sarif
           category: trivy-pr-image
 
+      # hashFiles guard: the remote SARIF doesn't exist when the local scan
+      # gates the job first (exit-code 1) or the remote build fails.
       - name: Upload remote SARIF to the Security tab
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results-remote.sarif

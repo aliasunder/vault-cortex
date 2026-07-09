@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
+import { GET_TOKEN_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 import { readComposeTemplate } from "../scaffold.js"
 
@@ -61,6 +62,13 @@ describe("bundled compose templates", () => {
     for (const variable of required) {
       expect(env).toMatch(new RegExp(`^${variable}=`, "m"))
     }
+  })
+
+  it("get-token image constant matches the image the remote compose template pulls", () => {
+    // GET_TOKEN_IMAGE drives the get-token command shown to every remote
+    // user — if it drifts from the compose image, users are told to pull a
+    // different image than the one they deploy.
+    expect(readComposeTemplate("remote")).toContain(`image: ${GET_TOKEN_IMAGE}`)
   })
 })
 

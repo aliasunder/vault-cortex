@@ -175,9 +175,12 @@ switch (sub) {
     )
     run(`scp ${id} ${sshOpts} ${ENV_PATH} ubuntu@${ip}:/opt/vault-cortex/.env`)
     run(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans && docker image prune -f'`,
+      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
     )
-    console.log(`✓ vault-cortex deployed to ${ip}:8000`)
+    // Deliberately no IP in the success line — the instance IP is kept out
+    // of logs (public CI) and is masked above, but not printing it at all is
+    // the stronger guarantee.
+    console.log("✓ vault-cortex deployed (port 8000)")
     break
   }
 

@@ -60,7 +60,7 @@ const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
   ${GET_TOKEN_IMAGE}`
 
 /**
- * Offers to run the obsidian-headless-sync get-token flow in this terminal.
+ * Offers to run the vault-cortex image's get-token flow in this terminal.
  * Returns true only when it ran to completion (and so printed a token the
  * user can scroll up to). The handoff log exists because the clack UI gives
  * way to raw docker output — image pull, then the tool's own login prompts.
@@ -353,7 +353,7 @@ const runLocalInit = async (
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
 // VAULT_NAME → Obsidian Sync token (optionally running get-token via
 // Docker) → optional E2E vault password → generate token → write the
-// three-service compose + .env → optionally start → print connect
+// single-service compose + .env → optionally start → print connect
 // instructions. Always interactive — the sync-token step can't be defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
@@ -430,8 +430,8 @@ const runRemoteInit = async (
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 
-  // Without the sync token the stack can't start (obsidian-sync exits), so
-  // only offer compose up when it was provided.
+  // Without the sync token the container can't start (init-check-auth fails
+  // and s6 stops it), so only offer compose up when it was provided.
   const started =
     obsidianAuthToken === ""
       ? false

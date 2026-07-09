@@ -36,8 +36,13 @@ describe("buildFilesToWrite", () => {
       (file) => file.name === "docker-compose.yml",
     )?.content
 
+    // Exactly one image line = single-service — a second service sneaking
+    // into the template fails here even under a brand-new image name.
+    expect(composeContent?.match(/^\s+image:/gm)).toHaveLength(1)
     expect(composeContent).toContain("ghcr.io/aliasunder/vault-cortex:remote")
+    // Sync and MCP wiring both live in the one service.
     expect(composeContent).toContain("OBSIDIAN_AUTH_TOKEN")
+    expect(composeContent).toContain("MCP_AUTH_TOKEN")
     expect(composeContent).not.toContain("obsidian-headless-sync-docker")
   })
 })

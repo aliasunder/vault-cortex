@@ -27,6 +27,16 @@ run_sync_setup() {
   fi
 }
 
+# No hard fail on a missing VAULT_NAME: a container whose config volume
+# already holds a completed sync setup restarts fine without it. But on a
+# fresh volume the skip means `ob sync --continuous` crash-loops against an
+# unconfigured vault, so make the skip loud — plain `docker run --env-file`
+# performs no `:?` interpolation, unlike Compose.
+if [ -z "$VAULT_NAME" ]; then
+  echo "[obsidian-sync] WARNING: VAULT_NAME is not set — skipping vault setup." >&2
+  echo "[obsidian-sync] Continuous sync will fail unless a previous setup persisted in the config volume." >&2
+fi
+
 if [ -n "$VAULT_NAME" ]; then
   echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
   # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only. (The
@@ -52,26 +62,25 @@ fi
 # ---------------------------------------------------------------------------
 # Apply optional sync config
 # ---------------------------------------------------------------------------
-if [ -n "$DEVICE_NAME" ]; then
-  s6-setuidgid obsidian ob sync-config --device-name "$DEVICE_NAME" 2>/dev/null || true
-fi
 
-if [ -n "$CONFLICT_STRATEGY" ]; then
-  s6-setuidgid obsidian ob sync-config --conflict-strategy "$CONFLICT_STRATEGY" 2>/dev/null || true
-fi
+# Optional config stays non-fatal (a bad value must not stop the container),
+# but failures are logged with the CLI's stderr so a typo'd value (e.g. an
+# invalid CONFLICT_STRATEGY via plain `docker run`, where Compose defaults
+# don't apply) leaves a trace in `docker logs` instead of vanishing.
+apply_sync_config() {
+  flag="$1"
+  value="$2"
+  if [ -z "$value" ]; then
+    return 0
+  fi
+  if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
+    echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
+  fi
+}
 
-if [ -n "$EXCLUDED_FOLDERS" ]; then
-  s6-setuidgid obsidian ob sync-config --excluded-folders "$EXCLUDED_FOLDERS" 2>/dev/null || true
-fi
-
-if [ -n "$FILE_TYPES" ]; then
-  s6-setuidgid obsidian ob sync-config --file-types "$FILE_TYPES" 2>/dev/null || true
-fi
-
-if [ -n "$SYNC_MODE" ]; then
-  s6-setuidgid obsidian ob sync-config --mode "$SYNC_MODE" 2>/dev/null || true
-fi
-
-if [ -n "$SYNC_CONFIGS" ]; then
-  s6-setuidgid obsidian ob sync-config --configs "$SYNC_CONFIGS" 2>/dev/null || true
-fi
+apply_sync_config --device-name "$DEVICE_NAME"
+apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
+apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
+apply_sync_config --file-types "$FILE_TYPES"
+apply_sync_config --mode "$SYNC_MODE"
+apply_sync_config --configs "$SYNC_CONFIGS"

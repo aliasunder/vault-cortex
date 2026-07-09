@@ -38,9 +38,9 @@ for candidate in $CANDIDATES; do
 done
 
 if [ -z "$TOKEN" ]; then
-  FOUND=$(find "$HOME" -path "*obsidian-headless*" -name "auth_token" 2>/dev/null | head -1)
-  if [ -n "$FOUND" ]; then
-    TOKEN=$(cat "$FOUND")
+  TOKEN_FILE=$(find "$HOME" -path "*obsidian-headless*" -name "auth_token" 2>/dev/null | head -1)
+  if [ -n "$TOKEN_FILE" ]; then
+    TOKEN=$(cat "$TOKEN_FILE")
   fi
 fi
 

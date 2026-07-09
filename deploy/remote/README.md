@@ -75,7 +75,12 @@ index as files arrive.
 ### docker run (no Compose)
 
 The same `.env` file works with any OCI runtime — swap `docker` for `podman`
-or `nerdctl` as needed:
+or `nerdctl` as needed. One caveat: plain `docker run` doesn't apply the
+compose file's fallback defaults, so first set two extra values in `.env`
+(both are commented in `.env.example`): `DEVICE_NAME=vault-cortex` —
+otherwise the initial Obsidian Sync device registers under a random
+container-ID hostname — and `CONFLICT_STRATEGY=merge`, whose compose
+default differs from the CLI's built-in default (`conflict`).
 
 ```bash
 docker run -d --name vault-cortex \
@@ -186,8 +191,9 @@ curl -H "Authorization: Bearer <your-MCP_AUTH_TOKEN>" <PUBLIC_URL>/mcp
 curl http://localhost:8000/healthz
 # → {"ok":true}
 
-# One log stream for both processes — s6 prefixes sync lines with
-# [obsidian-sync]; MCP server lines are structured JSON:
+# One log stream for both processes — MCP server lines are structured
+# JSON; init-chain lines carry an [obsidian-sync] prefix and the ongoing
+# sync output is plain text (filter with: docker logs vault-cortex 2>&1 | grep -v '^{'):
 docker logs vault-cortex
 ```
 

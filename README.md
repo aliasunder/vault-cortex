@@ -308,7 +308,10 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 Both paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 
 > [!NOTE]
-> **Migrating from `vault-mcp`?** The image was renamed to `ghcr.io/aliasunder/vault-cortex`. The old `vault-mcp` name keeps receiving release tags until **2026-08-08** — update the `image:` line in your compose file before then. Already-published `vault-mcp` tags remain pullable indefinitely; they just stop updating.
+> **Migrating from `vault-mcp`?** The image was renamed to `ghcr.io/aliasunder/vault-cortex`. The old `vault-mcp` name keeps receiving release tags until **2026-08-08**; already-published tags remain pullable indefinitely, they just stop updating.
+>
+> - **Local setup** (single `vault-mcp` service): update the `image:` line to `ghcr.io/aliasunder/vault-cortex:latest`.
+> - **Remote setup** (two services, `obsidian-sync` + `vault-mcp`): replace your compose file with the new single-service [`deploy/remote/docker-compose.yml`](./deploy/remote/docker-compose.yml) — the `:remote` image bundles sync, and the standalone `obsidian-headless-sync-docker` image no longer receives lockstep releases. Your `.env` carries over unchanged.
 
 **Cost:** A remote setup needs a VPS and $5/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$18–30/mo all-in.
 

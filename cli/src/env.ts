@@ -1,3 +1,5 @@
+import { GET_TOKEN_IMAGE } from "./docker.js"
+
 export type LocalEnvAnswers = {
   mcpAuthToken: string
   vaultPath: string
@@ -151,7 +153,7 @@ VAULT_PASSWORD=${answers.vaultPassword}`
       ? `# Obsidian Sync auth token — FILL THIS IN before docker compose up.
 # Generate once with:
 #   docker run --rm -it --entrypoint get-token \\
-#     ghcr.io/aliasunder/vault-cortex:remote`
+#     ${GET_TOKEN_IMAGE}`
       : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

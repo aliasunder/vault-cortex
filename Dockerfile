@@ -75,6 +75,14 @@ EXPOSE 8000
 FROM base AS remote
 
 ARG S6_OVERLAY_VERSION=3.2.2.0
+# Digest-pinned per arch (same posture as the digest-pinned base image):
+# release assets on GitHub are mutable like tags, so verifying against a
+# .sha256 file from the same origin would only prove transfer integrity.
+# When bumping S6_OVERLAY_VERSION, refresh these from the new release's
+# .sha256 assets.
+ARG S6_NOARCH_SHA256=85848f6baab49fb7832a5557644c73c066899ed458dd1601035cf18e7c759f26
+ARG S6_X86_64_SHA256=5a09e2f1878dc5f7f0211dd7bafed3eee1afe4f813e872fff2ab1957f266c7c0
+ARG S6_AARCH64_SHA256=50a5d4919e688fafc95ce9cf0055a46f74847517bcf08174bac811de234ec7d2
 ARG OBSIDIAN_HEADLESS_VERSION=0.0.12
 ARG TARGETARCH
 
@@ -87,17 +95,19 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends wget ca-cer
          arm64) echo aarch64;; \
          *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1;; \
        esac)" \
+    && S6_ARCH_SHA256="$(case "${TARGETARCH}" in \
+         amd64) echo "${S6_X86_64_SHA256}";; \
+         arm64) echo "${S6_AARCH64_SHA256}";; \
+       esac)" \
     && S6_BASE="https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}" \
     && wget -qO /tmp/s6-overlay-noarch.tar.xz "${S6_BASE}/s6-overlay-noarch.tar.xz" \
-    && wget -qO /tmp/s6-overlay-noarch.tar.xz.sha256 "${S6_BASE}/s6-overlay-noarch.tar.xz.sha256" \
     && wget -qO /tmp/s6-overlay-${S6_ARCH}.tar.xz "${S6_BASE}/s6-overlay-${S6_ARCH}.tar.xz" \
-    && wget -qO /tmp/s6-overlay-${S6_ARCH}.tar.xz.sha256 "${S6_BASE}/s6-overlay-${S6_ARCH}.tar.xz.sha256" \
     && cd /tmp \
-    && sha256sum -c s6-overlay-noarch.tar.xz.sha256 \
-    && sha256sum -c s6-overlay-${S6_ARCH}.tar.xz.sha256 \
+    && echo "${S6_NOARCH_SHA256}  s6-overlay-noarch.tar.xz" | sha256sum -c \
+    && echo "${S6_ARCH_SHA256}  s6-overlay-${S6_ARCH}.tar.xz" | sha256sum -c \
     && tar -C / -Jxpf s6-overlay-noarch.tar.xz \
     && tar -C / -Jxpf s6-overlay-${S6_ARCH}.tar.xz \
-    && rm -f /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay-*.sha256 \
+    && rm -f /tmp/s6-overlay-*.tar.xz \
     && apt-get purge -y wget xz-utils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Install the obsidian-headless CLI (`ob`), then drop npm/npx/corepack/yarn —
