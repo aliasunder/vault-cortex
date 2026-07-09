@@ -121,9 +121,9 @@ npx sst deploy --stage "${STAGE}"
 
 You'll need to re-run the post-provision steps from the README
 (populate `.env`, `docker compose up -d`, etc.). Vault content
-repopulates automatically via Obsidian Sync on first
-`obsidian-sync` container start. The FTS5 index rebuilds itself on
-first `vault-mcp` start. OAuth state is gone — clients will re-auth on
+repopulates automatically via Obsidian Sync on first `vault-cortex`
+container start, and the FTS5 index rebuilds itself once the MCP
+server boots. OAuth state is gone — clients will re-auth on
 their next token refresh.
 
 ## Intentional replace (bundle upgrade, blueprint change, etc.)

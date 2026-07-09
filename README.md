@@ -157,13 +157,13 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ```mermaid
 graph LR
-    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["vault-mcp"]
+    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["MCP server"]
     Server -->|read/write| Vault[("/vault<br/>.md files")]
     Server -->|FTS5 + vector| SQLite[("SQLite\nFTS5 + sqlite-vec")]
-    Sync["obsidian-sync"] <-->|Obsidian Sync| Vault
+    Sync["Obsidian Sync service"] <-->|Obsidian Sync| Vault
 ```
 
-The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. `obsidian-sync` keeps the vault in sync with your Obsidian apps (remote deployments only).
+The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. The sync service keeps the vault in sync with your Obsidian apps — it ships inside the same container in the `:remote` image variant (remote deployments only; the default `:latest` image is the MCP server alone).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
 
@@ -305,6 +305,11 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 | **Remote**    | VPS + Obsidian Sync, access from anywhere          | [`deploy/remote/`](./deploy/remote/) |
 | **AWS (SST)** | Full IaC: Lightsail + API Gateway + Lambda + CI/CD | [`DEPLOY.md`](./DEPLOY.md)           |
 
+Both paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
+
+> [!NOTE]
+> **Migrating from `vault-mcp`?** The image was renamed to `ghcr.io/aliasunder/vault-cortex`. The old `vault-mcp` name keeps receiving release tags until **2026-08-08** — update the `image:` line in your compose file before then. Already-published `vault-mcp` tags remain pullable indefinitely; they just stop updating.
+
 **Cost:** A remote setup needs a VPS and $5/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$18–30/mo all-in.
 
 ## Development
@@ -353,7 +358,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Acknowledgments
 
-Obsidian sync is powered by [obsidian-headless](https://obsidian.md/help/headless) — containerization approach inspired by [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker). The [maintained fork](https://github.com/aliasunder/obsidian-headless-sync-docker) is released in lockstep with vault-cortex.
+Obsidian sync is powered by [obsidian-headless](https://obsidian.md/help/headless) — containerization approach inspired by [@Belphemur](https://github.com/Belphemur)'s [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker). The `:remote` image's s6-overlay supervision scaffolding was absorbed from that project's [maintained fork](https://github.com/aliasunder/obsidian-headless-sync-docker) and now lives in this repo.
 
 The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, position-aware score blending for cross-encoder reranking, content-hash gating, and heading-aware chunking.
 

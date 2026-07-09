@@ -60,7 +60,7 @@ docker compose pull        # always pull — a stale cached :latest silently run
 docker compose up -d
 ```
 
-The image `ghcr.io/aliasunder/vault-mcp:latest` is public (no login needed) and multi-arch (amd64 + arm64), so it runs natively on Apple Silicon.
+The image `ghcr.io/aliasunder/vault-cortex:latest` is public (no login needed) and multi-arch (amd64 + arm64), so it runs natively on Apple Silicon.
 
 > [!NOTE]
 > If you change `MCP_AUTH_TOKEN` (or any `.env` value) **after** the container is
@@ -74,10 +74,10 @@ The image `ghcr.io/aliasunder/vault-mcp:latest` is public (no login needed) and 
 
 ```bash
 curl http://localhost:8000/healthz                                     # expect {"ok":true}
-docker exec vault-mcp node -p "require('/app/package.json').version"   # note the running version
+docker exec vault-cortex node -p "require('/app/package.json').version"   # note the running version
 ```
 
-If healthz doesn't return `{"ok":true}`, run `docker compose logs vault-mcp`. Common causes: `VAULT_PATH` missing or not absolute; `MCP_AUTH_TOKEN` empty in `.env`; port `8000` already in use (set `PORT` in `.env`).
+If healthz doesn't return `{"ok":true}`, run `docker compose logs vault-cortex`. Common causes: `VAULT_PATH` missing or not absolute; `MCP_AUTH_TOKEN` empty in `.env`; port `8000` already in use (set `PORT` in `.env`).
 
 ## Step 4 — Register the server with the client
 
@@ -132,19 +132,19 @@ for localhost.
   Do **not** build a JWT or switch to OAuth — the raw token is the correct format. The cause is one of:
   1. **Token mismatch** — the token in the client config isn't byte-for-byte equal to the one the container booted with. Compare them literally (watch for quotes/trailing whitespace in `.env`). Check what the container actually has:
      ```bash
-     docker exec vault-mcp printenv MCP_AUTH_TOKEN
+     docker exec vault-cortex printenv MCP_AUTH_TOKEN
      ```
      If it differs from `.env`, you edited `.env` after starting — recreate: `docker compose up -d --force-recreate`.
   2. **Stale image** — you're running a build from before the static-token fix (v0.15.5). Refresh and recreate, then confirm the version:
      ```bash
      docker compose pull && docker compose up -d --force-recreate
-     docker exec vault-mcp node -p "require('/app/package.json').version"   # must be >= 0.15.5
+     docker exec vault-cortex node -p "require('/app/package.json').version"   # must be >= 0.15.5
      ```
 - **`no matching manifest for linux/arm64/v8` (Apple Silicon).** You have an old single-arch image cached locally. Pull the current multi-arch `:latest`:
   ```bash
   docker compose pull && docker compose up -d --force-recreate
   ```
-  If it persists, remove the stale image first: `docker rmi ghcr.io/aliasunder/vault-mcp:latest`, then pull again.
+  If it persists, remove the stale image first: `docker rmi ghcr.io/aliasunder/vault-cortex:latest`, then pull again.
 - **healthz fails.** See the causes listed in Step 3.
 
 ## Managing the server

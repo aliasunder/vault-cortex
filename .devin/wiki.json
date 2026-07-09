@@ -79,7 +79,7 @@
     },
     {
       "title": "Deployment",
-      "purpose": "Parent page for the three deployment modes that enable access to your vault from anywhere. All modes run the same vault-mcp Docker image; they progress from local-only to fully remote: local Docker (bind-mounted vault, no network), remote Docker with Obsidian Sync (access from any device), and the AWS reference deployment (defense-in-depth security with API Gateway, Lambda authorizer, and OAuth 2.1). The local and remote modes have comprehensive quickstart guides in deploy/ and can be scaffolded by the CLI (npx vault-cortex init --mode local or --mode remote). The AWS mode is a reference architecture used in production by the author, with its own SST IaC and deployment guide (DEPLOY.md)."
+      "purpose": "Parent page for the three deployment modes that enable access to your vault from anywhere. All modes run the vault-cortex Docker image, built from one two-target Dockerfile: the :latest tag is the MCP server alone (local mode), and the :remote tag bundles Obsidian Sync in the same container under s6-overlay supervision — a single OCI image that runs on any container runtime (docker run, Podman, nerdctl) with no Compose requirement. The modes progress from local-only to fully remote: local Docker (bind-mounted vault, no network), remote Docker with Obsidian Sync (access from any device), and the AWS reference deployment (defense-in-depth security with API Gateway, Lambda authorizer, and OAuth 2.1). The local and remote modes have comprehensive quickstart guides in deploy/ and can be scaffolded by the CLI (npx vault-cortex init --mode local or --mode remote). The AWS mode is a reference architecture used in production by the author, with its own SST IaC and deployment guide (DEPLOY.md)."
     },
     {
       "title": "Local Docker Deployment",
@@ -88,12 +88,12 @@
     },
     {
       "title": "Remote Deployment with Obsidian Sync",
-      "purpose": "Docker Compose with two services: obsidian-sync (bidirectional Obsidian Sync via a headless fork of obsidian-headless-sync-docker) and vault-mcp. Named Docker volumes, no bind mounts. Documented in deploy/remote/. Requires an Obsidian Sync subscription and HTTPS (reverse proxy or cloud provider). This is the deployment that enables mobile/remote access — the key differentiator over local-only solutions.",
+      "purpose": "One container from the vault-cortex:remote image: s6-overlay supervises both the bidirectional Obsidian Sync process (obsidian-headless CLI, with an init chain handling login, vault setup, and PUID/PGID mapping — service definitions live in rootfs/) and the MCP server, with startup ordering between them. Named Docker volumes, no bind mounts; runs via docker compose or plain docker run. Documented in deploy/remote/. Requires an Obsidian Sync subscription and HTTPS (reverse proxy or cloud provider). This is the deployment that enables mobile/remote access — the key differentiator over local-only solutions.",
       "parent": "Deployment"
     },
     {
       "title": "AWS Reference Deployment",
-      "purpose": "The full reference deployment using SST v4 infrastructure-as-code with a defense-in-depth security posture: Lightsail container service (~$12–24/mo) running Docker Compose (obsidian-sync + vault-mcp), API Gateway HTTP API for HTTPS with automatic TLS, and a Lambda authorizer (path-aware: OAuth endpoints pass through, /mcp validates static token or JWT). Defense in depth: TLS termination at API Gateway, token validation at the Lambda authorizer layer, and OAuth 2.1 with JWT at the application layer — three independent security boundaries. Covers sst.config.ts, the Lightsail Docker Compose setup, and DEPLOY.md. This is the author's production deployment but is not required — Vault Cortex runs anywhere Docker does.",
+      "purpose": "The full reference deployment using SST v4 infrastructure-as-code with a defense-in-depth security posture: Lightsail container service (~$12–24/mo) running the vault-cortex:remote image as a single Compose service, API Gateway HTTP API for HTTPS with automatic TLS, and a Lambda authorizer (path-aware: OAuth endpoints pass through, /mcp validates static token or JWT). Defense in depth: TLS termination at API Gateway, token validation at the Lambda authorizer layer, and OAuth 2.1 with JWT at the application layer — three independent security boundaries. Covers sst.config.ts, the Lightsail Docker Compose setup, and DEPLOY.md. This is the author's production deployment but is not required — Vault Cortex runs anywhere Docker does.",
       "parent": "Deployment"
     },
     {

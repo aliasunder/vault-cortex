@@ -37,8 +37,8 @@ PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/you
 
 ### Docker (local)
 
-Runs vault-mcp in Docker against your local vault (no Lightsail, no
-obsidian-sync):
+Runs the MCP server in Docker against your local vault (the Dockerfile's
+`local` target — no Lightsail, no Obsidian Sync):
 
 ```bash
 npm run dev:docker

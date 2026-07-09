@@ -4,14 +4,17 @@ Project conventions for AI-assisted development on vault-cortex — for Claude C
 
 ## What this project is
 
-Remote MCP server exposing an Obsidian vault over HTTPS. Two services on
-Lightsail via Docker Compose: obsidian-sync (bidirectional Obsidian Sync),
-vault-mcp (MCP server, UID 1000). The obsidian-sync image is
-Belphemur/obsidian-headless-sync-docker, which chowns its config dir at build
-time (so no init container is needed) and registers the initial Sync device
-under DEVICE_NAME.
-Fronted by API Gateway with a smart Lambda authorizer (path-aware: OAuth
-endpoints pass through, /mcp validates static token or JWT). IaC via SST v4.
+Remote MCP server exposing an Obsidian vault over HTTPS. One two-target
+Dockerfile builds the `ghcr.io/aliasunder/vault-cortex` image: the `local`
+target (`:latest`, the default stage) is tini + the MCP server alone; the
+`remote` target (`:remote`) adds s6-overlay supervising both obsidian-sync
+(bidirectional Obsidian Sync via the `obsidian-headless` npm CLI) and the MCP
+server in a single container — s6 service definitions live in `rootfs/`, and
+the init chain registers the initial Sync device under DEVICE_NAME. Both
+processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
+`:remote` image on Lightsail as a single Compose service, fronted by API
+Gateway with a smart Lambda authorizer (path-aware: OAuth endpoints pass
+through, /mcp validates static token or JWT). IaC via SST v4.
 
 The server provides vault CRUD, hybrid search (FTS5 keyword + sqlite-vec
 vector + cross-encoder reranking via RRF fusion and position-aware score
@@ -42,18 +45,21 @@ sst.config.ts                          # SST v4 IaC (fully implemented)
 package.json                           # single package, all deps
 tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
-Dockerfile                             # vault-mcp Docker image
-docker-compose.yml                     # Lightsail: obsidian-sync + vault-mcp
+Dockerfile                             # Two-target build: local (default) + remote
+rootfs/                                # s6-overlay service definitions (remote target)
+  etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
+get-token.sh                           # Interactive Obsidian Sync token helper (remote target)
+docker-compose.yml                     # Lightsail: single vault-cortex:remote service
 docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env
 templates/                             # Bootstrap templates for new vaults
   memory/                              #   About Me/ memory file templates
 deploy/                                # End-user quickstart (no clone needed)
-  local/                               #   vault-mcp + bind-mounted vault
+  local/                               #   vault-cortex:latest + bind-mounted vault
     README.md                          #     quickstart walkthrough
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     MCP_AUTH_TOKEN + VAULT_PATH
-  remote/                              #   vault-mcp + Obsidian Sync + named volumes
+  remote/                              #   vault-cortex:remote + named volumes
     README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
