@@ -114,6 +114,9 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends wget ca-cer
 # only `ob` and `node` run at runtime. The removal is selective (unlike the
 # local target's wholesale node_modules removal): obsidian-headless and its
 # deps under /usr/local/lib/node_modules must survive.
+# obsidian-headless is proprietary ("license": "UNLICENSED", © Dynalist
+# Inc. / Obsidian), installed from public npm — the repo's MIT license does
+# not cover it. See the README license section.
 RUN npm install -g obsidian-headless@${OBSIDIAN_HEADLESS_VERSION} \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \

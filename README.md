@@ -367,6 +367,12 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, code conventions
 
 [MIT](./LICENSE)
 
+The `:remote` image **bundles** [`obsidian-headless`](https://github.com/obsidianmd/obsidian-headless)
+(the `ob` CLI), which is **proprietary** — its `package.json` declares `"license": "UNLICENSED"`
+(© Dynalist Inc. / Obsidian). It is installed from public npm at build time; the MIT license here
+does **not** cover it, and using it requires an active Obsidian Sync subscription. The `:latest`
+(local) image contains no proprietary components.
+
 ## Security
 
 Report vulnerabilities privately — see [SECURITY.md](./SECURITY.md).
