@@ -45,12 +45,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Scan published image
+      # The images may not be pullable — a fresh fork, or a repo that
+      # hasn't cut its first release — and this job also fires on every
+      # push to main, so gate the scans on the manifests existing rather
+      # than failing the run (and the README badge).
+      - name: Check published images exist
+        id: images
+        run: |
+          if docker manifest inspect "ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:latest" >/dev/null 2>&1; then
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::vault-cortex:latest not published yet — skipping scan"
+          fi
+          if docker manifest inspect "ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote" >/dev/null 2>&1; then
+            echo "remote=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "remote=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::vault-cortex:remote not published yet — skipping scan"
+          fi
+
+      - name: Scan published image (local target)
+        if: steps.images.outputs.latest == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           # Manifest list resolves per-runner (amd64 here); the Debian OS
           # package set is identical across arches, so amd64-only is fine.
-          image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-mcp:latest
+          image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:latest
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -58,12 +79,36 @@ jobs:
           output: trivy-results.sarif
           exit-code: "0"
 
+      # hashFiles guards: skip the upload when the corresponding scan was
+      # skipped or died before writing its SARIF, instead of layering a
+      # missing-file error on top of the real outcome.
       - name: Upload SARIF to the Security tab
-        if: always()
+        if: always() && hashFiles('trivy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
+
+      # The :remote target layers s6-overlay + obsidian-headless on top of
+      # the local target — its extra packages need their own CVE watch.
+      - name: Scan published image (remote target)
+        if: steps.images.outputs.remote == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results-remote.sarif
+          exit-code: "0"
+
+      - name: Upload remote SARIF to the Security tab
+        if: always() && hashFiles('trivy-results-remote.sarif') != ''
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: trivy-results-remote.sarif
+          category: trivy-published-image-remote
 
   trivy-pr:
     if: github.event_name == 'pull_request'
@@ -79,21 +124,35 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Build image from branch
+      # Both Dockerfile targets build and scan as steps of this one job —
+      # its job ID is the required-status-check context in the branch
+      # ruleset, so adding a job would need a ruleset update.
+      - name: Build image from branch (local target)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
+          target: local
           # Make the built image visible to the local Docker daemon so the
           # scan step can reference it by tag.
           load: true
-          tags: vault-mcp:pr-scan
+          tags: vault-cortex:pr-scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan branch image
+      - name: Build image from branch (remote target)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: remote
+          load: true
+          tags: vault-cortex:pr-scan-remote
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan branch image (local target)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
-          image-ref: vault-mcp:pr-scan
+          image-ref: vault-cortex:pr-scan
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -101,11 +160,36 @@ jobs:
           output: trivy-results.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
+      # Runs even when the local scan gates first (exit-code 1), so a
+      # vulnerability in the shared base image can't mask remote-only
+      # findings in the extra packages (s6-overlay, obsidian-headless).
+      - name: Scan branch image (remote target)
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          image-ref: vault-cortex:pr-scan-remote
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results-remote.sarif
+          exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
+
       # Fork PRs don't get security-events write access, so the upload
       # would 403 — scan results still show in the job log for forks.
+      # hashFiles guard: no SARIF exists if the build failed before the scan.
       - name: Upload SARIF to the Security tab
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && hashFiles('trivy-results.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-results.sarif
           category: trivy-pr-image
+
+      # hashFiles guard: the remote SARIF doesn't exist when the local scan
+      # gates the job first (exit-code 1) or the remote build fails.
+      - name: Upload remote SARIF to the Security tab
+        if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: trivy-results-remote.sarif
+          category: trivy-pr-image-remote

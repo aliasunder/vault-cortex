@@ -37,8 +37,8 @@ PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/you
 
 ### Docker (local)
 
-Runs vault-mcp in Docker against your local vault (no Lightsail, no
-obsidian-sync):
+Runs the MCP server in Docker against your local vault (the Dockerfile's
+`local` target — no Lightsail, no Obsidian Sync):
 
 ```bash
 npm run dev:docker
@@ -171,4 +171,6 @@ See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow
 ## License
 
 By contributing, you agree that your contributions will be licensed under the
-[MIT License](./LICENSE).
+[MIT License](./LICENSE). Note that the published `:remote` image bundles
+Obsidian's proprietary `obsidian-headless` CLI (see the README license note) —
+the MIT license covers this repository's code, not that component.

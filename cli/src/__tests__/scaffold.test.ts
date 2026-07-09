@@ -25,22 +25,25 @@ describe("buildFilesToWrite", () => {
     const composeFile = files.find((file) => file.name === "docker-compose.yml")
     const envFile = files.find((file) => file.name === ".env")
     expect(composeFile?.content).toContain(
-      "ghcr.io/aliasunder/vault-mcp:latest",
+      "ghcr.io/aliasunder/vault-cortex:latest",
     )
     expect(envFile?.content).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
-  it("plans the two-service remote compose with the sync image and no init-config-perms", () => {
+  it("plans the single-service remote compose with the :remote image and no separate sync image", () => {
     const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
     const composeContent = files.find(
       (file) => file.name === "docker-compose.yml",
     )?.content
 
-    expect(composeContent).toContain("obsidian-sync")
-    expect(composeContent).toContain(
-      "ghcr.io/aliasunder/obsidian-headless-sync-docker:latest",
-    )
-    expect(composeContent).not.toContain("init-config-perms")
+    // Exactly one image line = single-service — a second service sneaking
+    // into the template fails here even under a brand-new image name.
+    expect(composeContent?.match(/^\s+image:/gm)).toHaveLength(1)
+    expect(composeContent).toContain("ghcr.io/aliasunder/vault-cortex:remote")
+    // Sync and MCP wiring both live in the one service.
+    expect(composeContent).toContain("OBSIDIAN_AUTH_TOKEN")
+    expect(composeContent).toContain("MCP_AUTH_TOKEN")
+    expect(composeContent).not.toContain("obsidian-headless-sync-docker")
   })
 })
 

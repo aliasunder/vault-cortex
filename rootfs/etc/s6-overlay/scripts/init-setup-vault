@@ -1,0 +1,86 @@
+#!/command/with-contenv sh
+# Set up the vault and apply optional sync configuration.
+# All ob commands run as the obsidian user via s6-setuidgid.
+set -e
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+mkdir -p "$VAULT_PATH"
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# First-time vault setup
+# ---------------------------------------------------------------------------
+
+# Run `ob sync-setup` as the obsidian user, adding --device-name when DEVICE_NAME
+# is set so the INITIAL device registration uses it. Without this the CLI registers
+# the first device under the container hostname (DEVICE_NAME is only applied later
+# via sync-config), so every container recreation spawns a new Obsidian Sync device.
+# A function with "$@" keeps the device name intact even when it contains spaces.
+run_sync_setup() {
+  if [ -n "$DEVICE_NAME" ]; then
+    s6-setuidgid obsidian ob sync-setup "$@" --device-name "$DEVICE_NAME"
+  else
+    s6-setuidgid obsidian ob sync-setup "$@"
+  fi
+}
+
+# No hard fail on a missing VAULT_NAME: a container whose config volume
+# already holds a completed sync setup restarts fine without it. But on a
+# fresh volume the skip means `ob sync --continuous` crash-loops against an
+# unconfigured vault, so make the skip loud — plain `docker run --env-file`
+# performs no `:?` interpolation, unlike Compose.
+if [ -z "$VAULT_NAME" ]; then
+  echo "[obsidian-sync] WARNING: VAULT_NAME is not set — skipping vault setup." >&2
+  echo "[obsidian-sync] Continuous sync will fail unless a previous setup persisted in the config volume." >&2
+fi
+
+if [ -n "$VAULT_NAME" ]; then
+  echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
+  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only. (The
+  # fork's 460f7d4 upstream merge kept a duplicate leading `sync-setup`
+  # token here — `ob sync-setup sync-setup …` — fixed during absorption.)
+  set -- --vault "$VAULT_NAME"
+  if [ -n "$VAULT_PASSWORD" ]; then
+    set -- "$@" --password "$VAULT_PASSWORD"
+  fi
+  if [ -n "$CONFIG_DIR_NAME" ]; then
+    set -- "$@" --config-dir "$CONFIG_DIR_NAME"
+  fi
+  if ! run_sync_setup "$@"; then
+    echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
+    echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
+    if [ -z "$VAULT_PASSWORD" ]; then
+      echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
+    fi
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Apply optional sync config
+# ---------------------------------------------------------------------------
+
+# Optional config stays non-fatal (a bad value must not stop the container),
+# but failures are logged with the CLI's stderr so a typo'd value (e.g. an
+# invalid CONFLICT_STRATEGY via plain `docker run`, where Compose defaults
+# don't apply) leaves a trace in `docker logs` instead of vanishing.
+apply_sync_config() {
+  flag="$1"
+  value="$2"
+  if [ -z "$value" ]; then
+    return 0
+  fi
+  if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
+    echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
+  fi
+}
+
+apply_sync_config --device-name "$DEVICE_NAME"
+apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
+apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
+apply_sync_config --file-types "$FILE_TYPES"
+apply_sync_config --mode "$SYNC_MODE"
+apply_sync_config --configs "$SYNC_CONFIGS"

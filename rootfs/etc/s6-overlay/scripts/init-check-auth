@@ -1,0 +1,11 @@
+#!/command/with-contenv sh
+# Validate that OBSIDIAN_AUTH_TOKEN is set before proceeding.
+set -e
+
+if [ -z "$OBSIDIAN_AUTH_TOKEN" ]; then
+  echo "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is not set." >&2
+  echo "[obsidian-sync] Run: docker run --rm -it --entrypoint get-token <image>" >&2
+  exit 1
+fi
+
+echo "[obsidian-sync] Auth token present."

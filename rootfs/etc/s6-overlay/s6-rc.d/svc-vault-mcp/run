@@ -1,0 +1,15 @@
+#!/command/with-contenv sh
+# MCP server longrun supervised by s6.
+# The dependency on svc-obsidian-sync gates STARTUP ORDER only — s6-rc does
+# not restart-couple longruns and does not wait for sync health: the MCP
+# server starts as soon as the sync process spawns. No startup ordering
+# guarantees first-sync COMPLETION. A vault still being populated by the
+# first sync self-heals — the file watcher indexes files as sync delivers
+# them — and the memory-write shrink guard protects the fresh-volume
+# bootstrap case.
+set -e
+
+# s6 services do not inherit the Dockerfile WORKDIR; the server resolves
+# dist/ and package.json relative to /app.
+cd /app
+exec s6-setuidgid obsidian node --enable-source-maps dist/src/vault-mcp/server.js

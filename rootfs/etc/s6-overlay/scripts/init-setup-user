@@ -1,0 +1,47 @@
+#!/command/with-contenv sh
+# Adjust the obsidian user/group UID/GID to match PUID/PGID env vars.
+set -e
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+VAULT_PATH="${VAULT_PATH:-/vault}"
+# Records the last PUID:PGID whose recursive chown completed. Lives on the
+# config volume so it survives container recreation — comparing against the
+# image-baked passwd entry instead (always 1000 on a fresh container) would
+# miss a PUID change back to 1000 and strand volume contents at the old IDs.
+APPLIED_IDS_FILE=/home/obsidian/.config/.applied-ids
+
+CURRENT_UID=$(id -u obsidian)
+CURRENT_GID=$(id -g obsidian)
+
+if [ "$PGID" != "$CURRENT_GID" ]; then
+  echo "[obsidian-sync] Adjusting obsidian group GID: ${CURRENT_GID} → ${PGID}"
+  groupmod -o -g "$PGID" obsidian
+fi
+
+if [ "$PUID" != "$CURRENT_UID" ]; then
+  echo "[obsidian-sync] Adjusting obsidian user UID: ${CURRENT_UID} → ${PUID}"
+  usermod -o -u "$PUID" obsidian
+fi
+
+# Ensure the vault, index, and config directories exist.
+# /data is vault-cortex's index volume (INDEX_DB_PATH) — it must follow
+# PUID/PGID alongside /vault so svc-vault-mcp can write the search index.
+mkdir -p "$VAULT_PATH" /data /home/obsidian/.config
+
+APPLIED_IDS=$(cat "$APPLIED_IDS_FILE" 2>/dev/null || true)
+if [ "$APPLIED_IDS" != "${PUID}:${PGID}" ]; then
+  # Recursive chown whenever the recorded IDs don't match — covers first boot
+  # (no record; volumes are near-empty so this is cheap) and any later
+  # PUID/PGID change in either direction so existing volume contents stay
+  # accessible.
+  echo "[obsidian-sync] Ownership IDs changed (${APPLIED_IDS:-unrecorded} → ${PUID}:${PGID}) — fixing ownership recursively..."
+  chown -R "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+  echo "${PUID}:${PGID}" > "$APPLIED_IDS_FILE"
+  chown "$PUID:$PGID" "$APPLIED_IDS_FILE"
+else
+  # Just fix top-level ownership (fast — catches fresh mountpoints created by root)
+  chown "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+fi
+
+echo "[obsidian-sync] Running as UID=${PUID} GID=${PGID}"
