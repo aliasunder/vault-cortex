@@ -160,7 +160,11 @@ jobs:
           output: trivy-results.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
+      # Runs even when the local scan gates first (exit-code 1), so a
+      # vulnerability in the shared base image can't mask remote-only
+      # findings in the extra packages (s6-overlay, obsidian-headless).
       - name: Scan branch image (remote target)
+        if: success() || failure()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: vault-cortex:pr-scan-remote

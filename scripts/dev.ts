@@ -186,7 +186,7 @@ switch (sub) {
 
   default:
     console.error(
-      `Usage: tsx scripts/dev.mts <docker:build|docker:push|docker:publish|lightsail:up>`,
+      `Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>`,
     )
     process.exit(1)
 }

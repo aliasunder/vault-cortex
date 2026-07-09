@@ -6,7 +6,7 @@ export type DockerRunner = {
   isDaemonRunning: () => boolean
   /** Runs `docker compose up -d` in cwd with inherited stdio. */
   composeUp: (cwd: string) => boolean
-  /** Runs the obsidian-headless-sync get-token flow with inherited stdio. */
+  /** Runs the vault-cortex get-token flow with inherited stdio. */
   runGetToken: () => boolean
 }
 
