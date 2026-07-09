@@ -119,8 +119,10 @@ RUN npm install -g obsidian-headless@${OBSIDIAN_HEADLESS_VERSION} \
        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
        /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
-# Replace the `node` user with `obsidian` at the same UID/GID (1000:1000) so
-# files created by the old two-container stack keep working. usermod/groupmod
+# Replace the `node` user with `obsidian` at the same UID/GID (1000:1000) —
+# the PUID/PGID default, and the same numeric owner as the local target's
+# `node` user, so file ownership on existing volumes stays valid across
+# targets and upgrades. usermod/groupmod
 # (used by init-setup-user for runtime PUID/PGID remapping) ship in Debian's
 # essential passwd package. /app and /data were chowned to UID 1000 in base —
 # numeric ownership carries over to obsidian.
