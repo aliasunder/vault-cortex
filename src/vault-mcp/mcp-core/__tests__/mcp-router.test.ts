@@ -333,7 +333,7 @@ describe("createMcpRouter — POST /mcp", () => {
       })
       // The lazy prop must resolve to the id the transport generated during
       // the initialize request — after the child logger was created.
-      const sessionIdProp = mockedLogger.child.mock.calls[0]![0].sessionId
+      const sessionIdProp = mockedLogger.child.mock.calls[0]?.[0].sessionId
       if (typeof sessionIdProp !== "function") {
         throw new Error("sessionId child prop is not a function")
       }
@@ -342,7 +342,11 @@ describe("createMcpRouter — POST /mcp", () => {
 
     it("session logger emits lines carrying the generated sessionId", async () => {
       const { sessionId } = await setupInitializedSession()
-      const sessionLogger = mockedLogger.child.mock.results[0]!.value
+      const sessionLoggerResult = mockedLogger.child.mock.results[0]
+      if (sessionLoggerResult === undefined) {
+        throw new Error("logger.child was never called")
+      }
+      const sessionLogger = sessionLoggerResult.value
 
       const writtenChunks: string[] = []
       const stdoutSpy = vi
@@ -354,9 +358,9 @@ describe("createMcpRouter — POST /mcp", () => {
       sessionLogger.info("tool_call")
       stdoutSpy.mockRestore()
 
-      const emittedLine = JSON.parse(writtenChunks[0]!)
-      expect(emittedLine.sessionId).toBe(sessionId)
-      expect(emittedLine.clientIp).toBe(FORWARDED_IP)
+      const emittedLines = writtenChunks.map((chunk) => JSON.parse(chunk))
+      expect(emittedLines[0]?.sessionId).toBe(sessionId)
+      expect(emittedLines[0]?.clientIp).toBe(FORWARDED_IP)
     })
 
     it("logs the 'session created' response", async () => {

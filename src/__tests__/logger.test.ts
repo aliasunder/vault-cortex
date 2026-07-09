@@ -244,12 +244,19 @@ describe("logger child lazy props", () => {
 
   it("omits a lazy prop that resolves to undefined", () => {
     const emittedLines = captureEmittedLines()
-    const childLogger = logger.child({ sessionId: () => undefined })
+    const childLogger = logger.child({
+      sessionId: () => undefined,
+      // Companion lazy prop with a defined value — proves resolution actually
+      // ran, so the absent sessionId can't be JSON.stringify silently
+      // dropping an unresolved function value.
+      clientIp: () => "203.0.113.7",
+    })
 
     childLogger.info("tool_call")
 
     const emittedLine = emittedLines()[0]
     expect(emittedLine?.message).toBe("tool_call")
+    expect(emittedLine?.clientIp).toBe("203.0.113.7")
     expect(emittedLine).not.toHaveProperty("sessionId")
   })
 
