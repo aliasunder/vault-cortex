@@ -330,17 +330,10 @@ describe("config interpolation in descriptions", () => {
     expect(config.description).not.toContain("About Me/")
   })
 
-  it("vault_delete_note description scopes memory hint to configured memory dir (default)", () => {
+  it("vault_delete_note description includes memory hint when memory is enabled", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_NOTE)
     expect(config.description).toContain(
-      "use vault_delete_memory for individual entries under About Me/",
-    )
-  })
-
-  it("vault_delete_note description scopes memory hint to configured memory dir (custom)", () => {
-    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)
-    expect(config.description).toContain(
-      "use vault_delete_memory for individual entries under Profile/",
+      "use vault_delete_memory for memory entries",
     )
   })
 

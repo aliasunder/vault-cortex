@@ -625,7 +625,7 @@ When to use: Removing a note you no longer need.${config.memoryEnabled ? `\nPref
 Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.
 
 Errors:
-- "cannot delete protected path" — the path sits under a protected folder${config.memoryEnabled ? `; use vault_delete_memory for individual entries under ${config.memoryDir}/` : ""}
+- "cannot delete protected path" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
