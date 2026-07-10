@@ -21,6 +21,7 @@ import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { watch } from "chokidar"
 import { createSearchIndex } from "../search-index.js"
+import { readdirOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
 import { logger } from "../../../logger.js"
@@ -30,6 +31,10 @@ import { logger } from "../../../logger.js"
 // overrides watch() per-test to inspect the options object passed to chokidar —
 // without starting a real watcher — then restores the real one.
 vi.mock("chokidar", { spy: true })
+// Auto-spy the fs utils (real implementation kept): readdirOrNull is the
+// rescan's synchronous first call, so the delay-default test can observe the
+// timer firing without waiting on real filesystem I/O.
+vi.mock("../../../utils/fs.js", { spy: true })
 
 let vault: string
 let index: SearchIndex
@@ -305,6 +310,14 @@ describe("startFileWatcher — chokidar watch options", () => {
     expect(chokidarOptions.usePolling).toBe(true)
     expect(chokidarOptions.interval).toBe(300)
   })
+
+  it("defaults awaitWriteFinish to 2000ms stability and 100ms poll interval", async () => {
+    const chokidarOptions = await chokidarOptionsFrom()
+    expect(chokidarOptions.awaitWriteFinish).toEqual({
+      stabilityThreshold: 2000,
+      pollInterval: 100,
+    })
+  })
 })
 
 // The chokidar race the rescan closes (a file landing between the
@@ -445,7 +458,7 @@ describe("startFileWatcher — new-directory rescan", () => {
       // a 60s stability threshold treats as still being written.
       await backdateMtime(settledPath)
 
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
         {},
         { ...RESCAN_TEST_OPTIONS, stabilityThreshold: 60_000 },
       )
@@ -458,6 +471,9 @@ describe("startFileWatcher — new-directory rescan", () => {
       )
       const freshResults = index.fullTextSearch({ query: "fresh" }, logger)
       expect(freshResults).toHaveLength(0)
+      // Skipping must include chokidar registration — only the settled file is
+      // handed to watcher.add(); the fresh file's own add event covers it.
+      expect(addedPaths).toEqual([settledPath])
     },
   )
 
@@ -594,20 +610,129 @@ describe("startFileWatcher — new-directory rescan", () => {
   )
 
   it(
-    "handles a directory deleted before the rescan fires",
+    "skips a broken symlink and still indexes its sibling",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const settledPath = join(newDirectory, "settled.md")
+      await writeFile(settledPath, "settled beside a broken link\n", "utf8")
+      await backdateMtime(settledPath)
+      // A dangling .md symlink: readdir lists it, stat() throws ENOENT — the
+      // rescan must swallow that and keep processing the rest of the listing.
+      const danglingLink = join(newDirectory, "dangling.md")
+      await symlink(join(newDirectory, "no-such-target.md"), danglingLink)
+
+      const upsertNoteSpy = vi.spyOn(index, "upsertNote")
+      // logger is module-shared — restore so the spy doesn't leak across tests.
+      const debugSpy = vi.spyOn(logger, "debug")
+      onTestFinished(() => debugSpy.mockRestore())
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
+        {},
+        RESCAN_TEST_OPTIONS,
+      )
+      fireAddDir(newDirectory)
+
+      await waitFor(
+        () => index.fullTextSearch({ query: "settled" }, logger).length > 0,
+      )
+      // The skip log proves the broken link was actually encountered and
+      // swallowed — not merely absent from the listing.
+      expect(debugSpy).toHaveBeenCalledWith("rescan skipped unreadable entry", {
+        path: "new-folder/dangling.md",
+        error: expect.stringContaining("ENOENT"),
+      })
+      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
+      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
+        "new-folder/settled.md",
+      )
+      expect(addedPaths).toEqual([settledPath])
+    },
+  )
+
+  it(
+    "defaults the rescan delay to twice the stability threshold",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed by the scan\n", "utf8")
+      await backdateMtime(missedPath)
+
+      // Fake only setTimeout: queueMicrotask (the fake watcher's "ready") and
+      // Date (waitFor's deadline, the mtime guard) must stay real.
+      vi.useFakeTimers({ toFake: ["setTimeout"] })
+      onTestFinished(() => {
+        vi.useRealTimers()
+      })
+
+      // readdirOrNull is the rescan's synchronous first call — it registers
+      // the moment the timer fires, unlike upsertNote, which sits behind real
+      // filesystem I/O that fake-timer advancement doesn't wait for.
+      const readdirSpy = vi.mocked(readdirOrNull)
+      readdirSpy.mockClear()
+      const { fireAddDir } = await startWatcherWithFakeChokidar(
+        {},
+        // No newDirectoryRescanDelay — expected default: 2 × 200ms = 400ms.
+        { stabilityThreshold: 200, pollInterval: 50 },
+      )
+      fireAddDir(newDirectory)
+
+      // One tick short of 2 × stabilityThreshold the rescan must not have
+      // fired. The post-400ms half below proves the machinery is live, so
+      // this half can't pass vacuously.
+      await vi.advanceTimersByTimeAsync(399)
+      expect(readdirSpy).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(readdirSpy).toHaveBeenCalledWith(newDirectory)
+
+      // The timer has fired; hand the event loop back to real timers so the
+      // rescan's real-fs work (and waitFor's polling) can proceed, proving
+      // the delayed rescan carries through to indexing.
+      vi.useRealTimers()
+      await waitFor(
+        () => index.fullTextSearch({ query: "missed" }, logger).length > 0,
+      )
+    },
+  )
+
+  it(
+    "skips the rescan when the directory was deleted before it fires",
     { timeout: 15000 },
     async () => {
       const upsertNoteSpy = vi.spyOn(index, "upsertNote")
+      // logger is module-shared — restore so spies don't leak across tests.
+      const debugSpy = vi.spyOn(logger, "debug")
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => {
+        debugSpy.mockRestore()
+        errorSpy.mockRestore()
+      })
       const { fireAddDir } = await startWatcherWithFakeChokidar(
         {},
         RESCAN_TEST_OPTIONS,
       )
       fireAddDir(join(vault, "never-created"))
 
-      // Give the scheduled rescan time to run; it must bail without indexing
-      // anything (an unhandled rejection would fail the test run).
-      await new Promise((finished) => setTimeout(finished, 300))
+      // The vanished-dir debug log is the side effect unique to the graceful
+      // early-return — "no upserts" alone would also pass if the timer never
+      // fired, or if the rescan crashed into the error handler instead.
+      await waitFor(() =>
+        debugSpy.mock.calls.some(
+          ([message]) => message === "rescan skipped, directory vanished",
+        ),
+      )
+      expect(debugSpy).toHaveBeenCalledWith(
+        "rescan skipped, directory vanished",
+        { path: "never-created" },
+      )
       expect(upsertNoteSpy).not.toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        "failed to rescan new directory",
+        expect.anything(),
+      )
     },
   )
 })
