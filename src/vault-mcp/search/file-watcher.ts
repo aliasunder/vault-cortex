@@ -8,6 +8,7 @@ import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { readdirOrNull } from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
@@ -22,6 +23,17 @@ const DEFAULT_STABILITY_THRESHOLD_MS = 2000
  *  files and directories (.obsidian/, .trash/, dotfiles) the watcher skips. */
 const hasHiddenPathSegment = (relativePath: string): boolean => {
   return relativePath.split("/").some((segment) => segment.startsWith("."))
+}
+
+/** Resolves a path's realpath, returning null instead of throwing when the
+ *  path no longer exists (ENOENT). Any other error propagates. */
+const realpathOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await realpath(path)
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
 }
 
 type FileWatcherOptions = Readonly<{
@@ -125,6 +137,16 @@ export const startFileWatcher = (
   const newDirectoryRescanDelay =
     options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
 
+  /** True when the file's last write falls inside the stability window —
+   *  plausibly still being written. A negative age (mtime in the future —
+   *  clock skew across a Docker bind mount) counts as settled: skipping
+   *  forever would lose the note, while a too-early read is corrected by the
+   *  file's next change event. */
+  const isWithinStabilityWindow = (mtimeMs: number): boolean => {
+    const fileAgeMs = DateTime.now().toMillis() - mtimeMs
+    return fileAgeMs >= 0 && fileAgeMs < stabilityThreshold
+  }
+
   const watcher = watch(vaultPath, {
     // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
@@ -147,6 +169,37 @@ export const startFileWatcher = (
       pollInterval: options?.pollInterval ?? 100,
     },
   })
+
+  // A file discovered mid-write inside a directory chokidar wasn't watching
+  // when the write began gets no replay event: watcher.add() registers
+  // directories without emitting for their existing contents. Unlike a file
+  // in an already-watched directory — whose write event is in flight behind
+  // awaitWriteFinish — waiting on chokidar would strand it unindexed, so poll
+  // until the write settles, then index. A vanished file ends the retry.
+  const scheduleUnstableFileRetry = (filePath: string): void => {
+    const retryTimer = setTimeout(() => {
+      const indexIfSettled = async (): Promise<void> => {
+        const fileStat = await stat(filePath)
+        if (isWithinStabilityWindow(fileStat.mtimeMs)) {
+          scheduleUnstableFileRetry(filePath)
+          return
+        }
+        watcher.add(filePath)
+        logger.debug("rescan indexing settled file after retry", {
+          path: relative(vaultPath, filePath),
+        })
+        await handleChange(filePath)
+      }
+      indexIfSettled().catch((err) => {
+        logger.debug("rescan retry skipped unreadable file", {
+          path: relative(vaultPath, filePath),
+          error: describeError(err),
+        })
+      })
+    }, stabilityThreshold)
+    // Never hold the process open for a pending retry.
+    retryTimer.unref()
+  }
 
   // chokidar processes a newly-appeared directory by scanning it FIRST and
   // registering its fs.watch only after the scan completes (_handleDir in
@@ -172,7 +225,15 @@ export const startFileWatcher = (
     // Symlinked directories recurse below; realpath identity breaks cycles
     // (a symlink pointing back at an ancestor would otherwise recurse until
     // the filesystem throws ELOOP, indexing ghost duplicates along the way).
-    const realDirPath = await realpath(dirPath)
+    // A null realpath means the directory was deleted after the readdir above
+    // — the same benign race as the vanished-listing branch, not an error.
+    const realDirPath = await realpathOrNull(dirPath)
+    if (realDirPath === null) {
+      logger.debug("rescan skipped, directory vanished", {
+        path: relative(vaultPath, dirPath),
+      })
+      return
+    }
     if (visitedRealPaths.has(realDirPath)) return
     visitedRealPaths.add(realDirPath)
 
@@ -217,12 +278,19 @@ export const startFileWatcher = (
           })
           continue
         }
-        // A freshly-modified file is plausibly still being written. Skip it:
-        // the directory's watch is registered by now, so its next write event
-        // flows through the normal awaitWriteFinish path.
-        const isStillBeingWritten =
-          DateTime.now().toMillis() - fileStat.mtimeMs < stabilityThreshold
-        if (isStillBeingWritten) continue
+        // A freshly-modified file is plausibly still being written — don't
+        // read it yet. When its directory was already watched before this
+        // rescan (present in the getWatched snapshot), the write's own event
+        // is in flight behind awaitWriteFinish, so skipping is safe. Inside a
+        // directory chokidar never watched (a missed subdirectory or symlinked
+        // directory), registration emits no replay for the write — retry once
+        // it settles instead.
+        if (isWithinStabilityWindow(fileStat.mtimeMs)) {
+          const parentWatchedBeforeRescan = trackedSiblings !== undefined
+          if (parentWatchedBeforeRescan) continue
+          scheduleUnstableFileRetry(fullPath)
+          continue
+        }
 
         // Register the file with chokidar too — indexed but untracked, its
         // later deletion would emit no unlink, leaving a ghost index entry.
