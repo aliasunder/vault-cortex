@@ -17,7 +17,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
-  serverLocalDayBounds,
+  dayToEpochMsRange,
 } from "./search-helpers.js"
 import type {
   VectorHit,
@@ -194,27 +194,27 @@ export const fullTextSearch = (
     }
   }
 
-  // mtime is epoch ms; each YYYY-MM-DD bound converts to server-local day
-  // boundaries. Exclusive at day granularity: before D matches strictly
-  // earlier days (mtime < startOf(D)), after D strictly later days
-  // (mtime >= startOf(D+1)), on D matches within the day.
+  // mtime is epoch ms; each YYYY-MM-DD value converts to the epoch-ms window
+  // that day covers in the server-local zone. Exclusive at day granularity:
+  // before D matches strictly earlier days (mtime < startOf(D)), after D
+  // strictly later days (mtime >= startOf(D+1)), on D matches within the day.
   if (params.filters?.modified) {
     const { on, before, after } = params.filters.modified
     if (on !== undefined) {
       assertFilterDate(on, "modified.on")
-      const bounds = serverLocalDayBounds(on)
+      const dayRange = dayToEpochMsRange(on)
       conditions.push("n.mtime >= ? AND n.mtime < ?")
-      queryParams.push(bounds.startMs, bounds.endMs)
+      queryParams.push(dayRange.startMs, dayRange.endMs)
     }
     if (before !== undefined) {
       assertFilterDate(before, "modified.before")
       conditions.push("n.mtime < ?")
-      queryParams.push(serverLocalDayBounds(before).startMs)
+      queryParams.push(dayToEpochMsRange(before).startMs)
     }
     if (after !== undefined) {
       assertFilterDate(after, "modified.after")
       conditions.push("n.mtime >= ?")
-      queryParams.push(serverLocalDayBounds(after).endMs)
+      queryParams.push(dayToEpochMsRange(after).endMs)
     }
   }
 
@@ -1265,7 +1265,7 @@ export const modifiedOnDate = (
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
-  const dayBounds = serverLocalDayBounds(params.date)
+  const dayBounds = dayToEpochMsRange(params.date)
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes

@@ -12,7 +12,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
-  serverLocalDayBounds,
+  dayToEpochMsRange,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 
@@ -606,11 +606,11 @@ describe("noteMatchesSearchFilters", () => {
   })
 })
 
-// ── serverLocalDayBounds ──────────────────────────────────────
+// ── dayToEpochMsRange ──────────────────────────────────────
 
-describe("serverLocalDayBounds", () => {
+describe("dayToEpochMsRange", () => {
   it("brackets exactly one server-local day, half-open", () => {
-    const bounds = serverLocalDayBounds("2026-06-15")
+    const bounds = dayToEpochMsRange("2026-06-15")
     expect(bounds.startMs).toBe(DateTime.fromISO("2026-06-15").toMillis())
     expect(bounds.endMs).toBe(DateTime.fromISO("2026-06-16").toMillis())
   })
@@ -624,12 +624,12 @@ describe("serverLocalDayBounds", () => {
     try {
       const HOUR_MS = 3_600_000
       // 2026-03-08: clocks spring forward 02:00 → 03:00, a 23-hour day
-      const springForwardBounds = serverLocalDayBounds("2026-03-08")
+      const springForwardBounds = dayToEpochMsRange("2026-03-08")
       expect(springForwardBounds.endMs - springForwardBounds.startMs).toBe(
         23 * HOUR_MS,
       )
       // 2026-11-01: clocks fall back 02:00 → 01:00, a 25-hour day
-      const fallBackBounds = serverLocalDayBounds("2026-11-01")
+      const fallBackBounds = dayToEpochMsRange("2026-11-01")
       expect(fallBackBounds.endMs - fallBackBounds.startMs).toBe(25 * HOUR_MS)
     } finally {
       Settings.defaultZone = previousZone
@@ -637,13 +637,13 @@ describe("serverLocalDayBounds", () => {
   })
 
   it("throws on a malformed date instead of returning NaN bounds", () => {
-    expect(() => serverLocalDayBounds("bad")).toThrow(
+    expect(() => dayToEpochMsRange("bad")).toThrow(
       'invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })
 
   it("throws on a calendar-invalid date", () => {
-    expect(() => serverLocalDayBounds("2026-02-31")).toThrow(
+    expect(() => dayToEpochMsRange("2026-02-31")).toThrow(
       'invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })
@@ -651,7 +651,7 @@ describe("serverLocalDayBounds", () => {
   it("throws on a valid ISO timestamp that is not a bare day", () => {
     // fromISO would accept this and silently compute a 10:30-to-10:30 window;
     // the strict yyyy-MM-dd parse rejects it instead
-    expect(() => serverLocalDayBounds("2026-07-03T10:30:00")).toThrow(
+    expect(() => dayToEpochMsRange("2026-07-03T10:30:00")).toThrow(
       'invalid date: "2026-07-03T10:30:00". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })

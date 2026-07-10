@@ -191,15 +191,17 @@ export const noteRowToSearchResult = (params: {
 
 // ── Filters ────────────────────────────────────────────────────
 
-/** Epoch-ms bounds of one server-local calendar day (governed by the TZ env
- *  var): half-open [startMs, endMs). Single definition shared by the SQL
- *  modified-filter conditions and their TypeScript mirror so both search
- *  legs agree on day boundaries. plus({ days: 1 }) is calendar-aware, so
- *  DST-shortened and -lengthened days get correct bounds. Throws on anything
- *  but a strict YYYY-MM-DD day — a malformed date would otherwise yield NaN
- *  bounds and a timestamped one a silently time-shifted window, both
- *  mis-filtering instead of failing fast. */
-export const serverLocalDayBounds = (
+/** Converts a YYYY-MM-DD day into the window of time it covers — from
+ *  midnight that day to midnight the next, as half-open epoch-ms
+ *  [startMs, endMs) in the process-local zone (governed by the TZ env var).
+ *  Single definition shared by the SQL modified-filter conditions and their
+ *  TypeScript mirror so both search legs agree on day boundaries.
+ *  plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened
+ *  days get a correct range. Throws on anything but a strict YYYY-MM-DD
+ *  day — a malformed date would otherwise yield a NaN range and a
+ *  timestamped one a silently time-shifted window, both mis-filtering
+ *  instead of failing fast. */
+export const dayToEpochMsRange = (
   date: string,
 ): { startMs: number; endMs: number } => {
   const dayStart = DateTime.fromFormat(date, "yyyy-MM-dd")
@@ -269,23 +271,23 @@ export const noteMatchesSearchFilters = (
     }
   }
 
-  // Mirror of the SQL mtime bounds — same serverLocalDayBounds conversion,
+  // Mirror of the SQL mtime bounds — same dayToEpochMsRange conversion,
   // exclusive at day granularity: before/after match strictly earlier/later
   // days, on matches within the day.
   if (filters.modified) {
     if (filters.modified.on !== undefined) {
-      const bounds = serverLocalDayBounds(filters.modified.on)
-      if (note.mtime < bounds.startMs || note.mtime >= bounds.endMs)
+      const dayRange = dayToEpochMsRange(filters.modified.on)
+      if (note.mtime < dayRange.startMs || note.mtime >= dayRange.endMs)
         return false
     }
     if (
       filters.modified.before !== undefined &&
-      note.mtime >= serverLocalDayBounds(filters.modified.before).startMs
+      note.mtime >= dayToEpochMsRange(filters.modified.before).startMs
     )
       return false
     if (
       filters.modified.after !== undefined &&
-      note.mtime < serverLocalDayBounds(filters.modified.after).endMs
+      note.mtime < dayToEpochMsRange(filters.modified.after).endMs
     )
       return false
   }
