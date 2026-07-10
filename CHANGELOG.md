@@ -31,6 +31,22 @@
 
 
 
+
+## [0.27.0] — 2026-07-10
+
+### ⚠ BREAKING CHANGES
+
+- the published image is renamed `ghcr.io/aliasunder/vault-mcp` → `ghcr.io/aliasunder/vault-cortex` and now ships two targets (`:latest` = MCP server only; `:remote` = server + bundled Obsidian Sync under s6-overlay). The legacy `vault-mcp` package stops receiving tags at this release; already-published tags remain pullable indefinitely, frozen at the last pre-rename version. To migrate a local setup, point `image:` at `ghcr.io/aliasunder/vault-cortex:latest`; for a remote two-service setup, switch to the single-service `deploy/remote/docker-compose.yml` (`:remote` bundles sync) — the `.env` carries over unchanged.
+
+### Features
+
+- **docker:** Single OCI image — two-target build, fork absorption, image rename (#291)
+
+### Documentation
+
+- Document image updates in quickstart READMEs and CLI connect message (#295)
+- Update CHANGELOG.md for v0.26.9
+
 ## [0.26.9] — 2026-07-09
 
 ### Documentation
