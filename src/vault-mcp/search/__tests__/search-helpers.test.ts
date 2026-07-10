@@ -647,6 +647,14 @@ describe("serverLocalDayBounds", () => {
       'invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
     )
   })
+
+  it("throws on a valid ISO timestamp that is not a bare day", () => {
+    // fromISO would accept this and silently compute a 10:30-to-10:30 window;
+    // the strict yyyy-MM-dd parse rejects it instead
+    expect(() => serverLocalDayBounds("2026-07-03T10:30:00")).toThrow(
+      'invalid date: "2026-07-03T10:30:00". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
 })
 
 // ── buildSnippetFromChunkText ─────────────────────────────────
