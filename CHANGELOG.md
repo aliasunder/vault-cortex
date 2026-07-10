@@ -32,6 +32,14 @@
 
 
 
+
+## [0.27.1] — 2026-07-10
+
+### Documentation
+
+- **docker:** Correct stale tool count in image descriptions (25 → 26) (#296)
+- Update CHANGELOG.md for v0.27.0
+
 ## [0.27.0] — 2026-07-10
 
 ### ⚠ BREAKING CHANGES
