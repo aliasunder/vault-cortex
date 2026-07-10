@@ -191,10 +191,27 @@ export const noteRowToSearchResult = (params: {
 
 // ── Filters ────────────────────────────────────────────────────
 
+/** Epoch-ms bounds of one server-local calendar day (governed by the TZ env
+ *  var): half-open [startMs, endMs). Single definition shared by the SQL
+ *  modified-filter conditions and their TypeScript mirror so both search
+ *  legs agree on day boundaries. plus({ days: 1 }) is calendar-aware, so
+ *  DST-shortened and -lengthened days get correct bounds. */
+export const serverLocalDayBounds = (
+  date: string,
+): { startMs: number; endMs: number } => {
+  const dayStart = DateTime.fromISO(date)
+  return {
+    startMs: dayStart.toMillis(),
+    endMs: dayStart.plus({ days: 1 }).toMillis(),
+  }
+}
+
 /** Returns true when a note row satisfies every active search filter (folder
- *  prefix, all-of tags, type, all-of related links, property key/value pairs).
- *  Mirrors fullTextSearch's SQL WHERE clause in TypeScript — used for
- *  vector-only results that bypassed the FTS query. */
+ *  prefix, all-of tags, type, all-of related links, property key/value pairs,
+ *  created/modified date bounds). Mirrors fullTextSearch's SQL WHERE clause
+ *  in TypeScript — used for vector-only results that bypassed the FTS query.
+ *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
+ *  always runs before this mirror. */
 export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
@@ -223,6 +240,47 @@ export const noteMatchesSearchFilters = (
     for (const [key, value] of Object.entries(filters.properties)) {
       if (noteProperties[key] !== value) return false
     }
+  }
+
+  // Mirror of the SQL substr(n.created, 1, 10) comparisons — the first 10
+  // chars of the stored ISO created value are its server-local calendar day.
+  // Notes without created never match, like SQL NULL comparisons.
+  if (filters.created) {
+    if (note.created === null) return false
+    const createdDay = note.created.slice(0, 10)
+    if (filters.created.on !== undefined && createdDay !== filters.created.on)
+      return false
+    if (
+      filters.created.before !== undefined &&
+      createdDay >= filters.created.before
+    )
+      return false
+    if (
+      filters.created.after !== undefined &&
+      createdDay <= filters.created.after
+    )
+      return false
+  }
+
+  // Mirror of the SQL mtime bounds — same serverLocalDayBounds conversion,
+  // exclusive at day granularity: before/after match strictly earlier/later
+  // days, on matches within the day.
+  if (filters.modified) {
+    if (filters.modified.on !== undefined) {
+      const bounds = serverLocalDayBounds(filters.modified.on)
+      if (note.mtime < bounds.startMs || note.mtime >= bounds.endMs)
+        return false
+    }
+    if (
+      filters.modified.before !== undefined &&
+      note.mtime >= serverLocalDayBounds(filters.modified.before).startMs
+    )
+      return false
+    if (
+      filters.modified.after !== undefined &&
+      note.mtime < serverLocalDayBounds(filters.modified.after).endMs
+    )
+      return false
   }
 
   return true

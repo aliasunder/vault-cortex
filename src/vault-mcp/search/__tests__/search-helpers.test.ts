@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { DateTime } from "luxon"
 import {
   isString,
   coerceToArray,
@@ -11,6 +12,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  serverLocalDayBounds,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 
@@ -447,6 +449,138 @@ describe("noteMatchesSearchFilters", () => {
     expect(
       noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" }),
     ).toBe(false)
+  })
+
+  it("created.on matches the note's created calendar day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T00:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
+    ).toBe(true)
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
+    ).toBe(false)
+  })
+
+  it("created.before excludes the boundary day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T12:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2026-03-10" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2026-03-11" } }),
+    ).toBe(true)
+  })
+
+  it("created.after excludes the boundary day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T12:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { after: "2026-03-10" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { created: { after: "2026-03-09" } }),
+    ).toBe(true)
+  })
+
+  it("created.on matches the day prefix of a full ISO created value", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T23:45:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
+    ).toBe(true)
+    // Adjacent-day mismatch proves the comparison ran on the day prefix —
+    // a skipped filter would return true for any date
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
+    ).toBe(false)
+  })
+
+  it("a created filter rejects notes with null created", () => {
+    const row: NoteRow = { ...baseRow, created: null }
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2099-01-01" } }),
+    ).toBe(false)
+  })
+
+  it("modified.on matches an mtime within the server-local day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15T12:00:00").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-15" } }),
+    ).toBe(true)
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-14" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-16" } }),
+    ).toBe(false)
+  })
+
+  it("modified.before matches strictly earlier days", () => {
+    const lateOnPriorDay: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-14T23:59:59").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(lateOnPriorDay, {
+        modified: { before: "2026-06-15" },
+      }),
+    ).toBe(true)
+    // Exactly at the day boundary — half-open interval excludes it
+    const atDayStart: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(atDayStart, {
+        modified: { before: "2026-06-15" },
+      }),
+    ).toBe(false)
+  })
+
+  it("modified.after matches strictly later days", () => {
+    // Exactly at the start of the following day — included
+    const atNextDayStart: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-16").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(atNextDayStart, {
+        modified: { after: "2026-06-15" },
+      }),
+    ).toBe(true)
+    // Late within the boundary day itself — excluded
+    const withinBoundaryDay: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15T23:59:59").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(withinBoundaryDay, {
+        modified: { after: "2026-06-15" },
+      }),
+    ).toBe(false)
+  })
+})
+
+// ── serverLocalDayBounds ──────────────────────────────────────
+
+describe("serverLocalDayBounds", () => {
+  it("brackets exactly one server-local day, half-open", () => {
+    const bounds = serverLocalDayBounds("2026-06-15")
+    expect(bounds.startMs).toBe(DateTime.fromISO("2026-06-15").toMillis())
+    expect(bounds.endMs).toBe(DateTime.fromISO("2026-06-16").toMillis())
   })
 })
 

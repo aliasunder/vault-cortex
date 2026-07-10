@@ -2900,6 +2900,274 @@ It has multiple sentences to verify chunking works correctly.
   })
 })
 
+describe("fullTextSearch created filter", () => {
+  const noteCreatedOn = (createdDate: string): string => `---
+title: Dated note
+created: ${createdDate}
+---
+Shared datefilter content for boundary tests.
+`
+
+  const NOTE_WITHOUT_CREATED = `# Undated note
+
+Shared datefilter content for boundary tests.
+`
+
+  /** Seeds three dated notes (2026-03-09 / -10 / -11) plus one without a
+   *  created property, all matching the "datefilter" query term. */
+  const indexWithCreatedDates = (): SearchIndex => {
+    const dateIndex = createSearchIndex(":memory:")
+    dateIndex.upsertNote(
+      {
+        filePath: "early.md",
+        rawContent: noteCreatedOn("2026-03-09"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    dateIndex.upsertNote(
+      {
+        filePath: "middle.md",
+        rawContent: noteCreatedOn("2026-03-10"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    dateIndex.upsertNote(
+      {
+        filePath: "late.md",
+        rawContent: noteCreatedOn("2026-03-11"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    dateIndex.upsertNote(
+      {
+        filePath: "undated.md",
+        rawContent: NOTE_WITHOUT_CREATED,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    return dateIndex
+  }
+
+  it("created.on matches only notes created on that calendar day", () => {
+    const dateIndex = indexWithCreatedDates()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { created: { on: "2026-03-10" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["middle.md"])
+  })
+
+  it("created.before is exclusive of the boundary day", () => {
+    const dateIndex = indexWithCreatedDates()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { created: { before: "2026-03-10" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["early.md"])
+  })
+
+  it("created.after is exclusive of the boundary day", () => {
+    const dateIndex = indexWithCreatedDates()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { created: { after: "2026-03-10" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["late.md"])
+  })
+
+  it("created before and after combine into a range", () => {
+    const dateIndex = indexWithCreatedDates()
+    const results = dateIndex.fullTextSearch(
+      {
+        query: "datefilter",
+        filters: { created: { after: "2026-03-09", before: "2026-03-11" } },
+      },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["middle.md"])
+  })
+
+  it("a created filter never matches notes without a created property", () => {
+    const dateIndex = indexWithCreatedDates()
+    // Bound satisfied by every dated note — only the undated note can be
+    // excluded, proving NULL exclusion rather than an over-tight bound
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { created: { before: "2099-01-01" } } },
+      logger,
+    )
+    const resultPaths = results.map((result) => result.path)
+    expect(resultPaths).toHaveLength(3)
+    expect(resultPaths).toContain("early.md")
+    expect(resultPaths).toContain("middle.md")
+    expect(resultPaths).toContain("late.md")
+    expect(resultPaths).not.toContain("undated.md")
+  })
+
+  it("created.on matches on the calendar day of a created value with a time component", () => {
+    const dateIndex = createSearchIndex(":memory:")
+    dateIndex.upsertNote(
+      {
+        filePath: "timed.md",
+        rawContent: noteCreatedOn("2026-03-10T23:45:00"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // A neighbor on the adjacent day proves the filter actually ran —
+    // without it, an ignored filter would return the same single result
+    dateIndex.upsertNote(
+      {
+        filePath: "next-day.md",
+        rawContent: noteCreatedOn("2026-03-11T00:15:00"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { created: { on: "2026-03-10" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["timed.md"])
+  })
+
+  it("rejects a malformed created date with remediation text", () => {
+    const dateIndex = indexWithCreatedDates()
+    expect(() =>
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { created: { on: "March 10" } } },
+        logger,
+      ),
+    ).toThrow(
+      'invalid created.on date: "March 10". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("rejects a calendar-invalid created date", () => {
+    const dateIndex = indexWithCreatedDates()
+    expect(() =>
+      dateIndex.fullTextSearch(
+        {
+          query: "datefilter",
+          filters: { created: { before: "2026-02-31" } },
+        },
+        logger,
+      ),
+    ).toThrow(
+      'invalid created.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+})
+
+describe("fullTextSearch modified filter", () => {
+  const noteModifiedAt = (title: string): string => `---
+title: ${title}
+tags: [datefilter-test]
+---
+Shared datefilter content for mtime boundary tests.
+`
+
+  /** Seeds three notes stat-stamped minutes around the 2026-06-15 day
+   *  boundaries: 23:59 the day before, midday, and 00:30 the day after —
+   *  so an off-by-one on either boundary flips a test. */
+  const indexWithModifiedTimes = (): SearchIndex => {
+    const dateIndex = createSearchIndex(":memory:")
+    dateIndex.upsertNote(
+      {
+        filePath: "day-before.md",
+        rawContent: noteModifiedAt("Day before"),
+        fileStat: testStat(DateTime.fromISO("2026-06-14T23:59:00").toMillis()),
+      },
+      logger,
+    )
+    dateIndex.upsertNote(
+      {
+        filePath: "during.md",
+        rawContent: noteModifiedAt("During"),
+        fileStat: testStat(DateTime.fromISO("2026-06-15T12:00:00").toMillis()),
+      },
+      logger,
+    )
+    dateIndex.upsertNote(
+      {
+        filePath: "day-after.md",
+        rawContent: noteModifiedAt("Day after"),
+        fileStat: testStat(DateTime.fromISO("2026-06-16T00:30:00").toMillis()),
+      },
+      logger,
+    )
+    return dateIndex
+  }
+
+  it("modified.on matches notes touched within that server-local day", () => {
+    const dateIndex = indexWithModifiedTimes()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { modified: { on: "2026-06-15" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["during.md"])
+  })
+
+  it("modified.before matches strictly earlier days", () => {
+    const dateIndex = indexWithModifiedTimes()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { modified: { before: "2026-06-15" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["day-before.md"])
+  })
+
+  it("modified.after matches strictly later days", () => {
+    const dateIndex = indexWithModifiedTimes()
+    const results = dateIndex.fullTextSearch(
+      { query: "datefilter", filters: { modified: { after: "2026-06-15" } } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["day-after.md"])
+  })
+
+  it("modified after and before combine into a range", () => {
+    const dateIndex = indexWithModifiedTimes()
+    const results = dateIndex.fullTextSearch(
+      {
+        query: "datefilter",
+        filters: { modified: { after: "2026-06-14", before: "2026-06-16" } },
+      },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["during.md"])
+  })
+
+  it("rejects a malformed modified date with remediation text", () => {
+    const dateIndex = indexWithModifiedTimes()
+    expect(() =>
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { modified: { after: "yesterday" } } },
+        logger,
+      ),
+    ).toThrow(
+      'invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("date filters AND-combine with other filters and the text query", () => {
+    const dateIndex = indexWithModifiedTimes()
+    // during.md matches the modified bound but lacks the required tag —
+    // the tag filter must exclude it despite the date match
+    const results = dateIndex.fullTextSearch(
+      {
+        query: "datefilter",
+        filters: { modified: { on: "2026-06-15" }, tags: ["nonexistent-tag"] },
+      },
+      logger,
+    )
+    expect(results).toHaveLength(0)
+  })
+})
+
 describe("hybridSearch", () => {
   const EMBEDDING_DIMENSIONS = 384
 
@@ -3272,6 +3540,127 @@ Content about deployment costs and infrastructure.
       const paths = results.map((result) => result.path)
       expect(paths).toContain("c.md")
       expect(paths).not.toContain("a.md")
+    })
+
+    it("applies created filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteCreatedOn = (createdDate: string): string => `---
+title: Dated
+created: ${createdDate}
+---
+Content about quarterly planning and roadmaps.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "on-day.md",
+          rawContent: noteCreatedOn("2026-03-10"),
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        {
+          filePath: "other-day.md",
+          rawContent: noteCreatedOn("2026-03-11"),
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "on-day.md", rawContent: noteCreatedOn("2026-03-10") },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "other-day.md", rawContent: noteCreatedOn("2026-03-11") },
+        logger,
+      )
+
+      // Query with no FTS match — results arrive exclusively via the vector
+      // leg, so the TypeScript filter mirror is the only gate
+      const { results } = await hybridIndex.hybridSearch(
+        {
+          query: "zzz_no_fts_match",
+          filters: { created: { on: "2026-03-10" } },
+        },
+        logger,
+      )
+
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("on-day.md")
+      expect(paths).not.toContain("other-day.md")
+    })
+
+    it("applies modified filter to vector-only results", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteBody = `---
+title: Timestamped
+---
+Content about quarterly planning and roadmaps.
+`
+
+      hybridIndex.upsertNote(
+        {
+          filePath: "during.md",
+          rawContent: noteBody,
+          fileStat: testStat(
+            DateTime.fromISO("2026-06-15T12:00:00").toMillis(),
+          ),
+        },
+        logger,
+      )
+      hybridIndex.upsertNote(
+        {
+          filePath: "day-after.md",
+          rawContent: noteBody,
+          fileStat: testStat(
+            DateTime.fromISO("2026-06-16T00:30:00").toMillis(),
+          ),
+        },
+        logger,
+      )
+
+      await hybridIndex.embedNote(
+        { notePath: "during.md", rawContent: noteBody },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "day-after.md", rawContent: noteBody },
+        logger,
+      )
+
+      const { results } = await hybridIndex.hybridSearch(
+        {
+          query: "zzz_no_fts_match",
+          filters: { modified: { on: "2026-06-15" } },
+        },
+        logger,
+      )
+
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("during.md")
+      expect(paths).not.toContain("day-after.md")
+    })
+
+    it("rejects a malformed date filter through hybridSearch", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      // The validation throw must escape hybridSearch — not be swallowed by
+      // fullTextSearch's DB-error fallback or the FTS-only fallback path
+      await expect(
+        hybridIndex.hybridSearch(
+          { query: "anything", filters: { modified: { on: "bad" } } },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'invalid modified.on date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      )
     })
   })
 

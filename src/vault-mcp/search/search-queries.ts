@@ -17,6 +17,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  serverLocalDayBounds,
 } from "./search-helpers.js"
 import type {
   VectorHit,
@@ -33,7 +34,7 @@ import type {
   OutgoingLinkEntry,
   TaskRow,
   TaskStatusFilter,
-  TaskDateFilter,
+  DateFilter,
   TaskPriorityFilter,
   TaskSortKey,
   ListTasksResult,
@@ -109,6 +110,18 @@ const vectorSearch = async (
 
 // ── Full-text search ───────────────────────────────────────────
 
+/** Rejects a malformed date filter bound with remediation text — shared by
+ *  the note created/modified filters and the task date filters.
+ *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
+ *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
+const assertFilterDate = (value: string, filterName: string): void => {
+  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
+    throw new Error(
+      `invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
+    )
+  }
+}
+
 export const fullTextSearch = (
   context: SearchQueryContext,
   params: { query: string; filters?: SearchFilters | undefined },
@@ -155,6 +168,53 @@ export const fullTextSearch = (
     for (const [key, value] of Object.entries(params.filters.properties)) {
       conditions.push(`json_extract(n.properties, '$.' || ?) = ?`)
       queryParams.push(key, value)
+    }
+  }
+
+  // created stores full ISO 8601 re-expressed in the server-local zone at
+  // index time; its first 10 chars are the calendar day, compared
+  // lexicographically against the YYYY-MM-DD bounds. Notes with NULL created
+  // never match — SQL comparison with NULL is never true.
+  if (params.filters?.created) {
+    const { on, before, after } = params.filters.created
+    if (on !== undefined) {
+      assertFilterDate(on, "created.on")
+      conditions.push("substr(n.created, 1, 10) = ?")
+      queryParams.push(on)
+    }
+    if (before !== undefined) {
+      assertFilterDate(before, "created.before")
+      conditions.push("substr(n.created, 1, 10) < ?")
+      queryParams.push(before)
+    }
+    if (after !== undefined) {
+      assertFilterDate(after, "created.after")
+      conditions.push("substr(n.created, 1, 10) > ?")
+      queryParams.push(after)
+    }
+  }
+
+  // mtime is epoch ms; each YYYY-MM-DD bound converts to server-local day
+  // boundaries. Exclusive at day granularity: before D matches strictly
+  // earlier days (mtime < startOf(D)), after D strictly later days
+  // (mtime >= startOf(D+1)), on D matches within the day.
+  if (params.filters?.modified) {
+    const { on, before, after } = params.filters.modified
+    if (on !== undefined) {
+      assertFilterDate(on, "modified.on")
+      const bounds = serverLocalDayBounds(on)
+      conditions.push("n.mtime >= ? AND n.mtime < ?")
+      queryParams.push(bounds.startMs, bounds.endMs)
+    }
+    if (before !== undefined) {
+      assertFilterDate(before, "modified.before")
+      conditions.push("n.mtime < ?")
+      queryParams.push(serverLocalDayBounds(before).startMs)
+    }
+    if (after !== undefined) {
+      assertFilterDate(after, "modified.after")
+      conditions.push("n.mtime >= ?")
+      queryParams.push(serverLocalDayBounds(after).endMs)
     }
   }
 
@@ -498,17 +558,6 @@ export const searchByFolder = (
 
 // ── Task listing ───────────────────────────────────────────────
 
-/** Rejects a malformed task date filter with remediation text.
- *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
- *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
-const assertTaskFilterDate = (value: string, filterName: string): void => {
-  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
-    throw new Error(
-      `invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
-    )
-  }
-}
-
 /** Date cascade priority — when the primary sort date is NULL, fall through
  *  to the next most-actionable date so dateless tasks still sort meaningfully
  *  instead of landing in arbitrary file-path order. Each date key cascades
@@ -601,12 +650,12 @@ export const listTasks = (
   context: SearchQueryContext,
   params: {
     status?: TaskStatusFilter | TaskStatusFilter[] | undefined
-    due?: TaskDateFilter | undefined
-    scheduled?: TaskDateFilter | undefined
-    start?: TaskDateFilter | undefined
-    done?: TaskDateFilter | undefined
-    created?: TaskDateFilter | undefined
-    cancelled?: TaskDateFilter | undefined
+    due?: DateFilter | undefined
+    scheduled?: DateFilter | undefined
+    start?: DateFilter | undefined
+    done?: DateFilter | undefined
+    created?: DateFilter | undefined
+    cancelled?: DateFilter | undefined
     priority?: TaskPriorityFilter[] | undefined
     folder?: string | undefined
     tag?: string | undefined
@@ -655,7 +704,7 @@ export const listTasks = (
   // with NULL is never true, so undated tasks drop out automatically.
   const dateFilters: ReadonlyArray<{
     column: "due" | "scheduled" | "start" | "done" | "created" | "cancelled"
-    filter: TaskDateFilter | undefined
+    filter: DateFilter | undefined
   }> = [
     { column: "due", filter: params.due },
     { column: "scheduled", filter: params.scheduled },
@@ -667,17 +716,17 @@ export const listTasks = (
   for (const { column, filter } of dateFilters) {
     if (filter === undefined) continue
     if (filter.on !== undefined) {
-      assertTaskFilterDate(filter.on, `${column}.on`)
+      assertFilterDate(filter.on, `${column}.on`)
       conditions.push(`t.${column} = ?`)
       queryParams.push(filter.on)
     }
     if (filter.before !== undefined) {
-      assertTaskFilterDate(filter.before, `${column}.before`)
+      assertFilterDate(filter.before, `${column}.before`)
       conditions.push(`t.${column} < ?`)
       queryParams.push(filter.before)
     }
     if (filter.after !== undefined) {
-      assertTaskFilterDate(filter.after, `${column}.after`)
+      assertFilterDate(filter.after, `${column}.after`)
       conditions.push(`t.${column} > ?`)
       queryParams.push(filter.after)
     }
@@ -1216,8 +1265,7 @@ export const modifiedOnDate = (
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 50))
-  const dayStart = DateTime.fromISO(params.date)
-  const dayEnd = dayStart.plus({ days: 1 })
+  const dayBounds = serverLocalDayBounds(params.date)
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -1228,7 +1276,7 @@ export const modifiedOnDate = (
   `
   const rows = context.db
     .prepare<unknown[], NoteRow>(sql)
-    .all(dayStart.toMillis(), dayEnd.toMillis(), limit)
+    .all(dayBounds.startMs, dayBounds.endMs, limit)
   const results = rows.map(rowToMetadata)
   logger.info("modified on date", {
     date: params.date,

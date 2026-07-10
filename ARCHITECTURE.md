@@ -36,7 +36,7 @@ The server provides three capability layers, each additive:
 | R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                               |
 | R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                         |
 | R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                                 |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder.                                   |
+| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder/dates.                             |
 | R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                           |
 | R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                     |
 | R7  | Low operational overhead        | 1     | Always-on, no manual intervention. Free local, low-cost VPS remote. IaC via SST.            |
@@ -209,7 +209,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_list_tags`        | —                            | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
 
-`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
+`filters` covers `folder`, `tags`, `related`, `type`, `properties` (arbitrary frontmatter keys), `created` / `modified` (date bounds `{ before, on, after }` in YYYY-MM-DD — before/after exclusive, on exact; `created` matches the frontmatter created day and never matches notes without the property, `modified` the filesystem-mtime day, both server-local), `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout). All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
 
