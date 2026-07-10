@@ -512,6 +512,14 @@ describe("noteMatchesSearchFilters", () => {
     ).toBe(false)
   })
 
+  it("an empty created filter object is a no-op, matching the SQL leg", () => {
+    // fullTextSearch pushes no WHERE conditions for created: {} (every bound
+    // is undefined-guarded), so the mirror must not reject null-created notes
+    // either — otherwise the hybrid legs disagree on which notes pass.
+    const row: NoteRow = { ...baseRow, created: null }
+    expect(noteMatchesSearchFilters(row, { created: {} })).toBe(true)
+  })
+
   it("modified.on matches an mtime within the server-local day", () => {
     const row: NoteRow = {
       ...baseRow,

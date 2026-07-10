@@ -244,22 +244,21 @@ export const noteMatchesSearchFilters = (
 
   // Mirror of the SQL substr(n.created, 1, 10) comparisons — the first 10
   // chars of the stored ISO created value are its server-local calendar day.
-  // Notes without created never match, like SQL NULL comparisons.
+  // The null rejection is gated on a bound being present so an empty filter
+  // object stays a no-op exactly like the SQL leg (which pushes no
+  // conditions); with a bound set, notes without created never match, like
+  // SQL NULL comparisons.
   if (filters.created) {
-    if (note.created === null) return false
-    const createdDay = note.created.slice(0, 10)
-    if (filters.created.on !== undefined && createdDay !== filters.created.on)
-      return false
-    if (
-      filters.created.before !== undefined &&
-      createdDay >= filters.created.before
-    )
-      return false
-    if (
-      filters.created.after !== undefined &&
-      createdDay <= filters.created.after
-    )
-      return false
+    const { on, before, after } = filters.created
+    const hasCreatedBound =
+      on !== undefined || before !== undefined || after !== undefined
+    if (hasCreatedBound) {
+      if (note.created === null) return false
+      const createdDay = note.created.slice(0, 10)
+      if (on !== undefined && createdDay !== on) return false
+      if (before !== undefined && createdDay >= before) return false
+      if (after !== undefined && createdDay <= after) return false
+    }
   }
 
   // Mirror of the SQL mtime bounds — same serverLocalDayBounds conversion,
