@@ -18,6 +18,12 @@ const POLLING_INTERVAL_MS = 300
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
 
+/** True when any segment of a vault-relative path is dot-prefixed — hidden
+ *  files and directories (.obsidian/, .trash/, dotfiles) the watcher skips. */
+const hasHiddenPathSegment = (relativePath: string): boolean => {
+  return relativePath.split("/").some((segment) => segment.startsWith("."))
+}
+
 type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
    *  Prevents reading partial writes from Obsidian Sync. */
@@ -124,7 +130,7 @@ export const startFileWatcher = (
     ignored: (path: string) => {
       const relativePath = relative(vaultPath, path)
       if (!relativePath) return false
-      return relativePath.split("/").some((segment) => segment.startsWith("."))
+      return hasHiddenPathSegment(relativePath)
     },
     persistent: true,
     ignoreInitial: true,
@@ -177,10 +183,7 @@ export const startFileWatcher = (
     for (const entry of entries) {
       const fullPath = join(entry.parentPath, entry.name)
       const relativePath = relative(vaultPath, fullPath)
-      const isHidden = relativePath
-        .split("/")
-        .some((segment) => segment.startsWith("."))
-      if (isHidden) continue
+      if (hasHiddenPathSegment(relativePath)) continue
 
       // getWatched() keys are resolved paths (chokidar resolves internally).
       const trackedSiblings = watchedChildren[resolvePath(entry.parentPath)]
@@ -209,6 +212,9 @@ export const startFileWatcher = (
           // already tracked.
           await rescanNewDirectory(fullPath, visitedRealPaths)
           watcher.add(fullPath)
+          logger.debug("rescan registered missed symlinked directory", {
+            path: relativePath,
+          })
           continue
         }
         // A freshly-modified file is plausibly still being written. Skip it:
