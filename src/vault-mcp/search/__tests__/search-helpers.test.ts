@@ -580,6 +580,30 @@ describe("noteMatchesSearchFilters", () => {
       }),
     ).toBe(false)
   })
+
+  it("a date filter AND-combines with other filters in the mirror", () => {
+    // baseRow: tags ["project", ...], created "2024-01-01" — date bound
+    // passes but the tag filter fails, and vice versa. Pins AND semantics
+    // so the mirror can't drift to any-filter-passes behavior.
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-01" },
+        tags: ["missing-tag"],
+      }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-02" },
+        tags: ["project"],
+      }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-01" },
+        tags: ["project"],
+      }),
+    ).toBe(true)
+  })
 })
 
 // ── serverLocalDayBounds ──────────────────────────────────────
@@ -610,6 +634,18 @@ describe("serverLocalDayBounds", () => {
     } finally {
       Settings.defaultZone = previousZone
     }
+  })
+
+  it("throws on a malformed date instead of returning NaN bounds", () => {
+    expect(() => serverLocalDayBounds("bad")).toThrow(
+      'invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("throws on a calendar-invalid date", () => {
+    expect(() => serverLocalDayBounds("2026-02-31")).toThrow(
+      'invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
   })
 })
 

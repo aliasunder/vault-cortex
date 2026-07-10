@@ -195,11 +195,18 @@ export const noteRowToSearchResult = (params: {
  *  var): half-open [startMs, endMs). Single definition shared by the SQL
  *  modified-filter conditions and their TypeScript mirror so both search
  *  legs agree on day boundaries. plus({ days: 1 }) is calendar-aware, so
- *  DST-shortened and -lengthened days get correct bounds. */
+ *  DST-shortened and -lengthened days get correct bounds. Throws on an
+ *  unparseable date — an invalid DateTime would otherwise yield NaN bounds
+ *  that silently mis-filter instead of failing fast. */
 export const serverLocalDayBounds = (
   date: string,
 ): { startMs: number; endMs: number } => {
   const dayStart = DateTime.fromISO(date)
+  if (!dayStart.isValid) {
+    throw new Error(
+      `invalid date: "${date}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
+    )
+  }
   return {
     startMs: dayStart.toMillis(),
     endMs: dayStart.plus({ days: 1 }).toMillis(),

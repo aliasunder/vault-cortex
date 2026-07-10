@@ -3149,6 +3149,21 @@ Shared datefilter content for mtime boundary tests.
     )
   })
 
+  it("rejects a calendar-invalid modified date", () => {
+    const dateIndex = indexWithModifiedTimes()
+    expect(() =>
+      dateIndex.fullTextSearch(
+        {
+          query: "datefilter",
+          filters: { modified: { before: "2026-02-31" } },
+        },
+        logger,
+      ),
+    ).toThrow(
+      'invalid modified.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
   it("date filters AND-combine with other filters and the text query", () => {
     const dateIndex = indexWithModifiedTimes()
     // All three notes carry the datefilter-test tag — with the tag filter
