@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { DateTime, Settings } from "luxon"
 import {
   isString,
   coerceToArray,
@@ -11,6 +12,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  dayToEpochMsRange,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 
@@ -447,6 +449,211 @@ describe("noteMatchesSearchFilters", () => {
     expect(
       noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" }),
     ).toBe(false)
+  })
+
+  it("created.on matches the note's created calendar day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T00:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
+    ).toBe(true)
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
+    ).toBe(false)
+  })
+
+  it("created.before excludes the boundary day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T12:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2026-03-10" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2026-03-11" } }),
+    ).toBe(true)
+  })
+
+  it("created.after excludes the boundary day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T12:00:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { after: "2026-03-10" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { created: { after: "2026-03-09" } }),
+    ).toBe(true)
+  })
+
+  it("created.on matches the day prefix of a full ISO created value", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      created: "2026-03-10T23:45:00.000-04:00",
+    }
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
+    ).toBe(true)
+    // Adjacent-day mismatch proves the comparison ran on the day prefix —
+    // a skipped filter would return true for any date
+    expect(
+      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
+    ).toBe(false)
+  })
+
+  it("a created filter rejects notes with null created", () => {
+    const row: NoteRow = { ...baseRow, created: null }
+    expect(
+      noteMatchesSearchFilters(row, { created: { before: "2099-01-01" } }),
+    ).toBe(false)
+  })
+
+  it("an empty created filter object is a no-op, matching the SQL leg", () => {
+    // fullTextSearch pushes no WHERE conditions for created: {} (every bound
+    // is undefined-guarded), so the mirror must not reject null-created notes
+    // either — otherwise the hybrid legs disagree on which notes pass.
+    const row: NoteRow = { ...baseRow, created: null }
+    expect(noteMatchesSearchFilters(row, { created: {} })).toBe(true)
+  })
+
+  it("modified.on matches an mtime within the server-local day", () => {
+    const row: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15T12:00:00").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-15" } }),
+    ).toBe(true)
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-14" } }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(row, { modified: { on: "2026-06-16" } }),
+    ).toBe(false)
+  })
+
+  it("modified.before matches strictly earlier days", () => {
+    const lateOnPriorDay: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-14T23:59:59").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(lateOnPriorDay, {
+        modified: { before: "2026-06-15" },
+      }),
+    ).toBe(true)
+    // Exactly at the day boundary — half-open interval excludes it
+    const atDayStart: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(atDayStart, {
+        modified: { before: "2026-06-15" },
+      }),
+    ).toBe(false)
+  })
+
+  it("modified.after matches strictly later days", () => {
+    // Exactly at the start of the following day — included
+    const atNextDayStart: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-16").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(atNextDayStart, {
+        modified: { after: "2026-06-15" },
+      }),
+    ).toBe(true)
+    // Late within the boundary day itself — excluded
+    const withinBoundaryDay: NoteRow = {
+      ...baseRow,
+      mtime: DateTime.fromISO("2026-06-15T23:59:59").toMillis(),
+    }
+    expect(
+      noteMatchesSearchFilters(withinBoundaryDay, {
+        modified: { after: "2026-06-15" },
+      }),
+    ).toBe(false)
+  })
+
+  it("a date filter AND-combines with other filters in the mirror", () => {
+    // baseRow: tags ["project", ...], created "2024-01-01" — date bound
+    // passes but the tag filter fails, and vice versa. Pins AND semantics
+    // so the mirror can't drift to any-filter-passes behavior.
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-01" },
+        tags: ["missing-tag"],
+      }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-02" },
+        tags: ["project"],
+      }),
+    ).toBe(false)
+    expect(
+      noteMatchesSearchFilters(baseRow, {
+        created: { on: "2024-01-01" },
+        tags: ["project"],
+      }),
+    ).toBe(true)
+  })
+})
+
+// ── dayToEpochMsRange ──────────────────────────────────────
+
+describe("dayToEpochMsRange", () => {
+  it("brackets exactly one server-local day, half-open", () => {
+    const bounds = dayToEpochMsRange("2026-06-15")
+    expect(bounds.startMs).toBe(DateTime.fromISO("2026-06-15").toMillis())
+    expect(bounds.endMs).toBe(DateTime.fromISO("2026-06-16").toMillis())
+  })
+
+  it("brackets a 23-hour spring-forward day and a 25-hour fall-back day in a DST zone", () => {
+    // Pin a DST-observing zone — the suite's TZ-portability runs (UTC,
+    // Pacific/Kiritimati) never cross a DST transition, so the helper's
+    // calendar-aware plus({ days: 1 }) claim is only exercised here
+    const previousZone = Settings.defaultZone
+    Settings.defaultZone = "America/New_York"
+    try {
+      const HOUR_MS = 3_600_000
+      // 2026-03-08: clocks spring forward 02:00 → 03:00, a 23-hour day
+      const springForwardBounds = dayToEpochMsRange("2026-03-08")
+      expect(springForwardBounds.endMs - springForwardBounds.startMs).toBe(
+        23 * HOUR_MS,
+      )
+      // 2026-11-01: clocks fall back 02:00 → 01:00, a 25-hour day
+      const fallBackBounds = dayToEpochMsRange("2026-11-01")
+      expect(fallBackBounds.endMs - fallBackBounds.startMs).toBe(25 * HOUR_MS)
+    } finally {
+      Settings.defaultZone = previousZone
+    }
+  })
+
+  it("throws on a malformed date instead of returning NaN bounds", () => {
+    expect(() => dayToEpochMsRange("bad")).toThrow(
+      'invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("throws on a calendar-invalid date", () => {
+    expect(() => dayToEpochMsRange("2026-02-31")).toThrow(
+      'invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
+  })
+
+  it("throws on a valid ISO timestamp that is not a bare day", () => {
+    // fromISO would accept this and silently compute a 10:30-to-10:30 window;
+    // the strict yyyy-MM-dd parse rejects it instead
+    expect(() => dayToEpochMsRange("2026-07-03T10:30:00")).toThrow(
+      'invalid date: "2026-07-03T10:30:00". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
   })
 })
 

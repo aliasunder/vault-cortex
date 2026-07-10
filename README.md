@@ -193,7 +193,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                                         |
 |                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                            |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                             |
-| **Search**      | `vault_search`               | Hybrid search with tag/folder/property filters                                      |
+| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                 |
 |                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                           |
 |                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                              |
 |                 | `vault_recent_notes`         | Recently modified or created notes                                                  |

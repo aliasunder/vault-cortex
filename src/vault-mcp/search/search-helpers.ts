@@ -191,10 +191,37 @@ export const noteRowToSearchResult = (params: {
 
 // ── Filters ────────────────────────────────────────────────────
 
+/** Converts a YYYY-MM-DD day into the window of time it covers — from
+ *  midnight that day to midnight the next, as half-open epoch-ms
+ *  [startMs, endMs) in the process-local zone (governed by the TZ env var).
+ *  Single definition shared by the SQL modified-filter conditions and their
+ *  TypeScript mirror so both search legs agree on day boundaries.
+ *  plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened
+ *  days get a correct range. Throws on anything but a strict YYYY-MM-DD
+ *  day — a malformed date would otherwise yield a NaN range and a
+ *  timestamped one a silently time-shifted window, both mis-filtering
+ *  instead of failing fast. */
+export const dayToEpochMsRange = (
+  date: string,
+): { startMs: number; endMs: number } => {
+  const dayStart = DateTime.fromFormat(date, "yyyy-MM-dd")
+  if (!dayStart.isValid) {
+    throw new Error(
+      `invalid date: "${date}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
+    )
+  }
+  return {
+    startMs: dayStart.toMillis(),
+    endMs: dayStart.plus({ days: 1 }).toMillis(),
+  }
+}
+
 /** Returns true when a note row satisfies every active search filter (folder
- *  prefix, all-of tags, type, all-of related links, property key/value pairs).
- *  Mirrors fullTextSearch's SQL WHERE clause in TypeScript — used for
- *  vector-only results that bypassed the FTS query. */
+ *  prefix, all-of tags, type, all-of related links, property key/value pairs,
+ *  created/modified date bounds). Mirrors fullTextSearch's SQL WHERE clause
+ *  in TypeScript — used for vector-only results that bypassed the FTS query.
+ *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
+ *  always runs before this mirror. */
 export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
@@ -223,6 +250,46 @@ export const noteMatchesSearchFilters = (
     for (const [key, value] of Object.entries(filters.properties)) {
       if (noteProperties[key] !== value) return false
     }
+  }
+
+  // Mirror of the SQL substr(n.created, 1, 10) comparisons — the first 10
+  // chars of the stored ISO created value are its server-local calendar day.
+  // The null rejection is gated on a bound being present so an empty filter
+  // object stays a no-op exactly like the SQL leg (which pushes no
+  // conditions); with a bound set, notes without created never match, like
+  // SQL NULL comparisons.
+  if (filters.created) {
+    const { on, before, after } = filters.created
+    const hasCreatedBound =
+      on !== undefined || before !== undefined || after !== undefined
+    if (hasCreatedBound) {
+      if (note.created === null) return false
+      const createdDay = note.created.slice(0, 10)
+      if (on !== undefined && createdDay !== on) return false
+      if (before !== undefined && createdDay >= before) return false
+      if (after !== undefined && createdDay <= after) return false
+    }
+  }
+
+  // Mirror of the SQL mtime bounds — same dayToEpochMsRange conversion,
+  // exclusive at day granularity: before/after match strictly earlier/later
+  // days, on matches within the day.
+  if (filters.modified) {
+    if (filters.modified.on !== undefined) {
+      const dayRange = dayToEpochMsRange(filters.modified.on)
+      if (note.mtime < dayRange.startMs || note.mtime >= dayRange.endMs)
+        return false
+    }
+    if (
+      filters.modified.before !== undefined &&
+      note.mtime >= dayToEpochMsRange(filters.modified.before).startMs
+    )
+      return false
+    if (
+      filters.modified.after !== undefined &&
+      note.mtime < dayToEpochMsRange(filters.modified.after).endMs
+    )
+      return false
   }
 
   return true

@@ -35,8 +35,9 @@ const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
     ),
   )
 
-/** Shared schema for one task date filter ({ before, on, after }). */
-const taskDateFilterSchema = z
+/** Shared schema for one date filter ({ before, on, after }) — used by
+ *  vault_list_tasks' task date filters and vault_search's created/modified. */
+const dateFilterSchema = z
   .object({
     before: z
       .string()
@@ -71,9 +72,12 @@ Filters — all conditions AND-combine with each other and the text query:
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" })
+- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
+- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
+Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
 Example: vault_search({ query: "how the server watches for file changes" }) — semantic: finds notes about chokidar and file watchers even without those exact terms
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.
@@ -82,6 +86,7 @@ Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_searc
 Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
+- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
@@ -92,9 +97,12 @@ Filters — all conditions AND-combine with each other and the text query:
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" })
+- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
+- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
+Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
 Example: vault_search({ query: "deployment", filters: { properties: { status: "active" } } })
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
@@ -103,6 +111,7 @@ Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_searc
 Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
+- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
@@ -145,6 +154,12 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .describe(
                 'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
               ),
+            created: dateFilterSchema.describe(
+              'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property — notes without a parseable value never match',
+            ),
+            modified: dateFilterSchema.describe(
+              "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
+            ),
             limit: z.number().optional().describe("Max results (default 20)"),
             snippet_tokens: z
               .number()
@@ -788,20 +803,18 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
           .describe(
             'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
           ),
-        due: taskDateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
-        scheduled: taskDateFilterSchema.describe(
+        due: dateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
+        scheduled: dateFilterSchema.describe(
           "Scheduled date (⏳ / [scheduled:: ]) bounds",
         ),
-        start: taskDateFilterSchema.describe(
-          "Start date (🛫 / [start:: ]) bounds",
-        ),
-        done: taskDateFilterSchema.describe(
+        start: dateFilterSchema.describe("Start date (🛫 / [start:: ]) bounds"),
+        done: dateFilterSchema.describe(
           "Done date (✅ / [completion:: ]) bounds",
         ),
-        created: taskDateFilterSchema.describe(
+        created: dateFilterSchema.describe(
           "Created date (➕ / [created:: ]) bounds",
         ),
-        cancelled: taskDateFilterSchema.describe(
+        cancelled: dateFilterSchema.describe(
           "Cancelled date (❌ / [cancelled:: ]) bounds",
         ),
         priority: z

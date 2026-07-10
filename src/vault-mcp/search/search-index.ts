@@ -95,6 +95,8 @@ export type SearchFilters = {
   related?: string[] | undefined
   type?: string | undefined
   properties?: Record<string, string | number | boolean> | undefined
+  created?: DateFilter | undefined
+  modified?: DateFilter | undefined
   limit?: number | undefined
   snippet_tokens?: number | undefined
   include_leading_callout?: boolean | undefined
@@ -173,10 +175,12 @@ export type TaskEntry = {
 export type TaskStatusFilter =
   "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
 
-/** Date bounds for one task date field. before/after are exclusive and on is
- *  an exact match — the Tasks plugin's query vocabulary. Dates are
- *  YYYY-MM-DD, so bounds compare lexicographically. */
-export type TaskDateFilter = {
+/** Date bounds for one date field — task dates and vault_search's
+ *  created/modified filters. before/after are exclusive and on is an exact
+ *  match — the Tasks plugin's query vocabulary. Bounds are YYYY-MM-DD: task
+ *  dates and note created days compare lexicographically; modified bounds
+ *  convert to server-local epoch-ms day boundaries. */
+export type DateFilter = {
   before?: string | undefined
   on?: string | undefined
   after?: string | undefined
