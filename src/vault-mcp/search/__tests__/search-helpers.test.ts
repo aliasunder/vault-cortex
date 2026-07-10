@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { DateTime } from "luxon"
+import { DateTime, Settings } from "luxon"
 import {
   isString,
   coerceToArray,
@@ -581,6 +581,27 @@ describe("serverLocalDayBounds", () => {
     const bounds = serverLocalDayBounds("2026-06-15")
     expect(bounds.startMs).toBe(DateTime.fromISO("2026-06-15").toMillis())
     expect(bounds.endMs).toBe(DateTime.fromISO("2026-06-16").toMillis())
+  })
+
+  it("brackets a 23-hour spring-forward day and a 25-hour fall-back day in a DST zone", () => {
+    // Pin a DST-observing zone — the suite's TZ-portability runs (UTC,
+    // Pacific/Kiritimati) never cross a DST transition, so the helper's
+    // calendar-aware plus({ days: 1 }) claim is only exercised here
+    const previousZone = Settings.defaultZone
+    Settings.defaultZone = "America/New_York"
+    try {
+      const HOUR_MS = 3_600_000
+      // 2026-03-08: clocks spring forward 02:00 → 03:00, a 23-hour day
+      const springForwardBounds = serverLocalDayBounds("2026-03-08")
+      expect(springForwardBounds.endMs - springForwardBounds.startMs).toBe(
+        23 * HOUR_MS,
+      )
+      // 2026-11-01: clocks fall back 02:00 → 01:00, a 25-hour day
+      const fallBackBounds = serverLocalDayBounds("2026-11-01")
+      expect(fallBackBounds.endMs - fallBackBounds.startMs).toBe(25 * HOUR_MS)
+    } finally {
+      Settings.defaultZone = previousZone
+    }
   })
 })
 

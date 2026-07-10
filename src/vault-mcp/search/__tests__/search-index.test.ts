@@ -3000,11 +3000,7 @@ Shared datefilter content for boundary tests.
       logger,
     )
     const resultPaths = results.map((result) => result.path)
-    expect(resultPaths).toHaveLength(3)
-    expect(resultPaths).toContain("early.md")
-    expect(resultPaths).toContain("middle.md")
-    expect(resultPaths).toContain("late.md")
-    expect(resultPaths).not.toContain("undated.md")
+    expect(resultPaths.toSorted()).toEqual(["early.md", "late.md", "middle.md"])
   })
 
   it("created.on matches on the calendar day of a created value with a time component", () => {
@@ -3155,16 +3151,28 @@ Shared datefilter content for mtime boundary tests.
 
   it("date filters AND-combine with other filters and the text query", () => {
     const dateIndex = indexWithModifiedTimes()
-    // during.md matches the modified bound but lacks the required tag —
-    // the tag filter must exclude it despite the date match
-    const results = dateIndex.fullTextSearch(
+    // All three notes carry the datefilter-test tag — with the tag filter
+    // satisfied, only the date bound can narrow the results to during.md
+    const tagMatchedResults = dateIndex.fullTextSearch(
+      {
+        query: "datefilter",
+        filters: { modified: { on: "2026-06-15" }, tags: ["datefilter-test"] },
+      },
+      logger,
+    )
+    expect(tagMatchedResults.map((result) => result.path)).toEqual([
+      "during.md",
+    ])
+    // And the reverse: during.md matches the modified bound but lacks the
+    // required tag — the tag filter must exclude it despite the date match
+    const tagExcludedResults = dateIndex.fullTextSearch(
       {
         query: "datefilter",
         filters: { modified: { on: "2026-06-15" }, tags: ["nonexistent-tag"] },
       },
       logger,
     )
-    expect(results).toHaveLength(0)
+    expect(tagExcludedResults).toHaveLength(0)
   })
 })
 
@@ -3589,9 +3597,7 @@ Content about quarterly planning and roadmaps.
         logger,
       )
 
-      const paths = results.map((result) => result.path)
-      expect(paths).toContain("on-day.md")
-      expect(paths).not.toContain("other-day.md")
+      expect(results.map((result) => result.path)).toEqual(["on-day.md"])
     })
 
     it("applies modified filter to vector-only results", async () => {
@@ -3642,9 +3648,7 @@ Content about quarterly planning and roadmaps.
         logger,
       )
 
-      const paths = results.map((result) => result.path)
-      expect(paths).toContain("during.md")
-      expect(paths).not.toContain("day-after.md")
+      expect(results.map((result) => result.path)).toEqual(["during.md"])
     })
 
     it("rejects a malformed date filter through hybridSearch", async () => {
