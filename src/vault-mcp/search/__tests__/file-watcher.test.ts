@@ -379,7 +379,7 @@ describe("startFileWatcher — new-directory rescan", () => {
       await writeFile(missedPath, "missed by the scan\n", "utf8")
       await backdateMtime(missedPath)
 
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
         {},
         RESCAN_TEST_OPTIONS,
       )
@@ -391,6 +391,9 @@ describe("startFileWatcher — new-directory rescan", () => {
       const results = index.fullTextSearch({ query: "missed" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]?.path).toBe("new-folder/missed.md")
+      // The file must also be registered with chokidar — indexed but
+      // untracked, its later deletion would emit no unlink (ghost entry).
+      expect(addedPaths).toEqual([missedPath])
     },
   )
 
@@ -408,7 +411,7 @@ describe("startFileWatcher — new-directory rescan", () => {
       await backdateMtime(missedPath)
 
       const upsertNoteSpy = vi.spyOn(index, "upsertNote")
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
         { [resolve(newDirectory)]: ["tracked.md"] },
         RESCAN_TEST_OPTIONS,
       )
@@ -423,6 +426,8 @@ describe("startFileWatcher — new-directory rescan", () => {
       expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
         "new-folder/missed.md",
       )
+      // Only the missed file is registered — the tracked one is not re-added.
+      expect(addedPaths).toEqual([missedPath])
     },
   )
 
@@ -479,8 +484,9 @@ describe("startFileWatcher — new-directory rescan", () => {
       const results = index.fullTextSearch({ query: "nested" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]?.path).toBe("new-folder/missed-subdir/nested.md")
-      // The subdirectory must be handed back to chokidar so it gains watches.
-      expect(addedPaths).toEqual([missedSubdirectory])
+      // The subdirectory and the missed file are both handed back to chokidar
+      // so they gain watches and future events (unlink included) fire.
+      expect(addedPaths).toEqual([missedSubdirectory, nestedPath])
     },
   )
 
@@ -509,8 +515,81 @@ describe("startFileWatcher — new-directory rescan", () => {
       )
       const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
       expect(hiddenResults).toHaveLength(0)
-      // The dot-directory must not be registered with chokidar either.
-      expect(addedPaths).toEqual([])
+      // The dot-directory must not be registered with chokidar — only the
+      // visible missed file is.
+      expect(addedPaths).toEqual([visiblePath])
+    },
+  )
+
+  it(
+    "indexes settled files inside a missed symlinked directory",
+    { timeout: 15000 },
+    async () => {
+      // The recursive readdir doesn't traverse symlinks, so a symlinked
+      // directory's contents need their own reconciliation pass.
+      const targetDirectory = join(vault, "target-dir")
+      await mkdir(targetDirectory)
+      const insidePath = join(targetDirectory, "inside.md")
+      await writeFile(insidePath, "inside a symlinked folder\n", "utf8")
+      await backdateMtime(insidePath)
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const linkedDirectory = join(newDirectory, "linked-dir")
+      await symlink(targetDirectory, linkedDirectory)
+
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
+        {},
+        RESCAN_TEST_OPTIONS,
+      )
+      fireAddDir(newDirectory)
+
+      await waitFor(
+        () => index.fullTextSearch({ query: "symlinked" }, logger).length > 0,
+      )
+      const results = index.fullTextSearch({ query: "symlinked" }, logger)
+      expect(results).toHaveLength(1)
+      // Indexed under the link path, matching chokidar's followSymlinks view.
+      expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+      // The inner file registers during the recursion, then the link itself.
+      expect(addedPaths).toEqual([
+        join(linkedDirectory, "inside.md"),
+        linkedDirectory,
+      ])
+    },
+  )
+
+  it(
+    "indexes a cycling symlinked directory's sibling exactly once",
+    { timeout: 15000 },
+    async () => {
+      // A symlink pointing back at its own ancestor must not recurse — without
+      // the realpath cycle guard the rescan would descend loop/loop/loop/…,
+      // indexing ghost duplicates under each cycle path until ELOOP.
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const settledPath = join(newDirectory, "settled.md")
+      await writeFile(settledPath, "settled beside a cycle\n", "utf8")
+      await backdateMtime(settledPath)
+      const loopLink = join(newDirectory, "loop")
+      await symlink(newDirectory, loopLink)
+
+      const upsertNoteSpy = vi.spyOn(index, "upsertNote")
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
+        {},
+        RESCAN_TEST_OPTIONS,
+      )
+      fireAddDir(newDirectory)
+
+      await waitFor(() => upsertNoteSpy.mock.calls.length > 0)
+      // Give a (broken) unbounded recursion time to produce extra upserts
+      // before asserting the exact count.
+      await new Promise((finished) => setTimeout(finished, 300))
+      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
+      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
+        "new-folder/settled.md",
+      )
+      // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
+      expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
     },
   )
 

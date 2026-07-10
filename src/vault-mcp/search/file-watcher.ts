@@ -2,7 +2,7 @@
 
 import { watch } from "chokidar"
 import { DateTime } from "luxon"
-import { readFile, stat } from "node:fs/promises"
+import { readFile, realpath, stat } from "node:fs/promises"
 import { join, relative, resolve as resolvePath } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
@@ -151,12 +151,24 @@ export const startFileWatcher = (
   // invisible to search until an unrelated later event touches it. This rescan
   // is the safety net: once the dust settles, reconcile the directory's actual
   // contents against what chokidar tracks and index anything it missed.
-  const rescanNewDirectory = async (dirPath: string): Promise<void> => {
+  const rescanNewDirectory = async (
+    dirPath: string,
+    visitedRealPaths: Set<string>,
+  ): Promise<void> => {
     const entries = await readdirOrNull(dirPath)
     if (entries === null) {
-      logger.debug("rescan skipped, directory vanished", { path: dirPath })
+      logger.debug("rescan skipped, directory vanished", {
+        path: relative(vaultPath, dirPath),
+      })
       return
     }
+
+    // Symlinked directories recurse below; realpath identity breaks cycles
+    // (a symlink pointing back at an ancestor would otherwise recurse until
+    // the filesystem throws ELOOP, indexing ghost duplicates along the way).
+    const realDirPath = await realpath(dirPath)
+    if (visitedRealPaths.has(realDirPath)) return
+    visitedRealPaths.add(realDirPath)
 
     // Map of watched directory (absolute) → tracked child basenames. Anything
     // on disk but absent here is an entry chokidar's new-directory scan missed.
@@ -190,7 +202,12 @@ export const startFileWatcher = (
         // path would; a broken symlink or vanished file throws and is skipped.
         const fileStat = await stat(fullPath)
         if (fileStat.isDirectory()) {
-          // Symlink to a directory — register it like a missed directory.
+          // Symlink to a directory — its contents aren't in this recursive
+          // listing (readdir doesn't traverse symlinks), so reconcile it
+          // before registering: watcher.add() tracks its children without
+          // emitting events, which would make a later pass skip them as
+          // already tracked.
+          await rescanNewDirectory(fullPath, visitedRealPaths)
           watcher.add(fullPath)
           continue
         }
@@ -201,6 +218,9 @@ export const startFileWatcher = (
           DateTime.now().toMillis() - fileStat.mtimeMs < stabilityThreshold
         if (isStillBeingWritten) continue
 
+        // Register the file with chokidar too — indexed but untracked, its
+        // later deletion would emit no unlink, leaving a ghost index entry.
+        watcher.add(fullPath)
         logger.debug("rescan indexing missed file", { path: relativePath })
         await handleChange(fullPath)
       } catch (err) {
@@ -214,7 +234,7 @@ export const startFileWatcher = (
 
   const scheduleNewDirectoryRescan = (dirPath: string): void => {
     const rescanTimer = setTimeout(() => {
-      rescanNewDirectory(dirPath).catch((err) => {
+      rescanNewDirectory(dirPath, new Set()).catch((err) => {
         logger.error("failed to rescan new directory", {
           path: relative(vaultPath, dirPath),
           error: describeError(err),
