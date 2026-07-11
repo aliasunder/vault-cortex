@@ -125,6 +125,12 @@ export const createReranker = (logger: Logger) => {
 
 // ── Pure scoring functions ────────────────────────────────────
 
+/** Logistic sigmoid — maps a raw cross-encoder logit to (0, 1). ms-marco
+ *  models were trained with a binary relevance objective, so sigmoid(logit)
+ *  reads as a calibrated probability-of-relevance; memoryRecall's selection
+ *  cut thresholds on it. */
+export const sigmoid = (logit: number): number => 1 / (1 + Math.exp(-logit))
+
 /** Min-max normalization to [0, 1].
  *
  *  When all scores are identical (max === min), returns 0.5 for every

@@ -211,6 +211,29 @@ export type TaskSortKey =
  *  count — so callers can tell "50 of 338" from "all 50". */
 export type ListTasksResult = { total: number; tasks: TaskEntry[] }
 
+/** One recalled memory entry on the wire. file + section feed directly back
+ *  into vault_get_memory / vault_delete_memory; text is the raw entry
+ *  markdown (wikilinks intact, continuation lines included). */
+export type MemoryRecallEntry = {
+  file: string
+  section: string
+  date: string
+  text: string
+}
+
+/** memoryRecall response: entries is the max_results-capped evidence set in
+ *  ascending date order; total counts every entry that survived the
+ *  relevance cut, so truncated = total > entries.length tells the client the
+ *  set is incomplete (the least-relevant matches were dropped — never a date
+ *  range). */
+export type MemoryRecallResult = {
+  entries: MemoryRecallEntry[]
+  total: number
+  truncated: boolean
+  search_mode: "hybrid" | "fts"
+  reranked: boolean
+}
+
 export type BacklinkEntry = { path: string; title: string; bytes: number }
 
 export type OutgoingLinkEntry = {
@@ -614,6 +637,29 @@ export const createSearchIndex = (
     memoryDir && embedder
       ? db.prepare(
           `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
+        )
+      : null
+  // Query side — memoryRecall's two retrieval legs plus row hydration.
+  const memoryFtsSearchStmt = memoryDir
+    ? db.prepare<[string], { entry_id: number }>(
+        `SELECT entry_id FROM memory_entries_fts WHERE memory_entries_fts MATCH ? ORDER BY rank`,
+      )
+    : null
+  const selectMemoryEntryByIdStmt = memoryDir
+    ? db.prepare<[number], queries.MemoryEntryRow>(
+        `SELECT id, file, section, entry_date, entry_text, entry_index
+         FROM memory_entries WHERE id = ?`,
+      )
+    : null
+  const memoryKnnStmt =
+    memoryDir && embedder
+      ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
+          `SELECT me.id, me.file, me.section, me.entry_date, me.entry_text, me.entry_index, mev.distance
+           FROM memory_entry_vectors mev
+           JOIN memory_entries me ON me.id = mev.entry_id
+           WHERE mev.embedding MATCH ?
+             AND mev.k = ?
+           ORDER BY mev.distance`,
         )
       : null
 
@@ -1474,6 +1520,18 @@ export const createSearchIndex = (
     },
     reranker,
     selectFirstChunkStmt,
+    // Null when no memory dir is configured — memoryRecall rejects with a
+    // remediation message. knnStmt is additionally null without an embedder
+    // (lexical-only recall).
+    memory:
+      memoryFtsSearchStmt && selectMemoryEntryByIdStmt
+        ? {
+            embedder,
+            ftsSearchStmt: memoryFtsSearchStmt,
+            knnStmt: memoryKnnStmt,
+            selectEntryByIdStmt: selectMemoryEntryByIdStmt,
+          }
+        : null,
   }
 
   /** Binds the query context as the first argument of a query function,
@@ -1501,6 +1559,7 @@ export const createSearchIndex = (
     setDailyNotesFolder,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(queries.hybridSearch),
+    memoryRecall: bindQueryContext(queries.memoryRecall),
     searchByTag: bindQueryContext(queries.searchByTag),
     searchByFolder: bindQueryContext(queries.searchByFolder),
     listTasks: bindQueryContext(queries.listTasks),
