@@ -33,6 +33,33 @@
 
 
 
+
+## [0.27.2] — 2026-07-11
+
+### Features
+
+- **search:** Add created/modified date-range filters to vault_search (#302)
+
+### Bug Fixes
+
+- **search:** Rescan newly-created directories the watcher scan raced past (#303)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.27.1
+
+### CI / Infrastructure
+
+- **dependabot:** Ignore TypeScript majors until typescript-eslint supports them (#304)
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 6 updates (#305)
+- **deps:** Bump actions/create-github-app-token from 2.2.2 to 3.2.0 (#300)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.1 to 6.2.2 (#299)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.36.3 to 4.37.0 (#298)
+- **deps:** Bump node from `b31e7a4` to `cb4e8f7` (#297)
+
 ## [0.27.1] — 2026-07-10
 
 ### Documentation
