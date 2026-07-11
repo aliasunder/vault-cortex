@@ -18,11 +18,12 @@ import type { Logger } from "../../logger.js"
 // Refuse a memory write that would remove more than half of an existing file's
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
 // (e.g. a skeleton template clobbering real content) rather than a legitimate
-// single-entry edit. The 200-byte floor sits just
-// above the largest empty memory template (Me 152 B, Principles 193 B,
-// Opinions 197 B — frontmatter + headings, no entries), so a file with no real
-// content is never guarded, while a file with even one dated entry (~240 B+) is.
-const SHRINK_FLOOR_BYTES = 200
+// single-entry edit. The 1300-byte floor sits just above the largest empty
+// memory template (Routines 1228 B; Agents 1081 B; Me/Opinions/Principles
+// ~900 B — frontmatter + scope callout + headings, no entries), so a file with
+// no real content is never guarded, while a file that has accumulated real
+// entries beyond the skeleton is.
+const SHRINK_FLOOR_BYTES = 1300
 const SHRINK_RATIO = 0.5
 const guardAgainstShrink = (
   beforeBytes: number,
@@ -86,10 +87,26 @@ type MemoryHeading = Readonly<{
   entryCount?: number
 }>
 
+/** How a memory file's entries may be maintained. Append-only is the layer's
+ *  default: entries are never edited or deleted, and corrections arrive as new
+ *  dated entries. A file declares `entry-policy: living` in frontmatter when it
+ *  is a current-state snapshot (e.g. a Routines file) — there, expired entries
+ *  are pruned rather than left as history, so agents must not assume its
+ *  timeline is complete. */
+export type MemoryEntryPolicy = "append-only" | "living"
+
+/** Resolves a frontmatter `entry-policy` value to a policy, treating anything
+ *  other than the explicit "living" opt-in (missing, misspelled, wrong type)
+ *  as the append-only default — the safe reading, since append-only forbids
+ *  destructive maintenance. */
+const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy =>
+  value === "living" ? "living" : "append-only"
+
 export type MemoryFileOutline = Readonly<{
   file: string
   title: string
   bytes: number
+  entry_policy: MemoryEntryPolicy
   leading_callout: LeadingCallout | null
   headings: MemoryHeading[]
 }>
@@ -197,6 +214,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     fileName: string
     title: string
     tag: string
+    entryPolicy: MemoryEntryPolicy
     related: string[]
     scope: string
     sections: string[]
@@ -207,13 +225,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       fileName: "Me",
       title: "Me",
       tag: "identity",
-      related: ["Opinions", "Principles", "Routines"],
+      entryPolicy: "append-only",
+      related: ["Opinions", "Principles", "Routines", "Agents"],
       scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Identity, interests, and durable context about the user — who they are, what they're into, situational facts.",
-        "> **Does NOT contain:** Opinions or preferences (→ Opinions), guiding principles (→ Principles), recurring routines (→ Routines).",
-        '> **Section structure:** H2 sections grouped by theme, each suffixed "(newest first)".',
-        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "> **Does NOT contain:** Opinions or preferences (→ Opinions), guiding principles (→ Principles), recurring routines (→ Routines), directives for AI agents (→ Agents).",
+        '> **Section structure:** Identity, Interests, Context — each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
         "Identity (newest first)",
@@ -225,13 +244,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       fileName: "Opinions",
       title: "Opinions",
       tag: "opinions",
-      related: ["Principles", "Me"],
+      entryPolicy: "append-only",
+      related: ["Principles", "Me", "Agents"],
       scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Evolving views on tools, patterns, methods, and processes — stances that may shift over time.",
-        "> **Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me).",
-        '> **Section structure:** H2 sections by topic, each suffixed "(newest first)".',
-        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "> **Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me), directives for AI agents (→ Agents).",
+        '> **Section structure:** Tools and workflows, Code patterns, Communication preferences — each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
         "Tools and workflows (newest first)",
@@ -243,13 +263,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       fileName: "Principles",
       title: "Principles",
       tag: "principles",
-      related: ["Opinions", "Me"],
+      entryPolicy: "append-only",
+      related: ["Opinions", "Me", "Agents"],
       scope: [
         "> [!info] Scope of this file",
         "> **Contains:** Stable values, decision heuristics, and non-negotiables — how the user thinks and what they hold firm.",
-        "> **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me).",
-        '> **Section structure:** H2 sections by theme, each suffixed "(newest first)".',
-        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "> **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me), directives for AI agents (→ Agents).",
+        '> **Section structure:** Decision heuristics, Working style, Non-negotiables — each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
         "Decision heuristics (newest first)",
@@ -261,18 +282,39 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       fileName: "Routines",
       title: "Routines",
       tag: "routines",
-      related: ["Me"],
+      entryPolicy: "living",
+      related: ["Me", "Agents"],
       scope: [
         "> [!info] Scope of this file",
-        "> **Contains:** Recurring routines, cadences, and practiced habits — what the user actually does on a regular rhythm.",
-        "> **Does NOT contain:** One-off events or plans, identity facts (→ Me), principles (→ Principles).",
-        '> **Section structure:** H2 sections by cadence, each suffixed "(newest first)".',
-        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "> **Contains:** Active commitments, upcoming plans, recurring rhythms, and recent-past events kept for context — the time-sensitive logistics of the user's current life. A **current-state snapshot**, not a history ledger.",
+        "> **Does NOT contain:** One-off events or reference material, identity facts (→ Me), principles (→ Principles), directives for AI agents (→ Agents).",
+        '> **Section structure:** Active commitments, Upcoming, Daily/weekly rhythm, Recent past — each suffixed "(newest first)".',
+        "> **Convention:** append newest first; ISO dates only. Entry policy: **living** (declared in frontmatter) — a deliberate exception to the memory layer's append-only default. When an Upcoming or Active-commitments entry expires, delete it and, if the outcome is worth keeping, append it to Recent past. Recent past entries are dated history and are not pruned.",
       ].join("\n"),
       sections: [
-        "Daily (newest first)",
-        "Weekly (newest first)",
-        "Commitments (newest first)",
+        "Active commitments (newest first)",
+        "Upcoming (newest first)",
+        "Daily/weekly rhythm (newest first)",
+        "Recent past (newest first)",
+      ],
+    },
+    {
+      fileName: "Agents",
+      title: "Agents",
+      tag: "agents",
+      entryPolicy: "append-only",
+      related: ["Me", "Principles", "Opinions", "Routines"],
+      scope: [
+        "> [!info] Scope of this file",
+        "> **Contains:** Directives for AI agents working with the user — how to communicate, how to run work, and how to verify and scope changes. The subject of every entry is *agent behavior*; if an entry states a fact about the user, it belongs in another memory file.",
+        "> **Does NOT contain:** Identity facts (→ Me), the user's values (→ Principles), their evolving stances on tools (→ Opinions), current-life logistics (→ Routines).",
+        '> **Section structure:** Communication, Working style, Verification & scope — each suffixed "(newest first)".',
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
+      ].join("\n"),
+      sections: [
+        "Communication (newest first)",
+        "Working style (newest first)",
+        "Verification & scope (newest first)",
       ],
     },
   ]
@@ -289,6 +331,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       `title: ${spec.title}`,
       `created: ${created}`,
       "type: profile",
+      `entry-policy: ${spec.entryPolicy}`,
       "tags:",
       "  - memory",
       `  - ${spec.tag}`,
@@ -335,6 +378,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const frontmatter = {
       title: params.fileName,
       type: "profile",
+      // Programmatically-created files get the safe default; a user opts a
+      // file into "living" by editing the property deliberately.
+      "entry-policy": "append-only",
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
     }
@@ -639,6 +685,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           file: name,
           title,
           bytes,
+          entry_policy: entryPolicyFromFrontmatter(parsed.data["entry-policy"]),
           leading_callout: leadingCallout,
           headings,
         }

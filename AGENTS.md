@@ -480,7 +480,11 @@ from tools:
   returns a valid fallback message; a prompt must not hard-fail the client.
 - **`memory-review` is append-only by design** — it reads the memory layer
   as a dated **evolution** (never "newest supersedes older"), proposes only
-  append updates, and never prunes "stale" entries.
+  append updates, and never prunes "stale" entries. The one exception: a
+  memory file whose frontmatter declares `entry-policy: living` is a
+  current-state snapshot, and the review may propose pruning its expired
+  entries (the policy is surfaced by `vault_list_memory_files`; absent
+  means append-only).
 
 ### MCP naming conventions
 

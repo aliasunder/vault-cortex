@@ -1120,6 +1120,56 @@ describe("listMemoryFiles", () => {
     expect(noTitle?.title).toBe("NoTitle")
   })
 
+  it("defaults entry_policy to append-only when the property is absent", async () => {
+    // The base fixtures (Principles, Opinions) declare no entry-policy.
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    expect(principles?.entry_policy).toBe("append-only")
+  })
+
+  it("surfaces entry_policy living when declared in frontmatter", async () => {
+    await writeFile(
+      join(vault, "About Me/Living.md"),
+      [
+        "---",
+        "title: Living",
+        "type: profile",
+        "entry-policy: living",
+        "---",
+        "",
+        "# Living",
+        "",
+        "## Upcoming (newest first)",
+        "- **2026-07-11**: a current-state entry",
+      ].join("\n"),
+      "utf8",
+    )
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const living = outlines.find((outline) => outline.file === "Living")
+    expect(living?.entry_policy).toBe("living")
+  })
+
+  it("treats an unrecognized entry-policy value as append-only", async () => {
+    // Only the explicit "living" opt-in relaxes append-only; a typo must not
+    // silently authorize destructive maintenance.
+    await writeFile(
+      join(vault, "About Me/Typo.md"),
+      [
+        "---",
+        "title: Typo",
+        "type: profile",
+        "entry-policy: sometimes",
+        "---",
+        "",
+        "# Typo",
+      ].join("\n"),
+      "utf8",
+    )
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const typo = outlines.find((outline) => outline.file === "Typo")
+    expect(typo?.entry_policy).toBe("append-only")
+  })
+
   it("does not treat a heading-looking line inside a code fence as a section", async () => {
     // The shared heading parser is fence-aware, so a "## ..."-looking line inside
     // a code block is not surfaced as a section. The prior memory-local parser was
@@ -1279,8 +1329,9 @@ describe("bootstrapMemoryDir", () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-"))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    expect(outlines).toHaveLength(4)
+    expect(outlines).toHaveLength(5)
     expect(outlines.map((outline) => outline.file).sort()).toEqual([
+      "Agents",
       "Me",
       "Opinions",
       "Principles",
@@ -1299,11 +1350,49 @@ describe("bootstrapMemoryDir", () => {
     const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Principles")
     expect(parsed.data.type).toBe("profile")
+    expect(parsed.data["entry-policy"]).toBe("append-only")
     expect(parsed.data.tags).toEqual(["memory", "principles"])
     expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
     expect(parsed.data.related).toEqual([
       "[[About Me/Opinions]]",
       "[[About Me/Me]]",
+      "[[About Me/Agents]]",
+    ])
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("bootstraps the Agents template with directive sections", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-agents-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    const agents = outlines.find((outline) => outline.file === "Agents")
+    expect(agents).toBeDefined()
+    expect(agents?.entry_policy).toBe("append-only")
+    const sectionNames = agents?.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
+    expect(sectionNames).toEqual([
+      "Communication (newest first)",
+      "Working style (newest first)",
+      "Verification & scope (newest first)",
+    ])
+    await rm(emptyVault, { recursive: true })
+  })
+
+  it("bootstraps the Routines template as a living current-state file", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-living-"))
+    await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
+    const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
+    const routines = outlines.find((outline) => outline.file === "Routines")
+    expect(routines?.entry_policy).toBe("living")
+    const sectionNames = routines?.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
+    expect(sectionNames).toEqual([
+      "Active commitments (newest first)",
+      "Upcoming (newest first)",
+      "Daily/weekly rhythm (newest first)",
+      "Recent past (newest first)",
     ])
     await rm(emptyVault, { recursive: true })
   })
