@@ -1,17 +1,42 @@
-/** File watcher — keeps the SQLite FTS5 index and vector embeddings current via chokidar. */
+/** File watcher — keeps the SQLite FTS5 index and vector embeddings current
+ *  via chokidar events, plus a rescan safety net for the files chokidar's
+ *  new-directory handling loses (see rescanNewDirectory). */
 
 import { watch } from "chokidar"
-import { readFile, stat } from "node:fs/promises"
-import { relative } from "node:path"
+import { DateTime } from "luxon"
+import { readFile, realpath, stat } from "node:fs/promises"
+import { join, relative, resolve as resolvePath } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
+import { readdirOrNull } from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
  *  re-index latency is already governed by the 2000ms awaitWriteFinish window, so
  *  the perceived cost is negligible. */
 const POLLING_INTERVAL_MS = 300
+
+/** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
+const DEFAULT_STABILITY_THRESHOLD_MS = 2000
+
+/** True when any segment of a vault-relative path is dot-prefixed — hidden
+ *  files and directories (.obsidian/, .trash/, dotfiles) the watcher skips. */
+const hasHiddenPathSegment = (relativePath: string): boolean => {
+  return relativePath.split("/").some((segment) => segment.startsWith("."))
+}
+
+/** Resolves a path's realpath, returning null instead of throwing when the
+ *  path no longer exists (ENOENT). Any other error propagates. */
+const realpathOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await realpath(path)
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
+}
 
 type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
@@ -23,8 +48,19 @@ type FileWatcherOptions = Readonly<{
    *  when the vault is bind-mounted across the Docker Desktop ↔ WSL2 bridge,
    *  where inotify events don't propagate. CPU-heavier; default off. */
   usePolling?: boolean
+  /** ms to wait after a new directory appears before reconciling its contents
+   *  against chokidar's tracking (default 2 × stabilityThreshold). The margin
+   *  past the awaitWriteFinish window lets in-flight writes settle before the
+   *  rescan reads them. */
+  newDirectoryRescanDelay?: number
 }>
 
+/**
+ * Watches the vault and mirrors every file add/change/delete into the search
+ * index, so search stays current without rebuilds. Resolves once the watcher
+ * is ready (initial scan done); the watcher then runs for the process
+ * lifetime — there is no shutdown path.
+ */
 export const startFileWatcher = (
   vaultPath: string,
   search: SearchIndex,
@@ -34,6 +70,9 @@ export const startFileWatcher = (
   // same file can't interleave and overwrite vectors with stale content.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
+  /** Indexes an added or modified file: non-md files land in the asset table;
+   *  notes are read from disk, upserted into the FTS index, and re-embedded
+   *  (embeds serialized per path via pendingEmbeds). */
   const handleChange = async (filePath: string): Promise<void> => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -91,6 +130,8 @@ export const startFileWatcher = (
     }
   }
 
+  /** Removes a deleted file from the index — the asset table for non-md
+   *  files, the note tables (FTS, links, tasks, vectors) for notes. */
   const handleDelete = (filePath: string): void => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -104,12 +145,27 @@ export const startFileWatcher = (
     logger.debug("removed from index", { path: relativePath })
   }
 
+  const stabilityThreshold =
+    options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
+  const newDirectoryRescanDelay =
+    options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
+
+  /** True when the file's last write falls inside the stability window —
+   *  plausibly still being written. A negative age (mtime in the future —
+   *  clock skew across a Docker bind mount) counts as settled: skipping
+   *  forever would lose the note, while a too-early read is corrected by the
+   *  file's next change event. */
+  const isWithinStabilityWindow = (mtimeMs: number): boolean => {
+    const fileAgeMs = DateTime.now().toMillis() - mtimeMs
+    return fileAgeMs >= 0 && fileAgeMs < stabilityThreshold
+  }
+
   const watcher = watch(vaultPath, {
     // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
       const relativePath = relative(vaultPath, path)
       if (!relativePath) return false
-      return relativePath.split("/").some((segment) => segment.startsWith("."))
+      return hasHiddenPathSegment(relativePath)
     },
     persistent: true,
     ignoreInitial: true,
@@ -122,15 +178,175 @@ export const startFileWatcher = (
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {
-      stabilityThreshold: options?.stabilityThreshold ?? 2000,
+      stabilityThreshold,
       pollInterval: options?.pollInterval ?? 100,
     },
   })
+
+  /**
+   * Polls a mid-write file until its writes settle, then indexes it. Serves
+   * the new-directory rescan (rescanNewDirectory, below) for one case: a file
+   * inside a directory chokidar wasn't watching when the write began. There,
+   * waiting on chokidar would strand the note unindexed forever — registering
+   * a directory (watcher.add) emits no events for content that already
+   * exists — whereas a file in an already-watched directory needs no retry:
+   * its own write event is in flight behind awaitWriteFinish. A vanished file
+   * ends the retry.
+   */
+  const scheduleUnstableFileRetry = (filePath: string): void => {
+    const retryTimer = setTimeout(() => {
+      const indexIfSettled = async (): Promise<void> => {
+        const fileStat = await stat(filePath)
+        if (isWithinStabilityWindow(fileStat.mtimeMs)) {
+          scheduleUnstableFileRetry(filePath)
+          return
+        }
+        watcher.add(filePath)
+        logger.debug("rescan indexing settled file after retry", {
+          path: relative(vaultPath, filePath),
+        })
+        await handleChange(filePath)
+      }
+      indexIfSettled().catch((err) => {
+        logger.debug("rescan retry skipped unreadable file", {
+          path: relative(vaultPath, filePath),
+          error: describeError(err),
+        })
+      })
+    }, stabilityThreshold)
+    // Never hold the process open for a pending retry.
+    retryTimer.unref()
+  }
+
+  /**
+   * The new-directory safety net. chokidar processes a newly-appeared
+   * directory by scanning it FIRST and registering its fs.watch only after
+   * the scan completes (_handleDir in chokidar's handler), so a file that
+   * lands between the scan read and the watch registration is silently lost —
+   * the scan didn't see it and no watcher existed to observe the event
+   * (chokidar#1471). Our atomic writes (temp file + rename into a freshly
+   * created folder) hit that window under load, leaving the note invisible to
+   * search until an unrelated later event touches it. This rescan reconciles
+   * the directory's actual contents against what chokidar tracks
+   * (getWatched) and indexes anything chokidar missed.
+   */
+  const rescanNewDirectory = async (
+    dirPath: string,
+    visitedRealPaths: Set<string>,
+  ): Promise<void> => {
+    const entries = await readdirOrNull(dirPath)
+    if (entries === null) {
+      logger.debug("rescan skipped, directory vanished", {
+        path: relative(vaultPath, dirPath),
+      })
+      return
+    }
+
+    // Symlinked directories recurse below; realpath identity breaks cycles
+    // (a symlink pointing back at an ancestor would otherwise recurse until
+    // the filesystem throws ELOOP, indexing ghost duplicates along the way).
+    // A null realpath means the directory was deleted after the readdir above
+    // — the same benign race as the vanished-listing branch, not an error.
+    const realDirPath = await realpathOrNull(dirPath)
+    if (realDirPath === null) {
+      logger.debug("rescan skipped, directory vanished", {
+        path: relative(vaultPath, dirPath),
+      })
+      return
+    }
+    if (visitedRealPaths.has(realDirPath)) return
+    visitedRealPaths.add(realDirPath)
+
+    // Map of watched directory (absolute) → tracked child basenames. Anything
+    // on disk but absent here is an entry chokidar's new-directory scan missed.
+    const watchedChildren = watcher.getWatched()
+
+    for (const entry of entries) {
+      const fullPath = join(entry.parentPath, entry.name)
+      const relativePath = relative(vaultPath, fullPath)
+      if (hasHiddenPathSegment(relativePath)) continue
+
+      // getWatched() keys are resolved paths (chokidar resolves internally).
+      const trackedSiblings = watchedChildren[resolvePath(entry.parentPath)]
+      if (trackedSiblings?.includes(entry.name)) continue
+
+      if (entry.isDirectory()) {
+        // A subdirectory chokidar never saw would stay unwatched forever —
+        // watcher.add() registers its watches. Its contents are already covered
+        // by this recursive listing, so the add's suppressed events don't matter.
+        watcher.add(fullPath)
+        logger.debug("rescan registered missed directory", {
+          path: relativePath,
+        })
+        continue
+      }
+
+      try {
+        // stat follows symlinks, so a symlinked note is indexed like the add
+        // path would; a broken symlink or vanished file throws and is skipped.
+        const fileStat = await stat(fullPath)
+        if (fileStat.isDirectory()) {
+          // Symlink to a directory — its contents aren't in this recursive
+          // listing (readdir doesn't traverse symlinks), so reconcile it
+          // before registering: watcher.add() tracks its children without
+          // emitting events, which would make a later pass skip them as
+          // already tracked.
+          await rescanNewDirectory(fullPath, visitedRealPaths)
+          watcher.add(fullPath)
+          logger.debug("rescan registered missed symlinked directory", {
+            path: relativePath,
+          })
+          continue
+        }
+        // A freshly-modified file is plausibly still being written — don't
+        // read it yet. When its directory was already watched before this
+        // rescan (present in the getWatched snapshot), the write's own event
+        // is in flight behind awaitWriteFinish, so skipping is safe. Inside a
+        // directory chokidar never watched (a missed subdirectory or symlinked
+        // directory), registration emits no replay for the write — retry once
+        // it settles instead.
+        if (isWithinStabilityWindow(fileStat.mtimeMs)) {
+          const parentWatchedBeforeRescan = trackedSiblings !== undefined
+          if (parentWatchedBeforeRescan) continue
+          scheduleUnstableFileRetry(fullPath)
+          continue
+        }
+
+        // Register the file with chokidar too — indexed but untracked, its
+        // later deletion would emit no unlink, leaving a ghost index entry.
+        watcher.add(fullPath)
+        logger.debug("rescan indexing missed file", { path: relativePath })
+        await handleChange(fullPath)
+      } catch (err) {
+        logger.debug("rescan skipped unreadable entry", {
+          path: relativePath,
+          error: describeError(err),
+        })
+      }
+    }
+  }
+
+  /** Runs rescanNewDirectory once per new directory, delayed by
+   *  newDirectoryRescanDelay so in-flight writes settle before the rescan
+   *  reads them. Wired to chokidar's addDir event below. */
+  const scheduleNewDirectoryRescan = (dirPath: string): void => {
+    const rescanTimer = setTimeout(() => {
+      rescanNewDirectory(dirPath, new Set()).catch((err) => {
+        logger.error("failed to rescan new directory", {
+          path: relative(vaultPath, dirPath),
+          error: describeError(err),
+        })
+      })
+    }, newDirectoryRescanDelay)
+    // Never hold the process open for a pending rescan.
+    rescanTimer.unref()
+  }
 
   watcher
     .on("add", handleChange)
     .on("change", handleChange)
     .on("unlink", handleDelete)
+    .on("addDir", scheduleNewDirectoryRescan)
     .on("error", (err) => {
       logger.error("watcher error", {
         error: describeError(err),

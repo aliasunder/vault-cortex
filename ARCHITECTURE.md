@@ -296,6 +296,12 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
+**New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory, delayed to twice chokidar's write-stability threshold (`awaitWriteFinish`, 2 s — a 4 s delay) so in-flight writes settle first. The rescan:
+
+- lists the directory recursively (symlinked directories included) and skips everything chokidar already tracks
+- indexes each settled file chokidar missed, and registers every missed entry with `watcher.add()` so future events fire for it
+- leaves any file still mid-write for the `awaitWriteFinish` gate to index once it settles, retrying itself only where no watch exists yet
+
 **Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
 
 1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
