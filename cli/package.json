@@ -44,7 +44,7 @@
     "cli"
   ],
   "dependencies": {
-    "@clack/prompts": "1.6.0",
+    "@clack/prompts": "1.7.0",
     "commander": "14.0.3"
   }
 }
