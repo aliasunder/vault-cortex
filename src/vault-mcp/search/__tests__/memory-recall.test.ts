@@ -336,6 +336,55 @@ describe("memoryRecall", () => {
     ])
   })
 
+  it("degrades to fts mode when the embedder fails during the query", async () => {
+    const failingEmbedder = createTopicMockEmbedder()
+    const index = createSearchIndex(":memory:", failingEmbedder, undefined, {
+      memoryDir: "About Me",
+    })
+    // Seed both files so we have vector-only AND lexical entries
+    for (const [fileName, content] of Object.entries(DEFAULT_FILES)) {
+      const filePath = `About Me/${fileName}.md`
+      index.upsertNote(
+        {
+          filePath,
+          rawContent: content,
+          fileStat: { mtimeMs: 1000, size: 100 },
+        },
+        logger,
+      )
+      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+    }
+
+    // Break the embedder for the recall query — memoryVectorSearch catches
+    // the error and returns [], triggering the lexical-only early return.
+    failingEmbedder.embedText.mockRejectedValue(new Error("ONNX runtime error"))
+
+    const result = await index.memoryRecall(
+      { query: "pacing recovery" },
+      logger,
+    )
+    expect(result.search_mode).toBe("fts")
+    expect(result.reranked).toBe(false)
+    // Only keyword hits survive — the semantic-only entry (2026-06-20,
+    // "rest blocks") is invisible without vectors, same as embeddings-off.
+    expect(result.entries.map((entry) => entry.date)).toEqual([
+      "2026-07-02",
+      "2026-07-10",
+    ])
+  })
+
+  it("floors maxResults to 1 so the result is never artificially empty", async () => {
+    const index = await createRecallIndex()
+    const result = await index.memoryRecall(
+      { query: "pacing recovery", maxResults: 0 },
+      logger,
+    )
+    // Three entries match but maxResults: 0 floors to 1 — exactly 1 survives.
+    expect(result.entries).toHaveLength(1)
+    expect(result.total).toBe(3)
+    expect(result.truncated).toBe(true)
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(
