@@ -296,11 +296,11 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
-**New-directory rescan:** chokidar scans a newly-appeared directory before registering its `fs.watch`, so a file created between those two steps is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the server's atomic write into a freshly created folder can hit that window, leaving the note invisible to search. As a safety net, every `addDir` event schedules a one-shot reconciliation after writes have settled:
+**New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory once writes have had time to settle. The rescan:
 
-- list the new directory recursively (symlinked directories included) and skip everything chokidar already tracks
-- index each settled file chokidar missed, and register every missed entry with `watcher.add()` so future events fire for it
-- leave files still being written to the normal awaitWriteFinish path, retrying only where no watch exists yet
+- lists the directory recursively (symlinked directories included) and skips everything chokidar already tracks
+- indexes each settled file chokidar missed, and registers every missed entry with `watcher.add()` so future events fire for it
+- leaves any file still mid-write for chokidar's write-stability gate (`awaitWriteFinish`) to index once it settles, retrying itself only where no watch exists yet
 
 **Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
 
