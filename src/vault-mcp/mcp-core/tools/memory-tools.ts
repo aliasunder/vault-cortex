@@ -351,7 +351,9 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .string()
           .min(1)
           .describe(
-            "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months)",
+            config.embeddingEnabled
+              ? "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months)"
+              : "Topic to recall — use specific keywords (semantic matching is off; re-query with synonyms to cover vocabulary drift)",
           ),
         file: z
           .string()
