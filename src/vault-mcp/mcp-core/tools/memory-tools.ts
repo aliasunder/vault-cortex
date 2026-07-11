@@ -112,7 +112,6 @@ Errors:
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
-- An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
