@@ -106,6 +106,7 @@ src/
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
       tasks.ts                         # Tasks-plugin task-line grammar (emoji + Dataview fields)
+      memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads

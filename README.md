@@ -203,6 +203,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                                            |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                                              |
 |                 | `vault_list_memory_files`    | Discover memory files and their sections                                            |
+|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first           |
 | **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                |
 |                 | `vault_list_property_values` | Distinct values for a property key                                                  |
 |                 | `vault_search_by_property`   | Find notes by property key-value                                                    |
