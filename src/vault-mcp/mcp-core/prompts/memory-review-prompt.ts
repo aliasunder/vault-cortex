@@ -205,7 +205,7 @@ export const registerMemoryReviewPrompt = ({
           "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
           "6. **Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files.",
           "",
-          "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old from an append-only file.",
+          "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file.",
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",

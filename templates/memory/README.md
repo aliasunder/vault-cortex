@@ -55,8 +55,8 @@ for agents**. The test — _who is the subject of the entry?_
 
 Mixing the two is the most common drift in a lived-in memory layer: directives
 accumulate inside Principles and Me because they _feel_ like values. Route them
-to Agents.md from the start — it doubles as the highest-value always-read for
-any agent session.
+to Agents.md from the start — it doubles as the highest-value always-read file
+for any agent session.
 
 ## Entry policy
 

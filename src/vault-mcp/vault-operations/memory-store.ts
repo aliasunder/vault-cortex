@@ -18,12 +18,12 @@ import type { Logger } from "../../logger.js"
 // Refuse a memory write that would remove more than half of an existing file's
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
 // (e.g. a skeleton template clobbering real content) rather than a legitimate
-// single-entry edit. The 1300-byte floor sits just above the largest empty
+// single-entry edit. The 1250-byte floor sits just above the largest empty
 // memory template (Routines 1228 B; Agents 1081 B; Me/Opinions/Principles
 // ~900 B — frontmatter + scope callout + headings, no entries), so a file with
-// no real content is never guarded, while a file that has accumulated real
-// entries beyond the skeleton is.
-const SHRINK_FLOOR_BYTES = 1300
+// no real content is never guarded, while a file with even one dated entry
+// (~1270 B+) is.
+const SHRINK_FLOOR_BYTES = 1250
 const SHRINK_RATIO = 0.5
 const guardAgainstShrink = (
   beforeBytes: number,
@@ -100,7 +100,7 @@ export type MemoryEntryPolicy = "append-only" | "living"
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
 const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy =>
-  value === "living" ? "living" : "append-only"
+  typeof value === "string" && value === "living" ? "living" : "append-only"
 
 export type MemoryFileOutline = Readonly<{
   file: string
@@ -289,7 +289,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> **Contains:** Active commitments, upcoming plans, recurring rhythms, and recent-past events kept for context — the time-sensitive logistics of the user's current life. A **current-state snapshot**, not a history ledger.",
         "> **Does NOT contain:** One-off events or reference material, identity facts (→ Me), principles (→ Principles), directives for AI agents (→ Agents).",
         '> **Section structure:** Active commitments, Upcoming, Daily/weekly rhythm, Recent past — each suffixed "(newest first)".',
-        "> **Convention:** append newest first; ISO dates only. Entry policy: **living** (declared in frontmatter) — a deliberate exception to the memory layer's append-only default. When an Upcoming or Active-commitments entry expires, delete it and, if the outcome is worth keeping, append it to Recent past. Recent past entries are dated history and are not pruned.",
+        "> **Convention:** append newest first; ISO dates only. Entry policy: **living** (declared in frontmatter) — a deliberate exception to the memory layer's append-only default. When an Upcoming or Active commitments entry expires, delete it and, if the outcome is worth keeping, append it to Recent past. Recent past entries are dated history and are not pruned.",
       ].join("\n"),
       sections: [
         "Active commitments (newest first)",
