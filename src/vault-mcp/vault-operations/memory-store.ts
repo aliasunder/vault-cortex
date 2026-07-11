@@ -231,7 +231,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> [!info] Scope of this file",
         "> **Contains:** Identity, interests, and durable context about the user — who they are, what they're into, situational facts.",
         "> **Does NOT contain:** Opinions or preferences (→ Opinions), guiding principles (→ Principles), recurring routines (→ Routines), directives for AI agents (→ Agents).",
-        '> **Section structure:** Identity, Interests, Context — each suffixed "(newest first)".',
+        '> **Section structure:** H2 sections grouped by theme, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
@@ -250,7 +250,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> [!info] Scope of this file",
         "> **Contains:** Evolving views on tools, patterns, methods, and processes — stances that may shift over time.",
         "> **Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me), directives for AI agents (→ Agents).",
-        '> **Section structure:** Tools and workflows, Code patterns, Communication preferences — each suffixed "(newest first)".',
+        '> **Section structure:** H2 sections by topic, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
@@ -269,7 +269,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> [!info] Scope of this file",
         "> **Contains:** Stable values, decision heuristics, and non-negotiables — how the user thinks and what they hold firm.",
         "> **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me), directives for AI agents (→ Agents).",
-        '> **Section structure:** Decision heuristics, Working style, Non-negotiables — each suffixed "(newest first)".',
+        '> **Section structure:** H2 sections by theme, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [
@@ -288,7 +288,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> [!info] Scope of this file",
         "> **Contains:** Active commitments, upcoming plans, recurring rhythms, and recent-past events kept for context — the time-sensitive logistics of the user's current life. A **current-state snapshot**, not a history ledger.",
         "> **Does NOT contain:** One-off events or reference material, identity facts (→ Me), principles (→ Principles), directives for AI agents (→ Agents).",
-        '> **Section structure:** Active commitments, Upcoming, Daily/weekly rhythm, Recent past — each suffixed "(newest first)".',
+        '> **Section structure:** H2 sections by cadence, each suffixed "(newest first)".',
         "> **Convention:** append newest first; ISO dates only. Entry policy: **living** (declared in frontmatter) — a deliberate exception to the memory layer's append-only default. When an Upcoming or Active commitments entry expires, delete it and, if the outcome is worth keeping, append it to Recent past. Recent past entries are dated history and are not pruned.",
       ].join("\n"),
       sections: [
@@ -308,7 +308,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "> [!info] Scope of this file",
         "> **Contains:** Directives for AI agents working with the user — how to communicate, how to run work, and how to verify and scope changes. The subject of every entry is *agent behavior*; if an entry states a fact about the user, it belongs in another memory file.",
         "> **Does NOT contain:** Identity facts (→ Me), the user's values (→ Principles), their evolving stances on tools (→ Opinions), current-life logistics (→ Routines).",
-        '> **Section structure:** Communication, Working style, Verification & scope — each suffixed "(newest first)".',
+        '> **Section structure:** H2 sections by domain, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
       sections: [

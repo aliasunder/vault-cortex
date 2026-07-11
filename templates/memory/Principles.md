@@ -17,7 +17,7 @@ related:
 > [!info] Scope of this file
 > **Contains:** Stable values, decision heuristics, and non-negotiables — how the user thinks and what they hold firm.
 > **Does NOT contain:** Evolving opinions on tools or methods (→ Opinions), identity facts (→ Me), directives for AI agents (→ Agents).
-> **Section structure:** Decision heuristics, Working style, Non-negotiables — each suffixed "(newest first)".
+> **Section structure:** H2 sections by theme, each suffixed "(newest first)".
 > **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).
 
 ## Decision heuristics (newest first)
