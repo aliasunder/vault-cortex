@@ -94,7 +94,7 @@ Returns: Raw markdown text.`,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Append-only and idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe; when a preference changes, append the new state (newest wins) rather than deleting the old one.
+      description: `Append a dated entry to a section of a ${config.memoryDir}/ memory file. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in frontmatter (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries is expected maintenance rather than a violation.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
@@ -112,7 +112,6 @@ Errors:
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
-- An exact duplicate entry is not an error — the call succeeds and reports that the entry already exists, without writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
@@ -201,16 +200,16 @@ Returns: Confirmation message (notes when an identical entry already existed and
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, entry policy, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, and the file's scope callout.
+Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, each file's entry policy, and its scope callout.
 
-When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names.
+When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names, and to check a file's entry policy before pruning entries.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 
-Returns: JSON array of file outlines, each { file, title, bytes, leading_callout, headings } — bytes is the on-disk file size; leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
+Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — bytes is the on-disk file size; entry_policy is "append-only" (the default — entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter); leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -244,7 +243,7 @@ Returns: JSON array of file outlines, each { file, title, bytes, leading_callout
 
 Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
 
-When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory is append-only by design, so do NOT delete to reflect a change: when a preference or fact has since evolved, append the new state via vault_update_memory (newest-first naturally supersedes). Call vault_get_memory(file, section) first to see exact entry text for matching.
+When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory files are append-only by default, so do NOT delete to reflect a change: when a preference or fact has since evolved, append the new state via vault_update_memory (newest-first naturally supersedes). The exception is a file whose frontmatter declares \`entry-policy: living\` (check via vault_list_memory_files) — a current-state file where deleting an expired entry is the intended maintenance. Call vault_get_memory(file, section) first to see exact entry text for matching.
 Prefer vault_update_memory to supersede a changed entry; prefer vault_delete_note for deleting entire non-protected notes.
 
 Parameters:

@@ -15,6 +15,7 @@ templates:
 cp templates/memory/Me.md ~/your-vault/About\ Me/
 cp templates/memory/Principles.md ~/your-vault/About\ Me/
 cp templates/memory/Opinions.md ~/your-vault/About\ Me/
+cp templates/memory/Agents.md ~/your-vault/About\ Me/
 cp templates/memory/Routines.md ~/your-vault/About\ Me/    # optional
 ```
 
@@ -38,6 +39,46 @@ Memory files use a specific format that Vault Cortex tools understand:
   `vault_patch_note` (operation `prepend`, no heading).
 - **H2 headings**: sections (topics, categories)
 - **Dated bullets**: entries under each section, in `- **YYYY-MM-DD**: text` format
+- **`entry-policy` frontmatter** (recommended): how the file's entries may be
+  maintained — see [Entry policy](#entry-policy) below
+
+## Which file gets an entry?
+
+One split matters more than the others: **facts about the user vs directives
+for agents**. The test — _who is the subject of the entry?_
+
+- An imperative addressed to agents ("verify before claiming success",
+  "answer every question explicitly") → **Agents.md**
+- A fact or preference about the user ("prefers written docs over video",
+  "meeting-free Wednesdays") → **Me / Principles / Opinions / Routines**,
+  per each file's scope callout
+
+Mixing the two is the most common drift in a lived-in memory layer: directives
+accumulate inside Principles and Me because they _feel_ like values. Route them
+to Agents.md from the start — it doubles as the highest-value always-read file
+for any agent session.
+
+## Entry policy
+
+Memory files are **append-only by default**: entries are never edited or
+deleted, and corrections arrive as new dated entries. A file can opt out by
+declaring the policy in frontmatter:
+
+```yaml
+entry-policy: append-only # the default — may be omitted
+entry-policy: living # current-state snapshot — expired entries are pruned
+```
+
+`living` is for files that describe _what's current_ rather than _what has been
+true_ — the Routines template ships this way. When an entry there expires (the
+date passes, the commitment ends), delete it and, if the outcome is worth
+keeping, append it to a history section (Recent past). Without pruning, a
+current-state file accumulates expired plans that mislead every agent reading
+it.
+
+`vault_list_memory_files` surfaces each file's policy as `entry_policy`
+(defaulting to `append-only` when the property is absent), so agents can check
+it before pruning anything.
 
 The `vault_update_memory` tool appends dated entries automatically. The `vault_get_memory` tool reads them back, either a full file, a single section, or all files concatenated.
 
@@ -67,7 +108,10 @@ convention:
    semantic/vector search, enabling temporal queries ("how has the user's
    stance on X evolved?", "what did they believe about Y last month?")
 
-This is append-only by design. Entries are never overwritten — new entries are
-added at the top (newest first), and the full history is preserved. Agents
-retrieve context by reading the most recent entries, but the timeline remains
-available for deeper understanding.
+This is append-only by design (for files with the default `entry-policy`).
+Entries are never overwritten — new entries are added at the top (newest
+first), and the full history is preserved. Agents retrieve context by reading
+the most recent entries, but the timeline remains available for deeper
+understanding. Files marked `entry-policy: living` trade the complete timeline
+for an accurate current state — their dated entries record when something was
+captured, not a full history.

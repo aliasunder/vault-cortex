@@ -353,7 +353,7 @@ describe("memory-review full prompt output", () => {
         "",
         "1 memory file in About Me/:",
         "",
-        "- **Mem** (98 bytes)",
+        "- **Mem** (98 bytes, append-only)",
         "  - Notes (newest first) (1 entries)",
         "",
         "## Current memory",
@@ -372,9 +372,30 @@ describe("memory-review full prompt output", () => {
         "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
         "4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.",
         "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
+        "6. **Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files.",
         "",
-        "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
+        "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file.",
       ].join("\n"),
     )
+  })
+
+  it("labels a living file's entry policy in the structural overview", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-living-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "About Me", "Routines.md"),
+      "---\ntitle: Routines\ntype: profile\nentry-policy: living\n---\n\n# Routines\n\n## Upcoming (newest first)\n- **2026-07-11**: a plan\n",
+      "utf8",
+    )
+    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const text = textOf(await handler({ file: "Routines" }, fakeExtra))
+    // The policy must reach the overview line — this fails if the frontmatter
+    // property stops flowing through listMemoryFiles into the prompt.
+    expect(text).toContain("bytes, living)")
   })
 })

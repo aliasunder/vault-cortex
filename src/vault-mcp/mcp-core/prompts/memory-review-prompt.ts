@@ -3,7 +3,10 @@
  *  The memory layer is append-with-dates, read as an EVOLUTION — never a
  *  "newest supersedes older" record. This prompt narrates the trajectory and
  *  proposes append-only changes; it deliberately does not hunt for "stale"
- *  entries to prune or frame evolving beliefs as contradictions to reconcile. */
+ *  entries to prune or frame evolving beliefs as contradictions to reconcile.
+ *  The one exception is a file whose frontmatter declares `entry-policy:
+ *  living` (a current-state snapshot, e.g. a Routines file): there, expired
+ *  entries are maintenance debt, and the review may propose pruning them. */
 
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
@@ -26,7 +29,7 @@ export { PROMPT_NAMES as MEMORY_REVIEW_PROMPT_NAMES }
 
 /** Formats a single memory file outline as a bullet with scope and section details. */
 const formatFileOutline = (outline: MemoryFileOutline): string => {
-  const titleLine = `- **${outline.file}** (${outline.bytes} bytes)`
+  const titleLine = `- **${outline.file}** (${outline.bytes} bytes, ${outline.entry_policy})`
 
   const scopeLines = (outline.leading_callout?.body ?? "")
     .split("\n")
@@ -70,7 +73,7 @@ export const registerMemoryReviewPrompt = ({
     PROMPT_NAMES.MEMORY_REVIEW,
     {
       title: "Reflect on memory (read as an evolution)",
-      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates. Never prunes entries for being old.`,
+      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.`,
       argsSchema: {
         file: completable(
           z
@@ -200,8 +203,9 @@ export const registerMemoryReviewPrompt = ({
           "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
           `4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.`,
           "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
+          "6. **Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files.",
           "",
-          "Propose every change as an explicit vault_update_memory call (newest-first; the server stamps the date) and **confirm with me before writing anything**. Never delete an entry just for being old.",
+          "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file.",
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",

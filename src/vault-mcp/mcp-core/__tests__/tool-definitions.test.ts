@@ -165,7 +165,20 @@ describe("registerTools", () => {
     // Assert the full contract fragment — a bare "idempotent" check would
     // also pass on a reworded "not idempotent" description.
     expect(config.description).toContain(
-      "idempotent — an exact duplicate (same date + text in the same section) is a no-op",
+      "Idempotent — an exact duplicate (same date + text in the same section) is a no-op",
+    )
+  })
+
+  it("memory tool descriptions document the entry-policy contract", () => {
+    // Append-only is the default; the living opt-in must be discoverable from
+    // the tools that write, delete, and list memory — not only from templates.
+    const [, updateConfig] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    expect(updateConfig.description).toContain("entry-policy: living")
+    const [, deleteConfig] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    expect(deleteConfig.description).toContain("entry-policy: living")
+    const [, listConfig] = requireCall(TOOL_NAMES.VAULT_LIST_MEMORY_FILES)
+    expect(listConfig.description).toContain(
+      'entry_policy is "append-only" (the default',
     )
   })
 
