@@ -9,6 +9,10 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  parseMemoryEntries,
+  type MemoryEntry,
+} from "../obsidian-markdown/memory-entries.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -252,7 +256,15 @@ export const createSearchIndex = (
   dbPath: string,
   embedder?: Embedder,
   reranker?: Reranker,
+  options?: {
+    /** Vault-relative memory folder ("About Me"). When set, dated entries in
+     *  its direct-child .md files are additionally indexed at entry
+     *  granularity for vault_memory_recall; undefined (memory disabled)
+     *  skips the entry tables entirely. */
+    memoryDir?: string | undefined
+  },
 ) => {
+  const memoryDir = options?.memoryDir
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -355,6 +367,46 @@ export const createSearchIndex = (
         embedding float[384]
       );
     `)
+  }
+
+  // ── Memory-entry tables (vault_memory_recall) ──────────────────
+  // Created whenever a memory dir is configured: the entry rows and their FTS
+  // index power the lexical leg, which must work even with embeddings off —
+  // the same split as the always-on notes_fts vs the embedder-gated
+  // note_chunks. Only the vector table additionally requires the embedder.
+  //
+  // No UNIQUE(file, entry_index): the hash reconcile in upsertMemoryEntries
+  // UPDATEs indices in place as entries shift (memory appends insert at the
+  // top of a section), and SQLite checks uniqueness per-statement — not
+  // deferred — so mid-reconcile index collisions would be spurious errors.
+  if (memoryDir !== undefined) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_entries (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        file         TEXT NOT NULL,
+        section      TEXT NOT NULL,
+        entry_date   TEXT NOT NULL,
+        entry_text   TEXT NOT NULL,
+        entry_index  INTEGER NOT NULL,
+        content_hash TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_entries_file ON memory_entries(file);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts USING fts5(
+        entry_id UNINDEXED, file UNINDEXED, section, entry_text, tokenize='porter unicode61'
+      );
+    `)
+    if (embedder) {
+      // distance_metric=cosine (unlike note_vectors' L2 default): ordering is
+      // identical on L2-normalized bge vectors, but memoryRecall's fallback
+      // cut is a distance margin, which needs the interpretable cosine scale.
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_entry_vectors USING vec0(
+          entry_id  INTEGER PRIMARY KEY,
+          embedding float[384] distance_metric=cosine
+        );
+      `)
+    }
   }
 
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
@@ -495,6 +547,75 @@ export const createSearchIndex = (
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
     : null
+
+  // ── Memory-entry prepared statements (conditional on memoryDir) ──
+  const insertMemoryEntryStmt = memoryDir
+    ? db.prepare(
+        `INSERT INTO memory_entries (file, section, entry_date, entry_text, entry_index, content_hash)
+         VALUES (@file, @section, @entry_date, @entry_text, @entry_index, @content_hash)`,
+      )
+    : null
+  const updateMemoryEntryIndexStmt = memoryDir
+    ? db.prepare(`UPDATE memory_entries SET entry_index = ? WHERE id = ?`)
+    : null
+  const selectMemoryEntryHashesStmt = memoryDir
+    ? db.prepare<[string], { id: number; content_hash: string }>(
+        `SELECT id, content_hash FROM memory_entries WHERE file = ? ORDER BY entry_index`,
+      )
+    : null
+  const selectMemoryEntriesForFileStmt = memoryDir
+    ? db.prepare<[string], { id: number; section: string; entry_text: string }>(
+        `SELECT id, section, entry_text FROM memory_entries WHERE file = ?`,
+      )
+    : null
+  const deleteMemoryEntryByIdStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries WHERE id = ?`)
+    : null
+  const deleteMemoryEntriesForFileStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries WHERE file = ?`)
+    : null
+  const deleteMemoryFtsForFileStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries_fts WHERE file = ?`)
+    : null
+  const insertMemoryFtsStmt = memoryDir
+    ? db.prepare(
+        `INSERT INTO memory_entries_fts (entry_id, file, section, entry_text)
+         VALUES (@entry_id, @file, @section, @entry_text)`,
+      )
+    : null
+  const selectDistinctMemoryFilesStmt = memoryDir
+    ? db.prepare<[], { file: string }>(
+        `SELECT DISTINCT file FROM memory_entries`,
+      )
+    : null
+  // Vector side — additionally requires the embedder.
+  const selectUnembeddedMemoryEntriesStmt =
+    memoryDir && embedder
+      ? db.prepare<
+          [string],
+          { id: number; section: string; entry_text: string }
+        >(
+          `SELECT id, section, entry_text FROM memory_entries
+           WHERE file = ? AND id NOT IN (SELECT entry_id FROM memory_entry_vectors)
+           ORDER BY id`,
+        )
+      : null
+  const insertMemoryVectorStmt =
+    memoryDir && embedder
+      ? db.prepare(
+          `INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`,
+        )
+      : null
+  const deleteMemoryVectorByEntryIdStmt =
+    memoryDir && embedder
+      ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`)
+      : null
+  const deleteMemoryVectorsForFileStmt =
+    memoryDir && embedder
+      ? db.prepare(
+          `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
+        )
+      : null
 
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
@@ -640,6 +761,125 @@ export const createSearchIndex = (
     deleteNonMdFileStmt.run(filePath)
   }
 
+  // ── Memory-entry indexing ──────────────────────────────────────
+
+  /** Bare memory file name ("Principles") for notes that are DIRECT children
+   *  of the memory dir — the memory tool family's flat namespace, so recall
+   *  output feeds straight back into vault_get_memory / vault_delete_memory.
+   *  Null for every other path (nested subfolders included). */
+  const memoryFileNameFromPath = (filePath: string): string | null => {
+    if (memoryDir === undefined) return null
+    if (!filePath.endsWith(".md")) return null
+    if (posix.dirname(filePath) !== memoryDir) return null
+    return basename(filePath, ".md")
+  }
+
+  /** Identity hash for one entry — NUL-delimited so field boundaries can't
+   *  collide. Keyed on content, NOT position: memory appends insert at the
+   *  top of a section and shift every later entry's index, so index-keyed
+   *  hashes (the note_chunks pattern) would re-embed a whole file per append.
+   *  The date is included (a hand-edited date is a changed entry) even though
+   *  the embedding input excludes it. */
+  const memoryEntryHash = (entry: MemoryEntry): string =>
+    contentHash([entry.section, entry.date, entry.text].join("\u0000"))
+
+  /** Reconciles a memory file's parsed entries against its stored rows by
+   *  hash identity: unchanged entries keep their row id (and therefore their
+   *  vector) while their entry_index is refreshed in place; new entries are
+   *  inserted awaiting embedding; leftover rows — entries edited or pruned —
+   *  are deleted along with their vectors. The FTS side is rebuilt per file
+   *  (delete-then-insert, the notes_fts convention). Runs in one transaction;
+   *  embedding is NOT gated on these hashes but on vector absence, so a crash
+   *  between this upsert and embedMemoryEntriesForFile self-heals. */
+  const upsertMemoryEntries = (
+    memoryFile: string,
+    noteBody: string,
+    logger: Logger,
+  ): void => {
+    if (
+      !insertMemoryEntryStmt ||
+      !updateMemoryEntryIndexStmt ||
+      !selectMemoryEntryHashesStmt ||
+      !selectMemoryEntriesForFileStmt ||
+      !deleteMemoryEntryByIdStmt ||
+      !deleteMemoryFtsForFileStmt ||
+      !insertMemoryFtsStmt
+    ) {
+      return
+    }
+
+    const parsedEntries = parseMemoryEntries(splitIntoLines(noteBody))
+
+    db.transaction(() => {
+      // Queue per hash (not a plain map): hand-edited duplicates can give two
+      // entries the same hash, and each must claim its own row.
+      const rowIdQueuesByHash = new Map<string, number[]>()
+      for (const row of selectMemoryEntryHashesStmt.all(memoryFile)) {
+        const queue = rowIdQueuesByHash.get(row.content_hash) ?? []
+        queue.push(row.id)
+        rowIdQueuesByHash.set(row.content_hash, queue)
+      }
+
+      // Sequential reconcile — each parsed entry claims a matching stored row
+      // or inserts a new one; counters feed the summary log.
+      let insertedCount = 0
+      for (const entry of parsedEntries) {
+        const matchingRowId = rowIdQueuesByHash
+          .get(memoryEntryHash(entry))
+          ?.shift()
+        if (matchingRowId !== undefined) {
+          updateMemoryEntryIndexStmt.run(entry.entryIndex, matchingRowId)
+          continue
+        }
+        insertMemoryEntryStmt.run({
+          file: memoryFile,
+          section: entry.section,
+          entry_date: entry.date,
+          entry_text: entry.text,
+          entry_index: entry.entryIndex,
+          content_hash: memoryEntryHash(entry),
+        })
+        insertedCount++
+      }
+
+      // Unclaimed rows are entries that no longer exist (edited text hashes
+      // differently and was inserted fresh above; pruned text just vanishes).
+      let deletedCount = 0
+      for (const staleRowIds of rowIdQueuesByHash.values()) {
+        for (const staleRowId of staleRowIds) {
+          deleteMemoryVectorByEntryIdStmt?.run(BigInt(staleRowId))
+          deleteMemoryEntryByIdStmt.run(staleRowId)
+          deletedCount++
+        }
+      }
+
+      deleteMemoryFtsForFileStmt.run(memoryFile)
+      for (const row of selectMemoryEntriesForFileStmt.all(memoryFile)) {
+        insertMemoryFtsStmt.run({
+          entry_id: row.id,
+          file: memoryFile,
+          section: row.section,
+          entry_text: row.entry_text,
+        })
+      }
+
+      logger.debug("indexed memory entries", {
+        file: memoryFile,
+        total: parsedEntries.length,
+        inserted: insertedCount,
+        deleted: deletedCount,
+      })
+    })()
+  }
+
+  /** Deletes every entry row, FTS row, and vector for one memory file. */
+  const removeMemoryEntriesForFile = (memoryFile: string): void => {
+    if (!deleteMemoryEntriesForFileStmt || !deleteMemoryFtsForFileStmt) return
+    deleteMemoryVectorsForFileStmt?.run(memoryFile)
+    deleteMemoryEntriesForFileStmt.run(memoryFile)
+    deleteMemoryFtsForFileStmt.run(memoryFile)
+  }
+
   // ── Index maintenance ──────────────────────────────────────────
 
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
@@ -734,6 +974,13 @@ export const createSearchIndex = (
         heading: extractedTask.heading,
         folder: taskFolder,
       })
+    }
+
+    // Memory files additionally maintain their entry-granular index. Placed
+    // before the skipLinks return so rebuild Pass 1 covers it.
+    const memoryFile = memoryFileNameFromPath(filePath)
+    if (memoryFile !== null) {
+      upsertMemoryEntries(memoryFile, parsed.content, logger)
     }
 
     logger.debug("indexed note", {
@@ -872,18 +1119,92 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
-  /** Embed a note's content into vector storage. No-op when the embedding
-   *  pipeline is disabled (no embedder provided). Safe to call unconditionally. */
+  /** How many memory entries go to the embedder per embedBatch call. Entries
+   *  are uniformly short (~20–80 tokens), so padding waste inside a batch is
+   *  negligible while the initial whole-corpus backfill collapses from one
+   *  pipeline call per entry to one per 16. */
+  const MEMORY_EMBED_BATCH_SIZE = 16
+
+  /** Embeds every not-yet-embedded entry of one memory file. Table-driven:
+   *  upsertMemoryEntries is the single parse of truth, and this reads entry
+   *  texts straight from memory_entries WHERE no vector exists — gating on
+   *  vector ABSENCE rather than content hashes, so a crash between upsert and
+   *  embed self-heals on the next call. The embedding input prefixes the
+   *  section name (topic context, like the chunker's title prefix) but not
+   *  the date, which is semantic noise. Returns the number embedded. */
+  const embedMemoryEntriesForFile = async (
+    memoryFile: string,
+    logger: Logger,
+  ): Promise<number> => {
+    if (
+      !embedder ||
+      !selectUnembeddedMemoryEntriesStmt ||
+      !insertMemoryVectorStmt
+    ) {
+      return 0
+    }
+    const unembeddedRows = selectUnembeddedMemoryEntriesStmt.all(memoryFile)
+    if (unembeddedRows.length === 0) return 0
+
+    for (
+      let batchStart = 0;
+      batchStart < unembeddedRows.length;
+      batchStart += MEMORY_EMBED_BATCH_SIZE
+    ) {
+      const batchRows = unembeddedRows.slice(
+        batchStart,
+        batchStart + MEMORY_EMBED_BATCH_SIZE,
+      )
+      const embeddings = await embedder.embedBatch(
+        batchRows.map((row) => `${row.section}\n${row.entry_text}`),
+      )
+      db.transaction(() => {
+        batchRows.forEach((row, rowIndexInBatch) => {
+          const embedding = embeddings[rowIndexInBatch]
+          if (embedding === undefined) {
+            throw new Error(
+              `embedBatch returned ${String(embeddings.length)} vectors for ${String(batchRows.length)} entries`,
+            )
+          }
+          insertMemoryVectorStmt.run(
+            BigInt(row.id),
+            Buffer.from(
+              embedding.buffer,
+              embedding.byteOffset,
+              embedding.byteLength,
+            ),
+          )
+        })
+      })()
+    }
+
+    logger.debug("embedded memory entries", {
+      file: memoryFile,
+      embeddedCount: unembeddedRows.length,
+    })
+    return unembeddedRows.length
+  }
+
+  /** Embed a note's content into vector storage — section-level chunks for
+   *  every note, plus entry-level vectors when the note is a memory file.
+   *  No-op when the embedding pipeline is disabled (no embedder provided).
+   *  Safe to call unconditionally. */
   const embedNote = async (
     params: { notePath: string; rawContent: string },
     logger: Logger,
   ): Promise<void> => {
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
+    const memoryFile = memoryFileNameFromPath(params.notePath)
+    if (memoryFile !== null) {
+      await embedMemoryEntriesForFile(memoryFile, logger)
+    }
   }
 
-  /** Removes a note from the notes table, FTS index, links, tasks, and
-   *  vectors. */
+  /** Removes a note from the notes table, FTS index, links, tasks, vectors,
+   *  and — for memory files — the entry-granular index. A watcher rename
+   *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
+   *  its entries re-enter as new rows and re-embed once in the background. */
   const removeNote = (filePath: string): void => {
     deleteFtsStmt.run(filePath)
     removeNotesStmt.run(filePath)
@@ -892,6 +1213,10 @@ export const createSearchIndex = (
     if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
       deleteVectorsForNoteStmt.run(filePath)
       deleteChunksForNoteStmt.run(filePath)
+    }
+    const memoryFile = memoryFileNameFromPath(filePath)
+    if (memoryFile !== null) {
+      removeMemoryEntriesForFile(memoryFile)
     }
   }
 
@@ -977,6 +1302,30 @@ export const createSearchIndex = (
           },
           logger,
         )
+      }
+
+      // Entry-index reconciliation for memory files deleted while the server
+      // was down: memory_entries is not wiped above (like the vector tables,
+      // its rows survive on content-hash identity), so files that vanished
+      // from disk leave orphaned entries the per-file upsert never touches.
+      if (selectDistinctMemoryFilesStmt) {
+        const memoryFilesOnDisk = new Set(
+          noteContents
+            .map((note) => memoryFileNameFromPath(note.relativePath))
+            .filter((fileName) => fileName !== null),
+        )
+        const deletedMemoryFiles = selectDistinctMemoryFilesStmt
+          .all()
+          .map((row) => row.file)
+          .filter((fileName) => !memoryFilesOnDisk.has(fileName))
+        for (const deletedFile of deletedMemoryFiles) {
+          removeMemoryEntriesForFile(deletedFile)
+        }
+        if (deletedMemoryFiles.length > 0) {
+          logger.info("cleaned up entries for deleted memory files", {
+            count: deletedMemoryFiles.length,
+          })
+        }
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
@@ -1066,6 +1415,7 @@ export const createSearchIndex = (
 
           // Running totals accumulated across the sequential embedding loop
           let chunksEmbedded = 0
+          let entriesEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
             const currentNote = selectNoteMtimeStmt.get(note.relativePath)
@@ -1080,6 +1430,13 @@ export const createSearchIndex = (
                 { notePath: note.relativePath, rawContent: note.content },
                 logger,
               )
+              const memoryFile = memoryFileNameFromPath(note.relativePath)
+              if (memoryFile !== null) {
+                entriesEmbedded += await embedMemoryEntriesForFile(
+                  memoryFile,
+                  logger,
+                )
+              }
             } catch (err) {
               embedErrors++
               logger.warn("failed to embed note", {
@@ -1091,6 +1448,7 @@ export const createSearchIndex = (
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,
             chunksEmbedded,
+            ...(entriesEmbedded > 0 ? { entriesEmbedded } : {}),
             ...(embedErrors > 0 ? { embedErrors } : {}),
           })
         })()
