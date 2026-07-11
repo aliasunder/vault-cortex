@@ -232,6 +232,23 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
 | `vault_list_memory_files` | —                                | readOnlyHint     |
+| `vault_memory_recall`     | `query, file?, max_results?`     | readOnlyHint     |
+
+**Entry-granular recall:** `vault_memory_recall` retrieves at the dated-entry
+level — the granularity the other layers miss (`vault_get_memory` returns whole
+files/sections; `vault_search` is note-granular). A pure entry parser
+(`obsidian-markdown/memory-entries.ts`) feeds dedicated index tables:
+`memory_entries` + `memory_entries_fts` exist whenever the memory layer is on
+(the lexical leg works with embeddings off); `memory_entry_vectors` (cosine
+metric) additionally requires the embedder. Entries reconcile by content-hash
+identity rather than position, so a newest-first top-insert re-embeds exactly
+one entry. The query unions every lexical match with the vector top-100, fuses
+by RRF, then cuts on an absolute cross-encoder relevance floor
+(sigmoid ≥ 0.05; lexical hits always survive) so evolution-arc origins with
+drifted vocabulary are kept while vague queries stay bounded — degrading to a
+distance-margin cut without the reranker and lexical-only without vectors.
+Output ascends by date; truncation drops the least-relevant entries, never a
+date end.
 
 **Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
 

@@ -121,7 +121,7 @@ src/
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 12 tools: search, tags, tasks, properties, graph queries
-        memory-tools.ts                # 4 tools: get/update/list/delete memory
+        memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
@@ -130,7 +130,7 @@ src/
         daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
-      search-queries.ts                # All 16 query methods (FTS, hybrid, tags, tasks, links, etc.)
+      search-queries.ts                # All 17 query methods (FTS, hybrid, memory recall, tags, tasks, links, etc.)
       search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)

@@ -23,6 +23,7 @@ const READ_ONLY_TOOLS = [
   TOOL_NAMES.VAULT_RECENT_NOTES,
   TOOL_NAMES.VAULT_GET_MEMORY,
   TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+  TOOL_NAMES.VAULT_MEMORY_RECALL,
   TOOL_NAMES.VAULT_GET_DAILY_NOTE,
   TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
   TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
@@ -312,6 +313,7 @@ describe("config interpolation in descriptions", () => {
       toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     },
     { name: "vault_delete_memory", toolName: TOOL_NAMES.VAULT_DELETE_MEMORY },
+    { name: "vault_memory_recall", toolName: TOOL_NAMES.VAULT_MEMORY_RECALL },
     { name: "vault_read_note", toolName: TOOL_NAMES.VAULT_READ_NOTE },
   ] as const
 
@@ -568,12 +570,59 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
+describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
+  const registerWithConfig = (
+    env: Record<string, string>,
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig(env),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  const findRecallDescription = (
+    registeredCalls: RegisterToolCall[],
+  ): string => {
+    const recallCall = registeredCalls.find(
+      ([name]) => name === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+    if (!recallCall) throw new Error("vault_memory_recall not registered")
+    const description = recallCall[1].description
+    if (!description) throw new Error("vault_memory_recall has no description")
+    return description
+  }
+
+  it("describes hybrid recall when EMBEDDING_ENABLED=true", () => {
+    const description = findRecallDescription(registerWithConfig({}))
+    expect(description).toContain("hybrid (keyword + semantic)")
+    expect(description).toContain("oldest-first")
+    expect(description).toContain("recall over precision")
+    expect(description).toContain("truncated")
+  })
+
+  it("describes keyword-only recall when EMBEDDING_ENABLED=false", () => {
+    const description = findRecallDescription(
+      registerWithConfig({ EMBEDDING_ENABLED: "false" }),
+    )
+    expect(description).toContain("keyword retrieval")
+    expect(description).toContain("re-query with synonyms")
+    expect(description).not.toContain("hybrid")
+    expect(description).toContain('search_mode is always "fts"')
+  })
+})
+
 describe("MEMORY_ENABLED=false", () => {
   const MEMORY_TOOLS = [
     TOOL_NAMES.VAULT_GET_MEMORY,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     TOOL_NAMES.VAULT_DELETE_MEMORY,
+    TOOL_NAMES.VAULT_MEMORY_RECALL,
   ] as const
 
   const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
@@ -616,6 +665,88 @@ describe("MEMORY_ENABLED=false", () => {
         expect(description).not.toContain(memoryToolName)
       }
     }
+  })
+})
+
+describe("vault_memory_recall handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  /** Registers tools against a real in-memory index (no embedder — recall
+   *  serves its lexical leg) seeded with one memory file, so handler tests
+   *  exercise the actual query path including snake_case param mapping. */
+  const registerWithMemoryIndex = (): RegisterToolCall => {
+    const searchIndex = createSearchIndex(":memory:", undefined, undefined, {
+      memoryDir: "About Me",
+    })
+    searchIndex.upsertNote(
+      {
+        filePath: "About Me/Opinions.md",
+        rawContent: [
+          "# Opinions",
+          "",
+          "## Code patterns (newest first)",
+          "",
+          "- **2026-07-02**: Mutation checks catch weak tests.",
+          "- **2026-06-20**: Mutation of accumulators hides intent.",
+          "- **2026-05-07**: Mutation testing proves the fix matters.",
+        ].join("\n"),
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    const memoryMockServer = { registerTool: vi.fn() }
+    registerTools({
+      server: memoryMockServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: searchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const memoryCalls = memoryMockServer.registerTool.mock
+      .calls as RegisterToolCall[]
+    const call = memoryCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+    if (!call) throw new Error("vault_memory_recall not registered")
+    return call
+  }
+
+  it("maps max_results to the query layer and reports truncation", async () => {
+    const [, , handler] = registerWithMemoryIndex()
+    const result = (await handler(
+      { query: "mutation", max_results: 2 },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+    expect(result.isError).toBeUndefined()
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+      entries: Array<{ file: string; date: string }>
+      total: number
+      truncated: boolean
+      search_mode: string
+    }
+    // Three entries match "mutation"; max_results: 2 must reach the query
+    // layer (the truncation is only observable if the mapping worked).
+    expect(payload.total).toBe(3)
+    expect(payload.truncated).toBe(true)
+    expect(payload.entries).toHaveLength(2)
+    expect(payload.search_mode).toBe("fts")
+  })
+
+  it("returns an empty evidence set for a no-match query, not an error", async () => {
+    const [, , handler] = registerWithMemoryIndex()
+    const result = (await handler(
+      { query: "quantum chromodynamics" },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+    expect(result.isError).toBeUndefined()
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+      entries: unknown[]
+      total: number
+      truncated: boolean
+    }
+    expect(payload.entries).toEqual([])
+    expect(payload.total).toBe(0)
+    expect(payload.truncated).toBe(false)
   })
 })
 
