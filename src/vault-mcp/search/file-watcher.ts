@@ -1,4 +1,6 @@
-/** File watcher — keeps the SQLite FTS5 index and vector embeddings current via chokidar. */
+/** File watcher — keeps the SQLite FTS5 index and vector embeddings current
+ *  via chokidar events, plus a rescan safety net for the files chokidar's
+ *  new-directory handling loses (see rescanNewDirectory). */
 
 import { watch } from "chokidar"
 import { DateTime } from "luxon"
@@ -53,6 +55,12 @@ type FileWatcherOptions = Readonly<{
   newDirectoryRescanDelay?: number
 }>
 
+/**
+ * Watches the vault and mirrors every file add/change/delete into the search
+ * index, so search stays current without rebuilds. Resolves once the watcher
+ * is ready (initial scan done); the watcher then runs for the process
+ * lifetime — there is no shutdown path.
+ */
 export const startFileWatcher = (
   vaultPath: string,
   search: SearchIndex,
@@ -62,6 +70,9 @@ export const startFileWatcher = (
   // same file can't interleave and overwrite vectors with stale content.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
+  /** Indexes an added or modified file: non-md files land in the asset table;
+   *  notes are read from disk, upserted into the FTS index, and re-embedded
+   *  (embeds serialized per path via pendingEmbeds). */
   const handleChange = async (filePath: string): Promise<void> => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -119,6 +130,8 @@ export const startFileWatcher = (
     }
   }
 
+  /** Removes a deleted file from the index — the asset table for non-md
+   *  files, the note tables (FTS, links, tasks, vectors) for notes. */
   const handleDelete = (filePath: string): void => {
     const relativePath = relative(vaultPath, filePath)
 
@@ -170,12 +183,16 @@ export const startFileWatcher = (
     },
   })
 
-  // A file discovered mid-write inside a directory chokidar wasn't watching
-  // when the write began gets no replay event: watcher.add() registers
-  // directories without emitting for their existing contents. Unlike a file
-  // in an already-watched directory — whose write event is in flight behind
-  // awaitWriteFinish — waiting on chokidar would strand it unindexed, so poll
-  // until the write settles, then index. A vanished file ends the retry.
+  /**
+   * Polls a mid-write file until its writes settle, then indexes it. Serves
+   * the new-directory rescan (rescanNewDirectory, below) for one case: a file
+   * inside a directory chokidar wasn't watching when the write began. There,
+   * waiting on chokidar would strand the note unindexed forever — registering
+   * a directory (watcher.add) emits no events for content that already
+   * exists — whereas a file in an already-watched directory needs no retry:
+   * its own write event is in flight behind awaitWriteFinish. A vanished file
+   * ends the retry.
+   */
   const scheduleUnstableFileRetry = (filePath: string): void => {
     const retryTimer = setTimeout(() => {
       const indexIfSettled = async (): Promise<void> => {
@@ -201,15 +218,18 @@ export const startFileWatcher = (
     retryTimer.unref()
   }
 
-  // chokidar processes a newly-appeared directory by scanning it FIRST and
-  // registering its fs.watch only after the scan completes (_handleDir in
-  // chokidar's handler). A file that lands between the scan read and the watch
-  // registration is silently lost: the scan didn't see it and no watcher
-  // existed to observe the event. Our atomic writes (temp file + rename into a
-  // freshly created folder) hit that window under load, leaving the note
-  // invisible to search until an unrelated later event touches it. This rescan
-  // is the safety net: once the dust settles, reconcile the directory's actual
-  // contents against what chokidar tracks and index anything it missed.
+  /**
+   * The new-directory safety net. chokidar processes a newly-appeared
+   * directory by scanning it FIRST and registering its fs.watch only after
+   * the scan completes (_handleDir in chokidar's handler), so a file that
+   * lands between the scan read and the watch registration is silently lost —
+   * the scan didn't see it and no watcher existed to observe the event
+   * (chokidar#1471). Our atomic writes (temp file + rename into a freshly
+   * created folder) hit that window under load, leaving the note invisible to
+   * search until an unrelated later event touches it. This rescan reconciles
+   * the directory's actual contents against what chokidar tracks
+   * (getWatched) and indexes anything chokidar missed.
+   */
   const rescanNewDirectory = async (
     dirPath: string,
     visitedRealPaths: Set<string>,
@@ -306,6 +326,9 @@ export const startFileWatcher = (
     }
   }
 
+  /** Runs rescanNewDirectory once per new directory, delayed by
+   *  newDirectoryRescanDelay so in-flight writes settle before the rescan
+   *  reads them. Wired to chokidar's addDir event below. */
   const scheduleNewDirectoryRescan = (dirPath: string): void => {
     const rescanTimer = setTimeout(() => {
       rescanNewDirectory(dirPath, new Set()).catch((err) => {
