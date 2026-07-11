@@ -1205,7 +1205,7 @@ export const createSearchIndex = (
         batchRows.map((row) => `${row.section}\n${row.entry_text}`),
       )
       db.transaction(() => {
-        batchRows.forEach((row, rowIndexInBatch) => {
+        for (const [rowIndexInBatch, row] of batchRows.entries()) {
           const embedding = embeddings[rowIndexInBatch]
           if (embedding === undefined) {
             throw new Error(
@@ -1220,7 +1220,7 @@ export const createSearchIndex = (
               embedding.byteLength,
             ),
           )
-        })
+        }
       })()
     }
 
