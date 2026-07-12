@@ -36,6 +36,29 @@
 
 
 
+
+## [0.28.2] — 2026-07-12
+
+### ⚠ BREAKING CHANGES
+
+- `vault_write_note` now rejects with `"note already exists"` when writing to an existing path. Callers that intend to replace an existing note must pass `overwrite: true`.
+
+### Features
+
+- **vault-crud:** Default vault_write_note to create-only with opt-in overwrite (#311)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.28.1
+
+### CI / Infrastructure
+
+- Mirror Docker images to Docker Hub alongside GHCR (#313)
+
+### Maintenance
+
+- Optimize social-preview.png with optipng (351KB → 79KB) (#310)
+
 ## [0.28.1] — 2026-07-12
 
 ### Documentation
