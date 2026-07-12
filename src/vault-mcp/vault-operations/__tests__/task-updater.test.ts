@@ -141,11 +141,16 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Buy groceries",
+        changes: ["status: todo → done"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        `- [x] Buy groceries ➕ 2026-07-01 ✅ ${today()}`,
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Buy groceries ➕ 2026-07-01 ✅ ${today()}\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
       )
-      expect(result.changes).toContain(`status: todo → done`)
     })
 
     it("sets a task to in_progress", async () => {
@@ -369,17 +374,15 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Task A",
+        changes: ["status: todo → done", "lane: Active → Archive"],
+      })
       const content = await readTestNote(vault, "board.md")
-      const archiveSection =
-        content.split("## Archive")[1]?.split("## ")[0] ?? ""
-      expect(archiveSection).toContain("Task A")
-      expect(archiveSection).toMatch(/\[x\]/)
-      expect(archiveSection).toMatch(/✅ \d{4}-\d{2}-\d{2}/)
-      expect(result.changes).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining("status:"),
-          expect.stringContaining("lane: Active → Archive"),
-        ]),
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Archive\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
       )
     })
 
@@ -397,17 +400,21 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "board.md",
+        line: 15,
+        description: "In-progress task",
+        changes: ["status: in_progress → done", "lane: Active → Done"],
+      })
       const content = await readTestNote(vault, "board.md")
-      const doneSection = content.split("## Done")[1]?.split("## ")[0] ?? ""
-      expect(doneSection).toContain("In-progress task")
-      expect(doneSection).toMatch(/\[x\]/)
-      expect(doneSection).toMatch(/✅ \d{4}-\d{2}-\d{2}/)
-      expect(result.changes).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining("status:"),
-          expect.stringContaining("lane: Active → Done"),
-        ]),
+      const doneSection = content.split("## Done")[1]?.split("%%")[0] ?? ""
+      expect(doneSection).toBe(
+        `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
+      expect(result.changes).toEqual([
+        "status: in_progress → done",
+        "lane: Active → Done",
+      ])
     })
 
     it("rejects lane move on non-Kanban note", async () => {
