@@ -35,6 +35,14 @@
 
 
 
+
+## [0.28.1] — 2026-07-12
+
+### Documentation
+
+- Lead memory-recall copy with the current-perspective use (#309)
+- Update CHANGELOG.md for v0.28.0
+
 ## [0.28.0] — 2026-07-12
 
 ### Features
