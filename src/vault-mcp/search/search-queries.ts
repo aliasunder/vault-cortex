@@ -557,6 +557,9 @@ const tryRerankMemoryCandidates = async (
           `${candidate.row.file} > ${candidate.row.section}\n${candidate.row.entry_text}`,
       ),
     )
+    // Convert raw reranker scores to probabilities (0–1) via sigmoid —
+    // raw scores are unbounded (-10 to +10 typical); sigmoid maps them to
+    // a 0–1 scale where the adaptive floor comparisons work.
     const probabilityByEntryId = new Map<number, number>(
       candidates.flatMap((candidate, candidateIndex) => {
         const score = rerankScores[candidateIndex]
