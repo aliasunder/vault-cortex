@@ -509,10 +509,17 @@ describe("memoryRecall", () => {
     expect(recallLogCalls).toEqual([
       [
         "memory recall",
-        expect.objectContaining({
+        {
+          query: "how I like agents to communicate with me",
+          searchMode: "hybrid",
+          reranked: true,
+          ftsHits: 0,
+          vectorHits: 3,
+          matched: 2,
+          returned: 2,
           bestProbability: sigmoid(-1),
           effectiveFloor: sigmoid(-1) * 0.1,
-        }),
+        },
       ],
     ])
     // Both communication entries survive: "structured" at sigmoid(-3) ≈ 0.047
@@ -575,10 +582,17 @@ describe("memoryRecall", () => {
     expect(recallLogCalls).toEqual([
       [
         "memory recall",
-        expect.objectContaining({
+        {
+          query: "deep work and focus habits",
+          searchMode: "hybrid",
+          reranked: true,
+          ftsHits: 0,
+          vectorHits: 3,
+          matched: 1,
+          returned: 1,
           bestProbability: sigmoid(3),
           effectiveFloor: 0.05,
-        }),
+        },
       ],
     ])
   })
