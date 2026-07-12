@@ -304,12 +304,13 @@ describe("memoryRecall", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
     const result = await index.memoryRecall(
-      { query: "quantum chromodynamics" },
+      { query: "quantum chromodynamics of the vacuum" },
       logger,
     )
-    // No query term appears anywhere, so the any-term rescue also finds
-    // nothing — a genuine no-match keeps the pre-rescue wire shape and never
-    // logs the rescue fingerprint.
+    // No content word appears anywhere and the stopwords ("of", "the" — both
+    // present in fixture entries) are dropped from the rescue, so the
+    // any-term rescue also finds nothing — a genuine no-match keeps the
+    // pre-rescue wire shape and never logs the rescue fingerprint.
     expect(result.entries).toEqual([])
     expect(result.total).toBe(0)
     expect(result.truncated).toBe(false)

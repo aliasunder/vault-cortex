@@ -252,7 +252,9 @@ while vague queries stay bounded. Degrades to a distance-margin cut without the
 reranker and lexical-only without vectors. A result that would otherwise be
 empty — a meta-phrased query with no all-terms lexical anchor whose vector
 candidates all fall below the floor — retries the lexical leg with any-term
-(OR) matching before giving up; an empty rescue stays empty. Output ascends by
+(OR) matching over the query's content words (stopwords dropped, so "on" or
+"in" can't match the whole corpus) before giving up; an empty rescue stays
+empty. Output ascends by
 date; truncation drops the least-relevant entries, never a date end.
 
 **Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.

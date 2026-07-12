@@ -83,12 +83,32 @@ export const sanitizeFtsQuery = (raw: string): string => {
   return parts.length === 0 ? '""' : parts.join(" ")
 }
 
+/** English function words that would let an OR query match most of the
+ *  corpus ("on", "in", "the") — live verification showed a nonsense query
+ *  matching 176 entries through "in" alone. Lucene's classic English stopword
+ *  list plus the meta-question words recall queries carry ("what do I think
+ *  about…"). Applied only to the any-term rescue; the all-terms sanitizer
+ *  keeps every token. */
+const ANY_TERM_STOPWORDS = new Set([
+  ...["a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if"],
+  ...["in", "into", "is", "it", "no", "not", "of", "on", "or", "such"],
+  ...["that", "the", "their", "then", "there", "these", "they", "this"],
+  ...["to", "was", "will", "with"],
+  ...["i", "me", "my", "you", "your", "do", "does", "about"],
+  ...["what", "when", "where", "which", "who", "whom", "why", "how"],
+])
+
 /** Any-term (OR) variant of sanitizeFtsQuery — an entry matches when it
- *  contains ANY sanitized part instead of all of them. Used only by
- *  memoryRecall's zero-result rescue: bm25's idf weighting keeps ubiquitous
- *  tokens ("on", "the") from outranking content stems, so relevance ordering
- *  stays sane even though the match set is broad. */
+ *  contains ANY sanitized content word instead of all tokens. Used only by
+ *  memoryRecall's zero-result rescue. Stopwords are dropped so only content
+ *  words can anchor a match — an OR hit on "on" is every entry, not a signal
+ *  — and bm25's idf weighting orders the survivors by their rarest stems.
+ *  Quoted phrases and punctuated compounds are deliberate and always kept. */
 export const sanitizeFtsQueryAnyTerm = (raw: string): string => {
   const parts = sanitizedFtsParts(raw)
-  return parts.length === 0 ? '""' : parts.join(" OR ")
+  const contentParts = parts.filter(
+    (part) =>
+      part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()),
+  )
+  return contentParts.length === 0 ? '""' : contentParts.join(" OR ")
 }

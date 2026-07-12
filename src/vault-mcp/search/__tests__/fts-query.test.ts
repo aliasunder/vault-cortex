@@ -174,9 +174,9 @@ describe("sanitizeFtsQuery", () => {
 describe("sanitizeFtsQueryAnyTerm", () => {
   const scenarios = [
     {
-      name: "multi-word: terms joined with OR",
+      name: "multi-word: content terms joined with OR, stopword dropped",
       input: "opinions on testing",
-      expected: "opinions OR on OR testing",
+      expected: "opinions OR testing",
     },
     {
       name: "compound → quoted phrase, OR-joined with bare term",
@@ -207,6 +207,16 @@ describe("sanitizeFtsQueryAnyTerm", () => {
       name: "reserved word dropped from mixed input, remainder OR-joined",
       input: '"testing" AND notes',
       expected: '"testing" OR notes',
+    },
+    {
+      name: "all stopwords: empty result — nothing can anchor a rescue",
+      input: "what do I do about it",
+      expected: '""',
+    },
+    {
+      name: "stopword inside a quoted phrase is kept — phrases are deliberate",
+      input: '"on call" rotations',
+      expected: '"on call" OR rotations',
     },
   ]
 
