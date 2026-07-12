@@ -40,7 +40,9 @@ docker compose up
 ```
 
 Add `-d` to run in the background. First start pulls the image (~150MB) and
-builds the search index — this takes a few seconds depending on vault size.
+builds the keyword index in seconds; the semantic (embedding) index builds in
+the background — expect a few minutes on a large vault, with search served
+keyword-only until it finishes.
 
 ## Connect your MCP client
 
@@ -198,7 +200,8 @@ On first startup, if your vault doesn't already have a memory folder (default:
 `About Me/`), the server creates one with template files (Me.md, Opinions.md,
 Principles.md, Routines.md, Agents.md). Agents can also create new memory files
 and sections on the fly via `vault_update_memory` — no manual setup needed.
-Memory files are append-only by default; a file can declare
+Once entries accumulate, `vault_memory_recall` answers topic questions across
+the layer's full dated history. Memory files are append-only by default; a file can declare
 `entry-policy: living` in frontmatter for current-state content whose expired
 entries get pruned (the Routines template ships this way) — see
 [templates/memory](../../templates/memory/README.md) for the full convention.
