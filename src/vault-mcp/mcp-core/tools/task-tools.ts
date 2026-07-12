@@ -251,35 +251,33 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, or Kanban lane in a single call. Composes multiple mutations atomically — status + priority + lane move all happen in one read-modify-write cycle.
+      description: `Update a task's status, priority, or Kanban lane in a single atomic call. Multiple mutations compose — status + priority + lane move all apply in one write cycle.
 
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane (detected via **Complete** marker or "Done" heading)
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", line: 42, priority: "high" }) — set priority
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", lane: "Active" }) — start working on a task and move it to Active
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", lane: "Up Next" }) — move a task between lanes without changing status
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", lane: "Active" }) — start working and move to Active
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", lane: "Up Next" }) — lane move without status change
 Example: vault_update_task({ path: "TASKS.md", line: 15, priority: "none" }) — remove priority
 
-When to use: Any task state change — completing, starting, re-prioritizing, or moving between Kanban lanes. Replaces the multi-call pattern of vault_read_note + vault_delete_span + vault_patch_note for Kanban moves. Use vault_list_tasks first to get the task's path, line, and block_id for identification. For Kanban boards, check done_lanes from vault_list_tasks to know which lane to pass when multiple done lanes exist.
+When to use: Any task state change — completing, starting, re-prioritizing, or moving between Kanban lanes. Use vault_list_tasks first to get identification fields (path + block_id or line). For Kanban boards with multiple done lanes, check done_lanes from vault_list_tasks to know which to pass.
 
 Parameters:
-- path: vault-relative path to the note containing the task (must end in ".md")
-- block_id: stable task identifier (the ^block-id at end of the task line, without the ^). Preferred over line because it survives edits above the task. Exactly one of block_id or line is required.
-- line: 1-based line number from vault_list_tasks. Fragile if the file has changed since the query — prefer block_id when available.
-- status: "todo" | "in_progress" | "done" | "cancelled". Changes the checkbox character and manages dates: done appends ✅ date, cancelled appends ❌ date, todo/in_progress removes completion dates.
-- priority: "highest" | "high" | "medium" | "low" | "lowest" | "none". Sets or changes the priority emoji (🔺⏫🔼🔽⏬). "none" removes the priority emoji.
-- lane: target Kanban heading name for a lane move. Only valid on notes with kanban-plugin frontmatter (is_kanban_task: true in vault_list_tasks). When status is "done" on a Kanban board and lane is omitted, the tool auto-detects the done lane.
+- Exactly one of block_id or line is required to identify the task.
+- At least one of status, priority, or lane is required (the mutation).
+- status changes the checkbox and manages dates: "done" appends ✅ date, "cancelled" appends ❌ date, "todo"/"in_progress" removes completion dates. On a Kanban board, "done" without an explicit lane auto-detects the done lane (via **Complete** marker, falling back to "Done" heading).
+- lane is only valid on notes with kanban-plugin frontmatter (is_kanban_task in vault_list_tasks).
 
 Errors:
 - "note not found" — path does not exist
-- "no task at line N" — line number doesn't contain a task checkbox
+- "no task at line N" — line doesn't contain a task checkbox
 - "block_id not found" — no task line ends with ^block_id
 - "at least one mutation required" — none of status, priority, or lane provided
-- "lane requires a Kanban board" — lane param on a note without kanban-plugin frontmatter
-- "heading not found" — target lane heading doesn't exist; lists available headings
-- "multiple done lanes detected" — auto-completion found >1 done lane; pass lane explicitly (check done_lanes from vault_list_tasks)
-- "no done lane detected" — auto-completion but no **Complete** marker and no "Done" heading
+- "lane requires a Kanban board" — lane on a note without kanban-plugin frontmatter
+- "heading not found" — target lane doesn't exist; lists available headings
+- "multiple done lanes detected" — pass lane explicitly (check done_lanes)
+- "no done lane detected" — no **Complete** marker and no "Done" heading
 
-Returns: JSON { path, line, description, changes } — line is the task's final 1-based line number (may differ from input if the lane move shifted it), description is a short excerpt, changes is a human-readable list of what changed.`,
+Returns: JSON { path, line, description, changes } — line is the final 1-based position (may shift after a lane move), description is a short excerpt, changes lists what was applied.`,
       inputSchema: {
         path: z
           .string()
