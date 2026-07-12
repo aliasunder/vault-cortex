@@ -1,7 +1,10 @@
 name: Sync Docker Hub Description
 
 on:
-  workflow_call: {}
+  workflow_call:
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
