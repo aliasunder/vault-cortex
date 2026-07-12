@@ -785,10 +785,10 @@ export const memoryRecall = async (
       matched: result.total,
       returned: result.entries.length,
       ...(diagnostics.anyTermRescue ? { anyTermRescue: true } : {}),
-      ...(diagnostics.bestProbability !== undefined
+      ...(diagnostics.bestProbability
         ? { bestProbability: diagnostics.bestProbability }
         : {}),
-      ...(diagnostics.effectiveFloor !== undefined
+      ...(diagnostics.effectiveFloor
         ? { effectiveFloor: diagnostics.effectiveFloor }
         : {}),
     })
