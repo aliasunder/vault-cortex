@@ -660,6 +660,7 @@ missing. Use a browser-based render for correct font weight:
    img.src = u
    ```
 4. Move the downloaded file to `assets/social-preview.png`
+5. Optimize: `optipng -o7 -strip all assets/social-preview.png`
 
 Not every PR touches these — a new tool in an existing category needs
 a `server.json` + `README.md` count bump but nothing else. A module
