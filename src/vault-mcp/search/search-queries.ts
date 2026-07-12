@@ -550,7 +550,7 @@ const tryRerankMemoryCandidates = async (
   effectiveFloor: number
 } | null> => {
   try {
-    const logits = await reranker.rerankPairs(
+    const rerankScores = await reranker.rerankPairs(
       query,
       candidates.map(
         (candidate) =>
@@ -559,10 +559,10 @@ const tryRerankMemoryCandidates = async (
     )
     const probabilityByEntryId = new Map<number, number>(
       candidates.flatMap((candidate, candidateIndex) => {
-        const logit = logits[candidateIndex]
-        return logit === undefined
+        const score = rerankScores[candidateIndex]
+        return score === undefined
           ? []
-          : [[candidate.row.id, sigmoid(logit)] as const]
+          : [[candidate.row.id, sigmoid(score)] as const]
       }),
     )
 
@@ -594,7 +594,7 @@ const tryRerankMemoryCandidates = async (
     )
     return {
       kept,
-      // Missing probability (a logits/candidates length mismatch that cannot
+      // Missing probability (a scores/candidates length mismatch that cannot
       // normally happen) sorts as least relevant, not as an error.
       relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
       bestProbability,
