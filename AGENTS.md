@@ -617,7 +617,7 @@ changed:
 | `README.md`                          | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
 | `ARCHITECTURE.md`                    | New component, requirement, or design decision; component diagram changes                                                                                |
 | `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields), description changes. `description` has a 100-character limit per the MCP registry schema.  |
-| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits                                                                               |
+| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits (see recipe below table)                                                      |
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
@@ -626,6 +626,36 @@ changed:
 | `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
+
+**Regenerating `social-preview.png`:** The SVG uses `font-family="DejaVu Sans"`
+for the subtitle and feature line (`<text>` elements — the wordmark is already
+paths). `rsvg-convert` renders these thinner than intended when DejaVu Sans is
+missing. Use a browser-based render for correct font weight:
+
+1. Start a local server: `python3 -m http.server 8765 --directory assets`
+2. Open `http://localhost:8765/social-preview.svg` in Chrome
+3. Open DevTools console and run:
+   ```js
+   const c = Object.assign(document.createElement("canvas"), {
+     width: 1280,
+     height: 640,
+   })
+   const img = new Image()
+   const b = new Blob([document.querySelector("svg").outerHTML], {
+     type: "image/svg+xml",
+   })
+   const u = URL.createObjectURL(b)
+   img.onload = () => {
+     c.getContext("2d").drawImage(img, 0, 0, 1280, 640)
+     URL.revokeObjectURL(u)
+     Object.assign(document.createElement("a"), {
+       href: c.toDataURL("image/png"),
+       download: "social-preview.png",
+     }).click()
+   }
+   img.src = u
+   ```
+4. Move the downloaded file to `assets/social-preview.png`
 
 Not every PR touches these — a new tool in an existing category needs
 a `server.json` + `README.md` count bump but nothing else. A module
