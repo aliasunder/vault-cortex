@@ -201,6 +201,19 @@ describe("registerTools", () => {
     expect(config.description).toContain("keys set to null removed")
   })
 
+  it("vault_write_note description documents the already-exists error", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
+    expect(config.description).toContain("note already exists")
+  })
+
+  it("vault_write_note exposes an optional overwrite boolean in its schema", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
+    const overwriteSchema = config.inputSchema?.overwrite
+    expect(overwriteSchema).toBeDefined()
+    expect(overwriteSchema?.safeParse(true).success).toBe(true)
+    expect(overwriteSchema?.safeParse(undefined).success).toBe(true)
+  })
+
   it("vault_recent_notes description documents sorting behavior", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)
     expect(config.description).toContain("filesystem mtime")
@@ -284,6 +297,11 @@ describe("annotations", () => {
   it("vault_update_memory has idempotentHint: true (exact duplicates are no-ops)", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
     expect(config.annotations?.idempotentHint).toBe(true)
+  })
+
+  it("vault_write_note has idempotentHint: false (create-only default errors on retry)", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
+    expect(config.annotations?.idempotentHint).toBe(false)
   })
 
   it("all tools have openWorldHint: false", () => {

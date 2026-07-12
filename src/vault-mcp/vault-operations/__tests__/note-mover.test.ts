@@ -1019,11 +1019,21 @@ describe("moveNote — concurrent write locking", () => {
       logger,
     )
     await vaultFs.writeNote(
-      { vaultPath: vault, path: "Hub.md", body: "rewritten after move" },
+      {
+        vaultPath: vault,
+        path: "Hub.md",
+        body: "rewritten after move",
+        overwrite: true,
+      },
       logger,
     )
     await vaultFs.writeNote(
-      { vaultPath: vault, path: "Bar.md", body: "updated after move" },
+      {
+        vaultPath: vault,
+        path: "Bar.md",
+        body: "updated after move",
+        overwrite: true,
+      },
       logger,
     )
     expect(await readNote("Foo.md")).toBe("recreated after move\n")
@@ -1046,15 +1056,30 @@ describe("moveNote — concurrent write locking", () => {
     // Every path the failed move locked (old path, destination, backlink
     // source) accepts writes again.
     await vaultFs.writeNote(
-      { vaultPath: vault, path: "Foo.md", body: "written after failed move" },
+      {
+        vaultPath: vault,
+        path: "Foo.md",
+        body: "written after failed move",
+        overwrite: true,
+      },
       logger,
     )
     await vaultFs.writeNote(
-      { vaultPath: vault, path: "Bar.md", body: "destination writable" },
+      {
+        vaultPath: vault,
+        path: "Bar.md",
+        body: "destination writable",
+        overwrite: true,
+      },
       logger,
     )
     await vaultFs.writeNote(
-      { vaultPath: vault, path: "Hub.md", body: "also writable" },
+      {
+        vaultPath: vault,
+        path: "Hub.md",
+        body: "also writable",
+        overwrite: true,
+      },
       logger,
     )
     expect(await readNote("Foo.md")).toBe("written after failed move\n")

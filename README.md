@@ -200,7 +200,7 @@ See [templates/memory](./templates/memory/) for the file format, entry-policy co
 | Category        | Tool                         | Description                                                                         |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
 | **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                          |
-|                 | `vault_write_note`           | Create or overwrite a note with properties                                          |
+|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)              |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)                            |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                                                     |
 |                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                          |
