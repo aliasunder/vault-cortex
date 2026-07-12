@@ -42,7 +42,7 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
       SST_STAGE: ${{ secrets.SST_STAGE }}
       IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
-      IMAGE_HUB: docker.io/${{ vars.DOCKERHUB_USERNAME }}/vault-cortex
+      IMAGE_HUB: ${{ vars.DOCKERHUB_USERNAME != '' && format('docker.io/{0}/vault-cortex', vars.DOCKERHUB_USERNAME) || '' }}
       TAILSCALE_ENABLED: ${{ secrets.TAILSCALE_SSH_HOST != '' }}
     steps:
       # Build from the release tag, not the default checkout SHA. On a manual
@@ -135,7 +135,7 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Log in to Docker Hub (build push)
-        if: ${{ !inputs.skip_build }}
+        if: ${{ !inputs.skip_build && env.IMAGE_HUB != '' }}
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
@@ -158,8 +158,8 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:v${{ inputs.version }}-remote
             ${{ env.IMAGE }}:remote
-            ${{ env.IMAGE_HUB }}:v${{ inputs.version }}-remote
-            ${{ env.IMAGE_HUB }}:remote
+            ${{ env.IMAGE_HUB != '' && format('{0}:v{1}-remote', env.IMAGE_HUB, inputs.version) || '' }}
+            ${{ env.IMAGE_HUB != '' && format('{0}:remote', env.IMAGE_HUB) || '' }}
           # Mirror the remote-stage Dockerfile LABEL description.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
@@ -181,9 +181,9 @@ jobs:
             ${{ env.IMAGE }}:v${{ inputs.version }}
             ${{ env.IMAGE }}:${{ inputs.version }}
             ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE_HUB }}:v${{ inputs.version }}
-            ${{ env.IMAGE_HUB }}:${{ inputs.version }}
-            ${{ env.IMAGE_HUB }}:latest
+            ${{ env.IMAGE_HUB != '' && format('{0}:v{1}', env.IMAGE_HUB, inputs.version) || '' }}
+            ${{ env.IMAGE_HUB != '' && format('{0}:{1}', env.IMAGE_HUB, inputs.version) || '' }}
+            ${{ env.IMAGE_HUB != '' && format('{0}:latest', env.IMAGE_HUB) || '' }}
           # GHCR shows a multi-arch package's description from the image *index*
           # annotation (a Dockerfile LABEL alone doesn't surface on the package
           # page). Mirror the server.json / Dockerfile description here.
