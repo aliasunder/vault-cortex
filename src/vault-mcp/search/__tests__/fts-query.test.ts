@@ -198,6 +198,16 @@ describe("sanitizeFtsQueryAnyTerm", () => {
       input: "",
       expected: '""',
     },
+    {
+      name: "quoted phrase preserved, stray hyphen stripped, OR-joined",
+      input: '"opinions on testing" -beta',
+      expected: '"opinions on testing" OR beta',
+    },
+    {
+      name: "reserved word dropped from mixed input, remainder OR-joined",
+      input: '"testing" AND notes',
+      expected: '"testing" OR notes',
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {

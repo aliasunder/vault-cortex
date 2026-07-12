@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, onTestFinished } from "vitest"
 vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
 import type { Reranker } from "../reranker.js"
@@ -301,17 +301,24 @@ describe("memoryRecall", () => {
     const index = await createRecallIndex({
       reranker: createTopicMockReranker(),
     })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
     const result = await index.memoryRecall(
       { query: "quantum chromodynamics" },
       logger,
     )
     // No query term appears anywhere, so the any-term rescue also finds
-    // nothing — a genuine no-match keeps the pre-rescue wire shape.
+    // nothing — a genuine no-match keeps the pre-rescue wire shape and never
+    // logs the rescue fingerprint.
     expect(result.entries).toEqual([])
     expect(result.total).toBe(0)
     expect(result.truncated).toBe(false)
     expect(result.search_mode).toBe("hybrid")
     expect(result.reranked).toBe(true)
+    const rescueLogCalls = infoSpy.mock.calls.filter(
+      ([, data]) => data !== undefined && Object.hasOwn(data, "anyTermRescue"),
+    )
+    expect(rescueLogCalls).toEqual([])
   })
 
   it("does not throw on FTS metacharacters in the query", async () => {
@@ -401,6 +408,8 @@ describe("memoryRecall", () => {
   it("rescues a meta-phrased query with any-term matching when the rerank cut rejects every candidate", async () => {
     const reranker = createTopicMockReranker()
     const index = await createRecallIndex({ reranker })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
     // "opinions on testing" has no all-terms lexical match (no entry contains
     // all three stems) and the off-topic mock reranker rejects every vector
     // candidate — exactly the live zero-result defect. The any-term rescue
@@ -424,6 +433,26 @@ describe("memoryRecall", () => {
     expect(result.truncated).toBe(false)
     expect(result.search_mode).toBe("fts")
     expect(result.reranked).toBe(false)
+    // The ops fingerprint: exactly one log line carries anyTermRescue, with
+    // the full rescue shape — monitoring keys on this flag.
+    const rescueLogCalls = infoSpy.mock.calls.filter(
+      ([, data]) => data !== undefined && Object.hasOwn(data, "anyTermRescue"),
+    )
+    expect(rescueLogCalls).toEqual([
+      [
+        "memory recall",
+        {
+          query: "opinions on testing",
+          searchMode: "fts",
+          reranked: false,
+          ftsHits: 0,
+          vectorHits: 4,
+          matched: 1,
+          returned: 1,
+          anyTermRescue: true,
+        },
+      ],
+    ])
   })
 
   it("does not degrade to any-term matching when the rerank cut keeps a candidate", async () => {
@@ -497,8 +526,49 @@ describe("memoryRecall", () => {
     expect(result.search_mode).toBe("fts")
   })
 
+  it("stays empty without the rescue fingerprint when any-term hits exist only in excluded files", async () => {
+    const index = await createRecallIndex({
+      reranker: createTopicMockReranker(),
+      files: {
+        // Alpha shares no stem with the query — its entry can never be an
+        // any-term hit.
+        Alpha: `# Alpha
+
+## Code patterns (newest first)
+
+- **2026-05-01**: Tooling choices differ here.
+`,
+        // Beta holds the only any-term hit ("testing") — excluded by file.
+        Beta: `# Beta
+
+## Code patterns (newest first)
+
+- **2026-05-02**: Integration testing habits differ in Beta.
+`,
+      },
+    })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+    const result = await index.memoryRecall(
+      { query: "opinions on testing", file: "Alpha" },
+      logger,
+    )
+    // The filter empties the rescue set — a filtered-to-empty result keeps
+    // the genuine no-match shape and never logs the rescue fingerprint.
+    expect(result.entries).toEqual([])
+    expect(result.total).toBe(0)
+    expect(result.search_mode).toBe("hybrid")
+    expect(result.reranked).toBe(true)
+    const rescueLogCalls = infoSpy.mock.calls.filter(
+      ([, data]) => data !== undefined && Object.hasOwn(data, "anyTermRescue"),
+    )
+    expect(rescueLogCalls).toEqual([])
+  })
+
   it("rescues a meta-phrased query in lexical-only mode when no embedder exists", async () => {
     const index = await createRecallIndex({ withEmbedder: false })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
     // Without vectors the all-terms leg is the only leg — an empty result
     // there must degrade to any-term matching too.
     const result = await index.memoryRecall(
@@ -515,5 +585,24 @@ describe("memoryRecall", () => {
     ])
     expect(result.search_mode).toBe("fts")
     expect(result.reranked).toBe(false)
+    // The lexical-only path emits the same ops fingerprint as the hybrid one.
+    const rescueLogCalls = infoSpy.mock.calls.filter(
+      ([, data]) => data !== undefined && Object.hasOwn(data, "anyTermRescue"),
+    )
+    expect(rescueLogCalls).toEqual([
+      [
+        "memory recall",
+        {
+          query: "opinions on testing",
+          searchMode: "fts",
+          reranked: false,
+          ftsHits: 0,
+          vectorHits: 0,
+          matched: 1,
+          returned: 1,
+          anyTermRescue: true,
+        },
+      ],
+    ])
   })
 })
