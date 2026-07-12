@@ -106,10 +106,10 @@ convention:
    spaces" is more useful than a single overwritten value
 3. **Semantic retrieval** — dated entries are the corpus for
    `vault_memory_recall`, which retrieves every entry about a topic,
-   keyword- and semantically-matched. That serves temporal questions ("how
-   has the user's stance on X evolved?") and current ones ("what's the
-   user's take on X today?") equally: the newest entries in the arc carry
-   the current perspective, and the history behind them provides the
+   keyword- and semantically-matched. That serves current questions
+   ("what's the user's take on X today?") as much as temporal ones ("how
+   has the user's stance on X evolved?"): the newest entries in the arc
+   carry the current take, and the history behind them provides the
    context it was reached through. For `entry-policy: living` files, whose
    entries are the current state itself, recall surfaces the active
    commitments and logistics that match the topic
