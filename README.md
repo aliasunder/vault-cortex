@@ -183,11 +183,17 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 
 ## Memory
 
-The memory layer is a folder of plain Markdown files (default: `About Me/`) holding dated, append-only entries under topic sections — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Entries are never overwritten: corrections arrive as new dated entries, so the layer accumulates your current preferences _and_ the history of how they got there. Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter, marking their expired entries as prunable.
+AI agents start every session without context about you — your preferences, principles, communication style, ongoing commitments. Without a persistent memory layer, you repeat yourself across sessions or get generic output. The memory system solves this: agents accumulate knowledge about you over time and retrieve exactly the context they need, even as the memory grows beyond what any single context window could hold.
 
-`vault_memory_recall` retrieves the layer by topic: every relevant dated entry across all memory files, keyword- and semantically-matched, oldest first. Ask "what do I think about X?" — the newest entries carry the current take, and the entries behind them show how it evolved. Capping results (`max_results`) drops the least-relevant entries, never a slice of the timeline.
+The layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Three properties make it work:
 
-See [templates/memory](./templates/memory/) for the file format, the entry-policy convention, and the starter templates.
+- **Append-only** — entries are never overwritten; corrections arrive as new dated entries. The layer becomes a personal knowledge base that captures your current state _and_ the evolution behind it
+- **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, keyword- and semantically-matched, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
+- **Grows without degrading** — capping results (`max_results`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
+
+Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
+
+See [templates/memory](./templates/memory/) for the file format, entry-policy convention, and starter templates.
 
 ## Tools (27)
 
