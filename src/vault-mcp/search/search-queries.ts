@@ -452,10 +452,10 @@ const MEMORY_RERANK_CANDIDATE_LIMIT = 120
  *  through. */
 const MEMORY_RECALL_SANITY_FLOOR = 0.001
 
-/** Upper bound on the adaptive relevance floor — preserves the current
+/** Maximum value the adaptive floor can take — preserves the current
  *  absolute cut for high-confidence queries (best probability near 1.0) so
  *  this change is a strict non-regression on working queries. */
-const MEMORY_RECALL_ABSOLUTE_FLOOR = 0.05
+const MEMORY_RECALL_MAX_FLOOR = 0.05
 
 /** Relative margin: keep an entry scoring at least this fraction of the
  *  best non-ftsHit probability. 0.1 (10%) tracks the empirical cluster
@@ -573,11 +573,11 @@ const tryRerankMemoryCandidates = async (
     const bestProbability =
       nonFtsHitProbabilities.length > 0
         ? Math.max(...nonFtsHitProbabilities)
-        : MEMORY_RECALL_ABSOLUTE_FLOOR
+        : MEMORY_RECALL_MAX_FLOOR
     const relativeThreshold = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
     const effectiveFloor = Math.max(
       MEMORY_RECALL_SANITY_FLOOR,
-      Math.min(MEMORY_RECALL_ABSOLUTE_FLOOR, relativeThreshold),
+      Math.min(MEMORY_RECALL_MAX_FLOOR, relativeThreshold),
     )
 
     const kept = candidates.filter(

@@ -493,17 +493,93 @@ describe("memoryRecall", () => {
 `,
       },
     })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
     const { entries, reranked } = await index.memoryRecall(
       { query: "how I like agents to communicate with me" },
       logger,
     )
     expect(reranked).toBe(true)
+    // Verify the adaptive floor computed correctly — not just that entries
+    // survived. Without this, the test would also pass if the computation
+    // degenerated to the sanity floor (0.001).
+    const recallLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall",
+    )
+    expect(recallLogCalls).toEqual([
+      [
+        "memory recall",
+        expect.objectContaining({
+          bestProbability: sigmoid(-1),
+          effectiveFloor: sigmoid(-1) * 0.1,
+        }),
+      ],
+    ])
     // Both communication entries survive: "structured" at sigmoid(-3) ≈ 0.047
     // would be cut by the old absolute floor (0.05) but the adaptive floor
     // lowers to ~0.027 when the best probability is only ~0.27.
     expect(entries.map((entry) => entry.date)).toEqual([
       "2026-06-15",
       "2026-07-01",
+    ])
+  })
+
+  it("clips the adaptive floor to the max floor for high-confidence queries", async () => {
+    // When the best probability is high (sigmoid(3) ≈ 0.95), the relative
+    // threshold (0.095) exceeds MAX_FLOOR (0.05) — the ceiling must bind
+    // so good queries behave identically to the old absolute cutoff.
+    const confidentReranker: Reranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) =>
+          Promise.resolve(
+            documents.map((document) => {
+              const lowered = document.toLowerCase()
+              if (lowered.includes("focused")) return 3
+              if (lowered.includes("borderline")) return -3
+              return -8
+            }),
+          ),
+        ),
+    }
+    const index = await createRecallIndex({
+      reranker: confidentReranker,
+      files: {
+        Principles: `# Principles
+
+## Working style (newest first)
+
+- **2026-07-02**: Focused deep work in the morning is non-negotiable.
+- **2026-06-15**: Borderline distractions get cut after the first hour.
+
+## Unrelated (newest first)
+
+- **2026-03-01**: Office supplies were restocked on schedule.
+`,
+      },
+    })
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+    const { entries, reranked } = await index.memoryRecall(
+      { query: "deep work and focus habits" },
+      logger,
+    )
+    expect(reranked).toBe(true)
+    // "borderline" at sigmoid(-3) ≈ 0.047 is below MAX_FLOOR (0.05) — the
+    // ceiling binds, so the entry is cut just as it would be under the old
+    // absolute floor. Only the strong "focused" entry survives.
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
+    const recallLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall",
+    )
+    expect(recallLogCalls).toEqual([
+      [
+        "memory recall",
+        expect.objectContaining({
+          bestProbability: sigmoid(3),
+          effectiveFloor: 0.05,
+        }),
+      ],
     ])
   })
 
