@@ -1211,7 +1211,8 @@ export const listTasks = (
            t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
            t.tags, t.block_id, t.heading, t.folder,
            CASE WHEN json_extract(n.properties, '$.kanban-plugin') IS NOT NULL
-                THEN 1 ELSE 0 END AS is_kanban_task
+                THEN 1 ELSE 0 END AS is_kanban_task,
+           n.kanban_done_lanes
     FROM tasks t
     JOIN notes n ON n.path = t.note_path
     ${whereClause}

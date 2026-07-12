@@ -1,0 +1,347 @@
+/** Task updater — surgical task-line edits within a single note.
+ *
+ *  Handles status changes, priority changes, and Kanban lane moves
+ *  as a single atomic read-modify-write under one exclusive file lock. */
+
+import { readFile } from "node:fs/promises"
+import { DateTime } from "luxon"
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
+import { parseHeadings } from "../obsidian-markdown/headings.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { tasks } from "../obsidian-markdown/tasks.js"
+import type { TaskStatus, TaskPriority } from "../obsidian-markdown/tasks.js"
+import type { Logger } from "../../logger.js"
+
+// ── Types ───────────────────────────────────────────────────────
+
+export type UpdateTaskParams = {
+  vaultPath: string
+  path: string
+  blockId?: string | undefined
+  line?: number | undefined
+  status?: TaskStatus | undefined
+  priority?: TaskPriority | "none" | undefined
+  lane?: string | undefined
+}
+
+export type UpdateTaskResult = {
+  path: string
+  line: number
+  description: string
+  changes: string[]
+}
+
+// ── Internal helpers ────────────────────────────────────────────
+
+/** Reads a note for task mutation, returning frontmatter + body lines. */
+const readNoteForUpdate = async (
+  vaultPath: string,
+  path: string,
+): Promise<{
+  fullPath: string
+  data: Record<string, unknown>
+  lines: string[]
+}> => {
+  assertPathHasExtension(path, ".md")
+  const fullPath = resolveSafePath(vaultPath, path)
+  try {
+    const fileContent = await readFile(fullPath, "utf8")
+    const parsed = parseNote(fileContent)
+    return {
+      fullPath,
+      data: parsed.data,
+      lines: splitIntoLines(parsed.content),
+    }
+  } catch (err) {
+    if (isErrnoException(err, "ENOENT")) {
+      throw new Error(`note not found: "${path}"`, { cause: err })
+    }
+    throw err
+  }
+}
+
+/** Collects contiguous sub-items below a task line — lines with deeper
+ *  indentation than the task itself. Returns the exclusive end index
+ *  (the first line that is NOT a sub-item). */
+const findTaskBlockEnd = (
+  lines: readonly string[],
+  taskLineIndex: number,
+): number => {
+  const taskLine = lines[taskLineIndex]
+  if (taskLine === undefined) return taskLineIndex + 1
+
+  const taskIndent = taskLine.match(/^(\s*)/)?.[0].length ?? 0
+  let endIndex = taskLineIndex + 1
+
+  while (endIndex < lines.length) {
+    const line = lines[endIndex]
+    if (line === undefined) break
+    if (line.trim() === "") {
+      endIndex++
+      continue
+    }
+    const lineIndent = line.match(/^(\s*)/)?.[0].length ?? 0
+    if (lineIndent <= taskIndent) break
+    endIndex++
+  }
+
+  // Trim trailing blank lines from the block
+  while (endIndex > taskLineIndex + 1) {
+    const prevLine = lines[endIndex - 1]
+    if (prevLine !== undefined && prevLine.trim() !== "") break
+    endIndex--
+  }
+
+  return endIndex
+}
+
+/** Detects the done lane for auto-completion: checks for **Complete**
+ *  markers first, falls back to a heading named "Done". */
+const detectDoneLane = (
+  bodyLines: readonly string[],
+  headings: ReturnType<typeof parseHeadings>,
+): string => {
+  const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
+
+  if (doneLanes.length === 1) {
+    const lane = doneLanes[0]
+    if (lane === undefined) throw new Error("unexpected empty done lanes")
+    return lane
+  }
+
+  if (doneLanes.length > 1) {
+    throw new Error("multiple done lanes detected; pass lane to specify which")
+  }
+
+  // Fallback: look for a heading named "Done"
+  const doneHeading = headings.find((heading) => heading.text === "Done")
+  if (doneHeading !== undefined) return "Done"
+
+  throw new Error(
+    "no done lane detected; pass lane explicitly or add **Complete** marker to a lane",
+  )
+}
+
+/** Extracts a short description from a task line (first 80 chars of the
+ *  parsed description text, stripping the checkbox and emoji metadata). */
+const extractDescription = (taskLine: string): string => {
+  const match = /\[.\] *(.*)$/.exec(taskLine)
+  if (match === null) return taskLine.slice(0, 80)
+  const body = match[1] ?? ""
+  const firstSignifier = body.search(
+    /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔|🔺|⏫|🔼|🔽|⏬)️?/u,
+  )
+  const description =
+    firstSignifier === -1 ? body : body.slice(0, firstSignifier)
+  return description.trim().slice(0, 120)
+}
+
+// ── Main operation ──────────────────────────────────────────────
+
+/** Applies status, priority, and/or lane mutations to a task line
+ *  within a single atomic read-modify-write cycle. */
+const updateTask = async (
+  params: UpdateTaskParams,
+  logger: Logger,
+): Promise<UpdateTaskResult> => {
+  const { vaultPath, path, blockId, line, status, priority, lane } = params
+
+  // Validation: exactly one identifier
+  const identifierCount =
+    (blockId !== undefined ? 1 : 0) + (line !== undefined ? 1 : 0)
+  if (identifierCount === 0) {
+    throw new Error("exactly one of block_id or line is required")
+  }
+  if (identifierCount > 1) {
+    throw new Error("block_id and line are mutually exclusive")
+  }
+
+  // Validation: at least one mutation
+  const hasMutation =
+    status !== undefined || priority !== undefined || lane !== undefined
+  if (!hasMutation) {
+    throw new Error(
+      "at least one mutation (status, priority, or lane) is required",
+    )
+  }
+
+  const { fullPath } = await readNoteForUpdate(vaultPath, path)
+
+  return withExclusiveFileLock(fullPath, async () => {
+    // Re-read inside the lock to guard against changes between the
+    // initial read and lock acquisition
+    const fileContent = await readFile(fullPath, "utf8")
+    const parsed = parseNote(fileContent)
+    const bodyLines = splitIntoLines(parsed.content)
+    const headings = parseHeadings(bodyLines)
+
+    // Compute the frontmatter offset: number of lines before the body
+    // starts (frontmatter delimiters + content). extractTasks uses the
+    // same formula: file_line = bodyStartLine + bodyLineIndex + 1.
+    const allFileLines = splitIntoLines(fileContent)
+    const bodyStartLine =
+      allFileLines[0] === "---"
+        ? allFileLines.findIndex(
+            (fileLine, index) => index > 0 && fileLine === "---",
+          ) + 1
+        : 0
+
+    // Locate the task line (0-based index into bodyLines)
+    let taskLineIndex: number
+    if (blockId !== undefined) {
+      const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
+      if (foundIndex === null) {
+        throw new Error(`block_id "${blockId}" not found in "${path}"`)
+      }
+      taskLineIndex = foundIndex
+    } else {
+      // Convert 1-based file line to 0-based body line index.
+      // line is guaranteed defined here: the identifier validation
+      // above ensures exactly one of blockId/line is set.
+      const fileLine = line ?? 0
+      taskLineIndex = fileLine - 1 - bodyStartLine
+      const taskLineText = bodyLines[taskLineIndex]
+      if (
+        taskLineIndex < 0 ||
+        taskLineIndex >= bodyLines.length ||
+        taskLineText === undefined ||
+        !tasks.isTaskLine(taskLineText)
+      ) {
+        throw new Error(`no task at line ${fileLine}`)
+      }
+    }
+
+    const originalTaskLine = bodyLines[taskLineIndex]
+    if (originalTaskLine === undefined) {
+      throw new Error(`task line index ${taskLineIndex} out of bounds`)
+    }
+    const isKanbanBoard =
+      parsed.data["kanban-plugin"] !== undefined &&
+      parsed.data["kanban-plugin"] !== null
+
+    // Validate lane param requires a Kanban board
+    if (lane !== undefined && !isKanbanBoard) {
+      throw new Error(
+        "lane requires a Kanban board (note must have kanban-plugin frontmatter)",
+      )
+    }
+
+    // Apply in-line mutations
+    let mutatedLine = originalTaskLine
+    const changes: string[] = []
+
+    if (status !== undefined) {
+      const today = DateTime.now().toISODate()
+      if (today === null) {
+        throw new Error("failed to determine today's date")
+      }
+      const checkboxMatch = /\[(.)]/.exec(originalTaskLine)
+      const oldChar = checkboxMatch?.[1] ?? " "
+      const oldStatus =
+        oldChar === "x" || oldChar === "X"
+          ? "done"
+          : oldChar === "-"
+            ? "cancelled"
+            : oldChar === "/"
+              ? "in_progress"
+              : "todo"
+      mutatedLine = tasks.updateTaskLineStatus(mutatedLine, status, today)
+      changes.push(`status: ${oldStatus} → ${status}`)
+    }
+
+    if (priority !== undefined) {
+      const newPriority = priority === "none" ? null : priority
+      mutatedLine = tasks.updateTaskLinePriority(mutatedLine, newPriority)
+      changes.push(`priority: ${priority === "none" ? "removed" : priority}`)
+    }
+
+    // Determine lane move target
+    let targetLane = lane
+    if (targetLane === undefined && status === "done" && isKanbanBoard) {
+      targetLane = detectDoneLane(bodyLines, headings)
+    }
+
+    // Apply lane move
+    const resultLines = [...bodyLines]
+    resultLines[taskLineIndex] = mutatedLine
+
+    if (targetLane !== undefined) {
+      const targetHeading = headings.find(
+        (heading) => heading.text === targetLane,
+      )
+      if (targetHeading === undefined) {
+        const availableHeadings = headings
+          .map((heading) => heading.text)
+          .join(", ")
+        throw new Error(
+          `heading "${targetLane}" not found; available: ${availableHeadings}`,
+        )
+      }
+
+      // Find the current lane (nearest heading above the task)
+      const currentHeading = headings.findLast(
+        (heading) => heading.startLine < taskLineIndex,
+      )
+      const currentLane = currentHeading?.text ?? "(before first heading)"
+
+      // Only move if the task isn't already in the target lane
+      if (currentLane !== targetLane) {
+        // Collect the task block (task line + indented sub-items)
+        const taskBlockEnd = findTaskBlockEnd(resultLines, taskLineIndex)
+        const taskBlock = resultLines.slice(taskLineIndex, taskBlockEnd)
+
+        // Remove the task block from its current position
+        resultLines.splice(taskLineIndex, taskBlockEnd - taskLineIndex)
+
+        // Re-parse headings after removal (indices shifted)
+        const updatedHeadings = parseHeadings(resultLines)
+        const updatedTargetHeading = updatedHeadings.find(
+          (heading) => heading.text === targetLane,
+        )
+        if (updatedTargetHeading === undefined) {
+          throw new Error(
+            `heading "${targetLane}" not found after line removal`,
+          )
+        }
+
+        // Prepend task block to the target heading's body
+        resultLines.splice(updatedTargetHeading.bodyStartLine, 0, ...taskBlock)
+
+        changes.push(`lane: ${currentLane} → ${targetLane}`)
+      }
+    }
+
+    // Write atomically
+    const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
+    await atomicWriteFile(fullPath, serialized)
+
+    // Determine the final line number (1-based, including frontmatter).
+    // bodyStartLine is from the original file; frontmatter is preserved
+    // unchanged, so the offset is the same.
+    const finalTaskIndex = resultLines.indexOf(mutatedLine)
+    const finalLine = bodyStartLine + finalTaskIndex + 1
+
+    logger.info("task updated", {
+      path,
+      line: finalLine,
+      changes,
+    })
+
+    return {
+      path,
+      line: finalLine,
+      description: extractDescription(mutatedLine),
+      changes,
+    }
+  })
+}
+
+// ── Public surface ──────────────────────────────────────────────
+
+export const taskUpdater = {
+  updateTask,
+}

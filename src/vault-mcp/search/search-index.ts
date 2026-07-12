@@ -9,6 +9,7 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { parseHeadings } from "../obsidian-markdown/headings.js"
 import {
   parseMemoryEntries,
   type MemoryEntry,
@@ -144,6 +145,7 @@ export type TaskRow = {
   heading: string | null
   folder: string
   is_kanban_task: number
+  kanban_done_lanes: string | null
 }
 
 /** One task on the wire — snake_case multi-word fields match the JSON
@@ -171,6 +173,8 @@ export type TaskEntry = {
   tags: string[]
   block_id: string | null
   is_kanban_task: boolean
+  lane: string | null
+  done_lanes: string[] | null
 }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
@@ -446,6 +450,9 @@ export const createSearchIndex = (
   if (!noteColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`)
   }
+  if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
+    db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
+  }
 
   // Daily notes folder for forward-ref exclusion — broken links under
   // this folder are treated as intentional "create on click" navigation.
@@ -456,8 +463,8 @@ export const createSearchIndex = (
   // db.prepare() caches the compiled SQL — calling it inside a function
   // would re-compile on every invocation.
   const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
@@ -953,6 +960,19 @@ export const createSearchIndex = (
     // null when the note has none.
     const leadingCallout = parseLeadingCallout(splitIntoLines(parsed.content))
 
+    // Detect Kanban done lanes for boards with kanban-plugin frontmatter.
+    // The Kanban plugin marks completion lanes with a **Complete** paragraph.
+    const isKanbanBoard =
+      frontmatter["kanban-plugin"] !== undefined &&
+      frontmatter["kanban-plugin"] !== null
+    const bodyLines = splitIntoLines(parsed.content)
+    let kanbanDoneLanes: string | null = null
+    if (isKanbanBoard) {
+      const headings = parseHeadings(bodyLines)
+      const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
+      kanbanDoneLanes = doneLanes.length > 0 ? JSON.stringify(doneLanes) : null
+    }
+
     const note = {
       path: filePath,
       title: isString(frontmatter.title)
@@ -970,6 +990,7 @@ export const createSearchIndex = (
       properties: JSON.stringify(frontmatter),
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
       bytes: fileStat.size,
+      kanban_done_lanes: kanbanDoneLanes,
     }
 
     deleteFtsStmt.run(note.path)
@@ -986,6 +1007,7 @@ export const createSearchIndex = (
       note.properties,
       note.leading_callout,
       note.bytes,
+      note.kanban_done_lanes,
     )
     const metadataText = buildFtsMetadataText(frontmatter)
     insertFtsStmt.run(note.path, note.title, note.content, metadataText)

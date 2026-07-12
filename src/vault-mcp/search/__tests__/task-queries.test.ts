@@ -109,6 +109,8 @@ describe("task indexing lifecycle", () => {
       tags: [],
       block_id: "fix-login",
       is_kanban_task: true,
+      lane: "Active",
+      done_lanes: null,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
   })
@@ -148,6 +150,8 @@ describe("task indexing lifecycle", () => {
       tags: ["home", "home/kitchen"],
       block_id: null,
       is_kanban_task: false,
+      lane: null,
+      done_lanes: null,
     }
     expect(result.tasks).toEqual([expectedEntry])
   })

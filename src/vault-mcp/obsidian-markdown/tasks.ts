@@ -24,7 +24,7 @@ import {
   type OpenFence,
   splitIntoLines,
 } from "./lines.js"
-import { parseHeadings } from "./headings.js"
+import { parseHeadings, type HeadingInfo } from "./headings.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -493,8 +493,209 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   return extractedTasks
 }
 
+// ── Reverse mappings (status → char, priority → emoji) ─────────
+
+const CHAR_FOR_STATUS: Readonly<Record<TaskStatus, string>> = {
+  todo: " ",
+  in_progress: "/",
+  done: "x",
+  cancelled: "-",
+}
+
+const EMOJI_FOR_PRIORITY: Readonly<Record<TaskPriority, string>> = {
+  highest: "🔺",
+  high: "⏫",
+  medium: "🔼",
+  low: "🔽",
+  lowest: "⏬",
+}
+
+/** The checkbox character for a given status. */
+const charForStatus = (status: TaskStatus): string => CHAR_FOR_STATUS[status]
+
+/** The emoji signifier for a given priority level. */
+const emojiForPriority = (priority: TaskPriority): string =>
+  EMOJI_FOR_PRIORITY[priority]
+
+// ── Inline field regexes (non-anchored, for mid-line replacement) ──
+
+/** Matches a ✅ date anywhere in the line (not `$`-anchored). */
+const DONE_DATE_INLINE_RE = /✅️? *\d{4}-\d{2}-\d{2}/u
+
+/** Matches a ❌ date anywhere in the line (not `$`-anchored). */
+const CANCELLED_DATE_INLINE_RE = /❌️? *\d{4}-\d{2}-\d{2}/u
+
+/** Matches any priority emoji anywhere in the line (not `$`-anchored). */
+const PRIORITY_EMOJI_INLINE_RE = /[🔺⏫🔼🔽⏬]️?/u
+
+/** Matches the first metadata signifier — the boundary between the
+ *  human-written description and the machine-managed fields. Priority
+ *  sits between description and dates, so date signifiers mark where
+ *  a new priority emoji should be inserted. */
+const FIRST_DATE_SIGNIFIER_RE = /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔)️?/u
+
+// ── Task-line mutation (pure string transforms) ─────────────────
+
+/** Returns true when a line is a checkbox task line. */
+const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
+
+/** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
+ *  Returns the line unchanged if it's not a task line. */
+const replaceCheckboxChar = (taskLine: string, newChar: string): string =>
+  taskLine.replace(/\[.\]/, `[${newChar}]`)
+
+/** Inserts text just before the trailing `^block-id`, or at the end of
+ *  the line if there's no block link. */
+const insertBeforeBlockId = (taskLine: string, text: string): string => {
+  const blockLinkMatch = BLOCK_LINK_RE.exec(taskLine)
+  if (blockLinkMatch === null) return `${taskLine} ${text}`
+  // BLOCK_LINK_RE matches ` ^id` (leading space included), so insertAt
+  // points at the space. Insert ` text` before that space, keeping one
+  // space between the inserted text and the block link.
+  const insertAt = blockLinkMatch.index
+  return `${taskLine.slice(0, insertAt)} ${text}${taskLine.slice(insertAt)}`
+}
+
+/** Removes a matched regex from the line and collapses any resulting
+ *  double spaces. */
+const stripField = (taskLine: string, regex: RegExp): string =>
+  taskLine.replace(regex, "").replace(/ {2,}/g, " ").trim()
+
+/** Updates the status-related fields of a task line: checkbox character
+ *  and done/cancelled dates. Pure string transform — does not move lines
+ *  between sections.
+ *
+ *  @param taskLine The raw markdown line (e.g. `- [ ] Description ➕ 2026-07-12`)
+ *  @param newStatus Target status
+ *  @param today YYYY-MM-DD string for the date stamp */
+const updateTaskLineStatus = (
+  taskLine: string,
+  newStatus: TaskStatus,
+  today: string,
+): string => {
+  const newChar = charForStatus(newStatus)
+  let result = replaceCheckboxChar(taskLine, newChar)
+
+  if (newStatus === "done") {
+    result = stripField(result, CANCELLED_DATE_INLINE_RE)
+    result = DONE_DATE_INLINE_RE.test(result)
+      ? result.replace(DONE_DATE_INLINE_RE, `✅ ${today}`)
+      : insertBeforeBlockId(result, `✅ ${today}`)
+  } else if (newStatus === "cancelled") {
+    result = stripField(result, DONE_DATE_INLINE_RE)
+    result = CANCELLED_DATE_INLINE_RE.test(result)
+      ? result.replace(CANCELLED_DATE_INLINE_RE, `❌ ${today}`)
+      : insertBeforeBlockId(result, `❌ ${today}`)
+  } else {
+    result = stripField(result, DONE_DATE_INLINE_RE)
+    result = stripField(result, CANCELLED_DATE_INLINE_RE)
+  }
+
+  return result
+}
+
+/** Updates the priority emoji on a task line: inserts, replaces, or
+ *  removes it. A null priority removes any existing emoji.
+ *
+ *  Insertion position: after the description, before the first date
+ *  signifier (➕, 📅, etc.). If no date signifiers exist, before the
+ *  block ID or at end of line. */
+const updateTaskLinePriority = (
+  taskLine: string,
+  newPriority: TaskPriority | null,
+): string => {
+  const hasExistingPriority = PRIORITY_EMOJI_INLINE_RE.test(taskLine)
+
+  if (newPriority === null) {
+    if (!hasExistingPriority) return taskLine
+    return stripField(taskLine, PRIORITY_EMOJI_INLINE_RE)
+  }
+
+  const emoji = emojiForPriority(newPriority)
+
+  if (hasExistingPriority) {
+    return taskLine.replace(PRIORITY_EMOJI_INLINE_RE, emoji)
+  }
+
+  const dateSignifierMatch = FIRST_DATE_SIGNIFIER_RE.exec(taskLine)
+  if (dateSignifierMatch !== null) {
+    const insertAt = dateSignifierMatch.index
+    return `${taskLine.slice(0, insertAt)}${emoji} ${taskLine.slice(insertAt)}`
+  }
+
+  return insertBeforeBlockId(taskLine, emoji)
+}
+
+/** Finds the 0-based line index of a task whose line ends with
+ *  ` ^blockId`. Returns null when no match is found. */
+const findTaskByBlockId = (
+  lines: readonly string[],
+  blockId: string,
+): number | null => {
+  const suffix = ` ^${blockId}`
+  const lineIndex = lines.findIndex(
+    (line) => line.endsWith(suffix) && isTaskLine(line),
+  )
+  return lineIndex === -1 ? null : lineIndex
+}
+
+// ── Kanban done-lane detection ─────────────────────────────────
+
+/** The Kanban plugin's per-lane completion marker: a bold "Complete"
+ *  paragraph between the heading and the first list item. The plugin
+ *  serializes it as `**Complete**` and reads it back by checking the
+ *  paragraph's stripped text against the (English) string "Complete". */
+const COMPLETE_MARKER = "**Complete**"
+
+/** Extracts heading names whose body starts with a `**Complete**` marker
+ *  paragraph — the Kanban plugin's per-lane completion signal. Fence-
+ *  and comment-aware: markers inside code blocks or `%% %%` comments
+ *  are ignored.
+ *
+ *  @param bodyLines Note body lines (frontmatter stripped)
+ *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
+const extractDoneLanes = (
+  bodyLines: readonly string[],
+  headings: readonly HeadingInfo[],
+): string[] => {
+  const doneLanes: string[] = []
+
+  for (const heading of headings) {
+    // Scan the body of this heading for a Complete marker before the
+    // first list item. Skip blank lines.
+    for (
+      let lineIndex = heading.bodyStartLine;
+      lineIndex < heading.bodyEndLine;
+      lineIndex++
+    ) {
+      const line = bodyLines[lineIndex]
+      if (line === undefined) break
+      const trimmed = line.trim()
+
+      if (trimmed === "") continue
+
+      if (trimmed === COMPLETE_MARKER) {
+        doneLanes.push(heading.text)
+      }
+
+      // Stop at the first non-blank line regardless — the marker must
+      // be the very first content paragraph after the heading.
+      break
+    }
+  }
+
+  return doneLanes
+}
+
 // ── Public surface ──────────────────────────────────────────────
 
 export const tasks = {
   extractTasks,
+  charForStatus,
+  emojiForPriority,
+  isTaskLine,
+  updateTaskLineStatus,
+  updateTaskLinePriority,
+  findTaskByBlockId,
+  extractDoneLanes,
 }

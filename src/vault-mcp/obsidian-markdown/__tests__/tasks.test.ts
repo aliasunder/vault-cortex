@@ -756,3 +756,312 @@ describe("tasks.extractTasks", () => {
     })
   })
 })
+
+// ── Task-line mutation tests ────────────────────────────────────
+
+import { parseHeadings } from "../headings.js"
+
+describe("task line mutations", () => {
+  describe("charForStatus", () => {
+    it("maps todo to space", () => {
+      expect(tasks.charForStatus("todo")).toBe(" ")
+    })
+
+    it("maps in_progress to slash", () => {
+      expect(tasks.charForStatus("in_progress")).toBe("/")
+    })
+
+    it("maps done to x", () => {
+      expect(tasks.charForStatus("done")).toBe("x")
+    })
+
+    it("maps cancelled to dash", () => {
+      expect(tasks.charForStatus("cancelled")).toBe("-")
+    })
+  })
+
+  describe("emojiForPriority", () => {
+    it("maps highest to 🔺", () => {
+      expect(tasks.emojiForPriority("highest")).toBe("🔺")
+    })
+
+    it("maps high to ⏫", () => {
+      expect(tasks.emojiForPriority("high")).toBe("⏫")
+    })
+
+    it("maps medium to 🔼", () => {
+      expect(tasks.emojiForPriority("medium")).toBe("🔼")
+    })
+
+    it("maps low to 🔽", () => {
+      expect(tasks.emojiForPriority("low")).toBe("🔽")
+    })
+
+    it("maps lowest to ⏬", () => {
+      expect(tasks.emojiForPriority("lowest")).toBe("⏬")
+    })
+  })
+
+  describe("isTaskLine", () => {
+    it("returns true for a standard task line", () => {
+      expect(tasks.isTaskLine("- [ ] Do something")).toBe(true)
+    })
+
+    it("returns true for a done task", () => {
+      expect(tasks.isTaskLine("- [x] Done thing ✅ 2026-07-12")).toBe(true)
+    })
+
+    it("returns false for a plain list item", () => {
+      expect(tasks.isTaskLine("- Not a task")).toBe(false)
+    })
+
+    it("returns false for a heading", () => {
+      expect(tasks.isTaskLine("## Active")).toBe(false)
+    })
+
+    it("returns false for an empty string", () => {
+      expect(tasks.isTaskLine("")).toBe(false)
+    })
+  })
+
+  describe("updateTaskLineStatus", () => {
+    it("marks a todo task as done with a done date", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Fix the bug ➕ 2026-07-01",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [x] Fix the bug ➕ 2026-07-01 ✅ 2026-07-12")
+    })
+
+    it("marks a todo task as cancelled with a cancelled date", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Dropped feature ➕ 2026-07-01",
+        "cancelled",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [-] Dropped feature ➕ 2026-07-01 ❌ 2026-07-12")
+    })
+
+    it("marks an in-progress task as done", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [/] In-progress task ➕ 2026-07-01",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [x] In-progress task ➕ 2026-07-01 ✅ 2026-07-12")
+    })
+
+    it("un-completes a done task by removing the done date", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [x] Was done ➕ 2026-07-01 ✅ 2026-07-10",
+        "todo",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [ ] Was done ➕ 2026-07-01")
+    })
+
+    it("switches from done to cancelled: removes done date, adds cancelled date", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [x] Changed my mind ➕ 2026-07-01 ✅ 2026-07-10",
+        "cancelled",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [-] Changed my mind ➕ 2026-07-01 ❌ 2026-07-12")
+    })
+
+    it("switches from cancelled to in_progress: removes cancelled date", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [-] Revived task ➕ 2026-07-01 ❌ 2026-07-10",
+        "in_progress",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [/] Revived task ➕ 2026-07-01")
+    })
+
+    it("re-stamps an existing done date with today", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [x] Old completion ✅ 2026-06-01",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [x] Old completion ✅ 2026-07-12")
+    })
+
+    it("inserts the done date before a block ID", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Task with ID ➕ 2026-07-01 ^my-task",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe(
+        "- [x] Task with ID ➕ 2026-07-01 ✅ 2026-07-12 ^my-task",
+      )
+    })
+
+    it("preserves priority and created date when completing", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe(
+        "- [x] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20 ✅ 2026-07-12",
+      )
+    })
+
+    it("handles a bare task with no metadata", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Simple task",
+        "done",
+        "2026-07-12",
+      )
+      expect(result).toBe("- [x] Simple task ✅ 2026-07-12")
+    })
+  })
+
+  describe("updateTaskLinePriority", () => {
+    it("adds priority to a task with none, before the first date signifier", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task ➕ 2026-07-01",
+        "high",
+      )
+      expect(result).toBe("- [ ] Task ⏫ ➕ 2026-07-01")
+    })
+
+    it("replaces an existing priority emoji", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task ⏫ ➕ 2026-07-01",
+        "lowest",
+      )
+      expect(result).toBe("- [ ] Task ⏬ ➕ 2026-07-01")
+    })
+
+    it("removes priority when null is passed", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task ⏫ ➕ 2026-07-01",
+        null,
+      )
+      expect(result).toBe("- [ ] Task ➕ 2026-07-01")
+    })
+
+    it("returns the line unchanged when removing priority that does not exist", () => {
+      const line = "- [ ] No priority task ➕ 2026-07-01"
+      const result = tasks.updateTaskLinePriority(line, null)
+      expect(result).toBe(line)
+    })
+
+    it("inserts priority before block ID when no date signifiers exist", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Just a task ^my-id",
+        "medium",
+      )
+      expect(result).toBe("- [ ] Just a task 🔼 ^my-id")
+    })
+
+    it("appends priority at end when no date signifiers or block ID", () => {
+      const result = tasks.updateTaskLinePriority("- [ ] Bare task", "highest")
+      expect(result).toBe("- [ ] Bare task 🔺")
+    })
+  })
+
+  describe("findTaskByBlockId", () => {
+    it("finds a task line by its block ID suffix", () => {
+      const lines = [
+        "## Active",
+        "",
+        "- [ ] First task ➕ 2026-07-01 ^first-task",
+        "- [ ] Second task ➕ 2026-07-02 ^second-task",
+      ]
+      const result = tasks.findTaskByBlockId(lines, "second-task")
+      expect(result).toBe(3)
+    })
+
+    it("returns null when no task line matches the block ID", () => {
+      const lines = ["## Active", "- [ ] Task ➕ 2026-07-01 ^existing-id"]
+      const result = tasks.findTaskByBlockId(lines, "nonexistent-id")
+      expect(result).toBeNull()
+    })
+
+    it("does not match a heading with a block ID", () => {
+      const lines = ["## Heading ^heading-id", "- [ ] Real task ^task-id"]
+      const result = tasks.findTaskByBlockId(lines, "heading-id")
+      expect(result).toBeNull()
+    })
+
+    it("returns the first matching task when multiple lines end with the same block ID", () => {
+      const lines = ["- [ ] First ^dup-id", "- [ ] Second ^dup-id"]
+      const result = tasks.findTaskByBlockId(lines, "dup-id")
+      expect(result).toBe(0)
+    })
+  })
+
+  describe("extractDoneLanes", () => {
+    it("detects a lane with a **Complete** marker", () => {
+      const bodyLines = [
+        "## Active",
+        "",
+        "- [ ] Task A",
+        "",
+        "## Done",
+        "",
+        "**Complete**",
+        "- [x] Task B ✅ 2026-07-01",
+      ]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual(["Done"])
+    })
+
+    it("returns an empty array when no markers exist", () => {
+      const bodyLines = [
+        "## Active",
+        "",
+        "- [ ] Task A",
+        "",
+        "## Done",
+        "",
+        "- [x] Task B ✅ 2026-07-01",
+      ]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual([])
+    })
+
+    it("detects multiple marked lanes", () => {
+      const bodyLines = [
+        "## Done",
+        "**Complete**",
+        "- [x] Task A",
+        "",
+        "## Cancelled",
+        "**Complete**",
+        "- [-] Task B",
+      ]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual(["Done", "Cancelled"])
+    })
+
+    it("skips blank lines between heading and marker", () => {
+      const bodyLines = ["## Done", "", "", "**Complete**", "- [x] Task"]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual(["Done"])
+    })
+
+    it("does not detect a marker that is not the first content after the heading", () => {
+      const bodyLines = ["## Done", "- [x] Task comes first", "**Complete**"]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual([])
+    })
+
+    it("does not detect a marker on an empty lane (heading with no body)", () => {
+      const bodyLines = ["## Active", "", "## Done"]
+      const headings = parseHeadings(bodyLines)
+      const result = tasks.extractDoneLanes(bodyLines, headings)
+      expect(result).toEqual([])
+    })
+  })
+})
