@@ -452,9 +452,9 @@ const MEMORY_RERANK_CANDIDATE_LIMIT = 120
  *  through. */
 const MEMORY_RECALL_SANITY_FLOOR = 0.001
 
-/** Maximum value the adaptive floor can take — preserves the current
- *  absolute cut for high-confidence queries (best probability near 1.0) so
- *  this change is a strict non-regression on working queries. */
+/** Maximum value the adaptive floor can take — caps the floor so
+ *  high-confidence queries (best probability near 1.0) don't push it above
+ *  the absolute cut that already works for strong-signal queries. */
 const MEMORY_RECALL_MAX_FLOOR = 0.05
 
 /** Relative margin: keep an entry scoring at least this fraction of the
