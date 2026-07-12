@@ -118,7 +118,9 @@ for (const { envExample, blockName, constName, transform } of envSources) {
   const optionalSection = extractOptionalSection(exampleContent)
   const transformedSection = transform(optionalSection)
 
-  const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${transformedSection}\`
+  const escapedSection = transformedSection.replaceAll("`", "\\`")
+
+  const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${escapedSection}\`
 `
 
   envTsContent = replaceSyncBlock(envTsContent, blockName, blockContent)
