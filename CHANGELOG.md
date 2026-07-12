@@ -34,6 +34,22 @@
 
 
 
+
+## [0.28.0] — 2026-07-12
+
+### Features
+
+- **mcp:** Vault_memory_recall — entry-granular hybrid retrieval over the memory layer (#306)
+- **memory:** Entry-policy convention, Agents template, memory template updates, and memory tool description improvements (#307)
+
+### Bug Fixes
+
+- **search:** Rescue zero-result memory recall + post-Phase-3 doc sweep (#308)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.27.2
+
 ## [0.27.2] — 2026-07-11
 
 ### Features
