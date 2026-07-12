@@ -21,6 +21,11 @@ export type RemoteEnvAnswers = {
 // templates has a matching line here, so a new required var breaks CI until
 // these builders learn it.
 
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ GENERATED — do not edit between sync markers.                          │
+// │ Source: deploy/local/.env.example → npm run sync:cli-templates         │
+// │ The script replaces everything between :begin and :end on each run.    │
+// └─────────────────────────────────────────────────────────────────────────┘
 // sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
@@ -89,6 +94,11 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 
 // sync:local-optional:end
 
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ GENERATED — do not edit between sync markers.                          │
+// │ Source: deploy/remote/.env.example → npm run sync:cli-templates        │
+// │ VAULT_PASSWORD is excluded (handled conditionally in buildRemoteEnv).  │
+// └─────────────────────────────────────────────────────────────────────────┘
 // sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
