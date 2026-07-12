@@ -540,6 +540,60 @@ describe("memoryRecall", () => {
     }
   })
 
+  it("boosts entries from a file whose name matches the query topic", async () => {
+    // Two files with identically-worded entries about the same topic —
+    // the ONLY distinguishing signal is the file name. The reranker
+    // scores "Agents > ..." higher than "Opinions > ..." when the
+    // query mentions "agents", proving the file name prefix is the
+    // relevance differentiator, not the entry text.
+    const fileNameAwareReranker: Reranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) =>
+          Promise.resolve(
+            documents.map((document) => {
+              if (document.startsWith("Agents > ")) return 2
+              return -4
+            }),
+          ),
+        ),
+    }
+    const index = await createRecallIndex({
+      reranker: fileNameAwareReranker,
+      files: {
+        Agents: `# Agents
+
+## Communication (newest first)
+
+- **2026-07-01**: Prefer terse responses over verbose explanations.
+`,
+        Opinions: `# Opinions
+
+## Communication preferences (newest first)
+
+- **2026-06-15**: Prefer terse responses over verbose explanations.
+`,
+      },
+    })
+    const { entries, reranked } = await index.memoryRecall(
+      { query: "how agents should communicate" },
+      logger,
+    )
+    expect(reranked).toBe(true)
+    // Only the Agents entry survives — the Opinions entry has identical
+    // text but scores below the floor because its file name doesn't
+    // match the query topic. Without the file name prefix, both entries
+    // would receive the same logit and both would survive or both be cut.
+    expect(entries).toEqual([
+      {
+        file: "Agents",
+        section: "Communication (newest first)",
+        date: "2026-07-01",
+        text: "- **2026-07-01**: Prefer terse responses over verbose explanations.",
+      },
+    ])
+  })
+
   it("clips the adaptive floor to the max floor for high-confidence queries", async () => {
     // When the best probability is high (sigmoid(3) ≈ 0.95), the relative
     // threshold (0.095) exceeds MAX_FLOOR (0.05) — the ceiling must bind
