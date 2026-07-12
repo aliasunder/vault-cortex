@@ -11,8 +11,9 @@ Vault Cortex is a standalone, remote-capable MCP server for Obsidian vaults —
 27 tools for hybrid search (FTS5 + vector + cross-encoder reranking, with
 tag/folder/property/date filters), notes, frontmatter, links, daily notes,
 task queries (Tasks-plugin emoji + Dataview inline-field formats), and
-a structured memory layer with dated-history topic recall, plus 3 guided
-prompts (orientation, memory review, daily review). It runs as a Docker
+a structured memory layer with topic recall (the current take plus the
+dated history behind it), plus 3 guided prompts (orientation, memory
+review, daily review). It runs as a Docker
 container; this CLI scaffolds the config so you don't have to.
 
 ## What `init` does
