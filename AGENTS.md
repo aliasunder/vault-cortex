@@ -69,6 +69,7 @@ deploy/                                # End-user quickstart (no clone needed)
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
   sync-cli-templates.ts                # Syncs deploy/ compose files + .env.example optional blocks into cli/
+  generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts                             # Entry point (version injection + run)
@@ -633,7 +634,8 @@ changed:
 | `cli/templates/`                              | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                                                                                                                                |
 | `CONTRIBUTING.md`                             | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                   |
 | `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                   |
-| `.github/workflows/dockerhub-description.yml` | Tool/prompt count changes (the `short-description` field hardcodes the count). Docker Hub limits short descriptions to 100 characters.                                                                                                                      |
+| `DOCKERHUB.md`                                | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                            |
+| `.github/workflows/dockerhub-description.yml` | Tool/prompt count changes (the `short-description` field hardcodes the count). Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 characters.                                                                                           |
 
 **Env var update checklist** — when adding, removing, or changing an
 env var that the server reads (defined in `config.ts`, `server.ts`, or

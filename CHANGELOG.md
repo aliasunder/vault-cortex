@@ -37,6 +37,22 @@
 
 
 
+
+## [0.28.3] — 2026-07-12
+
+### Features
+
+- Env var consolidation — sync script, drift tests, AGENTS.md checklist (#314)
+
+### Bug Fixes
+
+- Hash-pin obsidian-headless via lockfile in Docker remote target (#315)
+- **ci:** Run Docker Hub description sync on release, not README push (#316)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.28.2
+
 ## [0.28.2] — 2026-07-12
 
 ### ⚠ BREAKING CHANGES
