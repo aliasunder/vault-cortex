@@ -445,12 +445,24 @@ const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
  *  vector-only candidates fall off. */
 const MEMORY_RERANK_CANDIDATE_LIMIT = 120
 
-/** Recall-tuned relevance floor: keep an entry when sigmoid(logit) ≥ this.
- *  ms-marco logits leave a wide dead zone between topically-related
- *  (≥ ~0.27 after sigmoid) and unrelated (< ~0.001) content, so 0.05 keeps
- *  drifted-vocabulary arc members while vague queries still can't dump the
- *  corpus — the cutoff is absolute, not query-relative. */
-const MEMORY_RECALL_MIN_PROBABILITY = 0.05
+/** Hard lower bound on the adaptive relevance floor — sigmoid(-6.9).
+ *  Blocks genuinely irrelevant content even when a vague query produces
+ *  universally low cross-encoder scores. Without it, a query whose best
+ *  probability is 0.0003 would set the floor at 0.00003, letting noise
+ *  through. */
+const MEMORY_RECALL_SANITY_FLOOR = 0.001
+
+/** Upper bound on the adaptive relevance floor — preserves the current
+ *  absolute cut for high-confidence queries (best probability near 1.0) so
+ *  this change is a strict non-regression on working queries. */
+const MEMORY_RECALL_ABSOLUTE_FLOOR = 0.05
+
+/** Relative margin: keep an entry scoring at least this fraction of the
+ *  best non-ftsHit probability. 0.1 (10%) tracks the empirical cluster
+ *  gap: on "how I like agents to communicate with me", genuine entries
+ *  score 0.03–0.30 while irrelevant content scores < 0.001 — a 10:1
+ *  ratio cleanly separates the two. */
+const MEMORY_RECALL_RELATIVE_RATIO = 0.1
 
 /** Fallback cut when no reranker is available: keep vector hits within this
  *  cosine distance of the best hit. On-topic bge distances cluster within
@@ -524,8 +536,8 @@ const anyTermLexicalCandidates = (
     }))
 
 /** Attempts cross-encoder reranking of memory recall candidates. Returns the
- *  kept candidates and a relevance scorer, or null on failure — the caller
- *  falls back to the distance-margin cut. */
+ *  kept candidates, a relevance scorer, and the adaptive floor diagnostics,
+ *  or null on failure — the caller falls back to the distance-margin cut. */
 const tryRerankMemoryCandidates = async (
   reranker: Reranker,
   query: string,
@@ -534,6 +546,8 @@ const tryRerankMemoryCandidates = async (
 ): Promise<{
   kept: MemoryRecallCandidate[]
   relevance: (candidate: MemoryRecallCandidate) => number
+  bestProbability: number
+  effectiveFloor: number
 } | null> => {
   try {
     const logits = await reranker.rerankPairs(
@@ -550,17 +564,34 @@ const tryRerankMemoryCandidates = async (
           : [[candidate.row.id, sigmoid(logit)] as const]
       }),
     )
+
+    // Adaptive floor: follows the best score down when overall confidence
+    // is moderate, bounded between the sanity floor and the absolute floor.
+    const nonFtsHitProbabilities = candidates
+      .filter((candidate) => !candidate.ftsHit)
+      .map((candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0)
+    const bestProbability =
+      nonFtsHitProbabilities.length > 0
+        ? Math.max(...nonFtsHitProbabilities)
+        : MEMORY_RECALL_ABSOLUTE_FLOOR
+    const relativeThreshold = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
+    const effectiveFloor = Math.max(
+      MEMORY_RECALL_SANITY_FLOOR,
+      Math.min(MEMORY_RECALL_ABSOLUTE_FLOOR, relativeThreshold),
+    )
+
     const kept = candidates.filter(
       (candidate) =>
         candidate.ftsHit ||
-        (probabilityByEntryId.get(candidate.row.id) ?? 0) >=
-          MEMORY_RECALL_MIN_PROBABILITY,
+        (probabilityByEntryId.get(candidate.row.id) ?? 0) >= effectiveFloor,
     )
     return {
       kept,
       // Missing probability (a logits/candidates length mismatch that cannot
       // normally happen) sorts as least relevant, not as an error.
       relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
+      bestProbability,
+      effectiveFloor,
     }
   } catch (error) {
     logger.warn("memory recall rerank failed, using distance margin", {
@@ -732,7 +763,11 @@ export const memoryRecall = async (
 
   const logHybridResult = (
     result: MemoryRecallResult,
-    anyTermRescue = false,
+    diagnostics: {
+      anyTermRescue?: boolean
+      bestProbability?: number
+      effectiveFloor?: number
+    } = {},
   ) => {
     logger.info("memory recall", {
       query: params.query,
@@ -742,7 +777,13 @@ export const memoryRecall = async (
       vectorHits: vectorRows.length,
       matched: result.total,
       returned: result.entries.length,
-      ...(anyTermRescue ? { anyTermRescue: true } : {}),
+      ...(diagnostics.anyTermRescue ? { anyTermRescue: true } : {}),
+      ...(diagnostics.bestProbability !== undefined
+        ? { bestProbability: diagnostics.bestProbability }
+        : {}),
+      ...(diagnostics.effectiveFloor !== undefined
+        ? { effectiveFloor: diagnostics.effectiveFloor }
+        : {}),
     })
   }
 
@@ -775,7 +816,11 @@ export const memoryRecall = async (
         "fts",
         false,
       )
-      logHybridResult(result, true)
+      logHybridResult(result, {
+        anyTermRescue: true,
+        bestProbability: rerankOutcome.bestProbability,
+        effectiveFloor: rerankOutcome.effectiveFloor,
+      })
       return result
     }
     const result = buildMemoryRecallResult(
@@ -785,7 +830,10 @@ export const memoryRecall = async (
       "hybrid",
       true,
     )
-    logHybridResult(result)
+    logHybridResult(result, {
+      bestProbability: rerankOutcome.bestProbability,
+      effectiveFloor: rerankOutcome.effectiveFloor,
+    })
     return result
   }
 

@@ -246,9 +246,11 @@ content-hash identity rather than position, so a newest-first top-insert
 re-embeds exactly one entry.
 
 The query unions every lexical match with the vector top-100, fused by RRF,
-then cuts on an absolute cross-encoder relevance floor (sigmoid ≥ 0.05; lexical
-hits always survive) — evolution-arc origins with drifted vocabulary are kept
-while vague queries stay bounded. Degrades to a distance-margin cut without the
+then cuts on an adaptive cross-encoder relevance floor (clamped between a
+0.001 sanity floor and the 0.05 absolute ceiling, lowered to 10% of the best
+score when overall confidence is moderate; lexical hits always survive) —
+evolution-arc origins with drifted vocabulary are kept while vague queries
+stay bounded. Degrades to a distance-margin cut without the
 reranker and lexical-only without vectors. A result that would otherwise be
 empty — a meta-phrased query with no all-terms lexical anchor whose vector
 candidates all fall below the floor — retries the lexical leg with any-term

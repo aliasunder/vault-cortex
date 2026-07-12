@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
-import type { Reranker } from "../reranker.js"
+import { sigmoid, type Reranker } from "../reranker.js"
 import { logger } from "../../../logger.js"
 
 const DIMENSIONS = 384
@@ -47,8 +47,8 @@ const createTopicMockEmbedder = () => ({
 })
 
 /** Mock cross-encoder: for an on-topic query, on-topic documents get a
- *  strongly positive logit and the "walk" entry sits just above the p=0.05
- *  cutoff; everything else — including every document under an off-topic
+ *  strongly positive logit and the "walk" entry sits above the adaptive
+ *  floor; everything else — including every document under an off-topic
  *  query — is confidently irrelevant. */
 const createTopicMockReranker = (): Reranker => ({
   rerankPairs: vi
@@ -451,8 +451,59 @@ describe("memoryRecall", () => {
           matched: 1,
           returned: 1,
           anyTermRescue: true,
+          bestProbability: sigmoid(-8),
+          effectiveFloor: 0.001,
         },
       ],
+    ])
+  })
+
+  it("keeps a borderline entry that the absolute floor would cut when the best probability is moderate", async () => {
+    // Custom reranker: moderate best logit (-1 → sigmoid ≈ 0.27), a
+    // borderline logit (-3 → sigmoid ≈ 0.047, below the old absolute
+    // 0.05), and an irrelevant logit (-8). The adaptive floor lowers to
+    // ~0.027 (10% of 0.27), rescuing the borderline entry.
+    const moderateReranker: Reranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) =>
+          Promise.resolve(
+            documents.map((document) => {
+              const lowered = document.toLowerCase()
+              if (lowered.includes("direct")) return -1
+              if (lowered.includes("structured")) return -3
+              return -8
+            }),
+          ),
+        ),
+    }
+    const index = await createRecallIndex({
+      reranker: moderateReranker,
+      files: {
+        Communication: `# Communication
+
+## Style (newest first)
+
+- **2026-07-01**: Direct feedback preferred over diplomatic hedging.
+- **2026-06-15**: Structured status updates help me track progress.
+
+## Unrelated (newest first)
+
+- **2026-03-01**: Office supplies were restocked on schedule.
+`,
+      },
+    })
+    const { entries, reranked } = await index.memoryRecall(
+      { query: "how I like agents to communicate with me" },
+      logger,
+    )
+    expect(reranked).toBe(true)
+    // Both communication entries survive: "structured" at sigmoid(-3) ≈ 0.047
+    // would be cut by the old absolute floor (0.05) but the adaptive floor
+    // lowers to ~0.027 when the best probability is only ~0.27.
+    expect(entries.map((entry) => entry.date)).toEqual([
+      "2026-06-15",
+      "2026-07-01",
     ])
   })
 
