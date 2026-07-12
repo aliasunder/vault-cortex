@@ -429,6 +429,10 @@ export const createSearchIndex = (
           embedding float[384] distance_metric=cosine
         );
       `)
+      // One-time migration: embedding input changed from "section\ntext" to
+      // "file > section\ntext" — stale vectors must be dropped so entries
+      // re-embed with the new format on next startup. Remove after deploy.
+      db.exec("DELETE FROM memory_entry_vectors")
     }
   }
 
@@ -616,9 +620,9 @@ export const createSearchIndex = (
     memoryDir && embedder
       ? db.prepare<
           [string],
-          { id: number; section: string; entry_text: string }
+          { id: number; file: string; section: string; entry_text: string }
         >(
-          `SELECT id, section, entry_text FROM memory_entries
+          `SELECT id, file, section, entry_text FROM memory_entries
            WHERE file = ? AND id NOT IN (SELECT entry_id FROM memory_entry_vectors)
            ORDER BY id`,
         )
@@ -1202,7 +1206,9 @@ export const createSearchIndex = (
         batchStart + MEMORY_EMBED_BATCH_SIZE,
       )
       const embeddings = await embedder.embedBatch(
-        batchRows.map((row) => `${row.section}\n${row.entry_text}`),
+        batchRows.map(
+          (row) => `${row.file} > ${row.section}\n${row.entry_text}`,
+        ),
       )
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {

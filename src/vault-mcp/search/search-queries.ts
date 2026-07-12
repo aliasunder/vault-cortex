@@ -553,7 +553,8 @@ const tryRerankMemoryCandidates = async (
     const logits = await reranker.rerankPairs(
       query,
       candidates.map(
-        (candidate) => `${candidate.row.section}\n${candidate.row.entry_text}`,
+        (candidate) =>
+          `${candidate.row.file} > ${candidate.row.section}\n${candidate.row.entry_text}`,
       ),
     )
     const probabilityByEntryId = new Map<number, number>(
