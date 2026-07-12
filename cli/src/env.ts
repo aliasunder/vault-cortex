@@ -15,14 +15,20 @@ export type RemoteEnvAnswers = {
   vaultPassword?: string
 }
 
-// The optional blocks mirror the canonical deploy/<mode>/.env.example files.
+// Optional env blocks are synced from deploy/<mode>/.env.example by
+// npm run sync:cli-templates. Edit the deploy/ files, then re-run the script.
 // cli/src/templates.test.ts asserts every required `${VAR:?}` in the compose
 // templates has a matching line here, so a new required var breaks CI until
 // these builders learn it.
 
+// sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
 # "docker compose up -d" (restart alone does not re-read this file).
+
+# Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
+# Override if you expose the server on a different URL (e.g. via a reverse proxy).
+# PUBLIC_URL=http://localhost:8000
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
@@ -81,6 +87,9 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # WINDOWS_MODE=true
 `
 
+// sync:local-optional:end
+
+// sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
 # "docker compose up -d" (restart alone does not re-read this file).
@@ -148,11 +157,14 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # DEVICE_NAME=vault-cortex
 
 # Obsidian Sync conflict resolution: merge | conflict (default: merge).
+# 'merge' integrates changes automatically; 'conflict' writes a separate conflict file.
 # CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 # SYNC_MODE=bidirectional
 `
+
+// sync:remote-optional:end
 
 export const buildLocalEnv = (
   answers: LocalEnvAnswers,

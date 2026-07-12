@@ -626,11 +626,38 @@ changed:
 | `deploy/local/` + `deploy/remote/`            | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                         | New env var or changed default for the Lightsail reference deployment                                                                                    |
 | `cli/README.md`                               | Feature description, tool/prompt count, or search capability changes — this is the npmjs.com landing page                                                |
-| `cli/src/env.ts`                              | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
+| `cli/src/env.ts`                              | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-templates` — run the script after editing deploy/ env files               |
 | `cli/templates/`                              | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                             | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                |
 | `.github/workflows/dockerhub-description.yml` | Tool/prompt count changes (the `short-description` field hardcodes the count). Docker Hub limits short descriptions to 100 characters.                   |
+
+**Env var update checklist** — when adding, removing, or changing an
+env var that the server reads (defined in `config.ts`, `server.ts`, or
+`logger.ts`), update every downstream surface. Not every var goes in
+every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
+in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
+PUID, etc.) only go in the remote surfaces. Use existing entries as a
+pattern:
+
+1. **Server source** (`config.ts`, `server.ts`, or `logger.ts`) —
+   authoritative definition via `env-var` package
+2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
+   `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
+   in `environment:`
+3. **Deploy .env.example** (`deploy/local/.env.example` and/or
+   `deploy/remote/.env.example`) — document for users with comment + default.
+   These are the source of truth for optional var documentation.
+4. **Run `npm run sync:cli-templates`** — syncs the optional sections from
+   step 3 into `cli/src/env.ts` (`LOCAL_OPTIONAL_BLOCK` /
+   `REMOTE_OPTIONAL_BLOCK`), and copies the deploy compose files into
+   `cli/templates/`. Always run after editing deploy/ files.
+5. **Root .env.example** — Lightsail reference deployment (if applicable)
+6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
+   — maintainer/contributor surfaces (if applicable)
+
+CI drift tests in `templates.test.ts` catch omissions across steps 2–4,
+but the checklist prevents them.
 
 **Regenerating `social-preview.png`:** The SVG uses `font-family="DejaVu Sans"`
 for the subtitle and feature line (`<text>` elements — the wordmark is already
