@@ -258,7 +258,7 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", {
         path,
         hasProperties: Boolean(properties),
-        overwrite: Boolean(overwrite),
+        overwrite,
       })
       return safeHandler(
         reqLogger,
