@@ -38,7 +38,7 @@
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
-- **[Structured memory](#tools-27)** — dated, append-only entries accumulate into a personal history, auto-initialized for AI personalization. Topic recall keeps that history usable as it grows: "how has my thinking on X evolved?" returns the full dated arc, not just the latest note.
+- **[Structured memory](#tools-27)** — dated, append-only entries accumulate into a personal history, auto-initialized for AI personalization. Topic recall keeps that history usable as it grows: "how has my thinking on X evolved?" returns the full dated arc — the current take and the history it came from.
 - **[Task queries](#tools-27)** — Kanban-aware, vault-wide task index parsing both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — or pull board lanes in position order.
 - **[Link graph](#tools-27)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
