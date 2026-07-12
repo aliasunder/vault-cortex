@@ -200,7 +200,7 @@ See [templates/memory](./templates/memory/) for the file format, entry-policy co
 | Category        | Tool                         | Description                                                                         |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
 | **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                          |
-|                 | `vault_write_note`           | Create or overwrite a note with properties                                          |
+|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)              |
 |                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)                            |
 |                 | `vault_replace_in_note`      | Find-and-replace text in a note                                                     |
 |                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                          |
@@ -321,6 +321,8 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 | **AWS (SST)** | Full IaC: Lightsail + API Gateway + Lambda + CI/CD | [`DEPLOY.md`](./DEPLOY.md)           |
 
 Both paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
+
+> **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
 **Cost:** A remote setup needs a VPS and $5/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$18–30/mo all-in.
 

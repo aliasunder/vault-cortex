@@ -298,7 +298,12 @@ describe("writeNote", () => {
       "utf8",
     )
     await writeNote(
-      { vaultPath: vault, path: "existing.md", body: "new body\n" },
+      {
+        vaultPath: vault,
+        path: "existing.md",
+        body: "new body\n",
+        overwrite: true,
+      },
       logger,
     )
     const content = await readFile(join(vault, "existing.md"), "utf8")
@@ -319,6 +324,7 @@ describe("writeNote", () => {
         path: "merge.md",
         body: "body\n",
         properties: { status: "active" },
+        overwrite: true,
       },
       logger,
     )
@@ -339,6 +345,7 @@ describe("writeNote", () => {
         path: "merge.md",
         body: "new body\n",
         properties: { draft: null },
+        overwrite: true,
       },
       logger,
     )
@@ -358,6 +365,70 @@ describe("writeNote", () => {
     )
     const content = await readFile(join(vault, "fresh.md"), "utf8")
     expect(content).toBe("---\ntitle: Fresh\n---\nbody\n")
+  })
+
+  it("rejects when the file already exists and overwrite is not set", async () => {
+    await writeFile(
+      join(vault, "guarded.md"),
+      "---\ntitle: Keep\n---\nold body\n",
+      "utf8",
+    )
+    await expect(
+      writeNote(
+        { vaultPath: vault, path: "guarded.md", body: "clobber attempt\n" },
+        logger,
+      ),
+    ).rejects.toThrow('note already exists: "guarded.md"')
+    const content = await readFile(join(vault, "guarded.md"), "utf8")
+    expect(content).toBe("---\ntitle: Keep\n---\nold body\n")
+  })
+
+  it("rejects when overwrite is explicitly false", async () => {
+    await writeFile(join(vault, "explicit.md"), "original\n", "utf8")
+    await expect(
+      writeNote(
+        {
+          vaultPath: vault,
+          path: "explicit.md",
+          body: "clobber\n",
+          overwrite: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow('note already exists: "explicit.md"')
+  })
+
+  it("succeeds when overwrite is set and the file exists", async () => {
+    await writeFile(
+      join(vault, "replace.md"),
+      "---\ntitle: Old\n---\nold body\n",
+      "utf8",
+    )
+    await writeNote(
+      {
+        vaultPath: vault,
+        path: "replace.md",
+        body: "new body\n",
+        overwrite: true,
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "replace.md"), "utf8")
+    expect(content).toBe("---\ntitle: Old\n---\nnew body\n")
+  })
+
+  it("creates a new file when overwrite is set but the file does not exist", async () => {
+    await writeNote(
+      {
+        vaultPath: vault,
+        path: "fresh-overwrite.md",
+        body: "created\n",
+        overwrite: true,
+      },
+      logger,
+    )
+    const content = await readFile(join(vault, "fresh-overwrite.md"), "utf8")
+    expect(content).toBe("created\n")
   })
 })
 
@@ -1028,7 +1099,10 @@ describe("write size logging", () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
     onTestFinished(() => infoSpy.mockRestore())
 
-    await writeNote({ vaultPath: vault, path: "e.md", body: "new\n" }, logger)
+    await writeNote(
+      { vaultPath: vault, path: "e.md", body: "new\n", overwrite: true },
+      logger,
+    )
     const written = await readFile(join(vault, "e.md"), "utf8")
 
     expect(infoSpy).toHaveBeenCalledWith("wrote note", {
@@ -1259,6 +1333,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "race.md",
           body: "Body.",
           properties: { alpha: "a" },
+          overwrite: true,
         },
         logger,
       ),
@@ -1268,6 +1343,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "race.md",
           body: "Body.",
           properties: { beta: "b" },
+          overwrite: true,
         },
         logger,
       ),
@@ -1372,7 +1448,12 @@ describe("concurrent writes (exclusive lock)", () => {
     // atomic-rename recreates it. The delete must fail fast instead.
     const [write, del] = await Promise.allSettled([
       writeNote(
-        { vaultPath: vault, path: "contested.md", body: "updated" },
+        {
+          vaultPath: vault,
+          path: "contested.md",
+          body: "updated",
+          overwrite: true,
+        },
         logger,
       ),
       deleteNote(
@@ -1415,7 +1496,12 @@ describe("concurrent writes (exclusive lock)", () => {
         logger,
       ),
       writeNote(
-        { vaultPath: vault, path: "vanishing.md", body: "resurrected?" },
+        {
+          vaultPath: vault,
+          path: "vanishing.md",
+          body: "resurrected?",
+          overwrite: true,
+        },
         logger,
       ),
     ])

@@ -616,20 +616,21 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-| File                                 | Update when…                                                                                                                                             |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                          | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
-| `ARCHITECTURE.md`                    | New component, requirement, or design decision; component diagram changes                                                                                |
-| `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields), description changes. `description` has a 100-character limit per the MCP registry schema.  |
-| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits (see recipe below table)                                                      |
-| `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
-| `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
-| `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
-| `cli/README.md`                      | Feature description, tool/prompt count, or search capability changes — this is the npmjs.com landing page                                                |
-| `cli/src/env.ts`                     | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
-| `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
-| `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
-| `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
+| File                                          | Update when…                                                                                                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`                                   | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
+| `ARCHITECTURE.md`                             | New component, requirement, or design decision; component diagram changes                                                                                |
+| `server.json`                                 | Tool/prompt count changes (the `tools` and `prompts` fields), description changes. `description` has a 100-character limit per the MCP registry schema.  |
+| `assets/social-preview.svg` + `.png`          | Tool count changes (rendered in the image); regenerate PNG after SVG edits (see recipe below table)                                                      |
+| `.devin/wiki.json`                            | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
+| `deploy/local/` + `deploy/remote/`            | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
+| `.env.example` (root)                         | New env var or changed default for the Lightsail reference deployment                                                                                    |
+| `cli/README.md`                               | Feature description, tool/prompt count, or search capability changes — this is the npmjs.com landing page                                                |
+| `cli/src/env.ts`                              | New env var or changed default — the CLI generates `.env` files with optional blocks that must mirror `deploy/*/.env.example`                            |
+| `cli/templates/`                              | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
+| `CONTRIBUTING.md`                             | CI pipeline, repo settings, or release conventions change                                                                                                |
+| `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                |
+| `.github/workflows/dockerhub-description.yml` | Tool/prompt count changes (the `short-description` field hardcodes the count). Docker Hub limits short descriptions to 100 characters.                   |
 
 **Regenerating `social-preview.png`:** The SVG uses `font-family="DejaVu Sans"`
 for the subtitle and feature line (`<text>` elements — the wordmark is already
