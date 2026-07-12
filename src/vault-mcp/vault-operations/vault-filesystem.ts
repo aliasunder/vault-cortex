@@ -311,13 +311,14 @@ const readNoteProperties = async (
   return parseNote(content).data
 }
 
-/** Creates or updates a note. Merges frontmatter losslessly if the file exists. */
+/** Creates a note. Rejects if the file already exists unless overwrite is set. */
 const writeNote = async (
   params: {
     vaultPath: string
     path: string
     body: string
     properties?: Record<string, unknown> | undefined
+    overwrite?: boolean | undefined
   },
   logger: Logger,
 ): Promise<void> => {
@@ -327,6 +328,9 @@ const writeNote = async (
     await mkdir(dirname(fullPath), { recursive: true })
 
     const existing = await readFileOrNull(fullPath)
+    if (existing !== null && !params.overwrite) {
+      throw new Error(`note already exists: "${params.path}"`)
+    }
     const serialized = serializeNote(existing, params.body, params.properties)
     await atomicWriteFile(fullPath, serialized)
     logger.info("wrote note", {

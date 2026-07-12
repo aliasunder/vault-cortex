@@ -182,7 +182,7 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | Tool                      | Input                                                        | Annotation      |
 | ------------------------- | ------------------------------------------------------------ | --------------- |
 | `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?` | readOnlyHint    |
-| `vault_write_note`        | `path, body, properties?`                                    | destructiveHint |
+| `vault_write_note`        | `path, body, properties?, overwrite?`                        | destructiveHint |
 | `vault_patch_note`        | `path, operation, content, heading?, heading_level?`         | destructiveHint |
 | `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`         | destructiveHint |
 | `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`              | destructiveHint |
