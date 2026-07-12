@@ -373,8 +373,11 @@ describe("task-updater", () => {
       const archiveSection =
         content.split("## Archive")[1]?.split("## ")[0] ?? ""
       expect(archiveSection).toContain("Task A")
+      expect(archiveSection).toMatch(/\[x\]/)
+      expect(archiveSection).toMatch(/✅ \d{4}-\d{2}-\d{2}/)
       expect(result.changes).toEqual(
         expect.arrayContaining([
+          expect.stringContaining("status:"),
           expect.stringContaining("lane: Active → Archive"),
         ]),
       )
@@ -397,8 +400,11 @@ describe("task-updater", () => {
       const content = await readTestNote(vault, "board.md")
       const doneSection = content.split("## Done")[1]?.split("## ")[0] ?? ""
       expect(doneSection).toContain("In-progress task")
+      expect(doneSection).toMatch(/\[x\]/)
+      expect(doneSection).toMatch(/✅ \d{4}-\d{2}-\d{2}/)
       expect(result.changes).toEqual(
         expect.arrayContaining([
+          expect.stringContaining("status:"),
           expect.stringContaining("lane: Active → Done"),
         ]),
       )

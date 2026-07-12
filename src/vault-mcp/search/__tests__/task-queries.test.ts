@@ -156,6 +156,37 @@ describe("task indexing lifecycle", () => {
     expect(result.tasks).toEqual([expectedEntry])
   })
 
+  it("populates done_lanes from **Complete** markers on Kanban boards", () => {
+    const index = createTestIndex()
+    const kanbanWithComplete = [
+      "---",
+      "kanban-plugin: board",
+      "---",
+      "## Active",
+      "",
+      "- [ ] Task A",
+      "",
+      "## Done",
+      "",
+      "**Complete**",
+      "- [x] Task B",
+    ].join("\n")
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: kanbanWithComplete,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ status: "all" }, logger)
+    const taskA = result.tasks.find((entry) => entry.description === "Task A")
+    expect(taskA?.is_kanban_task).toBe(true)
+    expect(taskA?.lane).toBe("Active")
+    expect(taskA?.done_lanes).toEqual(["Done"])
+  })
+
   it("stores the full parent folder, not just the first path segment", () => {
     const index = createTestIndex()
     index.upsertNote(

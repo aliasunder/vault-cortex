@@ -255,6 +255,25 @@ describe("rowToTaskEntry", () => {
     })
   })
 
+  it("maps lane and done_lanes for Kanban tasks", () => {
+    const entry = rowToTaskEntry(
+      makeTaskRow({
+        is_kanban_task: 1,
+        heading: "Active",
+        kanban_done_lanes: JSON.stringify(["Done"]),
+      }),
+    )
+    expect(entry.lane).toBe("Active")
+    expect(entry.done_lanes).toEqual(["Done"])
+    expect(entry.is_kanban_task).toBe(true)
+  })
+
+  it("sets lane to null for non-Kanban tasks", () => {
+    const entry = rowToTaskEntry(makeTaskRow({ is_kanban_task: 0 }))
+    expect(entry.lane).toBeNull()
+    expect(entry.done_lanes).toBeNull()
+  })
+
   it("renames note_path to path", () => {
     const entry = rowToTaskEntry(
       makeTaskRow({ note_path: "Journal/2024-01-01.md" }),

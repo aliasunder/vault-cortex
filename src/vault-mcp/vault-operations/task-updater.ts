@@ -126,8 +126,8 @@ const detectDoneLane = (
   )
 }
 
-/** Extracts a short description from a task line (first 80 chars of the
- *  parsed description text, stripping the checkbox and emoji metadata). */
+/** Extracts the human-readable description from a task line, stripping
+ *  the checkbox prefix and trailing emoji metadata. Capped at 120 chars. */
 const extractDescription = (taskLine: string): string => {
   const match = /\[.\] *(.*)$/.exec(taskLine)
   if (match === null) return taskLine.slice(0, 80)
@@ -202,7 +202,10 @@ const updateTask = async (
       // Convert 1-based file line to 0-based body line index.
       // line is guaranteed defined here: the identifier validation
       // above ensures exactly one of blockId/line is set.
-      const fileLine = line ?? 0
+      if (line === undefined) {
+        throw new Error("exactly one of block_id or line is required")
+      }
+      const fileLine = line
       taskLineIndex = fileLine - 1 - bodyStartLine
       const taskLineText = bodyLines[taskLineIndex]
       if (
@@ -310,19 +313,18 @@ const updateTask = async (
 
         // Prepend task block to the target heading's body
         resultLines.splice(updatedTargetHeading.bodyStartLine, 0, ...taskBlock)
+        taskLineIndex = updatedTargetHeading.bodyStartLine
 
         changes.push(`lane: ${currentLane} → ${targetLane}`)
       }
     }
 
+    const finalTaskIndex = taskLineIndex
+
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
     await atomicWriteFile(fullPath, serialized)
 
-    // Determine the final line number (1-based, including frontmatter).
-    // bodyStartLine is from the original file; frontmatter is preserved
-    // unchanged, so the offset is the same.
-    const finalTaskIndex = resultLines.indexOf(mutatedLine)
     const finalLine = bodyStartLine + finalTaskIndex + 1
 
     logger.info("task updated", {

@@ -557,9 +557,9 @@ const insertBeforeBlockId = (taskLine: string, text: string): string => {
 }
 
 /** Removes a matched regex from the line and collapses any resulting
- *  double spaces. */
+ *  double spaces. Preserves leading indentation. */
 const stripField = (taskLine: string, regex: RegExp): string =>
-  taskLine.replace(regex, "").replace(/ {2,}/g, " ").trim()
+  taskLine.replace(regex, "").replace(/ {2,}/g, " ").trimEnd()
 
 /** Updates the status-related fields of a task line: checkbox character
  *  and done/cancelled dates. Pure string transform — does not move lines
@@ -648,9 +648,10 @@ const findTaskByBlockId = (
 const COMPLETE_MARKER = "**Complete**"
 
 /** Extracts heading names whose body starts with a `**Complete**` marker
- *  paragraph — the Kanban plugin's per-lane completion signal. Fence-
- *  and comment-aware: markers inside code blocks or `%% %%` comments
- *  are ignored.
+ *  paragraph — the Kanban plugin's per-lane completion signal. Relies on
+ *  `parseHeadings` (which is fence/comment-aware) to define section
+ *  boundaries, so markers inside code blocks are excluded by the heading
+ *  parser's span computation — not re-checked here.
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
