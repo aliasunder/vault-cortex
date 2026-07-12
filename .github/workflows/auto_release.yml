@@ -61,6 +61,14 @@ jobs:
     with:
       version: ${{ needs.validate.outputs.version }}
 
+  sync-dockerhub-description:
+    needs: [validate, deploy]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/dockerhub-description.yml
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   release:
     needs: [validate, deploy]
     runs-on: ubuntu-latest

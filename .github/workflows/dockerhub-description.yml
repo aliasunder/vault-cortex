@@ -1,9 +1,10 @@
 name: Sync Docker Hub Description
 
 on:
-  push:
-    branches: [main]
-    paths: [README.md]
+  workflow_call:
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
