@@ -65,7 +65,7 @@ deploy/                                # End-user quickstart (no clone needed)
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  sync-cli-templates.ts                # Copies deploy/ compose files into cli/templates/
+  sync-cli-templates.ts                # Syncs deploy/ compose files + .env.example optional blocks into cli/
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts                             # Entry point (version injection + run)

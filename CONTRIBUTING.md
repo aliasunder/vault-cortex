@@ -72,10 +72,10 @@ development. A test fails if the versions drift.
 - Try it: `node cli/dist/bin.js init --help`
 
 **Template sync rule:** `cli/templates/` holds verbatim copies of
-`deploy/local/docker-compose.yml` and `deploy/remote/docker-compose.yml` so the
-npm tarball can ship them. If you change either deploy compose file, run
-`npm run sync:cli-templates` in the same PR — a byte-equality test fails CI
-otherwise.
+`deploy/local/docker-compose.yml` and `deploy/remote/docker-compose.yml`, and the
+optional env blocks in `cli/src/env.ts` are derived from `deploy/*/.env.example`.
+If you change any deploy compose file or `.env.example`, run
+`npm run sync:cli-templates` in the same PR — drift tests fail CI otherwise.
 
 **Publishing:** CLI releases are explicit and independent of server releases —
 nothing publishes to npm as a side effect of a server release. The maintainer
