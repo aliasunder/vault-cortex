@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { sanitizeFtsQuery } from "../fts-query.js"
+import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js"
 
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
@@ -167,6 +167,61 @@ describe("sanitizeFtsQuery", () => {
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     const result = sanitizeFtsQuery(input)
+    expect(result).toBe(expected)
+  })
+})
+
+describe("sanitizeFtsQueryAnyTerm", () => {
+  const scenarios = [
+    {
+      name: "multi-word: content terms joined with OR, stopword dropped",
+      input: "opinions on testing",
+      expected: "opinions OR testing",
+    },
+    {
+      name: "compound → quoted phrase, OR-joined with bare term",
+      input: "vault-cortex testing",
+      expected: '"vault cortex" OR testing',
+    },
+    {
+      name: "single word: passthrough with no operator",
+      input: "testing",
+      expected: "testing",
+    },
+    {
+      name: "all reserved words: empty result",
+      input: "AND OR NOT",
+      expected: '""',
+    },
+    {
+      name: "empty string: empty result",
+      input: "",
+      expected: '""',
+    },
+    {
+      name: "quoted phrase preserved, stray hyphen stripped, OR-joined",
+      input: '"opinions on testing" -beta',
+      expected: '"opinions on testing" OR beta',
+    },
+    {
+      name: "reserved word dropped from mixed input, remainder OR-joined",
+      input: '"testing" AND notes',
+      expected: '"testing" OR notes',
+    },
+    {
+      name: "all stopwords: empty result — nothing can anchor a rescue",
+      input: "what do I do about it",
+      expected: '""',
+    },
+    {
+      name: "stopword inside a quoted phrase is kept — phrases are deliberate",
+      input: '"on call" rotations',
+      expected: '"on call" OR rotations',
+    },
+  ]
+
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    const result = sanitizeFtsQueryAnyTerm(input)
     expect(result).toBe(expected)
   })
 })

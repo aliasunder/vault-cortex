@@ -34,7 +34,7 @@ const COMPOUND_JOINER_RUN_REGEX = new RegExp(
  *  quotes, lone operators) into token separators so it never reaches FTS5. */
 const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
 
-/** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
+/** Shared tokenizer behind both sanitizers. Quoted phrases are preserved
  *  for exact-phrase matching. Punctuated compound terms (vault-cortex,
  *  mcpservers.org, deploy/local) are converted to quoted phrases for
  *  adjacent-token matching — the unicode61 tokenizer splits the indexed text
@@ -42,7 +42,7 @@ const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
  *  Remaining unquoted terms are left bare to preserve porter stemming. FTS5
  *  metacharacters, stray punctuation, and reserved words are stripped, so
  *  literal text can never produce an FTS5 syntax error. */
-export const sanitizeFtsQuery = (raw: string): string => {
+const sanitizedFtsParts = (raw: string): string[] => {
   const phrases: string[] = []
 
   // Extract "quoted phrases", strip FTS5 metacharacters inside them,
@@ -72,6 +72,43 @@ export const sanitizeFtsQuery = (raw: string): string => {
       (token) => token.length > 0 && !FTS5_RESERVED.has(token.toUpperCase()),
     )
 
-  const parts = [...phrases, ...tokens]
+  return [...phrases, ...tokens]
+}
+
+/** Sanitizes user input for safe FTS5 querying with all-terms (implicit AND)
+ *  semantics — every part must match. See sanitizedFtsParts for the
+ *  sanitization rules. */
+export const sanitizeFtsQuery = (raw: string): string => {
+  const parts = sanitizedFtsParts(raw)
   return parts.length === 0 ? '""' : parts.join(" ")
+}
+
+/** English function words that would let an OR query match most of the
+ *  corpus ("on", "in", "the") — live verification showed a nonsense query
+ *  matching 176 entries through "in" alone. Lucene's classic English stopword
+ *  list plus the meta-question words recall queries carry ("what do I think
+ *  about…"). Applied only to the any-term rescue; the all-terms sanitizer
+ *  keeps every token. */
+const ANY_TERM_STOPWORDS = new Set([
+  ...["a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if"],
+  ...["in", "into", "is", "it", "no", "not", "of", "on", "or", "such"],
+  ...["that", "the", "their", "then", "there", "these", "they", "this"],
+  ...["to", "was", "will", "with"],
+  ...["i", "me", "my", "you", "your", "do", "does", "about"],
+  ...["what", "when", "where", "which", "who", "whom", "why", "how"],
+])
+
+/** Any-term (OR) variant of sanitizeFtsQuery — an entry matches when it
+ *  contains ANY sanitized content word instead of all tokens. Used only by
+ *  memoryRecall's zero-result rescue. Stopwords are dropped so only content
+ *  words can anchor a match — an OR hit on "on" is every entry, not a signal
+ *  — and bm25's idf weighting orders the survivors by their rarest stems.
+ *  Quoted phrases and punctuated compounds are deliberate and always kept. */
+export const sanitizeFtsQueryAnyTerm = (raw: string): string => {
+  const parts = sanitizedFtsParts(raw)
+  const contentParts = parts.filter(
+    (part) =>
+      part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()),
+  )
+  return contentParts.length === 0 ? '""' : contentParts.join(" OR ")
 }

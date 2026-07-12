@@ -38,7 +38,7 @@
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
-- **[Structured memory](#tools-27)** — dated entries, section targeting, auto-initialization for AI personalization
+- **[Structured memory](#tools-27)** — dated, append-only entries accumulate into a personal history, auto-initialized for AI personalization. Topic recall keeps that history usable as it grows: "how has my thinking on X evolved?" returns the full dated arc — the current take and the history it came from.
 - **[Task queries](#tools-27)** — Kanban-aware, vault-wide task index parsing both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — or pull board lanes in position order.
 - **[Link graph](#tools-27)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -202,7 +202,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 | **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                      |
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                                            |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                                              |
-|                 | `vault_list_memory_files`    | Discover memory files and their sections                                            |
+|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                 |
 |                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first           |
 | **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                |
 |                 | `vault_list_property_values` | Distinct values for a property key                                                  |
@@ -217,11 +217,11 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
-| Prompt              | Arguments             | What it does                                                                                                                                                                                                           |
-| ------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                        |
-| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis. Hidden when `MEMORY_ENABLED=false`. |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up  |
+| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                                                            |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                                                         |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. Hidden when `MEMORY_ENABLED=false`. |
+| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                                                                   |
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
@@ -352,7 +352,7 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 | **2b** | Reranker — cross-encoder reranking, position-aware score blending                                    | Complete  |
 | **3a** | Task layer — vault-wide task index + structured task queries (Tasks plugin emoji + Dataview formats) | Complete  |
 | **3b** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)  | Exploring |
-| **3c** | Memory recall — entry-granular retrieval across the memory layer's dated history                     | Exploring |
+| **3c** | Memory recall — entry-granular retrieval across the memory layer's dated history                     | Complete  |
 
 ## Acknowledgments
 

@@ -5,7 +5,7 @@ import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
-import { sanitizeFtsQuery } from "./fts-query.js"
+import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { blendScores, sigmoid } from "./reranker.js"
 import type { Reranker } from "./reranker.js"
@@ -501,6 +501,28 @@ const memoryVectorSearch = async (
   }
 }
 
+/** Relaxed lexical leg for the zero-result exits: any-term (OR) FTS over the
+ *  entry index, bm25-ordered best-first. Rescue rows carry ftsHit: false — an
+ *  any-term hit on a ubiquitous token ("on") is not an anchor and never earns
+ *  the always-survive guarantee; these candidates bypass the relevance cuts
+ *  only because they are the last resort before an empty result. */
+const anyTermLexicalCandidates = (
+  memory: NonNullable<SearchQueryContext["memory"]>,
+  query: string,
+  matchesFileFilter: (row: MemoryEntryRow) => boolean,
+): MemoryRecallCandidate[] =>
+  memory.ftsSearchStmt
+    .all(sanitizeFtsQueryAnyTerm(query))
+    .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
+    .filter((row) => row !== undefined)
+    .filter(matchesFileFilter)
+    .map((row, ftsRank) => ({
+      row,
+      ftsHit: false,
+      fusedScore: -ftsRank,
+      distance: undefined,
+    }))
+
 /** Attempts cross-encoder reranking of memory recall candidates. Returns the
  *  kept candidates and a relevance scorer, or null on failure — the caller
  *  falls back to the distance-margin cut. */
@@ -602,6 +624,8 @@ const buildMemoryRecallResult = (
  * Pipeline: lexical (FTS5) + vector (KNN) → RRF fusion → rerank or
  * distance-margin cut → chronological output. Lexical hits always survive
  * the cut. Truncation drops the least relevant entries, never a date end.
+ * A result that would otherwise be empty degrades to any-term (OR) keyword
+ * matching before giving up — an empty rescue stays empty.
  */
 export const memoryRecall = async (
   context: SearchQueryContext,
@@ -639,14 +663,23 @@ export const memoryRecall = async (
     await memoryVectorSearch(memory, params.query, logger)
   ).filter(matchesFileFilter)
 
-  // No vectors available — keep every lexical match, FTS-rank ordered.
+  // No vectors available — keep every lexical match, FTS-rank ordered. When
+  // the all-terms leg is empty, degrade to any-term matching before returning
+  // empty. (A single-token query re-runs identically and still finds nothing
+  // — one redundant FTS query on an already-empty path.)
   if (vectorRows.length === 0) {
-    const lexicalCandidates = ftsRows.map((row, ftsRank) => ({
+    const allTermsCandidates = ftsRows.map((row, ftsRank) => ({
       row,
       ftsHit: true,
       fusedScore: -ftsRank,
       distance: undefined,
     }))
+    const lexicalCandidates =
+      allTermsCandidates.length > 0
+        ? allTermsCandidates
+        : anyTermLexicalCandidates(memory, params.query, matchesFileFilter)
+    const anyTermRescueUsed =
+      allTermsCandidates.length === 0 && lexicalCandidates.length > 0
     const result = buildMemoryRecallResult(
       lexicalCandidates,
       (candidate) => candidate.fusedScore,
@@ -662,6 +695,7 @@ export const memoryRecall = async (
       vectorHits: 0,
       matched: result.total,
       returned: result.entries.length,
+      ...(anyTermRescueUsed ? { anyTermRescue: true } : {}),
     })
     return result
   }
@@ -696,7 +730,10 @@ export const memoryRecall = async (
     })
   }
 
-  const logHybridResult = (result: MemoryRecallResult) => {
+  const logHybridResult = (
+    result: MemoryRecallResult,
+    anyTermRescue = false,
+  ) => {
     logger.info("memory recall", {
       query: params.query,
       searchMode: result.search_mode,
@@ -705,6 +742,7 @@ export const memoryRecall = async (
       vectorHits: vectorRows.length,
       matched: result.total,
       returned: result.entries.length,
+      ...(anyTermRescue ? { anyTermRescue: true } : {}),
     })
   }
 
@@ -720,6 +758,26 @@ export const memoryRecall = async (
     : null
 
   if (rerankOutcome) {
+    // Zero-anchor hole: an empty keep-set implies the all-terms lexical leg
+    // was empty (a lexical hit always survives the cut) and the cross-encoder
+    // rejected every vector candidate — typical of meta-phrased queries
+    // ("opinions on testing"). Degrade to any-term keyword matching rather
+    // than returning nothing; an empty rescue keeps today's exact empty shape.
+    const rescueCandidates =
+      rerankOutcome.kept.length === 0
+        ? anyTermLexicalCandidates(memory, params.query, matchesFileFilter)
+        : []
+    if (rescueCandidates.length > 0) {
+      const result = buildMemoryRecallResult(
+        rescueCandidates,
+        (candidate) => candidate.fusedScore,
+        maxResults,
+        "fts",
+        false,
+      )
+      logHybridResult(result, true)
+      return result
+    }
     const result = buildMemoryRecallResult(
       rerankOutcome.kept,
       rerankOutcome.relevance,

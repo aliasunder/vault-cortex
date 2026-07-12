@@ -80,7 +80,7 @@ it.
 (defaulting to `append-only` when the property is absent), so agents can check
 it before pruning anything.
 
-The `vault_update_memory` tool appends dated entries automatically. The `vault_get_memory` tool reads them back, either a full file, a single section, or all files concatenated.
+The `vault_update_memory` tool appends dated entries automatically. The `vault_get_memory` tool reads them back, either a full file, a single section, or all files concatenated. The `vault_memory_recall` tool retrieves entries by topic — every relevant dated entry across all memory files at once, oldest first.
 
 ## Customization
 
@@ -104,14 +104,20 @@ convention:
    Contradictions are natural; the timeline tells the story. An entry from six
    months ago saying "prefers tabs" followed by a recent one saying "switched to
    spaces" is more useful than a single overwritten value
-3. **Semantic retrieval (hybrid search)** — dated entries become the corpus for
-   semantic/vector search, enabling temporal queries ("how has the user's
-   stance on X evolved?", "what did they believe about Y last month?")
+3. **Semantic retrieval** — dated entries are the corpus for
+   `vault_memory_recall`, which retrieves every entry about a topic,
+   keyword- and semantically-matched. That serves temporal questions ("how
+   has the user's stance on X evolved?") and current ones ("what's the
+   user's take on X today?") equally: the newest entries in the arc carry
+   the current perspective, and the history behind them provides the
+   context it was reached through. For `entry-policy: living` files, whose
+   entries are the current state itself, recall surfaces the active
+   commitments and logistics that match the topic
 
 This is append-only by design (for files with the default `entry-policy`).
 Entries are never overwritten — new entries are added at the top (newest
-first), and the full history is preserved. Agents retrieve context by reading
-the most recent entries, but the timeline remains available for deeper
-understanding. Files marked `entry-policy: living` trade the complete timeline
+first), and the full history is preserved. Agents read the most recent entries
+for current context and recall the full timeline by topic via
+`vault_memory_recall`. Files marked `entry-policy: living` trade the complete timeline
 for an accurate current state — their dated entries record when something was
 captured, not a full history.
