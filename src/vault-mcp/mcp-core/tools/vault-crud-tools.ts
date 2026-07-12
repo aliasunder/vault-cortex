@@ -201,16 +201,18 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create or update a markdown note. Body replaces the entire note content — this is a full overwrite, not a partial edit. Properties are passed separately and merged with any existing properties (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved).
+      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content — this is a full write, not a partial edit. Properties are passed separately and merged with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved).
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
+Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
-When to use: Creating a new note or fully replacing an existing note's body.
+When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.
 Prefer vault_update_properties for property-only edits (no body round-trip).${config.memoryEnabled ? `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.` : ""}
 
-Limitation: Overwrites the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
+Limitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
 Errors:
+- "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
@@ -234,15 +236,21 @@ Returns: Confirmation message.`,
           .describe(
             "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; a null value deletes that key; unmentioned keys are preserved from the existing file.",
           ),
+        overwrite: z
+          .boolean()
+          .optional()
+          .describe(
+            "Allow overwriting an existing note (default: false — errors if file exists).",
+          ),
       },
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: false,
       },
     },
-    async ({ path, body, properties }, extra) => {
+    async ({ path, body, properties, overwrite }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_WRITE_NOTE,
@@ -250,11 +258,15 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", {
         path,
         hasProperties: Boolean(properties),
+        overwrite: Boolean(overwrite),
       })
       return safeHandler(
         reqLogger,
         () =>
-          vaultFs.writeNote({ vaultPath, path, body, properties }, reqLogger),
+          vaultFs.writeNote(
+            { vaultPath, path, body, properties, overwrite },
+            reqLogger,
+          ),
         () => {
           reqLogger.info("tool_result", { outcome: "written" })
           return `Wrote ${path}`
@@ -278,7 +290,7 @@ Cross-section move (e.g. completing a task on a board):
 Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.
 
 When to use: Modifying part of an existing note without overwriting the entire body.
-Prefer vault_write_note for creating new notes or full rewrites. Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
+Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true). Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
@@ -799,7 +811,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
-Prefer vault_write_note when creating a new note or replacing the body. Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
+Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
