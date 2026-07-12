@@ -566,25 +566,31 @@ const tryRerankMemoryCandidates = async (
       }),
     )
 
-    // Adaptive floor: follows the best score down when overall confidence
-    // is moderate, bounded between the sanity floor and the absolute floor.
-    const nonFtsHitProbabilities = candidates
-      .filter((candidate) => !candidate.ftsHit)
-      .map((candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0)
+    const probabilityOf = (candidate: MemoryRecallCandidate): number =>
+      probabilityByEntryId.get(candidate.row.id) ?? 0
+
+    // Adaptive floor: FTS hits always survive (lexical match = strong
+    // evidence), so the floor only governs vector-only candidates. Find
+    // the best score among those, then scale it down — entries within
+    // 10% of the best are relevant enough to keep. Clamp the result
+    // between 0.001 (block noise) and 0.05 (don't exceed what already
+    // works for strong queries).
+    const vectorOnlyCandidates = candidates.filter(
+      (candidate) => !candidate.ftsHit,
+    )
     const bestProbability =
-      nonFtsHitProbabilities.length > 0
-        ? Math.max(...nonFtsHitProbabilities)
+      vectorOnlyCandidates.length > 0
+        ? Math.max(...vectorOnlyCandidates.map(probabilityOf))
         : MEMORY_RECALL_MAX_FLOOR
-    const relativeThreshold = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
-    const effectiveFloor = Math.max(
-      MEMORY_RECALL_SANITY_FLOOR,
-      Math.min(MEMORY_RECALL_MAX_FLOOR, relativeThreshold),
+    const scaledFloor = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
+    const effectiveFloor = Math.min(
+      MEMORY_RECALL_MAX_FLOOR,
+      Math.max(MEMORY_RECALL_SANITY_FLOOR, scaledFloor),
     )
 
     const kept = candidates.filter(
       (candidate) =>
-        candidate.ftsHit ||
-        (probabilityByEntryId.get(candidate.row.id) ?? 0) >= effectiveFloor,
+        candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor,
     )
     return {
       kept,
