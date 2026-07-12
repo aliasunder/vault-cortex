@@ -118,7 +118,7 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends wget ca-cer
 # Inc. / Obsidian), installed from public npm — the repo's MIT license does
 # not cover it. See the README license section.
 COPY obsidian-headless/package.json obsidian-headless/package-lock.json /opt/obsidian-headless/
-RUN npm ci --prefix /opt/obsidian-headless \
+RUN npm ci --prefix /opt/obsidian-headless --omit=dev \
     && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
        /usr/local/bin/corepack /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV PATH="/opt/obsidian-headless/node_modules/.bin:$PATH"
