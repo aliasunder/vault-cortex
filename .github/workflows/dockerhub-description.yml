@@ -1,0 +1,24 @@
+name: Sync Docker Hub Description
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_USERNAME }}/vault-cortex
+          short-description: "Standalone MCP server for Obsidian vaults — hybrid search, structured memory, 27 tools + 3 prompts, OAuth 2.1."
