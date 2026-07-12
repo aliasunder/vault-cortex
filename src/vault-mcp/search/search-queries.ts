@@ -501,6 +501,53 @@ const memoryVectorSearch = async (
   }
 }
 
+/** Attempts cross-encoder reranking of memory recall candidates. Returns the
+ *  kept candidates and a relevance scorer, or null on failure — the caller
+ *  falls back to the distance-margin cut. */
+const tryRerankMemoryCandidates = async (
+  reranker: Reranker,
+  query: string,
+  candidates: readonly MemoryRecallCandidate[],
+  logger: Logger,
+): Promise<{
+  kept: MemoryRecallCandidate[]
+  relevance: (candidate: MemoryRecallCandidate) => number
+} | null> => {
+  try {
+    const logits = await reranker.rerankPairs(
+      query,
+      candidates.map(
+        (candidate) => `${candidate.row.section}\n${candidate.row.entry_text}`,
+      ),
+    )
+    const probabilityByEntryId = new Map<number, number>(
+      candidates.flatMap((candidate, candidateIndex) => {
+        const logit = logits[candidateIndex]
+        return logit === undefined
+          ? []
+          : [[candidate.row.id, sigmoid(logit)] as const]
+      }),
+    )
+    const kept = candidates.filter(
+      (candidate) =>
+        candidate.ftsHit ||
+        (probabilityByEntryId.get(candidate.row.id) ?? 0) >=
+          MEMORY_RECALL_MIN_PROBABILITY,
+    )
+    return {
+      kept,
+      // Missing probability (a logits/candidates length mismatch that cannot
+      // normally happen) sorts as least relevant, not as an error.
+      relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
+    }
+  } catch (error) {
+    logger.warn("memory recall rerank failed, using distance margin", {
+      error: describeError(error),
+    })
+    return null
+  }
+}
+
 /** Ascending chronological order for the final evidence set: lexicographic
  *  ISO date (chronological for YYYY-MM-DD), then file and document position
  *  for same-date determinism — same-date entries have no knowable order. */
@@ -552,15 +599,9 @@ const buildMemoryRecallResult = (
  * Entry-granular hybrid recall over the memory layer — the evidence set
  * behind vault_memory_recall.
  *
- * Candidate generation is recall-first: EVERY lexical match (FTS5 over
- * entry text + section names) unions with the vector top-100, fused by RRF.
- * The cut is the recall-tuned selection policy: with a reranker, an
- * absolute cross-encoder relevance floor (which catches arc origins whose
- * vocabulary drifted — cross-attention judges topical identity where
- * bi-encoder cosine can't); without one, a distance margin off the best
- * vector hit. Lexical hits always survive the cut. Output is ascending by
- * date — an evolution arc reads oldest-first — while truncation drops the
- * least relevant, never a date end.
+ * Pipeline: lexical (FTS5) + vector (KNN) → RRF fusion → rerank or
+ * distance-margin cut → chronological output. Lexical hits always survive
+ * the cut. Truncation drops the least relevant entries, never a date end.
  */
 export const memoryRecall = async (
   context: SearchQueryContext,
@@ -598,8 +639,7 @@ export const memoryRecall = async (
     await memoryVectorSearch(memory, params.query, logger)
   ).filter(matchesFileFilter)
 
-  // Lexical-only mode: no vectors available (embeddings off, model failed,
-  // or backfill not yet run) — keep every lexical match, FTS-rank ordered.
+  // No vectors available — keep every lexical match, FTS-rank ordered.
   if (vectorRows.length === 0) {
     const lexicalCandidates = ftsRows.map((row, ftsRank) => ({
       row,
@@ -626,8 +666,7 @@ export const memoryRecall = async (
     return result
   }
 
-  // Fuse both legs by entry id. computeRrfScores dedupes (scores sum per id)
-  // and orders the union most-agreed-first.
+  // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
     ftsRanked: ftsRows.map((row) => ({ path: String(row.id) })),
     vectorRanked: vectorRows.map((row) => ({ path: String(row.id) })),
@@ -641,76 +680,58 @@ export const memoryRecall = async (
   )
   const ftsIds = new Set(ftsRows.map((row) => String(row.id)))
 
-  // Cap the rerank window without ever dropping a lexical hit — only the
-  // lowest-fused vector-only candidates fall off.
-  const candidates = fusedScores.reduce<MemoryRecallCandidate[]>(
-    (kept, { path: entryId, score }) => {
-      const row = rowsById.get(entryId)
-      if (row === undefined) return kept
-      const ftsHit = ftsIds.has(entryId)
-      const underCap = kept.length < MEMORY_RERANK_CANDIDATE_LIMIT
-      if (!ftsHit && !underCap) return kept
-      return [
-        ...kept,
-        {
-          row,
-          ftsHit,
-          fusedScore: score,
-          distance: distancesById.get(entryId),
-        },
-      ]
-    },
-    [],
-  )
+  // Lexical hits always pass; only the lowest-fused vector-only candidates
+  // fall off once the rerank window cap is reached.
+  const candidates: MemoryRecallCandidate[] = []
+  for (const { path: entryId, score } of fusedScores) {
+    const row = rowsById.get(entryId)
+    if (row === undefined) continue
+    const ftsHit = ftsIds.has(entryId)
+    if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue
+    candidates.push({
+      row,
+      ftsHit,
+      fusedScore: score,
+      distance: distancesById.get(entryId),
+    })
+  }
 
-  // Primary cut: absolute cross-encoder relevance floor, with truncation
-  // relevance = the probability itself. Null (no reranker, or scoring threw
-  // — mirroring tryRerank's degrade-don't-fail contract) falls back to the
-  // distance margin below.
-  const reranker = context.reranker
-  const rerankOutcome = reranker
-    ? await (async () => {
-        try {
-          const logits = await reranker.rerankPairs(
-            params.query,
-            candidates.map(
-              (candidate) =>
-                `${candidate.row.section}\n${candidate.row.entry_text}`,
-            ),
-          )
-          const probabilityByEntryId = new Map<number, number>(
-            candidates.flatMap((candidate, candidateIndex) => {
-              const logit = logits[candidateIndex]
-              return logit === undefined
-                ? []
-                : [[candidate.row.id, sigmoid(logit)] as const]
-            }),
-          )
-          const kept = candidates.filter(
-            (candidate) =>
-              candidate.ftsHit ||
-              (probabilityByEntryId.get(candidate.row.id) ?? 0) >=
-                MEMORY_RECALL_MIN_PROBABILITY,
-          )
-          return {
-            kept,
-            // Missing probability (a logits/candidates length mismatch that
-            // cannot normally happen) sorts as least relevant, not as an error.
-            relevance: (candidate: MemoryRecallCandidate) =>
-              probabilityByEntryId.get(candidate.row.id) ?? 0,
-          }
-        } catch (error) {
-          logger.warn("memory recall rerank failed, using distance margin", {
-            error: describeError(error),
-          })
-          return null
-        }
-      })()
+  const logHybridResult = (result: MemoryRecallResult) => {
+    logger.info("memory recall", {
+      query: params.query,
+      searchMode: result.search_mode,
+      reranked: result.reranked,
+      ftsHits: ftsRows.length,
+      vectorHits: vectorRows.length,
+      matched: result.total,
+      returned: result.entries.length,
+    })
+  }
+
+  // Primary cut: cross-encoder relevance floor (keeps drifted-vocabulary
+  // arc origins that cosine distance would lose).
+  const rerankOutcome = context.reranker
+    ? await tryRerankMemoryCandidates(
+        context.reranker,
+        params.query,
+        candidates,
+        logger,
+      )
     : null
 
-  // Fallback cut: keep lexical hits plus vector hits within the margin of
-  // the best distance. vectorRows is non-empty here (early return above),
-  // so the minimum exists.
+  if (rerankOutcome) {
+    const result = buildMemoryRecallResult(
+      rerankOutcome.kept,
+      rerankOutcome.relevance,
+      maxResults,
+      "hybrid",
+      true,
+    )
+    logHybridResult(result)
+    return result
+  }
+
+  // Fallback: distance margin off the best vector hit.
   const keepableDistance =
     Math.min(...distancesById.values()) + MEMORY_RECALL_DISTANCE_MARGIN
   const marginCutCandidates = candidates.filter(
@@ -719,32 +740,14 @@ export const memoryRecall = async (
       (candidate.distance !== undefined &&
         candidate.distance <= keepableDistance),
   )
-
-  const result = rerankOutcome
-    ? buildMemoryRecallResult(
-        rerankOutcome.kept,
-        rerankOutcome.relevance,
-        maxResults,
-        "hybrid",
-        true,
-      )
-    : buildMemoryRecallResult(
-        marginCutCandidates,
-        (candidate) => candidate.fusedScore,
-        maxResults,
-        "hybrid",
-        false,
-      )
-  const reranked = rerankOutcome !== null
-  logger.info("memory recall", {
-    query: params.query,
-    searchMode: "hybrid",
-    reranked,
-    ftsHits: ftsRows.length,
-    vectorHits: vectorRows.length,
-    matched: result.total,
-    returned: result.entries.length,
-  })
+  const result = buildMemoryRecallResult(
+    marginCutCandidates,
+    (candidate) => candidate.fusedScore,
+    maxResults,
+    "hybrid",
+    false,
+  )
+  logHybridResult(result)
   return result
 }
 
