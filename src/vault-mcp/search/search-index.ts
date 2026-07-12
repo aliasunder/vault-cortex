@@ -429,10 +429,6 @@ export const createSearchIndex = (
           embedding float[384] distance_metric=cosine
         );
       `)
-      // One-time migration: embedding input changed from "section\ntext" to
-      // "file > section\ntext" — stale vectors must be dropped so entries
-      // re-embed with the new format on next startup. Remove after deploy.
-      db.exec("DELETE FROM memory_entry_vectors")
     }
   }
 
@@ -1180,8 +1176,9 @@ export const createSearchIndex = (
    *  texts straight from memory_entries WHERE no vector exists — gating on
    *  vector ABSENCE rather than content hashes, so a crash between upsert and
    *  embed self-heals on the next call. The embedding input prefixes the
-   *  section name (topic context, like the chunker's title prefix) but not
-   *  the date, which is semantic noise. Returns the number embedded. */
+   *  file and section name ("Agents > Communication\n...") so both the
+   *  embedder and cross-encoder see which file an entry belongs to — the
+   *  date is excluded (semantic noise). Returns the number embedded. */
   const embedMemoryEntriesForFile = async (
     memoryFile: string,
     logger: Logger,

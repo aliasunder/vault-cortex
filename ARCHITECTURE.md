@@ -241,9 +241,12 @@ files/sections; `vault_search` is note-granular).
 A pure entry parser (`obsidian-markdown/memory-entries.ts`) feeds dedicated
 index tables: `memory_entries` + `memory_entries_fts` exist whenever the memory
 layer is on (the lexical leg works with embeddings off); `memory_entry_vectors`
-(cosine metric) additionally requires the embedder. Entries reconcile by
-content-hash identity rather than position, so a newest-first top-insert
-re-embeds exactly one entry.
+(cosine metric) additionally requires the embedder. Both embedding and
+cross-encoder input include the file name as a prefix
+(`"Agents > Communication\n..."`) so queries mentioning a file's topic
+("how agents communicate") match the structural context, not just
+entry text. Entries reconcile by content-hash identity rather than
+position, so a newest-first top-insert re-embeds exactly one entry.
 
 The query unions every lexical match with the vector top-100, fused by RRF,
 then cuts on an adaptive cross-encoder relevance floor (clamped between a
