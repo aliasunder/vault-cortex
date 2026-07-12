@@ -55,8 +55,8 @@ const extractOptionalSection = (envExampleContent: string): string => {
   if (!match) {
     throw new Error("could not find '# Optional' header in .env.example")
   }
-  const rawSection = envExampleContent.slice(match.index + match[0].length)
-  return rawSection.replace(/^\n+/, "")
+  const afterHeader = envExampleContent.slice(match.index + match[0].length)
+  return afterHeader.replace(/^\n+/, "")
 }
 
 /**
@@ -110,14 +110,15 @@ const envSources = [
 ]
 
 const envTsPath = resolvePath("cli/src/env.ts")
+// Mutable — each loop iteration replaces a different sync block in the file content
 let envTsContent = readFileSync(envTsPath, "utf8")
 
 for (const { envExample, blockName, constName, transform } of envSources) {
   const exampleContent = readFileSync(resolvePath(envExample), "utf8")
-  const rawSection = extractOptionalSection(exampleContent)
-  const processedSection = transform(rawSection)
+  const optionalSection = extractOptionalSection(exampleContent)
+  const transformedSection = transform(optionalSection)
 
-  const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${processedSection}\`
+  const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${transformedSection}\`
 `
 
   envTsContent = replaceSyncBlock(envTsContent, blockName, blockContent)
