@@ -451,8 +451,6 @@ describe("memoryRecall", () => {
           matched: 1,
           returned: 1,
           anyTermRescue: true,
-          bestProbability: sigmoid(-8),
-          effectiveFloor: 0.001,
         },
       ],
     ])
@@ -503,20 +501,13 @@ describe("memoryRecall", () => {
     // Verify the adaptive floor computed correctly — not just that entries
     // survived. Without this, the test would also pass if the computation
     // degenerated to the sanity floor (0.001).
-    const recallLogCalls = infoSpy.mock.calls.filter(
-      ([message]) => message === "memory recall",
+    const rerankLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall rerank",
     )
-    expect(recallLogCalls).toEqual([
+    expect(rerankLogCalls).toEqual([
       [
-        "memory recall",
+        "memory recall rerank",
         {
-          query: "how I like agents to communicate with me",
-          searchMode: "hybrid",
-          reranked: true,
-          ftsHits: 0,
-          vectorHits: 3,
-          matched: 2,
-          returned: 2,
           bestProbability: sigmoid(-1),
           effectiveFloor: sigmoid(-1) * 0.1,
         },
@@ -639,20 +630,13 @@ describe("memoryRecall", () => {
     // ceiling binds, so the entry is cut just as it would be under the old
     // absolute floor. Only the strong "focused" entry survives.
     expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
-    const recallLogCalls = infoSpy.mock.calls.filter(
-      ([message]) => message === "memory recall",
+    const rerankLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall rerank",
     )
-    expect(recallLogCalls).toEqual([
+    expect(rerankLogCalls).toEqual([
       [
-        "memory recall",
+        "memory recall rerank",
         {
-          query: "deep work and focus habits",
-          searchMode: "hybrid",
-          reranked: true,
-          ftsHits: 0,
-          vectorHits: 3,
-          matched: 1,
-          returned: 1,
           bestProbability: sigmoid(3),
           effectiveFloor: 0.05,
         },

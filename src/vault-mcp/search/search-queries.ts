@@ -536,8 +536,9 @@ const anyTermLexicalCandidates = (
     }))
 
 /** Attempts cross-encoder reranking of memory recall candidates. Returns the
- *  kept candidates, a relevance scorer, and the adaptive floor diagnostics,
- *  or null on failure — the caller falls back to the distance-margin cut. */
+ *  kept candidates and a relevance scorer, or null on failure — the caller
+ *  falls back to the distance-margin cut. Logs adaptive floor diagnostics
+ *  (bestProbability, effectiveFloor) so the caller doesn't need them. */
 const tryRerankMemoryCandidates = async (
   reranker: Reranker,
   query: string,
@@ -546,8 +547,6 @@ const tryRerankMemoryCandidates = async (
 ): Promise<{
   kept: MemoryRecallCandidate[]
   relevance: (candidate: MemoryRecallCandidate) => number
-  bestProbability: number
-  effectiveFloor: number
 } | null> => {
   try {
     const rerankScores = await reranker.rerankPairs(
@@ -595,13 +594,14 @@ const tryRerankMemoryCandidates = async (
       (candidate) =>
         candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor,
     )
+
+    logger.info("memory recall rerank", { bestProbability, effectiveFloor })
+
     return {
       kept,
       // Missing probability (a scores/candidates length mismatch that cannot
       // normally happen) sorts as least relevant, not as an error.
       relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
-      bestProbability,
-      effectiveFloor,
     }
   } catch (error) {
     logger.warn("memory recall rerank failed, using distance margin", {
@@ -773,11 +773,7 @@ export const memoryRecall = async (
 
   const logHybridResult = (
     result: MemoryRecallResult,
-    diagnostics: {
-      anyTermRescue?: boolean
-      bestProbability?: number
-      effectiveFloor?: number
-    } = {},
+    anyTermRescue = false,
   ) => {
     logger.info("memory recall", {
       query: params.query,
@@ -787,13 +783,7 @@ export const memoryRecall = async (
       vectorHits: vectorRows.length,
       matched: result.total,
       returned: result.entries.length,
-      ...(diagnostics.anyTermRescue ? { anyTermRescue: true } : {}),
-      ...(diagnostics.bestProbability
-        ? { bestProbability: diagnostics.bestProbability }
-        : {}),
-      ...(diagnostics.effectiveFloor
-        ? { effectiveFloor: diagnostics.effectiveFloor }
-        : {}),
+      ...(anyTermRescue ? { anyTermRescue: true } : {}),
     })
   }
 
@@ -826,11 +816,7 @@ export const memoryRecall = async (
         "fts",
         false,
       )
-      logHybridResult(result, {
-        anyTermRescue: true,
-        bestProbability: rerankOutcome.bestProbability,
-        effectiveFloor: rerankOutcome.effectiveFloor,
-      })
+      logHybridResult(result, true)
       return result
     }
     const result = buildMemoryRecallResult(
@@ -840,10 +826,7 @@ export const memoryRecall = async (
       "hybrid",
       true,
     )
-    logHybridResult(result, {
-      bestProbability: rerankOutcome.bestProbability,
-      effectiveFloor: rerankOutcome.effectiveFloor,
-    })
+    logHybridResult(result)
     return result
   }
 
