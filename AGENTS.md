@@ -46,6 +46,9 @@ package.json                           # single package, all deps
 tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
 Dockerfile                             # Two-target build: local (default) + remote
+obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
+  package.json                         #   pins obsidian-headless version
+  package-lock.json                    #   sha512 integrity hashes (supply-chain security)
 rootfs/                                # Container filesystem overlay (remote target)
   etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
   usr/local/bin/get-token              #   interactive Obsidian Sync token helper

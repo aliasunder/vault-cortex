@@ -21,6 +21,14 @@ updates:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
 
+  # obsidian-headless is installed from its own lockfile into the Docker
+  # remote target — not in the root package.json. Dependabot needs a
+  # separate entry to track version updates.
+  - package-ecosystem: npm
+    directory: /obsidian-headless
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
