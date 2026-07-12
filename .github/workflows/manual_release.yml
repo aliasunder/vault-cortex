@@ -118,6 +118,13 @@ jobs:
     with:
       version: ${{ needs.bump-and-tag.outputs.version }}
 
+  sync-dockerhub-description:
+    needs: [bump-and-tag, deploy]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/dockerhub-description.yml
+    secrets: inherit
+
   release:
     needs: [bump-and-tag, deploy]
     runs-on: ubuntu-latest
