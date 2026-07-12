@@ -4,6 +4,6 @@
   "private": true,
   "description": "Lockfile-pinned obsidian-headless for the Docker remote target (supply-chain integrity).",
   "dependencies": {
-    "obsidian-headless": "0.0.12"
+    "obsidian-headless": "0.0.13"
   }
 }
