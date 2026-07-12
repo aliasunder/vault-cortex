@@ -87,7 +87,9 @@ const startServer = async (): Promise<void> => {
     config.embeddingEnabled && config.rerankMode === "blended"
       ? createReranker(logger)
       : undefined
-  const search = createSearchIndex(searchDbPath, embedder, reranker)
+  const search = createSearchIndex(searchDbPath, embedder, reranker, {
+    memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
+  })
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 

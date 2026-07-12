@@ -14,9 +14,9 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task queries, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 26 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task queries, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 27 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-26) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Tools](#tools-27) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -38,9 +38,9 @@
 - **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
-- **[Structured memory](#tools-26)** — dated entries, section targeting, auto-initialization for AI personalization
-- **[Task queries](#tools-26)** — Kanban-aware, vault-wide task index parsing both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — or pull board lanes in position order.
-- **[Link graph](#tools-26)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Structured memory](#tools-27)** — dated entries, section targeting, auto-initialization for AI personalization
+- **[Task queries](#tools-27)** — Kanban-aware, vault-wide task index parsing both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats. Filter by status, six date fields, priority, folder, or heading — or pull board lanes in position order.
+- **[Link graph](#tools-27)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -181,7 +181,7 @@ All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=fa
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for model details, blend weights, and the full pipeline breakdown.
 
-## Tools (26)
+## Tools (27)
 
 | Category        | Tool                         | Description                                                                         |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
@@ -203,6 +203,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                                            |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                                              |
 |                 | `vault_list_memory_files`    | Discover memory files and their sections                                            |
+|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first           |
 | **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                |
 |                 | `vault_list_property_values` | Distinct values for a property key                                                  |
 |                 | `vault_search_by_property`   | Find notes by property key-value                                                    |

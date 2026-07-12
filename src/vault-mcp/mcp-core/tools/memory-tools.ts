@@ -10,6 +10,7 @@ const TOOL_NAMES = {
   VAULT_UPDATE_MEMORY: "vault_update_memory",
   VAULT_LIST_MEMORY_FILES: "vault_list_memory_files",
   VAULT_DELETE_MEMORY: "vault_delete_memory",
+  VAULT_MEMORY_RECALL: "vault_memory_recall",
 } as const
 
 export { TOOL_NAMES as MEMORY_TOOL_NAMES }
@@ -17,6 +18,7 @@ export { TOOL_NAMES as MEMORY_TOOL_NAMES }
 export const registerMemoryTools = ({
   server,
   vaultPath,
+  search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
@@ -303,6 +305,102 @@ Returns: Confirmation message.`,
         () => {
           reqLogger.info("tool_result", { outcome: "entry_deleted" })
           return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`
+        },
+      )
+    },
+  )
+
+  // The recall description leads with its matching mode — hybrid semantic
+  // matching is the tool's core promise, so keyword-only deployments
+  // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
+  // workaround instead of an overclaim.
+  const memoryRecallDescription = config.embeddingEnabled
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer.
+
+Example: vault_memory_recall({ query: "working hours and pacing" })
+Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
+
+When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
+
+Errors:
+- No matching entries returns { entries: [], total: 0 }, not an error
+- An unknown file returns empty results — call vault_list_memory_files to discover valid names
+
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when only keyword matching was available; reranked is true when the cross-encoder relevance cut was applied.`
+    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours").
+
+Example: vault_memory_recall({ query: "working hours and pacing" })
+Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
+
+When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
+
+Errors:
+- No matching entries returns { entries: [], total: 0 }, not an error
+- An unknown file returns empty results — call vault_list_memory_files to discover valid names
+
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_MEMORY_RECALL,
+    {
+      title: "Memory Recall",
+      description: memoryRecallDescription,
+      inputSchema: {
+        query: z
+          .string()
+          .min(1)
+          .describe(
+            config.embeddingEnabled
+              ? "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months)"
+              : "Topic to recall — use specific keywords (semantic matching is off; re-query with synonyms to cover vocabulary drift)",
+          ),
+        file: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"). Omit for cross-file recall — the default and usual choice.',
+          ),
+        max_results: z
+          .number()
+          .optional()
+          .describe(
+            "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ query, file, max_results }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_MEMORY_RECALL,
+      })
+      reqLogger.info("tool_call", {
+        query,
+        ...(file !== undefined ? { file } : {}),
+        ...(max_results !== undefined ? { max_results } : {}),
+      })
+      return safeHandler(
+        reqLogger,
+        () =>
+          search.memoryRecall(
+            { query, file, maxResults: max_results },
+            reqLogger,
+          ),
+        (recallResult) => {
+          reqLogger.info("tool_result", {
+            resultCount: recallResult.entries.length,
+            total: recallResult.total,
+            truncated: recallResult.truncated,
+            searchMode: recallResult.search_mode,
+            reranked: recallResult.reranked,
+          })
+          return JSON.stringify(recallResult)
         },
       )
     },

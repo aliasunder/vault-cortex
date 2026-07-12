@@ -106,6 +106,7 @@ src/
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
       tasks.ts                         # Tasks-plugin task-line grammar (emoji + Dataview fields)
+      memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
@@ -121,7 +122,7 @@ src/
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 12 tools: search, tags, tasks, properties, graph queries
-        memory-tools.ts                # 4 tools: get/update/list/delete memory
+        memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
@@ -130,7 +131,7 @@ src/
         daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
-      search-queries.ts                # All 16 query methods (FTS, hybrid, tags, tasks, links, etc.)
+      search-queries.ts                # All 17 query methods (FTS, hybrid, memory recall, tags, tasks, links, etc.)
       search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
@@ -620,7 +621,7 @@ changed:
 | `README.md`                          | Tool/prompt count changes, new deployment mode, new feature worth mentioning in the value prop                                                           |
 | `ARCHITECTURE.md`                    | New component, requirement, or design decision; component diagram changes                                                                                |
 | `server.json`                        | Tool/prompt count changes (the `tools` and `prompts` fields), description changes. `description` has a 100-character limit per the MCP registry schema.  |
-| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits                                                                               |
+| `assets/social-preview.svg` + `.png` | Tool count changes (rendered in the image); regenerate PNG after SVG edits (see recipe below table)                                                      |
 | `.devin/wiki.json`                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references), significant tool count jump (update `repo_notes`) |
 | `deploy/local/` + `deploy/remote/`   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory    |
 | `.env.example` (root)                | New env var or changed default for the Lightsail reference deployment                                                                                    |
@@ -629,6 +630,36 @@ changed:
 | `cli/templates/`                     | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                             |
 | `CONTRIBUTING.md`                    | CI pipeline, repo settings, or release conventions change                                                                                                |
 | `DEPLOY.md`                          | Infrastructure, env vars, or deployment procedure changes                                                                                                |
+
+**Regenerating `social-preview.png`:** The SVG uses `font-family="DejaVu Sans"`
+for the subtitle and feature line (`<text>` elements — the wordmark is already
+paths). `rsvg-convert` renders these thinner than intended when DejaVu Sans is
+missing. Use a browser-based render for correct font weight:
+
+1. Start a local server: `python3 -m http.server 8765 --directory assets`
+2. Open `http://localhost:8765/social-preview.svg` in Chrome
+3. Open DevTools console and run:
+   ```js
+   const c = Object.assign(document.createElement("canvas"), {
+     width: 1280,
+     height: 640,
+   })
+   const img = new Image()
+   const b = new Blob([document.querySelector("svg").outerHTML], {
+     type: "image/svg+xml",
+   })
+   const u = URL.createObjectURL(b)
+   img.onload = () => {
+     c.getContext("2d").drawImage(img, 0, 0, 1280, 640)
+     URL.revokeObjectURL(u)
+     Object.assign(document.createElement("a"), {
+       href: c.toDataURL("image/png"),
+       download: "social-preview.png",
+     }).click()
+   }
+   img.src = u
+   ```
+4. Move the downloaded file to `assets/social-preview.png`
 
 Not every PR touches these — a new tool in an existing category needs
 a `server.json` + `README.md` count bump but nothing else. A module
