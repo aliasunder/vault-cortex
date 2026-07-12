@@ -183,7 +183,7 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for 
 
 ## Memory
 
-AI agents start every session without context about you — your preferences, principles, communication style, ongoing commitments. Without a persistent memory layer, you repeat yourself across sessions or get generic output. The memory system solves this: agents accumulate knowledge about you over time and retrieve exactly the context they need, even as the memory grows beyond what any single context window could hold.
+A memory layer that only grows is only useful if agents can retrieve the right entries without dumping everything into context. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — reading whole files wastes context on irrelevant material and buries the signal. The memory system is designed for targeted retrieval: agents accumulate knowledge over time and recall exactly what's relevant to the task at hand.
 
 The layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Three properties make it work:
 
