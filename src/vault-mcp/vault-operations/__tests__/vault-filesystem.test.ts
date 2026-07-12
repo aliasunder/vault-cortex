@@ -380,7 +380,7 @@ describe("writeNote", () => {
       ),
     ).rejects.toThrow('note already exists: "guarded.md"')
     const content = await readFile(join(vault, "guarded.md"), "utf8")
-    expect(content).toContain("old body")
+    expect(content).toBe("---\ntitle: Keep\n---\nold body\n")
   })
 
   it("rejects when overwrite is explicitly false", async () => {
