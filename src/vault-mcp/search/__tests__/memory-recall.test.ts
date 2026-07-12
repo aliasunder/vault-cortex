@@ -529,6 +529,15 @@ describe("memoryRecall", () => {
       "2026-06-15",
       "2026-07-01",
     ])
+    // The reranker must receive file-prefixed documents matching the
+    // embedding format — a regression that drops the file name from
+    // the reranker input silently degrades relevance scoring.
+    const rerankerDocuments = vi.mocked(moderateReranker.rerankPairs).mock
+      .calls[0]?.[1]
+    expect(rerankerDocuments).toBeDefined()
+    for (const document of rerankerDocuments ?? []) {
+      expect(document).toMatch(/^Communication > /)
+    }
   })
 
   it("clips the adaptive floor to the max floor for high-confidence queries", async () => {
