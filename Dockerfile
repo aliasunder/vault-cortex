@@ -14,7 +14,7 @@
 # GOTCHA: onnxruntime-node (bundled by @huggingface/transformers) needs
 # glibc — Alpine's musl has no compatible build. This is why the image
 # uses Debian slim instead of Alpine (and why the remote target installs
-# obsidian-headless fresh via npm instead of building FROM the Alpine
+# obsidian-headless via npm ci instead of building FROM the Alpine
 # obsidian-headless-sync-docker image).
 
 FROM node:24-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5 AS deps
@@ -36,8 +36,9 @@ RUN npm run build:server
 # ---------------------------------------------------------------------------
 # base: everything shared by the local and remote targets.
 # No USER/ENTRYPOINT/CMD here — each target sets its own. npm/npx/corepack
-# removal also lives in the targets: local removes them wholesale, but remote
-# still needs npm to install obsidian-headless first.
+# removal also lives in the targets: local removes them wholesale; remote
+# uses npm ci for the lockfile-pinned obsidian-headless install, then
+# removes npm the same way.
 # ---------------------------------------------------------------------------
 FROM node:24-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5 AS base
 WORKDIR /app
@@ -83,7 +84,6 @@ ARG S6_OVERLAY_VERSION=3.2.2.0
 ARG S6_NOARCH_SHA256=85848f6baab49fb7832a5557644c73c066899ed458dd1601035cf18e7c759f26
 ARG S6_X86_64_SHA256=5a09e2f1878dc5f7f0211dd7bafed3eee1afe4f813e872fff2ab1957f266c7c0
 ARG S6_AARCH64_SHA256=50a5d4919e688fafc95ce9cf0055a46f74847517bcf08174bac811de234ec7d2
-ARG OBSIDIAN_HEADLESS_VERSION=0.0.12
 ARG TARGETARCH
 
 # Install s6-overlay (static binaries — work on glibc and musl alike).
@@ -110,17 +110,18 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends wget ca-cer
     && rm -f /tmp/s6-overlay-*.tar.xz \
     && apt-get purge -y wget xz-utils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-# Install the obsidian-headless CLI (`ob`), then drop npm/npx/corepack/yarn —
-# only `ob` and `node` run at runtime. The removal is selective (unlike the
-# local target's wholesale node_modules removal): obsidian-headless and its
-# deps under /usr/local/lib/node_modules must survive.
+# Install the obsidian-headless CLI (`ob`) from a lockfile that carries
+# sha512 integrity hashes — supply-chain tamper detection at the registry
+# layer. npm ci verifies every tarball against the lockfile checksum; a
+# mismatch aborts the build.
 # obsidian-headless is proprietary ("license": "UNLICENSED", © Dynalist
 # Inc. / Obsidian), installed from public npm — the repo's MIT license does
 # not cover it. See the README license section.
-RUN npm install -g obsidian-headless@${OBSIDIAN_HEADLESS_VERSION} \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
-       /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+COPY obsidian-headless/package.json obsidian-headless/package-lock.json /opt/obsidian-headless/
+RUN npm ci --prefix /opt/obsidian-headless \
+    && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+       /usr/local/bin/corepack /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+ENV PATH="/opt/obsidian-headless/node_modules/.bin:$PATH"
 
 # Replace the `node` user with `obsidian` at the same UID/GID (1000:1000) —
 # the PUID/PGID default, and the same numeric owner as the local target's
