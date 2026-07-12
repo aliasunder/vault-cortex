@@ -315,7 +315,7 @@ Returns: Confirmation message.`,
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
   // workaround instead of an overclaim.
   const memoryRecallDescription = config.embeddingEnabled
-    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer.
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best; a meta-framed query ("opinions on testing") whose relevance cut would come back empty degrades to relaxed any-term keyword matching instead of returning nothing.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
 Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
@@ -326,8 +326,8 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when only keyword matching was available; reranked is true when the cross-encoder relevance cut was applied.`
-    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours").
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
+    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
 Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
@@ -351,7 +351,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .min(1)
           .describe(
             config.embeddingEnabled
-              ? "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months)"
+              ? 'Topic to recall — natural language works best (semantic matching bridges phrasing drift across months); content words about the topic rank better than meta framing ("testing philosophy" over "opinions on testing")'
               : "Topic to recall — use specific keywords (semantic matching is off; re-query with synonyms to cover vocabulary drift)",
           ),
         file: z

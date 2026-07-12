@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { sanitizeFtsQuery } from "../fts-query.js"
+import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js"
 
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
@@ -167,6 +167,41 @@ describe("sanitizeFtsQuery", () => {
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     const result = sanitizeFtsQuery(input)
+    expect(result).toBe(expected)
+  })
+})
+
+describe("sanitizeFtsQueryAnyTerm", () => {
+  const scenarios = [
+    {
+      name: "multi-word: terms joined with OR",
+      input: "opinions on testing",
+      expected: "opinions OR on OR testing",
+    },
+    {
+      name: "compound → quoted phrase, OR-joined with bare term",
+      input: "vault-cortex testing",
+      expected: '"vault cortex" OR testing',
+    },
+    {
+      name: "single word: passthrough with no operator",
+      input: "testing",
+      expected: "testing",
+    },
+    {
+      name: "all reserved words: empty result",
+      input: "AND OR NOT",
+      expected: '""',
+    },
+    {
+      name: "empty string: empty result",
+      input: "",
+      expected: '""',
+    },
+  ]
+
+  it.each(scenarios)("$name", ({ input, expected }) => {
+    const result = sanitizeFtsQueryAnyTerm(input)
     expect(result).toBe(expected)
   })
 })

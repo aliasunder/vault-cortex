@@ -34,7 +34,7 @@ const COMPOUND_JOINER_RUN_REGEX = new RegExp(
  *  quotes, lone operators) into token separators so it never reaches FTS5. */
 const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
 
-/** Sanitizes user input for safe FTS5 querying. Quoted phrases are preserved
+/** Shared tokenizer behind both sanitizers. Quoted phrases are preserved
  *  for exact-phrase matching. Punctuated compound terms (vault-cortex,
  *  mcpservers.org, deploy/local) are converted to quoted phrases for
  *  adjacent-token matching — the unicode61 tokenizer splits the indexed text
@@ -42,7 +42,7 @@ const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
  *  Remaining unquoted terms are left bare to preserve porter stemming. FTS5
  *  metacharacters, stray punctuation, and reserved words are stripped, so
  *  literal text can never produce an FTS5 syntax error. */
-export const sanitizeFtsQuery = (raw: string): string => {
+const sanitizedFtsParts = (raw: string): string[] => {
   const phrases: string[] = []
 
   // Extract "quoted phrases", strip FTS5 metacharacters inside them,
@@ -72,6 +72,23 @@ export const sanitizeFtsQuery = (raw: string): string => {
       (token) => token.length > 0 && !FTS5_RESERVED.has(token.toUpperCase()),
     )
 
-  const parts = [...phrases, ...tokens]
+  return [...phrases, ...tokens]
+}
+
+/** Sanitizes user input for safe FTS5 querying with all-terms (implicit AND)
+ *  semantics — every part must match. See sanitizedFtsParts for the
+ *  sanitization rules. */
+export const sanitizeFtsQuery = (raw: string): string => {
+  const parts = sanitizedFtsParts(raw)
   return parts.length === 0 ? '""' : parts.join(" ")
+}
+
+/** Any-term (OR) variant of sanitizeFtsQuery — an entry matches when it
+ *  contains ANY sanitized part instead of all of them. Used only by
+ *  memoryRecall's zero-result rescue: bm25's idf weighting keeps ubiquitous
+ *  tokens ("on", "the") from outranking content stems, so relevance ordering
+ *  stays sane even though the match set is broad. */
+export const sanitizeFtsQueryAnyTerm = (raw: string): string => {
+  const parts = sanitizedFtsParts(raw)
+  return parts.length === 0 ? '""' : parts.join(" OR ")
 }
