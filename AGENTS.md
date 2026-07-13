@@ -46,6 +46,7 @@ package.json                           # single package, all deps
 tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
 Dockerfile                             # Two-target build: local (default) + remote
+Brewfile                               # Homebrew dev dependencies (optipng)
 obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
   package.json                         #   pins obsidian-headless version
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
