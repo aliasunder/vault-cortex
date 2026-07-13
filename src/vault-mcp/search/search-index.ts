@@ -955,17 +955,18 @@ export const createSearchIndex = (
 
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
+    const bodyLines = splitIntoLines(parsed.content)
+
     // Store the leading callout (a top-of-file `> [!type]` block — info,
     // warning, etc.) as JSON so discovery tools can return it structured;
     // null when the note has none.
-    const leadingCallout = parseLeadingCallout(splitIntoLines(parsed.content))
+    const leadingCallout = parseLeadingCallout(bodyLines)
 
     // Detect Kanban done lanes for boards with kanban-plugin frontmatter.
     // The Kanban plugin marks completion lanes with a **Complete** paragraph.
     const isKanbanBoard =
       frontmatter["kanban-plugin"] !== undefined &&
       frontmatter["kanban-plugin"] !== null
-    const bodyLines = splitIntoLines(parsed.content)
     let kanbanDoneLanes: string | null = null
     if (isKanbanBoard) {
       const headings = parseHeadings(bodyLines)

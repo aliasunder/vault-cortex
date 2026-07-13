@@ -289,7 +289,7 @@ Link queries use a `links` table populated during indexing:
 | Tool                | Input                                                                                                                                          | Annotation   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?`                                                                                            |              |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   |              |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
 

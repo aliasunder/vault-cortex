@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { tasks, type ParsedTask, type MutationFormatConfig } from "../tasks.js"
+import { tasks, type ParsedTask, type TaskFormatConfig } from "../tasks.js"
 
 /** Default emoji format config for mutation tests. */
-const EMOJI_CONFIG: MutationFormatConfig = {
+const EMOJI_CONFIG: TaskFormatConfig = {
   taskFormat: "emoji",
   setDoneDate: true,
   setCancelledDate: true,
 }
 
 /** Dataview format config for format-specific tests. */
-const DATAVIEW_CONFIG: MutationFormatConfig = {
+const DATAVIEW_CONFIG: TaskFormatConfig = {
   taskFormat: "dataview",
   setDoneDate: true,
   setCancelledDate: true,
@@ -976,7 +976,7 @@ describe("task line mutations", () => {
     })
 
     it("skips done date when setDoneDate is false", () => {
-      const noDoneDateConfig: MutationFormatConfig = {
+      const noDoneDateConfig: TaskFormatConfig = {
         taskFormat: "emoji",
         setDoneDate: false,
         setCancelledDate: true,
@@ -988,6 +988,33 @@ describe("task line mutations", () => {
         noDoneDateConfig,
       )
       expect(result).toBe("- [x] Task ➕ 2026-07-01")
+    })
+
+    it("skips cancelled date when setCancelledDate is false", () => {
+      const noCancelledDateConfig: TaskFormatConfig = {
+        taskFormat: "emoji",
+        setDoneDate: true,
+        setCancelledDate: false,
+      }
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Task ➕ 2026-07-01",
+        "cancelled",
+        "2026-07-12",
+        noCancelledDateConfig,
+      )
+      expect(result).toBe("- [-] Task ➕ 2026-07-01")
+    })
+
+    it("writes cancelled date in Dataview format when configured", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Task [created:: 2026-07-01]",
+        "cancelled",
+        "2026-07-12",
+        DATAVIEW_CONFIG,
+      )
+      expect(result).toBe(
+        "- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]",
+      )
     })
   })
 

@@ -85,6 +85,19 @@ kanban-plugin: board
 - [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
 `
 
+const KANBAN_NO_DONE_LANE = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Task A ➕ 2026-07-01 ^task-a
+
+## Backlog
+
+- [ ] Task B ➕ 2026-07-02
+`
+
 const KANBAN_MULTIPLE_DONE_LANES = `---
 kanban-plugin: board
 ---
@@ -620,7 +633,9 @@ describe("task-updater", () => {
           { vaultPath: vault, path: "tasks.md", line: 5 },
           logger,
         ),
-      ).rejects.toThrow("at least one mutation")
+      ).rejects.toThrow(
+        "at least one mutation (status, priority, or lane) is required",
+      )
     })
 
     it("throws when target heading not found", async () => {
@@ -672,7 +687,7 @@ describe("task-updater", () => {
           },
           logger,
         ),
-      ).rejects.toThrow("mutually exclusive")
+      ).rejects.toThrow("block_id and line are mutually exclusive")
     })
 
     it("no identifier provided is rejected", async () => {
@@ -685,6 +700,76 @@ describe("task-updater", () => {
           logger,
         ),
       ).rejects.toThrow("exactly one of block_id or line is required")
+    })
+
+    it("throws when no done lane exists for auto-completion", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_NO_DONE_LANE)
+
+      await expect(
+        taskUpdater.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "task-a",
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        "no done lane detected; pass lane explicitly or add **Complete** marker to a lane",
+      )
+    })
+  })
+
+  // ── No-op and override ──────────────────────────────────────────
+
+  describe("edge cases", () => {
+    it("no-op when task is already in the target lane", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+      const contentBefore = await readTestNote(vault, "board.md")
+
+      const result = await taskUpdater.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "active-task",
+          lane: "Active",
+        },
+        logger,
+      )
+
+      const contentAfter = await readTestNote(vault, "board.md")
+      expect(contentAfter).toBe(contentBefore)
+      expect(result.changes).toEqual([])
+    })
+
+    it("format override writes done date in Dataview format", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskUpdater.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          status: "done",
+          format: "dataview",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Buy groceries",
+        changes: ["status: todo → done"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Buy groceries ➕ 2026-07-01 [completion:: ${today()}]\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
+      )
     })
   })
 })

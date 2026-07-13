@@ -1,9 +1,8 @@
-/** The Obsidian Tasks-plugin task-line domain: recognizing checkbox task lines
- *  in a note and parsing their metadata — status, the six date fields, priority,
- *  recurrence, dependencies, inline tags, and block IDs — in both of the
- *  plugin's read formats (emoji signifiers and Dataview inline fields).
+/** The Obsidian Tasks-plugin task-line domain: parsing task metadata AND
+ *  mutating task lines (status, priority, dates) in both of the plugin's
+ *  formats — emoji signifiers and Dataview inline fields.
  *
- *  The grammar is a faithful reimplementation of the plugin's own parser
+ *  **Parsing:** a faithful reimplementation of the plugin's own parser
  *  (obsidian-tasks-group/obsidian-tasks, `DefaultTaskSerializer` +
  *  `DataviewTaskSerializer`): metadata is stripped off the END of the line, one
  *  `$`-anchored field at a time, in repeated passes until nothing matches. Any
@@ -12,6 +11,11 @@
  *  Unlike the plugin (which reads one configured format per vault), both
  *  formats are recognized in the same pass, so mixed-format vaults index
  *  uniformly.
+ *
+ *  **Mutation:** surgical string transforms that update checkbox characters,
+ *  insert/replace/strip date and priority fields. Strip regexes match both
+ *  formats; new fields are written in the format specified by TaskFormatConfig
+ *  (auto-detected from the Tasks plugin settings, overridable per call).
  *
  *  Like links.ts, the raw grammar regexes stay module-private behind the
  *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
@@ -25,6 +29,7 @@ import {
   splitIntoLines,
 } from "./lines.js"
 import { parseHeadings, type HeadingInfo } from "./headings.js"
+import type { TaskFormatConfig } from "../vault-operations/task-format-config.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -570,14 +575,9 @@ const insertBeforeBlockId = (taskLine: string, text: string): string => {
 const stripField = (taskLine: string, regex: RegExp): string =>
   taskLine.replace(regex, "").replace(/ {2,}/g, " ").trimEnd()
 
-/** Format config subset needed by the mutation functions. Matches
- *  TaskFormatConfig from task-format-config.ts (imported as a type
- *  here to keep the parser layer free of I/O dependencies). */
-export type MutationFormatConfig = {
-  taskFormat: "emoji" | "dataview"
-  setDoneDate: boolean
-  setCancelledDate: boolean
-}
+// Re-export TaskFormatConfig so consumers of tasks.ts don't need a
+// separate import from the vault-operations layer.
+export type { TaskFormatConfig }
 
 /** Formats a done date in the configured format. */
 const formatDoneDate = (today: string, format: "emoji" | "dataview"): string =>
@@ -611,7 +611,7 @@ const updateTaskLineStatus = (
   taskLine: string,
   newStatus: TaskStatus,
   today: string,
-  config: MutationFormatConfig,
+  config: TaskFormatConfig,
 ): string => {
   const newChar = charForStatus(newStatus)
   let result = replaceCheckboxChar(taskLine, newChar)
@@ -653,7 +653,7 @@ const updateTaskLineStatus = (
 const updateTaskLinePriority = (
   taskLine: string,
   newPriority: TaskPriority | null,
-  config: MutationFormatConfig,
+  config: TaskFormatConfig,
 ): string => {
   const hasExistingPriority = PRIORITY_INLINE_RE.test(taskLine)
 

@@ -330,9 +330,16 @@ const updateTask = async (
           )
         }
 
-        // Prepend task block to the target heading's body
-        resultLines.splice(updatedTargetHeading.bodyStartLine, 0, ...taskBlock)
-        taskLineIndex = updatedTargetHeading.bodyStartLine
+        // Insert after the **Complete** marker if present, otherwise
+        // at the heading's body start. The marker sits between the heading
+        // and the first list item — inserting before it would break
+        // done-lane detection on subsequent reads.
+        const insertLine = updatedTargetHeading.bodyStartLine
+        const firstBodyLine = resultLines[insertLine]?.trim()
+        const insertAt =
+          firstBodyLine === "**Complete**" ? insertLine + 1 : insertLine
+        resultLines.splice(insertAt, 0, ...taskBlock)
+        taskLineIndex = insertAt
 
         changes.push(`lane: ${currentLane} → ${targetLane}`)
       }
