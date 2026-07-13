@@ -40,6 +40,15 @@
 
 
 
+
+## [0.29.1] — 2026-07-13
+
+### Documentation
+
+- Drop hardcoded tool/prompt counts from all surfaces (#324)
+- Add dedicated Tasks section to README (#323)
+- Update CHANGELOG.md for v0.29.0
+
 ## [0.29.0] — 2026-07-13
 
 ### Features
