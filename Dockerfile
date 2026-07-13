@@ -27,7 +27,7 @@ FROM node:24-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3d
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
 COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
 # Server compile only — cli/ is npm-distributed and never copied into the image.
