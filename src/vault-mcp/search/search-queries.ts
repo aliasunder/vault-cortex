@@ -445,12 +445,24 @@ const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
  *  vector-only candidates fall off. */
 const MEMORY_RERANK_CANDIDATE_LIMIT = 120
 
-/** Recall-tuned relevance floor: keep an entry when sigmoid(logit) ≥ this.
- *  ms-marco logits leave a wide dead zone between topically-related
- *  (≥ ~0.27 after sigmoid) and unrelated (< ~0.001) content, so 0.05 keeps
- *  drifted-vocabulary arc members while vague queries still can't dump the
- *  corpus — the cutoff is absolute, not query-relative. */
-const MEMORY_RECALL_MIN_PROBABILITY = 0.05
+/** Hard lower bound on the adaptive relevance floor — sigmoid(-6.9).
+ *  Blocks genuinely irrelevant content even when a vague query produces
+ *  universally low cross-encoder scores. Without it, a query whose best
+ *  probability is 0.0003 would set the floor at 0.00003, letting noise
+ *  through. */
+const MEMORY_RECALL_SANITY_FLOOR = 0.001
+
+/** Maximum value the adaptive floor can take — caps the floor so
+ *  high-confidence queries (best probability near 1.0) don't push it above
+ *  the absolute cut that already works for strong-signal queries. */
+const MEMORY_RECALL_MAX_FLOOR = 0.05
+
+/** Relative margin: keep an entry scoring at least this fraction of the
+ *  best non-ftsHit probability. 0.1 (10%) tracks the empirical cluster
+ *  gap: on "how I like agents to communicate with me", genuine entries
+ *  score 0.03–0.30 while irrelevant content scores < 0.001 — a 10:1
+ *  ratio cleanly separates the two. */
+const MEMORY_RECALL_RELATIVE_RATIO = 0.1
 
 /** Fallback cut when no reranker is available: keep vector hits within this
  *  cosine distance of the best hit. On-topic bge distances cluster within
@@ -525,7 +537,8 @@ const anyTermLexicalCandidates = (
 
 /** Attempts cross-encoder reranking of memory recall candidates. Returns the
  *  kept candidates and a relevance scorer, or null on failure — the caller
- *  falls back to the distance-margin cut. */
+ *  falls back to the distance-margin cut. Logs adaptive floor diagnostics
+ *  (bestProbability, effectiveFloor) so the caller doesn't need them. */
 const tryRerankMemoryCandidates = async (
   reranker: Reranker,
   query: string,
@@ -536,29 +549,57 @@ const tryRerankMemoryCandidates = async (
   relevance: (candidate: MemoryRecallCandidate) => number
 } | null> => {
   try {
-    const logits = await reranker.rerankPairs(
+    const rerankScores = await reranker.rerankPairs(
       query,
       candidates.map(
-        (candidate) => `${candidate.row.section}\n${candidate.row.entry_text}`,
+        (candidate) =>
+          `${candidate.row.file} > ${candidate.row.section}\n${candidate.row.entry_text}`,
       ),
     )
+    // Convert raw reranker scores to probabilities (0–1) via sigmoid —
+    // raw scores are unbounded (-10 to +10 typical); sigmoid maps them to
+    // a 0–1 scale where the adaptive floor comparisons work.
     const probabilityByEntryId = new Map<number, number>(
       candidates.flatMap((candidate, candidateIndex) => {
-        const logit = logits[candidateIndex]
-        return logit === undefined
+        const score = rerankScores[candidateIndex]
+        return score === undefined
           ? []
-          : [[candidate.row.id, sigmoid(logit)] as const]
+          : [[candidate.row.id, sigmoid(score)] as const]
       }),
     )
+
+    const probabilityOf = (candidate: MemoryRecallCandidate): number =>
+      probabilityByEntryId.get(candidate.row.id) ?? 0
+
+    // Adaptive floor: FTS hits always survive (lexical match = strong
+    // evidence), so the floor only governs vector-only candidates. Find
+    // the best score among those, then scale it down — entries within
+    // 10% of the best are relevant enough to keep. Clamp the result
+    // between 0.001 (block noise) and 0.05 (don't exceed what already
+    // works for strong queries).
+    const vectorOnlyCandidates = candidates.filter(
+      (candidate) => !candidate.ftsHit,
+    )
+    const bestProbability =
+      vectorOnlyCandidates.length > 0
+        ? Math.max(...vectorOnlyCandidates.map(probabilityOf))
+        : MEMORY_RECALL_MAX_FLOOR
+    const scaledFloor = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
+    const effectiveFloor = Math.min(
+      MEMORY_RECALL_MAX_FLOOR,
+      Math.max(MEMORY_RECALL_SANITY_FLOOR, scaledFloor),
+    )
+
     const kept = candidates.filter(
       (candidate) =>
-        candidate.ftsHit ||
-        (probabilityByEntryId.get(candidate.row.id) ?? 0) >=
-          MEMORY_RECALL_MIN_PROBABILITY,
+        candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor,
     )
+
+    logger.info("memory recall rerank", { bestProbability, effectiveFloor })
+
     return {
       kept,
-      // Missing probability (a logits/candidates length mismatch that cannot
+      // Missing probability (a scores/candidates length mismatch that cannot
       // normally happen) sorts as least relevant, not as an error.
       relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
     }

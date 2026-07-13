@@ -178,7 +178,7 @@ describe("memory entry indexing", () => {
     expect(selectEntryRows(inspect)).toEqual([])
   })
 
-  it("embeds each entry once with the section-prefixed text", async () => {
+  it("embeds each entry once with the file-and-section-prefixed text", async () => {
     const { index, embedder } = await createInspectableMemoryIndex()
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
@@ -197,9 +197,9 @@ describe("memory entry indexing", () => {
       (call: unknown[]) => call[0] as string[],
     )
     expect(embeddedEntryTexts).toEqual([
-      "Code patterns (newest first)\n- **2026-07-02**: Wrap function bodies in braces.",
-      "Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable.",
-      "Process (newest first)\n- **2026-06-25**: Sequential over parallel review.",
+      "Opinions > Code patterns (newest first)\n- **2026-07-02**: Wrap function bodies in braces.",
+      "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable.",
+      "Opinions > Process (newest first)\n- **2026-06-25**: Sequential over parallel review.",
     ])
   })
 
@@ -245,7 +245,7 @@ describe("memory entry indexing", () => {
         (call: unknown[]) => call[0] as string[],
       ),
     ).toEqual([
-      "Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
+      "Opinions > Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
     ])
     // The shifted entries kept their rows; indices were refreshed in place.
     expect(selectEntryRows(inspect).map((row) => row.entry_index)).toEqual([
