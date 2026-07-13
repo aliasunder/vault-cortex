@@ -19,10 +19,7 @@ export { TOOL_NAMES as TASK_TOOL_NAMES }
 const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
   Object.fromEntries(
     Object.entries(entry).filter(
-      ([, value]) =>
-        value !== null &&
-        value !== false &&
-        !(Array.isArray(value) && value.length === 0),
+      ([, value]) => value && !(Array.isArray(value) && value.length === 0),
     ),
   )
 
