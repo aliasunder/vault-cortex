@@ -128,15 +128,15 @@ const detectDoneLane = (
 
 /** Extracts the human-readable description from a task line, stripping
  *  the checkbox prefix and trailing metadata (both emoji and Dataview
- *  formats). Capped at 120 chars. */
+ *  formats). */
 const extractDescription = (taskLine: string): string => {
   const match = /\[.\] *(.*)$/.exec(taskLine)
-  if (!match) return taskLine.slice(0, 80)
+  if (!match) return taskLine
   const body = match[1] ?? ""
   const firstSignifier = body.search(tasks.FIRST_METADATA_SIGNIFIER_RE)
   const description =
     firstSignifier === -1 ? body : body.slice(0, firstSignifier)
-  return description.trim().slice(0, 120)
+  return description.trim()
 }
 
 // ── Main operation ──────────────────────────────────────────────
