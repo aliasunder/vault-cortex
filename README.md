@@ -14,9 +14,9 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 28 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Tools](#tools-28) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -40,9 +40,9 @@
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
-- **[Link graph](#tools-28)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
+- **[Guided workflows](#prompts)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
 **Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
@@ -207,7 +207,7 @@ The task layer handles this so agents don't have to:
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
 
-## Tools (28)
+## Tools
 
 | Category        | Tool                         | Description                                                                            |
 | --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
@@ -240,7 +240,7 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing mod
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
-## Prompts (3)
+## Prompts
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
