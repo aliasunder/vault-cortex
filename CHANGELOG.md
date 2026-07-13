@@ -39,6 +39,21 @@
 
 
 
+
+## [0.29.0] — 2026-07-13
+
+### Features
+
+- Vault_update_task tool + vault_list_tasks Kanban enrichment (#321)
+
+### Bug Fixes
+
+- **ci:** Trim Docker Hub short-description to fit 100-byte limit (#322)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.28.4
+
 ## [0.28.4] — 2026-07-13
 
 ### Bug Fixes
