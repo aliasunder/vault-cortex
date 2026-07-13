@@ -42,7 +42,7 @@
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
-- **[Guided workflows](#prompts)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
+- **[Guided workflows](#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
 **Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
