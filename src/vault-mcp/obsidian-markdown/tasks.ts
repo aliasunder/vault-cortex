@@ -603,15 +603,14 @@ const formatPriority = (
 const applyCompletionDate = (params: {
   taskLine: string
   shouldStamp: boolean
-  formatDate: () => string
+  dateField: string
   dateRegex: RegExp
 }): string => {
   if (!params.shouldStamp) return stripField(params.taskLine, params.dateRegex)
 
-  const dateField = params.formatDate()
   return params.dateRegex.test(params.taskLine)
-    ? params.taskLine.replace(params.dateRegex, dateField)
-    : insertBeforeBlockId(params.taskLine, dateField)
+    ? params.taskLine.replace(params.dateRegex, params.dateField)
+    : insertBeforeBlockId(params.taskLine, params.dateField)
 }
 
 /** Updates the status-related fields of a task line: checkbox character
@@ -633,7 +632,7 @@ const updateTaskLineStatus = (params: {
     return applyCompletionDate({
       taskLine: stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
       shouldStamp: params.config.setDoneDate,
-      formatDate: () => formatDoneDate(params.today, params.config.taskFormat),
+      dateField: formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
     })
   }
@@ -642,8 +641,7 @@ const updateTaskLineStatus = (params: {
     return applyCompletionDate({
       taskLine: stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
       shouldStamp: params.config.setCancelledDate,
-      formatDate: () =>
-        formatCancelledDate(params.today, params.config.taskFormat),
+      dateField: formatCancelledDate(params.today, params.config.taskFormat),
       dateRegex: CANCELLED_DATE_INLINE_RE,
     })
   }
