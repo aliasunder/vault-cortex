@@ -110,7 +110,7 @@ const detectDoneLane = (
   const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
 
   if (doneLanes.length > 1) {
-    throw new Error("multiple done lanes detected; pass lane to specify which")
+    throw new Error("multiple done lanes detected")
   }
 
   if (doneLanes.length === 1) {
@@ -123,9 +123,7 @@ const detectDoneLane = (
   const doneHeading = headings.find((heading) => heading.text === "Done")
   if (doneHeading) return "Done"
 
-  throw new Error(
-    "no done lane detected; pass lane explicitly or add **Complete** marker to a lane",
-  )
+  throw new Error("no done lane detected")
 }
 
 /** Extracts the human-readable description from a task line, stripping

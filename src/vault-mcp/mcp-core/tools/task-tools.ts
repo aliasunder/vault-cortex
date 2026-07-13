@@ -275,8 +275,8 @@ Errors:
 - "at least one mutation required" — none of status, priority, or lane provided
 - "lane requires a Kanban board" — lane on a note without kanban-plugin frontmatter
 - "heading not found" — target lane doesn't exist; lists available headings
-- "multiple done lanes detected" — pass lane explicitly (check done_lanes)
-- "no done lane detected" — no **Complete** marker and no "Done" heading
+- "multiple done lanes detected" — pass lane explicitly; check done_lanes from vault_list_tasks
+- "no done lane detected" — no **Complete** marker and no "Done" heading; pass lane explicitly
 
 Returns: JSON { path, line, description, changes } — line is the final 1-based position (may shift after a lane move), description is a short excerpt, changes lists what was applied.`,
       inputSchema: {

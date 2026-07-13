@@ -716,9 +716,7 @@ describe("task-updater", () => {
           },
           logger,
         ),
-      ).rejects.toThrow(
-        "no done lane detected; pass lane explicitly or add **Complete** marker to a lane",
-      )
+      ).rejects.toThrow("no done lane detected")
     })
   })
 
