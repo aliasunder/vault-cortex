@@ -157,41 +157,62 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 5, status: "in_progress" },
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Buy groceries",
+        changes: ["status: todo → in_progress"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [/] Buy groceries ➕ 2026-07-01")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [/] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("un-completes a done task — removes done date", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 7, status: "todo" },
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Done task",
+        changes: ["status: done → todo"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Done task ➕ 2026-07-01")
-      expect(content).not.toContain("✅")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [ ] Done task ➕ 2026-07-01\n",
+      )
     })
 
     it("cancels a task — checkbox and cancelled date", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 5, status: "cancelled" },
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Buy groceries",
+        changes: ["status: todo → cancelled"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        `- [-] Buy groceries ➕ 2026-07-01 ❌ ${today()}`,
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [-] Buy groceries ➕ 2026-07-01 ❌ ${today()}\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
       )
     })
 
@@ -209,11 +230,16 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["status: todo → done"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        `- [x] Walk the dog ➕ 2026-07-02 ✅ ${today()} ^walk-dog`,
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [x] Walk the dog ➕ 2026-07-02 ✅ ${today()} ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
       )
-      expect(result.description).toBe("Walk the dog")
     })
 
     it("identifies a task by line number", async () => {
@@ -225,9 +251,16 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["status: todo → in_progress"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [/] Walk the dog")
-      expect(result.changes).toContain("status: todo → in_progress")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
   })
 
@@ -238,7 +271,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -248,9 +281,15 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "No priority task",
+        changes: ["priority: high"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        "- [ ] No priority task ⏫ ➕ 2026-07-01 ^no-pri",
+      expect(content).toBe(
+        "---\ntitle: Priority\n---\n\n- [ ] No priority task ⏫ ➕ 2026-07-01 ^no-pri\n- [ ] Has priority ⏫ ➕ 2026-07-02 ^has-pri\n- [ ] Plain task without dates ^plain-task\n",
       )
     })
 
@@ -258,7 +297,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -268,16 +307,23 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Has priority",
+        changes: ["priority: highest"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Has priority 🔺 ➕ 2026-07-02 ^has-pri")
-      expect(content).not.toContain("⏫")
+      expect(content).toBe(
+        "---\ntitle: Priority\n---\n\n- [ ] No priority task ➕ 2026-07-01 ^no-pri\n- [ ] Has priority 🔺 ➕ 2026-07-02 ^has-pri\n- [ ] Plain task without dates ^plain-task\n",
+      )
     })
 
     it("removes priority with 'none'", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -287,16 +333,23 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Has priority",
+        changes: ["priority: removed"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Has priority ➕ 2026-07-02 ^has-pri")
-      expect(content).not.toContain("⏫")
+      expect(content).toBe(
+        "---\ntitle: Priority\n---\n\n- [ ] No priority task ➕ 2026-07-01 ^no-pri\n- [ ] Has priority ➕ 2026-07-02 ^has-pri\n- [ ] Plain task without dates ^plain-task\n",
+      )
     })
 
     it("inserts priority before block_id when no date signifiers", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -306,8 +359,16 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Plain task without dates",
+        changes: ["priority: low"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Plain task without dates 🔽 ^plain-task")
+      expect(content).toBe(
+        "---\ntitle: Priority\n---\n\n- [ ] No priority task ➕ 2026-07-01 ^no-pri\n- [ ] Has priority ⏫ ➕ 2026-07-02 ^has-pri\n- [ ] Plain task without dates 🔽 ^plain-task\n",
+      )
     })
   })
 
@@ -328,20 +389,24 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "board.md",
+        line: 7,
+        description: "Planned task",
+        changes: ["lane: Up Next → Active"],
+      })
       const content = await readTestNote(vault, "board.md")
       const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      const upNextSection =
-        content.split("## Up Next")[1]?.split("## ")[0] ?? ""
-      expect(activeSection).toContain("Planned task")
-      expect(upNextSection).not.toContain("Planned task")
-      expect(result.changes).toContain("lane: Up Next → Active")
+      expect(activeSection).toBe(
+        "\n- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task\n\n- [/] In-progress task ➕ 2026-07-01 ^active-task\n- [ ] Second task ➕ 2026-07-02\n\n",
+      )
     })
 
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
-      await taskUpdater.updateTask(
+      const result = await taskUpdater.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -351,13 +416,17 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Parent task",
+        changes: ["lane: Active → Done"],
+      })
       const content = await readTestNote(vault, "board.md")
-      const doneSection = content.split("## Done")[1]?.split("## ")[0] ?? ""
-      const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      expect(doneSection).toContain("Parent task")
-      expect(doneSection).toContain("Sub-item 1")
-      expect(doneSection).toContain("Sub-item 2")
-      expect(activeSection).not.toContain("Parent task")
+      const doneSection = content.split("## Done")[1] ?? ""
+      expect(doneSection).toBe(
+        "\n- [ ] Parent task ➕ 2026-07-01 ^parent\n  - Sub-item 1\n  - Sub-item 2\n\n- [x] Old done\n",
+      )
     })
 
     it("auto-completes to **Complete** marker lane", async () => {
@@ -453,11 +522,17 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "board.md",
+        line: 15,
+        description: "Planned task",
+        changes: ["status: todo → done", "lane: Up Next → Done"],
+      })
       const content = await readTestNote(vault, "board.md")
-      const doneSection = content.split("## Done")[1]?.split("## ")[0] ?? ""
-      expect(doneSection).toContain(`[x] Planned task`)
-      expect(doneSection).toContain(`✅ ${today()}`)
-      expect(result.changes).toHaveLength(2)
+      const doneSection = content.split("## Done")[1]?.split("%%")[0] ?? ""
+      expect(doneSection).toBe(
+        `\n- [x] Planned task ⏫ ➕ 2026-07-03 ✅ ${today()} ^planned-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
+      )
     })
 
     it("changes status and priority in one call", async () => {
@@ -475,9 +550,16 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["status: todo → in_progress", "priority: highest"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [/] Walk the dog 🔺 ➕ 2026-07-02 ^walk-dog")
-      expect(result.changes).toHaveLength(2)
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog 🔺 ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
   })
 
