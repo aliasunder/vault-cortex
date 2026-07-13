@@ -16,7 +16,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, 28 tools + 3 guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tools](#tools-28) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Tools](#tools-28) · [Prompts](#prompts-3) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -39,7 +39,7 @@
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
-- **[Tasks](#tools-28)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
+- **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools-28)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts-3)** — three built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
@@ -194,6 +194,18 @@ The layer is a folder of plain Markdown files (default: `About Me/`) holding dat
 Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
 
 See [templates/memory](./templates/memory/) for the file format, entry-policy convention, and starter templates.
+
+## Tasks
+
+Task metadata lives in plain markdown — scattered across files, encoded in emoji signifiers or inline fields, organized under Kanban headings. An agent answering "what's overdue?" would need to parse every file and understand your chosen format; completing a task on a Kanban board means knowing the board's lane structure, the date syntax, and which heading is the done lane.
+
+The task layer handles this so agents don't have to:
+
+- **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its lane, note path, heading, and line number — no follow-up reads needed to locate a task
+- **Update** — complete, reprioritize, and move tasks between Kanban lanes in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. All three changes can happen at once
+- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
+
+See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
 
 ## Tools (28)
 
@@ -362,14 +374,14 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase  | What                                                                                                 | Status    |
-| ------ | ---------------------------------------------------------------------------------------------------- | --------- |
-| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                         | Complete  |
-| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                   | Complete  |
-| **2b** | Reranker — cross-encoder reranking, position-aware score blending                                    | Complete  |
-| **3a** | Task layer — vault-wide task index + structured task queries (Tasks plugin emoji + Dataview formats) | Complete  |
-| **3b** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)  | Exploring |
-| **3c** | Memory recall — entry-granular retrieval across the memory layer's dated history                     | Complete  |
+| Phase  | What                                                                                                                      | Status    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------- | --------- |
+| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                                              | Complete  |
+| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                                        | Complete  |
+| **2b** | Reranker — cross-encoder reranking, position-aware score blending                                                         | Complete  |
+| **3a** | Task layer — vault-wide task index, structured queries, and one-call task updates (Tasks plugin emoji + Dataview formats) | Complete  |
+| **3b** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)                       | Exploring |
+| **3c** | Memory recall — entry-granular retrieval across the memory layer's dated history                                          | Complete  |
 
 ## Acknowledgments
 
