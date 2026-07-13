@@ -133,7 +133,7 @@ const detectDoneLane = (
  *  formats). Capped at 120 chars. */
 const extractDescription = (taskLine: string): string => {
   const match = /\[.\] *(.*)$/.exec(taskLine)
-  if (match === null) return taskLine.slice(0, 80)
+  if (!match) return taskLine.slice(0, 80)
   const body = match[1] ?? ""
   const firstSignifier = body.search(tasks.FIRST_METADATA_SIGNIFIER_RE)
   const description =

@@ -476,11 +476,10 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     // metadata parsing, exactly as the plugin does.
     const bodyWithBlockLink = matchedText(taskLineMatch, 2)
     const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
-    const blockId = blockLinkMatch === null ? null : (blockLinkMatch[1] ?? null)
-    const taskBody =
-      blockLinkMatch === null
-        ? bodyWithBlockLink
-        : bodyWithBlockLink.slice(0, blockLinkMatch.index)
+    const blockId = blockLinkMatch?.[1] ?? null
+    const taskBody = blockLinkMatch
+      ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
+      : bodyWithBlockLink
 
     const nearestHeading = headings.findLast(
       (heading) => heading.startLine < lineIndex,
@@ -562,7 +561,7 @@ const replaceCheckboxChar = (taskLine: string, newChar: string): string =>
  *  the line if there's no block link. */
 const insertBeforeBlockId = (taskLine: string, text: string): string => {
   const blockLinkMatch = BLOCK_LINK_RE.exec(taskLine)
-  if (blockLinkMatch === null) return `${taskLine} ${text}`
+  if (!blockLinkMatch) return `${taskLine} ${text}`
   // BLOCK_LINK_RE matches ` ^id` (leading space included), so insertAt
   // points at the space. Insert ` text` before that space, keeping one
   // space between the inserted text and the block link.
@@ -669,7 +668,7 @@ const updateTaskLinePriority = (
 ): string => {
   const hasExistingPriority = PRIORITY_INLINE_RE.test(taskLine)
 
-  if (newPriority === null) {
+  if (!newPriority) {
     if (!hasExistingPriority) return taskLine
     return stripField(taskLine, PRIORITY_INLINE_RE)
   }
@@ -681,7 +680,7 @@ const updateTaskLinePriority = (
   }
 
   const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(taskLine)
-  if (signifierMatch !== null) {
+  if (signifierMatch) {
     const insertAt = signifierMatch.index
     return `${taskLine.slice(0, insertAt)}${priorityField} ${taskLine.slice(insertAt)}`
   }

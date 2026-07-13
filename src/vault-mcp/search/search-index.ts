@@ -964,9 +964,7 @@ export const createSearchIndex = (
 
     // Detect Kanban done lanes for boards with kanban-plugin frontmatter.
     // The Kanban plugin marks completion lanes with a **Complete** paragraph.
-    const isKanbanBoard =
-      frontmatter["kanban-plugin"] !== undefined &&
-      frontmatter["kanban-plugin"] !== null
+    const isKanbanBoard = Boolean(frontmatter["kanban-plugin"])
     let kanbanDoneLanes: string | null = null
     if (isKanbanBoard) {
       const headings = parseHeadings(bodyLines)
