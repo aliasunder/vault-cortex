@@ -126,16 +126,16 @@ src/
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
-        vault-crud-tools.ts            # read, write, patch, replace, delete, move, etc.
-        search-tools.ts                # search, tags, properties, graph queries
-        task-tools.ts                  # list-tasks, update-task
-        memory-tools.ts                # get/update/list/delete memory + memory recall
-        daily-note-tools.ts            # get daily note
+        vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
+        search-tools.ts                # 11 tools: search, tags, properties, graph queries
+        task-tools.ts                  # 2 tools: list-tasks, update-task
+        memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
+        daily-note-tools.ts            # 1 tool: get daily note
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
-        vault-orientation-prompt.ts    # vault structure + health survey
-        memory-review-prompt.ts        # memory layer reflection
-        daily-review-prompt.ts         # daily note review + reconciliation
+        vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey
+        memory-review-prompt.ts        # 1 prompt: memory layer reflection
+        daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
       search-queries.ts                # All 17 query methods (FTS, hybrid, memory recall, tags, tasks, links, etc.)
@@ -656,13 +656,15 @@ as flags.
 
 ### Files that track feature surface
 
-**No hardcoded tool or prompt counts.** Never write a specific number of
-tools or prompts in any file — README, server.json, social preview,
-CI configs, wiki.json, code-structure comments, or anywhere else. Use
-category names or capability descriptions instead. Counts go stale on
-every tool addition and the drift compounds across surfaces. The tools
-table and prompt table are the source of truth; a reader counts from
-those.
+**No hardcoded tool or prompt counts in user-facing surfaces.** Never
+write a specific number of tools or prompts in README, server.json,
+social preview, CI configs, wiki.json, or any other surface an end
+user or registry sees. Use category names or capability descriptions
+instead. Counts go stale on every tool addition and the drift compounds
+across surfaces. The tools table and prompt table are the source of
+truth; a reader counts from those. Internal docs (AGENTS.md structure
+tree, code comments) may include counts where they help agents gauge
+module size — these are agent-facing and not propagated externally.
 
 Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
