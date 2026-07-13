@@ -126,6 +126,15 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         if: ${{ !inputs.skip_build }}
 
+      # The base stage's apt-get upgrade layer is content-addressed — it
+      # caches indefinitely until the Dockerfile or base image changes.
+      # Passing today's date as APT_UPGRADE_DATE busts that layer so
+      # Debian security patches are always current in the released image.
+      - name: Cache-bust date for apt-get upgrade
+        if: ${{ !inputs.skip_build }}
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR (build push)
         if: ${{ !inputs.skip_build }}
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -160,6 +169,7 @@ jobs:
             ${{ env.IMAGE }}:remote
             ${{ env.IMAGE_HUB != '' && format('{0}:v{1}-remote', env.IMAGE_HUB, inputs.version) || '' }}
             ${{ env.IMAGE_HUB != '' && format('{0}:remote', env.IMAGE_HUB) || '' }}
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           # Mirror the remote-stage Dockerfile LABEL description.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
@@ -184,6 +194,7 @@ jobs:
             ${{ env.IMAGE_HUB != '' && format('{0}:v{1}', env.IMAGE_HUB, inputs.version) || '' }}
             ${{ env.IMAGE_HUB != '' && format('{0}:{1}', env.IMAGE_HUB, inputs.version) || '' }}
             ${{ env.IMAGE_HUB != '' && format('{0}:latest', env.IMAGE_HUB) || '' }}
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           # GHCR shows a multi-arch package's description from the image *index*
           # annotation (a Dockerfile LABEL alone doesn't surface on the package
           # page). Mirror the server.json / Dockerfile description here.

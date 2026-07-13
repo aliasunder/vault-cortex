@@ -120,6 +120,11 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         if: ${{ !inputs.skip_build }}
 
+      - name: Cache-bust date for apt-get upgrade
+        if: ${{ !inputs.skip_build }}
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR (build push)
         if: ${{ !inputs.skip_build }}
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -141,6 +146,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE }}:test
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
