@@ -10,7 +10,6 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runInit } from "../init.js"
-import { readComposeTemplate } from "../scaffold.js"
 import type { DockerRunner } from "../docker.js"
 import type { Prompts } from "../prompts.js"
 
@@ -88,9 +87,10 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
 }
 
 const dockerUnavailable: DockerRunner = {
-  isComposeAvailable: () => false,
   isDaemonRunning: () => false,
-  composeUp: () => false,
+  dockerRun: () => false,
+  pullImage: () => false,
+  stopAndRemoveContainer: () => false,
   runGetToken: () => false,
 }
 
@@ -142,7 +142,7 @@ describe("runInit flag validation", () => {
 })
 
 describe("runInit --yes (non-interactive local)", () => {
-  it("scaffolds docker-compose.yml and .env without any prompts", async () => {
+  it("scaffolds .env without any prompts", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([])
@@ -158,9 +158,7 @@ describe("runInit --yes (non-interactive local)", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([])
-    expect(readFileSync(join(targetDir, "docker-compose.yml"), "utf8")).toBe(
-      readComposeTemplate("local"),
-    )
+    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
@@ -501,7 +499,6 @@ describe("runInit interactive local flow", () => {
     const scripted = createScriptedPrompts(["local", vaultDir, targetDir])
     const dockerDaemonDown: DockerRunner = {
       ...dockerUnavailable,
-      isComposeAvailable: () => true,
       isDaemonRunning: () => false,
     }
 
@@ -515,11 +512,9 @@ describe("runInit interactive local flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain(
-      "Start the server now? (docker compose up -d)",
-    )
+    expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toHaveLength(1)
-    expect(scripted.warnings[0]).toContain("installed but not running")
+    expect(scripted.warnings[0]).toContain("Docker daemon not running")
   })
 
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
@@ -545,19 +540,18 @@ describe("runInit interactive local flow", () => {
 })
 
 describe("runInit remote flow", () => {
-  it("asks the remote sequence and writes the three-service compose plus .env", async () => {
+  it("asks the remote sequence and writes .env", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // public URL (trailing slash trimmed)
       "MyVault", // vault name
-      false, // don't run get-token now (offered because compose is available)
+      false, // don't run get-token now (offered because daemon is running)
       "sync-token-xyz", // obsidian sync token
       false, // no end-to-end encryption
       false, // don't start the server
     ])
-    const dockerComposeOnly: DockerRunner = {
+    const dockerReady: DockerRunner = {
       ...dockerUnavailable,
-      isComposeAvailable: () => true,
       isDaemonRunning: () => true,
     }
 
@@ -565,7 +559,7 @@ describe("runInit remote flow", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerComposeOnly,
+        docker: dockerReady,
         fetchFn: fetchNever,
       },
     )
@@ -577,11 +571,9 @@ describe("runInit remote flow", () => {
       "Run the get-token command now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
-      "Start the server now? (docker compose up -d)",
+      "Start the server now?",
     ])
-    expect(readFileSync(join(targetDir, "docker-compose.yml"), "utf8")).toBe(
-      readComposeTemplate("remote"),
-    )
+    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
@@ -608,9 +600,7 @@ describe("runInit remote flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain(
-      "Start the server now? (docker compose up -d)",
-    )
+    expect(scripted.asked).not.toContain("Start the server now?")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
       /^OBSIDIAN_AUTH_TOKEN=$/m,
     )
@@ -666,9 +656,10 @@ describe("runInit with a kept existing .env", () => {
       true, // start the server now
     ])
     const dockerReady: DockerRunner = {
-      isComposeAvailable: () => true,
       isDaemonRunning: () => true,
-      composeUp: () => true,
+      dockerRun: () => true,
+      pullImage: () => true,
+      stopAndRemoveContainer: () => true,
       runGetToken: () => false,
     }
     const fetchedUrls: string[] = []
@@ -728,9 +719,10 @@ describe("runInit remote encryption password", () => {
       false, // don't start the server
     ])
     const dockerComposeReady: DockerRunner = {
-      isComposeAvailable: () => true,
       isDaemonRunning: () => true,
-      composeUp: () => false,
+      dockerRun: () => false,
+      pullImage: () => false,
+      stopAndRemoveContainer: () => false,
       runGetToken: () => false,
     }
     // get-token confirm slots in after VAULT_NAME when Docker is usable.
@@ -765,9 +757,10 @@ describe("runInit get-token paste prompt wording", () => {
       false, // don't start the server
     ])
     const dockerWithWorkingGetToken: DockerRunner = {
-      isComposeAvailable: () => true,
       isDaemonRunning: () => true,
-      composeUp: () => false,
+      dockerRun: () => false,
+      pullImage: () => false,
+      stopAndRemoveContainer: () => false,
       runGetToken: () => true,
     }
 
@@ -795,9 +788,10 @@ describe("runInit get-token paste prompt wording", () => {
       false, // no encryption
     ])
     const dockerWithFailingGetToken: DockerRunner = {
-      isComposeAvailable: () => true,
       isDaemonRunning: () => true,
-      composeUp: () => false,
+      dockerRun: () => false,
+      pullImage: () => false,
+      stopAndRemoveContainer: () => false,
       runGetToken: () => false,
     }
 

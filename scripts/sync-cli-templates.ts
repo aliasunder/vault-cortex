@@ -1,15 +1,13 @@
-// Syncs canonical deploy/ files into cli/ so the published npm package ships
-// current content. Two sync targets:
+// Syncs the optional env blocks from deploy/<mode>/.env.example into the
+// CLI's env.ts constants. The deploy/ .env.example files are the single
+// source of truth for optional variable documentation.
 //
-//   1. Compose files:    deploy/<mode>/docker-compose.yml → cli/templates/<mode>/
-//   2. Optional env blocks: deploy/<mode>/.env.example → cli/src/env.ts constants
-//
-// cli/src/templates.test.ts fails CI when any of these drift; this script is
+// cli/src/templates.test.ts fails CI when these drift; this script is
 // the one-command fix.
 //
 // Usage: npm run sync:cli-templates
 
-import { copyFileSync, readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const repoRoot = new URL("..", import.meta.url)
@@ -17,30 +15,12 @@ const repoRoot = new URL("..", import.meta.url)
 const resolvePath = (repoRelative: string): string =>
   fileURLToPath(new URL(repoRelative, repoRoot))
 
-// --- 1. Compose file sync (byte-exact copy) --------------------------------
-
-const composeSources = [
-  {
-    from: "deploy/local/docker-compose.yml",
-    to: "cli/templates/local/docker-compose.yml",
-  },
-  {
-    from: "deploy/remote/docker-compose.yml",
-    to: "cli/templates/remote/docker-compose.yml",
-  },
-]
-
-for (const { from, to } of composeSources) {
-  copyFileSync(resolvePath(from), resolvePath(to))
-  console.log(`synced ${from} -> ${to}`)
-}
-
-// --- 2. Optional env block sync (extract + embed) ---------------------------
+// --- Optional env block sync (extract + embed) -------------------------------
 
 /** Header prepended to each optional block in the CLI-generated .env. */
 const CLI_OPTIONAL_HEADER = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
-# "docker compose up -d" (restart alone does not re-read this file).
+# "npx vault-cortex upgrade" (restart alone does not re-read this file).
 
 `
 

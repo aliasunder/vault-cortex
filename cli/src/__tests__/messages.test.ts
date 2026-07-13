@@ -81,7 +81,7 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Start the server:")
     expect(message).toContain(
-      `cd "${localDefaults.targetDir}" && docker compose up -d`,
+      `npx vault-cortex upgrade --dir "${localDefaults.targetDir}"`,
     )
   })
 
@@ -124,7 +124,7 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `cd "${localDefaults.targetDir}" && docker compose pull && docker compose up -d`,
+      `npx vault-cortex upgrade --dir "${localDefaults.targetDir}"`,
     )
   })
 
@@ -198,7 +198,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Fill in OBSIDIAN_AUTH_TOKEN")
     expect(message).toContain(`${remoteDefaults.targetDir}/.env`)
-    expect(message).toContain("docker compose up -d")
+    expect(message).toContain("npx vault-cortex upgrade")
   })
 
   it("shows the start command when not started and obsidian token present", () => {
@@ -210,7 +210,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Start the server:")
     expect(message).toContain(
-      `cd "${remoteDefaults.targetDir}" && docker compose up -d`,
+      `npx vault-cortex upgrade --dir "${remoteDefaults.targetDir}"`,
     )
   })
 
@@ -270,7 +270,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `cd "${remoteDefaults.targetDir}" && docker compose pull && docker compose up -d`,
+      `npx vault-cortex upgrade --dir "${remoteDefaults.targetDir}"`,
     )
   })
 

@@ -9,41 +9,24 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { buildFilesToWrite, readEnvPort, writeFiles } from "../scaffold.js"
+import {
+  buildFilesToWrite,
+  detectMode,
+  readEnvPort,
+  readEnvVaultPath,
+  writeFiles,
+} from "../scaffold.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
 
 describe("buildFilesToWrite", () => {
-  it("plans a docker-compose.yml from the mode's template plus the generated .env", () => {
-    const files = buildFilesToWrite("local", "MCP_AUTH_TOKEN=abc\n")
+  it("returns only the .env file with owner-only permissions", () => {
+    const files = buildFilesToWrite("MCP_AUTH_TOKEN=abc\n")
 
-    expect(files.map((file) => file.name)).toEqual([
-      "docker-compose.yml",
-      ".env",
+    expect(files).toEqual([
+      { name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 },
     ])
-    const composeFile = files.find((file) => file.name === "docker-compose.yml")
-    const envFile = files.find((file) => file.name === ".env")
-    expect(composeFile?.content).toContain(
-      "ghcr.io/aliasunder/vault-cortex:latest",
-    )
-    expect(envFile?.content).toBe("MCP_AUTH_TOKEN=abc\n")
-  })
-
-  it("plans the single-service remote compose with the :remote image and no separate sync image", () => {
-    const files = buildFilesToWrite("remote", "MCP_AUTH_TOKEN=abc\n")
-    const composeContent = files.find(
-      (file) => file.name === "docker-compose.yml",
-    )?.content
-
-    // Exactly one image line = single-service — a second service sneaking
-    // into the template fails here even under a brand-new image name.
-    expect(composeContent?.match(/^\s+image:/gm)).toHaveLength(1)
-    expect(composeContent).toContain("ghcr.io/aliasunder/vault-cortex:remote")
-    // Sync and MCP wiring both live in the one service.
-    expect(composeContent).toContain("OBSIDIAN_AUTH_TOKEN")
-    expect(composeContent).toContain("MCP_AUTH_TOKEN")
-    expect(composeContent).not.toContain("obsidian-headless-sync-docker")
   })
 })
 
@@ -58,21 +41,12 @@ describe("writeFiles", () => {
     const results = await writeFiles(
       {
         targetDir: targetDir,
-        files: [
-          { name: "docker-compose.yml", content: "services: {}\n" },
-          { name: ".env", content: "MCP_AUTH_TOKEN=abc\n" },
-        ],
+        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
       },
       neverOverwrite,
     )
 
-    expect(results).toEqual([
-      { name: "docker-compose.yml", status: "created" },
-      { name: ".env", status: "created" },
-    ])
-    expect(readFileSync(join(targetDir, "docker-compose.yml"), "utf8")).toBe(
-      "services: {}\n",
-    )
+    expect(results).toEqual([{ name: ".env", status: "created" }])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\n",
     )
@@ -140,7 +114,7 @@ describe("writeFiles", () => {
       {
         targetDir: targetDir,
         files: [
-          { name: "docker-compose.yml", content: "services: {}\n" },
+          { name: "extra.txt", content: "hello\n" },
           { name: ".env", content: "MCP_AUTH_TOKEN=new\n" },
         ],
       },
@@ -148,10 +122,10 @@ describe("writeFiles", () => {
     )
 
     expect(results).toEqual([
-      { name: "docker-compose.yml", status: "created" },
+      { name: "extra.txt", status: "created" },
       { name: ".env", status: "kept" },
     ])
-    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(true)
+    expect(existsSync(join(targetDir, "extra.txt"))).toBe(true)
   })
 })
 
@@ -176,6 +150,90 @@ describe("readEnvPort", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n")
 
     expect(readEnvPort(envPath)).toBe(9000)
+  })
+})
+
+describe("readEnvVaultPath", () => {
+  it("returns undefined when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvVaultPath(missingPath)).toBeUndefined()
+  })
+
+  it("returns undefined when VAULT_PATH is only a comment", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# VAULT_PATH=/vault\n")
+
+    expect(readEnvVaultPath(envPath)).toBeUndefined()
+  })
+
+  it("returns the vault path from an uncommented line", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/home/user/MyVault")
+  })
+
+  it("handles paths with spaces", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/My Vault\n",
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
+  })
+})
+
+describe("detectMode", () => {
+  it("returns undefined when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(detectMode(missingPath)).toBeUndefined()
+  })
+
+  it("returns local when OBSIDIAN_AUTH_TOKEN is absent", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
+    )
+
+    expect(detectMode(envPath)).toBe("local")
+  })
+
+  it("returns local when OBSIDIAN_AUTH_TOKEN is only a comment", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# OBSIDIAN_AUTH_TOKEN=token\n")
+
+    expect(detectMode(envPath)).toBe("local")
+  })
+
+  it("returns remote when OBSIDIAN_AUTH_TOKEN is present and uncommented", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=token123\nVAULT_NAME=MyVault\n",
+    )
+
+    expect(detectMode(envPath)).toBe("remote")
+  })
+
+  it("returns remote even when OBSIDIAN_AUTH_TOKEN is empty (deferred fill-in)", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\n")
+
+    expect(detectMode(envPath)).toBe("remote")
   })
 })
 

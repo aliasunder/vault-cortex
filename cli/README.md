@@ -21,13 +21,22 @@ container; this CLI scaffolds the config so you don't have to.
 1. Asks how you want to run it:
    - **Local** — Docker on this machine, your vault folder bind-mounted
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync), reachable from any device
-2. Generates a `docker-compose.yml` and `.env`, including a securely generated
-   `MCP_AUTH_TOKEN`
-3. Optionally runs `docker compose up -d` and waits for the health check
+2. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
+3. Optionally starts the container and waits for the health check
 4. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
 Existing files are never overwritten without asking.
+
+## Upgrade
+
+Pull the latest image, re-create the container, and verify health:
+
+```bash
+npx vault-cortex upgrade
+```
+
+Also applies `.env` changes (`docker restart` does not re-read env files).
 
 ## Non-interactive
 
@@ -41,7 +50,7 @@ Flags: `--mode local|remote`, `--vault-path <path>`, `--dir <path>` (default
 ## Requirements
 
 - Node.js >= 20.12 (only for this CLI — the server itself runs in Docker)
-- [Docker](https://docs.docker.com/get-docker/) to run the server
+- [Docker](https://docs.docker.com/get-docker/) (or any OCI-compatible runtime) to run the server
 
 ## Docs
 

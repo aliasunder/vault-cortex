@@ -1,4 +1,4 @@
-import { GET_TOKEN_IMAGE } from "./docker.js"
+import { REMOTE_IMAGE } from "./docker.js"
 
 export type LocalEnvAnswers = {
   mcpAuthToken: string
@@ -17,9 +17,9 @@ export type RemoteEnvAnswers = {
 
 // Optional env blocks are synced from deploy/<mode>/.env.example by
 // npm run sync:cli-templates. Edit the deploy/ files, then re-run the script.
-// cli/src/templates.test.ts asserts every required `${VAR:?}` in the compose
-// templates has a matching line here, so a new required var breaks CI until
-// these builders learn it.
+// cli/src/templates.test.ts asserts the CLI optional block vars match the
+// deploy/ .env.example optional vars, so a new var breaks CI until both
+// surfaces carry it.
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │
@@ -29,7 +29,7 @@ export type RemoteEnvAnswers = {
 // sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
-# "docker compose up -d" (restart alone does not re-read this file).
+# "npx vault-cortex upgrade" (restart alone does not re-read this file).
 
 # Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
@@ -102,7 +102,7 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 // sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To override a setting: uncomment it, set a value, then apply with
-# "docker compose up -d" (restart alone does not re-read this file).
+# "npx vault-cortex upgrade" (restart alone does not re-read this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
@@ -202,10 +202,10 @@ VAULT_PASSWORD=${answers.vaultPassword}`
 
   const obsidianTokenComment =
     answers.obsidianAuthToken === ""
-      ? `# Obsidian Sync auth token — FILL THIS IN before docker compose up.
+      ? `# Obsidian Sync auth token — FILL THIS IN before starting the server.
 # Generate once with:
 #   docker run --rm -it --entrypoint get-token \\
-#     ${GET_TOKEN_IMAGE}`
+#     ${REMOTE_IMAGE}`
       : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

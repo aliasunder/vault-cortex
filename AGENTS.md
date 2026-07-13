@@ -72,7 +72,7 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  sync-cli-templates.ts                # Syncs deploy/ compose files + .env.example optional blocks into cli/
+  sync-cli-templates.ts                # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
   render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
@@ -82,16 +82,14 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     program.ts                         # Commander program definition
     init.ts                            # Init command orchestration
     prompts.ts                         # Interactive prompt flow (mode, vault path, token)
-    scaffold.ts                        # File generation (docker-compose.yml, .env)
-    docker.ts                          # Container management (compose up, health-check wait)
+    scaffold.ts                        # File generation (.env)
+    docker.ts                          # Container management (docker run, health-check wait)
+    upgrade.ts                         # Upgrade command (pull + re-create + health check)
     env.ts                             # Environment file handling (.env generation)
     token.ts                           # Secure token generation (openssl rand)
     vault.ts                           # Vault path validation
     node-version.ts                    # Node.js version compatibility check
     messages.ts                        # User-facing output formatting
-  templates/                           # Scaffolding templates (synced from deploy/)
-    local/docker-compose.yml           #   Local deployment template
-    remote/docker-compose.yml          #   Remote deployment template
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
@@ -687,7 +685,6 @@ changed:
 | `.env.example` (root)                         | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                       |
 | `cli/README.md`                               | Feature description or search capability changes — this is the npmjs.com landing page                                                                                                                                                                       |
 | `cli/src/env.ts`                              | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-templates` — run the script after editing deploy/ env files                                                                                                                  |
-| `cli/templates/`                              | Docker Compose service change, new env var passthrough — templates must mirror `deploy/*/docker-compose.yml`                                                                                                                                                |
 | `CONTRIBUTING.md`                             | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                   |
 | `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                   |
 | `DOCKERHUB.md`                                | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                            |
@@ -711,8 +708,7 @@ pattern:
    These are the source of truth for optional var documentation.
 4. **Run `npm run sync:cli-templates`** — syncs the optional sections from
    step 3 into `cli/src/env.ts` (`LOCAL_OPTIONAL_BLOCK` /
-   `REMOTE_OPTIONAL_BLOCK`), and copies the deploy compose files into
-   `cli/templates/`. Always run after editing deploy/ files.
+   `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
 5. **Root .env.example** — Lightsail reference deployment (if applicable)
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
    — maintainer/contributor surfaces (if applicable)
