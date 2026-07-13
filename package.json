@@ -51,7 +51,8 @@
     "lint:fix": "eslint --fix .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare": "husky"
+    "prepare": "husky",
+    "render:social-preview": "tsx scripts/render-social-preview.ts"
   },
   "lint-staged": {
     "*.{json,md}": "prettier --write",
@@ -97,10 +98,14 @@
     "jiti": "2.7.0",
     "lint-staged": "17.0.8",
     "prettier": "3.9.5",
+    "puppeteer": "25.3.0",
     "sst": "4.17.1",
     "tsx": "4.23.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.63.0",
     "vitest": "4.1.10"
+  },
+  "allowScripts": {
+    "puppeteer@25.3.0": true
   }
 }

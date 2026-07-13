@@ -70,6 +70,7 @@ scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
   sync-cli-templates.ts                # Syncs deploy/ compose files + .env.example optional blocks into cli/
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
+  render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts                             # Entry point (version injection + run)
@@ -676,7 +677,7 @@ changed:
 | `ARCHITECTURE.md`                             | New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals. |
 | `server.json`                                 | Description changes. `description` has a 100-character limit per the MCP registry schema.                                                                                                                                                                   |
 | `Dockerfile`                                  | OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions                                                                                                                                                               |
-| `assets/social-preview.svg` + `.png`          | Feature category changes (rendered in the image); regenerate PNG after SVG edits (see recipe below table)                                                                                                                                                   |
+| `assets/social-preview.svg` + `.png`          | Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)                                                                                                                                      |
 | `.devin/wiki.json`                            | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references)                                                                                                                                                       |
 | `deploy/local/` + `deploy/remote/`            | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory                                                                                                       |
 | `.env.example` (root)                         | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                       |
@@ -715,36 +716,10 @@ pattern:
 CI drift tests in `templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.
 
-**Regenerating `social-preview.png`:** The SVG uses `font-family="DejaVu Sans"`
-for the subtitle and feature line (`<text>` elements — the wordmark is already
-paths). `rsvg-convert` renders these thinner than intended when DejaVu Sans is
-missing. Use a browser-based render for correct font weight:
-
-1. Start a local server: `python3 -m http.server 8765 --directory assets`
-2. Open `http://localhost:8765/social-preview.svg` in Chrome
-3. Open DevTools console and run:
-   ```js
-   const c = Object.assign(document.createElement("canvas"), {
-     width: 1280,
-     height: 640,
-   })
-   const img = new Image()
-   const b = new Blob([document.querySelector("svg").outerHTML], {
-     type: "image/svg+xml",
-   })
-   const u = URL.createObjectURL(b)
-   img.onload = () => {
-     c.getContext("2d").drawImage(img, 0, 0, 1280, 640)
-     URL.revokeObjectURL(u)
-     Object.assign(document.createElement("a"), {
-       href: c.toDataURL("image/png"),
-       download: "social-preview.png",
-     }).click()
-   }
-   img.src = u
-   ```
-4. Move the downloaded file to `assets/social-preview.png`
-5. Optimize: `optipng -o7 -strip all assets/social-preview.png`
+**Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
+The script uses Puppeteer's bundled Chromium with an embedded DejaVu Sans
+`@font-face` for deterministic rendering regardless of host system fonts.
+It losslessly optimizes the PNG with `optipng` if available (not required).
 
 Not every PR touches these — a new tool in an existing category needs
 a `server.json` + `README.md` count bump but nothing else. A module
