@@ -74,7 +74,7 @@ const findTaskBlockEnd = (
   taskLineIndex: number,
 ): number => {
   const taskLine = lines[taskLineIndex]
-  if (taskLine === undefined) return taskLineIndex + 1
+  if (!taskLine) return taskLineIndex + 1
 
   const taskIndent = taskLine.match(/^(\s*)/)?.[0].length ?? 0
   let endIndex = taskLineIndex + 1
