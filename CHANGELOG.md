@@ -38,6 +38,24 @@
 
 
 
+
+## [0.28.4] — 2026-07-13
+
+### Bug Fixes
+
+- **search:** Replace memory recall's absolute rerank floor with adaptive threshold (#312)
+- **ci:** Generate WAF-safe DOCKERHUB.md for Docker Hub description sync (#320)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.28.3
+
+### Maintenance
+
+- **deps:** Bump peter-evans/dockerhub-description from 4.0.0 to 5.0.0 (#317)
+- **deps:** Bump obsidian-headless from 0.0.12 to 0.0.13 in /obsidian-headless (#318)
+- **deps-dev:** Bump sst from 4.17.0 to 4.17.1 in the development group (#319)
+
 ## [0.28.3] — 2026-07-12
 
 ### Features
