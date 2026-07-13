@@ -262,12 +262,12 @@ const updateTask = async (
             : oldChar === "/"
               ? "in_progress"
               : "todo"
-      mutatedLine = tasks.updateTaskLineStatus(
-        mutatedLine,
-        status,
+      mutatedLine = tasks.updateTaskLineStatus({
+        taskLine: mutatedLine,
+        newStatus: status,
         today,
-        formatConfig,
-      )
+        config: formatConfig,
+      })
       changes.push(`status: ${oldStatus} → ${status}`)
     }
 

@@ -840,136 +840,136 @@ describe("task line mutations", () => {
 
   describe("updateTaskLineStatus", () => {
     it("marks a todo task as done with a done date", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Fix the bug ➕ 2026-07-01",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Fix the bug ➕ 2026-07-01",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [x] Fix the bug ➕ 2026-07-01 ✅ 2026-07-12")
     })
 
     it("marks a todo task as cancelled with a cancelled date", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Dropped feature ➕ 2026-07-01",
-        "cancelled",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Dropped feature ➕ 2026-07-01",
+        newStatus: "cancelled",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [-] Dropped feature ➕ 2026-07-01 ❌ 2026-07-12")
     })
 
     it("marks an in-progress task as done", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [/] In-progress task ➕ 2026-07-01",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [/] In-progress task ➕ 2026-07-01",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [x] In-progress task ➕ 2026-07-01 ✅ 2026-07-12")
     })
 
     it("un-completes a done task by removing the done date", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [x] Was done ➕ 2026-07-01 ✅ 2026-07-10",
-        "todo",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Was done ➕ 2026-07-01 ✅ 2026-07-10",
+        newStatus: "todo",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [ ] Was done ➕ 2026-07-01")
     })
 
     it("switches from done to cancelled: removes done date, adds cancelled date", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [x] Changed my mind ➕ 2026-07-01 ✅ 2026-07-10",
-        "cancelled",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Changed my mind ➕ 2026-07-01 ✅ 2026-07-10",
+        newStatus: "cancelled",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [-] Changed my mind ➕ 2026-07-01 ❌ 2026-07-12")
     })
 
     it("switches from cancelled to in_progress: removes cancelled date", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [-] Revived task ➕ 2026-07-01 ❌ 2026-07-10",
-        "in_progress",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [-] Revived task ➕ 2026-07-01 ❌ 2026-07-10",
+        newStatus: "in_progress",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [/] Revived task ➕ 2026-07-01")
     })
 
     it("re-stamps an existing done date with today", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [x] Old completion ✅ 2026-06-01",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Old completion ✅ 2026-06-01",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [x] Old completion ✅ 2026-07-12")
     })
 
     it("inserts the done date before a block ID", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Task with ID ➕ 2026-07-01 ^my-task",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task with ID ➕ 2026-07-01 ^my-task",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe(
         "- [x] Task with ID ➕ 2026-07-01 ✅ 2026-07-12 ^my-task",
       )
     })
 
     it("preserves priority and created date when completing", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe(
         "- [x] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20 ✅ 2026-07-12",
       )
     })
 
     it("handles a bare task with no metadata", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Simple task",
-        "done",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Simple task",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [x] Simple task ✅ 2026-07-12")
     })
 
     it("strips a Dataview done date when un-completing", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [x] Task [completion:: 2026-07-10]",
-        "todo",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Task [completion:: 2026-07-10]",
+        newStatus: "todo",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [ ] Task")
     })
 
     it("strips a Dataview cancelled date when reverting to todo", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [-] Task [cancelled:: 2026-07-10]",
-        "todo",
-        "2026-07-12",
-        EMOJI_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [-] Task [cancelled:: 2026-07-10]",
+        newStatus: "todo",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
       expect(result).toBe("- [ ] Task")
     })
 
     it("writes done date in Dataview format when configured", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Task [created:: 2026-07-01]",
-        "done",
-        "2026-07-12",
-        DATAVIEW_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task [created:: 2026-07-01]",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: DATAVIEW_CONFIG,
+      })
       expect(result).toBe(
         "- [x] Task [created:: 2026-07-01] [completion:: 2026-07-12]",
       )
@@ -981,12 +981,12 @@ describe("task line mutations", () => {
         setDoneDate: false,
         setCancelledDate: true,
       }
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Task ➕ 2026-07-01",
-        "done",
-        "2026-07-12",
-        noDoneDateConfig,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task ➕ 2026-07-01",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: noDoneDateConfig,
+      })
       expect(result).toBe("- [x] Task ➕ 2026-07-01")
     })
 
@@ -996,22 +996,22 @@ describe("task line mutations", () => {
         setDoneDate: true,
         setCancelledDate: false,
       }
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Task ➕ 2026-07-01",
-        "cancelled",
-        "2026-07-12",
-        noCancelledDateConfig,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task ➕ 2026-07-01",
+        newStatus: "cancelled",
+        today: "2026-07-12",
+        config: noCancelledDateConfig,
+      })
       expect(result).toBe("- [-] Task ➕ 2026-07-01")
     })
 
     it("writes cancelled date in Dataview format when configured", () => {
-      const result = tasks.updateTaskLineStatus(
-        "- [ ] Task [created:: 2026-07-01]",
-        "cancelled",
-        "2026-07-12",
-        DATAVIEW_CONFIG,
-      )
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task [created:: 2026-07-01]",
+        newStatus: "cancelled",
+        today: "2026-07-12",
+        config: DATAVIEW_CONFIG,
+      })
       expect(result).toBe(
         "- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]",
       )

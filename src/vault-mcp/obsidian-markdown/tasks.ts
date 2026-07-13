@@ -618,37 +618,33 @@ const applyCompletionDate = (params: {
 /** Updates the status-related fields of a task line: checkbox character
  *  and done/cancelled dates. Pure string transform — does not move lines
  *  between sections. Strips both emoji and Dataview formats; writes new
- *  fields in the configured format.
- *
- *  @param taskLine The raw markdown line
- *  @param newStatus Target status
- *  @param today YYYY-MM-DD string for the date stamp
- *  @param config Format config (write format + date stamping preferences) */
-const updateTaskLineStatus = (
-  taskLine: string,
-  newStatus: TaskStatus,
-  today: string,
-  config: TaskFormatConfig,
-): string => {
+ *  fields in the configured format. */
+const updateTaskLineStatus = (params: {
+  taskLine: string
+  newStatus: TaskStatus
+  today: string
+  config: TaskFormatConfig
+}): string => {
   const withNewCheckbox = replaceCheckboxChar(
-    taskLine,
-    charForStatus(newStatus),
+    params.taskLine,
+    charForStatus(params.newStatus),
   )
 
-  if (newStatus === "done") {
+  if (params.newStatus === "done") {
     return applyCompletionDate({
       taskLine: stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
-      shouldStamp: config.setDoneDate,
-      formatDate: () => formatDoneDate(today, config.taskFormat),
+      shouldStamp: params.config.setDoneDate,
+      formatDate: () => formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
     })
   }
 
-  if (newStatus === "cancelled") {
+  if (params.newStatus === "cancelled") {
     return applyCompletionDate({
       taskLine: stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
-      shouldStamp: config.setCancelledDate,
-      formatDate: () => formatCancelledDate(today, config.taskFormat),
+      shouldStamp: params.config.setCancelledDate,
+      formatDate: () =>
+        formatCancelledDate(params.today, params.config.taskFormat),
       dateRegex: CANCELLED_DATE_INLINE_RE,
     })
   }
