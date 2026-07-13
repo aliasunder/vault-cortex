@@ -67,6 +67,9 @@ deploy/                                # End-user quickstart (no clone needed)
     README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
     docker-compose.yml                 #     just: docker compose up
     .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
+assets/                                # Static assets (not shipped in Docker)
+  fonts/
+    DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
   sync-cli-templates.ts                # Syncs deploy/ compose files + .env.example optional blocks into cli/
