@@ -461,6 +461,25 @@ continue }` over `if/else if` chains — each branch is
   guard's condition positive (`if (hardLinksSupported) { … return }`),
   so it pairs naturally with the early-return rule above — the common
   path returns, the fallback flows beneath it, no `else`.
+- Prefer truthy/falsy checks over verbose comparisons for optional
+  values. `if (!taskLine)` over `if (taskLine === undefined)`;
+  `if (!finding.suggestion)` over
+  `if (finding.suggestion === null || finding.suggestion === "")`.
+  Leverage optional chaining and nullish coalescing to flatten
+  guard chains: `heading?.text ?? "(none)"` over a nested
+  `if (heading) { heading.text } else { "(none)" }`. Only use
+  explicit comparisons when the falsy set is wrong (e.g. `0` or
+  `false` are valid values).
+- Don't use a thunk or callback when a plain value suffices. A
+  function accepting `() => T` where `T` would do adds indirection
+  without benefit — the caller has to reason about evaluation timing,
+  and the function body gains nothing from deferred computation. If
+  the value is already available at the call site, pass it directly.
+- Data-layer helpers should not truncate or lossy-transform their
+  output — the consumer decides presentation limits. A function that
+  silently caps its return to N characters loses information the
+  caller may need; if truncation is wanted, apply it at the call
+  site. Extraction and presentation are separate concerns.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
