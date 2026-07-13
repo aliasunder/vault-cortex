@@ -598,6 +598,23 @@ const formatPriority = (
     ? `[priority:: ${priority}]`
     : emojiForPriority(priority)
 
+/** Stamps or strips a completion-style date field on a task line.
+ *  When stamping is enabled, replaces an existing field or inserts before
+ *  the block ID; when disabled, strips any existing field. */
+const applyCompletionDate = (
+  taskLine: string,
+  shouldStamp: boolean,
+  formatDate: () => string,
+  dateRegex: RegExp,
+): string => {
+  if (!shouldStamp) return stripField(taskLine, dateRegex)
+
+  const dateField = formatDate()
+  return dateRegex.test(taskLine)
+    ? taskLine.replace(dateRegex, dateField)
+    : insertBeforeBlockId(taskLine, dateField)
+}
+
 /** Updates the status-related fields of a task line: checkbox character
  *  and done/cancelled dates. Pure string transform — does not move lines
  *  between sections. Strips both emoji and Dataview formats; writes new
@@ -613,35 +630,34 @@ const updateTaskLineStatus = (
   today: string,
   config: TaskFormatConfig,
 ): string => {
-  const newChar = charForStatus(newStatus)
-  let result = replaceCheckboxChar(taskLine, newChar)
+  const withNewCheckbox = replaceCheckboxChar(
+    taskLine,
+    charForStatus(newStatus),
+  )
 
   if (newStatus === "done") {
-    result = stripField(result, CANCELLED_DATE_INLINE_RE)
-    if (config.setDoneDate) {
-      const dateField = formatDoneDate(today, config.taskFormat)
-      result = DONE_DATE_INLINE_RE.test(result)
-        ? result.replace(DONE_DATE_INLINE_RE, dateField)
-        : insertBeforeBlockId(result, dateField)
-    } else {
-      result = stripField(result, DONE_DATE_INLINE_RE)
-    }
-  } else if (newStatus === "cancelled") {
-    result = stripField(result, DONE_DATE_INLINE_RE)
-    if (config.setCancelledDate) {
-      const dateField = formatCancelledDate(today, config.taskFormat)
-      result = CANCELLED_DATE_INLINE_RE.test(result)
-        ? result.replace(CANCELLED_DATE_INLINE_RE, dateField)
-        : insertBeforeBlockId(result, dateField)
-    } else {
-      result = stripField(result, CANCELLED_DATE_INLINE_RE)
-    }
-  } else {
-    result = stripField(result, DONE_DATE_INLINE_RE)
-    result = stripField(result, CANCELLED_DATE_INLINE_RE)
+    return applyCompletionDate(
+      stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
+      config.setDoneDate,
+      () => formatDoneDate(today, config.taskFormat),
+      DONE_DATE_INLINE_RE,
+    )
   }
 
-  return result
+  if (newStatus === "cancelled") {
+    return applyCompletionDate(
+      stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+      config.setCancelledDate,
+      () => formatCancelledDate(today, config.taskFormat),
+      CANCELLED_DATE_INLINE_RE,
+    )
+  }
+
+  // todo / in_progress — strip both completion dates
+  return stripField(
+    stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+    CANCELLED_DATE_INLINE_RE,
+  )
 }
 
 /** Updates the priority on a task line: inserts, replaces, or removes
