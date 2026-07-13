@@ -41,6 +41,17 @@
 
 
 
+
+## [0.29.2] — 2026-07-13
+
+### Features
+
+- Add Puppeteer-based social preview render script (#325)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.29.1
+
 ## [0.29.1] — 2026-07-13
 
 ### Documentation
