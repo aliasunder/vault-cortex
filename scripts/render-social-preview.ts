@@ -30,10 +30,15 @@ const commandAvailable = (command: string): boolean => {
 const optimizePng = (pngPath: string): void => {
   if (commandAvailable("optipng")) {
     console.log("optimizing with optipng...")
-    execFileSync("optipng", ["-o7", "-strip", "all", pngPath], {
-      stdio: "inherit",
-    })
-    return
+    try {
+      execFileSync("optipng", ["-o7", "-strip", "all", pngPath], {
+        stdio: "inherit",
+      })
+      return
+    } catch {
+      console.warn("⚠  optipng failed — PNG saved without optimization")
+      return
+    }
   }
 
   console.warn(
@@ -106,7 +111,7 @@ const renderSocialPreview = async (): Promise<void> => {
     await page.setContent(htmlContent, { waitUntil: "load" })
 
     // Wait for the embedded @font-face to finish loading before screenshotting
-    await page.evaluate("document.fonts.ready")
+    await page.waitForFunction("document.fonts.status === 'loaded'")
 
     const screenshotBuffer = await page.screenshot({
       type: "png",
