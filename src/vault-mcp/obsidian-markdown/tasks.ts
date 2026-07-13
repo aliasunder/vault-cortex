@@ -679,6 +679,8 @@ const updateTaskLinePriority = (
     return taskLine.replace(PRIORITY_INLINE_RE, priorityField)
   }
 
+  // Insert before the first metadata signifier (emoji or inline field)
+  // so priority lands at the end of the description, before dates.
   const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(taskLine)
   if (signifierMatch) {
     const insertAt = signifierMatch.index
