@@ -266,6 +266,7 @@ Parameters:
 - At least one of status, priority, or lane is required (the mutation).
 - status changes the checkbox and manages dates: "done" appends ✅ date, "cancelled" appends ❌ date, "todo"/"in_progress" removes completion dates. On a Kanban board, "done" without an explicit lane auto-detects the done lane (via **Complete** marker, falling back to "Done" heading).
 - lane is only valid on notes with kanban-plugin frontmatter (is_kanban_task in vault_list_tasks).
+- format overrides the auto-detected Tasks plugin write format ("emoji" or "dataview"). When omitted, reads the Tasks plugin config from .obsidian/; defaults to emoji if .obsidian/ is not synced to the server. Both formats are always recognized for reading — only the write format is configurable.
 
 Errors:
 - "note not found" — path does not exist
@@ -317,6 +318,12 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
           .describe(
             "Target Kanban lane heading for a lane move. Only valid on Kanban boards.",
           ),
+        format: z
+          .enum(["emoji", "dataview"])
+          .optional()
+          .describe(
+            "Field format for new metadata (done dates, priority). Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -325,7 +332,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
         openWorldHint: false,
       },
     },
-    async ({ path, block_id, line, status, priority, lane }, extra) => {
+    async ({ path, block_id, line, status, priority, lane, format }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -337,6 +344,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
         status,
         priority,
         lane,
+        format,
       })
       return safeHandler(
         reqLogger,
@@ -350,6 +358,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
               status,
               priority,
               lane,
+              format,
             },
             reqLogger,
           ),

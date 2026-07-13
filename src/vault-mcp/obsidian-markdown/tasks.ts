@@ -518,21 +518,30 @@ const emojiForPriority = (priority: TaskPriority): string =>
   EMOJI_FOR_PRIORITY[priority]
 
 // ── Inline field regexes (non-anchored, for mid-line replacement) ──
+//
+// Both emoji and Dataview inline-field formats are matched for stripping
+// (users may have switched format mid-vault). Write format is determined
+// by the TaskFormatConfig passed to each mutation function.
 
-/** Matches a ✅ date anywhere in the line (not `$`-anchored). */
-const DONE_DATE_INLINE_RE = /✅️? *\d{4}-\d{2}-\d{2}/u
+/** Matches a done date in either format: `✅ YYYY-MM-DD` (emoji) or
+ *  `[completion:: YYYY-MM-DD]` / `(completion:: YYYY-MM-DD)` (Dataview). */
+const DONE_DATE_INLINE_RE =
+  /✅️? *\d{4}-\d{2}-\d{2}|[[(] *completion:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
-/** Matches a ❌ date anywhere in the line (not `$`-anchored). */
-const CANCELLED_DATE_INLINE_RE = /❌️? *\d{4}-\d{2}-\d{2}/u
+/** Matches a cancelled date in either format. */
+const CANCELLED_DATE_INLINE_RE =
+  /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
-/** Matches any priority emoji anywhere in the line (not `$`-anchored). */
-const PRIORITY_EMOJI_INLINE_RE = /[🔺⏫🔼🔽⏬]️?/u
+/** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
+ *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
+const PRIORITY_INLINE_RE =
+  /[🔺⏫🔼🔽⏬]️?|[[(] *priority:: *(?:highest|high|medium|low|lowest) *[\])](?: *,)?/u
 
 /** Matches the first metadata signifier — the boundary between the
- *  human-written description and the machine-managed fields. Priority
- *  sits between description and dates, so date signifiers mark where
- *  a new priority emoji should be inserted. */
-const FIRST_DATE_SIGNIFIER_RE = /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔)️?/u
+ *  human-written description and the machine-managed fields. Covers
+ *  both emoji signifiers and Dataview field openers. */
+const FIRST_METADATA_SIGNIFIER_RE =
+  /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔|🔺|⏫|🔼|🔽|⏬)️?|[[(](?:completion|cancelled|due|scheduled|start|created|priority|repeat|onCompletion|id|dependsOn)::/u
 
 // ── Task-line mutation (pure string transforms) ─────────────────
 
@@ -561,31 +570,72 @@ const insertBeforeBlockId = (taskLine: string, text: string): string => {
 const stripField = (taskLine: string, regex: RegExp): string =>
   taskLine.replace(regex, "").replace(/ {2,}/g, " ").trimEnd()
 
+/** Format config subset needed by the mutation functions. Matches
+ *  TaskFormatConfig from task-format-config.ts (imported as a type
+ *  here to keep the parser layer free of I/O dependencies). */
+export type MutationFormatConfig = {
+  taskFormat: "emoji" | "dataview"
+  setDoneDate: boolean
+  setCancelledDate: boolean
+}
+
+/** Formats a done date in the configured format. */
+const formatDoneDate = (today: string, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[completion:: ${today}]` : `✅ ${today}`
+
+/** Formats a cancelled date in the configured format. */
+const formatCancelledDate = (
+  today: string,
+  format: "emoji" | "dataview",
+): string => (format === "dataview" ? `[cancelled:: ${today}]` : `❌ ${today}`)
+
+/** Formats a priority in the configured format. */
+const formatPriority = (
+  priority: TaskPriority,
+  format: "emoji" | "dataview",
+): string =>
+  format === "dataview"
+    ? `[priority:: ${priority}]`
+    : emojiForPriority(priority)
+
 /** Updates the status-related fields of a task line: checkbox character
  *  and done/cancelled dates. Pure string transform — does not move lines
- *  between sections.
+ *  between sections. Strips both emoji and Dataview formats; writes new
+ *  fields in the configured format.
  *
- *  @param taskLine The raw markdown line (e.g. `- [ ] Description ➕ 2026-07-12`)
+ *  @param taskLine The raw markdown line
  *  @param newStatus Target status
- *  @param today YYYY-MM-DD string for the date stamp */
+ *  @param today YYYY-MM-DD string for the date stamp
+ *  @param config Format config (write format + date stamping preferences) */
 const updateTaskLineStatus = (
   taskLine: string,
   newStatus: TaskStatus,
   today: string,
+  config: MutationFormatConfig,
 ): string => {
   const newChar = charForStatus(newStatus)
   let result = replaceCheckboxChar(taskLine, newChar)
 
   if (newStatus === "done") {
     result = stripField(result, CANCELLED_DATE_INLINE_RE)
-    result = DONE_DATE_INLINE_RE.test(result)
-      ? result.replace(DONE_DATE_INLINE_RE, `✅ ${today}`)
-      : insertBeforeBlockId(result, `✅ ${today}`)
+    if (config.setDoneDate) {
+      const dateField = formatDoneDate(today, config.taskFormat)
+      result = DONE_DATE_INLINE_RE.test(result)
+        ? result.replace(DONE_DATE_INLINE_RE, dateField)
+        : insertBeforeBlockId(result, dateField)
+    } else {
+      result = stripField(result, DONE_DATE_INLINE_RE)
+    }
   } else if (newStatus === "cancelled") {
     result = stripField(result, DONE_DATE_INLINE_RE)
-    result = CANCELLED_DATE_INLINE_RE.test(result)
-      ? result.replace(CANCELLED_DATE_INLINE_RE, `❌ ${today}`)
-      : insertBeforeBlockId(result, `❌ ${today}`)
+    if (config.setCancelledDate) {
+      const dateField = formatCancelledDate(today, config.taskFormat)
+      result = CANCELLED_DATE_INLINE_RE.test(result)
+        ? result.replace(CANCELLED_DATE_INLINE_RE, dateField)
+        : insertBeforeBlockId(result, dateField)
+    } else {
+      result = stripField(result, CANCELLED_DATE_INLINE_RE)
+    }
   } else {
     result = stripField(result, DONE_DATE_INLINE_RE)
     result = stripField(result, CANCELLED_DATE_INLINE_RE)
@@ -594,36 +644,37 @@ const updateTaskLineStatus = (
   return result
 }
 
-/** Updates the priority emoji on a task line: inserts, replaces, or
- *  removes it. A null priority removes any existing emoji.
+/** Updates the priority on a task line: inserts, replaces, or removes
+ *  it. A null priority removes any existing priority field (emoji or
+ *  Dataview). Strips both formats; writes in the configured format.
  *
- *  Insertion position: after the description, before the first date
- *  signifier (➕, 📅, etc.). If no date signifiers exist, before the
- *  block ID or at end of line. */
+ *  Insertion position: after the description, before the first metadata
+ *  signifier. If no signifiers exist, before the block ID or at end. */
 const updateTaskLinePriority = (
   taskLine: string,
   newPriority: TaskPriority | null,
+  config: MutationFormatConfig,
 ): string => {
-  const hasExistingPriority = PRIORITY_EMOJI_INLINE_RE.test(taskLine)
+  const hasExistingPriority = PRIORITY_INLINE_RE.test(taskLine)
 
   if (newPriority === null) {
     if (!hasExistingPriority) return taskLine
-    return stripField(taskLine, PRIORITY_EMOJI_INLINE_RE)
+    return stripField(taskLine, PRIORITY_INLINE_RE)
   }
 
-  const emoji = emojiForPriority(newPriority)
+  const priorityField = formatPriority(newPriority, config.taskFormat)
 
   if (hasExistingPriority) {
-    return taskLine.replace(PRIORITY_EMOJI_INLINE_RE, emoji)
+    return taskLine.replace(PRIORITY_INLINE_RE, priorityField)
   }
 
-  const dateSignifierMatch = FIRST_DATE_SIGNIFIER_RE.exec(taskLine)
-  if (dateSignifierMatch !== null) {
-    const insertAt = dateSignifierMatch.index
-    return `${taskLine.slice(0, insertAt)}${emoji} ${taskLine.slice(insertAt)}`
+  const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(taskLine)
+  if (signifierMatch !== null) {
+    const insertAt = signifierMatch.index
+    return `${taskLine.slice(0, insertAt)}${priorityField} ${taskLine.slice(insertAt)}`
   }
 
-  return insertBeforeBlockId(taskLine, emoji)
+  return insertBeforeBlockId(taskLine, priorityField)
 }
 
 /** Finds the 0-based line index of a task whose line ends with
@@ -699,4 +750,5 @@ export const tasks = {
   updateTaskLinePriority,
   findTaskByBlockId,
   extractDoneLanes,
+  FIRST_METADATA_SIGNIFIER_RE,
 }

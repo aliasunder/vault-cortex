@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest"
-import { tasks, type ParsedTask } from "../tasks.js"
+import { tasks, type ParsedTask, type MutationFormatConfig } from "../tasks.js"
+
+/** Default emoji format config for mutation tests. */
+const EMOJI_CONFIG: MutationFormatConfig = {
+  taskFormat: "emoji",
+  setDoneDate: true,
+  setCancelledDate: true,
+}
+
+/** Dataview format config for format-specific tests. */
+const DATAVIEW_CONFIG: MutationFormatConfig = {
+  taskFormat: "dataview",
+  setDoneDate: true,
+  setCancelledDate: true,
+}
 
 /** Builds a full ParsedTask from overrides so assertions compare whole
  *  objects — any unexpected field change fails the test. */
@@ -830,6 +844,7 @@ describe("task line mutations", () => {
         "- [ ] Fix the bug ➕ 2026-07-01",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [x] Fix the bug ➕ 2026-07-01 ✅ 2026-07-12")
     })
@@ -839,6 +854,7 @@ describe("task line mutations", () => {
         "- [ ] Dropped feature ➕ 2026-07-01",
         "cancelled",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [-] Dropped feature ➕ 2026-07-01 ❌ 2026-07-12")
     })
@@ -848,6 +864,7 @@ describe("task line mutations", () => {
         "- [/] In-progress task ➕ 2026-07-01",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [x] In-progress task ➕ 2026-07-01 ✅ 2026-07-12")
     })
@@ -857,6 +874,7 @@ describe("task line mutations", () => {
         "- [x] Was done ➕ 2026-07-01 ✅ 2026-07-10",
         "todo",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [ ] Was done ➕ 2026-07-01")
     })
@@ -866,6 +884,7 @@ describe("task line mutations", () => {
         "- [x] Changed my mind ➕ 2026-07-01 ✅ 2026-07-10",
         "cancelled",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [-] Changed my mind ➕ 2026-07-01 ❌ 2026-07-12")
     })
@@ -875,6 +894,7 @@ describe("task line mutations", () => {
         "- [-] Revived task ➕ 2026-07-01 ❌ 2026-07-10",
         "in_progress",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [/] Revived task ➕ 2026-07-01")
     })
@@ -884,6 +904,7 @@ describe("task line mutations", () => {
         "- [x] Old completion ✅ 2026-06-01",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [x] Old completion ✅ 2026-07-12")
     })
@@ -893,6 +914,7 @@ describe("task line mutations", () => {
         "- [ ] Task with ID ➕ 2026-07-01 ^my-task",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe(
         "- [x] Task with ID ➕ 2026-07-01 ✅ 2026-07-12 ^my-task",
@@ -904,6 +926,7 @@ describe("task line mutations", () => {
         "- [ ] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe(
         "- [x] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20 ✅ 2026-07-12",
@@ -915,8 +938,56 @@ describe("task line mutations", () => {
         "- [ ] Simple task",
         "done",
         "2026-07-12",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [x] Simple task ✅ 2026-07-12")
+    })
+
+    it("strips a Dataview done date when un-completing", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [x] Task [completion:: 2026-07-10]",
+        "todo",
+        "2026-07-12",
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Task")
+    })
+
+    it("strips a Dataview cancelled date when reverting to todo", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [-] Task [cancelled:: 2026-07-10]",
+        "todo",
+        "2026-07-12",
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Task")
+    })
+
+    it("writes done date in Dataview format when configured", () => {
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Task [created:: 2026-07-01]",
+        "done",
+        "2026-07-12",
+        DATAVIEW_CONFIG,
+      )
+      expect(result).toBe(
+        "- [x] Task [created:: 2026-07-01] [completion:: 2026-07-12]",
+      )
+    })
+
+    it("skips done date when setDoneDate is false", () => {
+      const noDoneDateConfig: MutationFormatConfig = {
+        taskFormat: "emoji",
+        setDoneDate: false,
+        setCancelledDate: true,
+      }
+      const result = tasks.updateTaskLineStatus(
+        "- [ ] Task ➕ 2026-07-01",
+        "done",
+        "2026-07-12",
+        noDoneDateConfig,
+      )
+      expect(result).toBe("- [x] Task ➕ 2026-07-01")
     })
   })
 
@@ -925,6 +996,7 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLinePriority(
         "- [ ] Task ➕ 2026-07-01",
         "high",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [ ] Task ⏫ ➕ 2026-07-01")
     })
@@ -933,6 +1005,7 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLinePriority(
         "- [ ] Task ⏫ ➕ 2026-07-01",
         "lowest",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [ ] Task ⏬ ➕ 2026-07-01")
     })
@@ -941,13 +1014,14 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLinePriority(
         "- [ ] Task ⏫ ➕ 2026-07-01",
         null,
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
     it("returns the line unchanged when removing priority that does not exist", () => {
       const line = "- [ ] No priority task ➕ 2026-07-01"
-      const result = tasks.updateTaskLinePriority(line, null)
+      const result = tasks.updateTaskLinePriority(line, null, EMOJI_CONFIG)
       expect(result).toBe(line)
     })
 
@@ -955,13 +1029,45 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLinePriority(
         "- [ ] Just a task ^my-id",
         "medium",
+        EMOJI_CONFIG,
       )
       expect(result).toBe("- [ ] Just a task 🔼 ^my-id")
     })
 
     it("appends priority at end when no date signifiers or block ID", () => {
-      const result = tasks.updateTaskLinePriority("- [ ] Bare task", "highest")
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Bare task",
+        "highest",
+        EMOJI_CONFIG,
+      )
       expect(result).toBe("- [ ] Bare task 🔺")
+    })
+
+    it("strips a Dataview priority field", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task [priority:: high] [created:: 2026-07-01]",
+        null,
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Task [created:: 2026-07-01]")
+    })
+
+    it("replaces a Dataview priority with emoji when format is emoji", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task [priority:: high] ➕ 2026-07-01",
+        "low",
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Task 🔽 ➕ 2026-07-01")
+    })
+
+    it("writes priority in Dataview format when configured", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Task ➕ 2026-07-01",
+        "high",
+        DATAVIEW_CONFIG,
+      )
+      expect(result).toBe("- [ ] Task [priority:: high] ➕ 2026-07-01")
     })
   })
 

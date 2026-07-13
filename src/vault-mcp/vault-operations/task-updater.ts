@@ -14,6 +14,7 @@ import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskStatus, TaskPriority } from "../obsidian-markdown/tasks.js"
+import { readTaskFormatConfig } from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ export type UpdateTaskParams = {
   status?: TaskStatus | undefined
   priority?: TaskPriority | "none" | undefined
   lane?: string | undefined
+  format?: "emoji" | "dataview" | undefined
 }
 
 export type UpdateTaskResult = {
@@ -127,14 +129,13 @@ const detectDoneLane = (
 }
 
 /** Extracts the human-readable description from a task line, stripping
- *  the checkbox prefix and trailing emoji metadata. Capped at 120 chars. */
+ *  the checkbox prefix and trailing metadata (both emoji and Dataview
+ *  formats). Capped at 120 chars. */
 const extractDescription = (taskLine: string): string => {
   const match = /\[.\] *(.*)$/.exec(taskLine)
   if (match === null) return taskLine.slice(0, 80)
   const body = match[1] ?? ""
-  const firstSignifier = body.search(
-    /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔|🔺|⏫|🔼|🔽|⏬)️?/u,
-  )
+  const firstSignifier = body.search(tasks.FIRST_METADATA_SIGNIFIER_RE)
   const description =
     firstSignifier === -1 ? body : body.slice(0, firstSignifier)
   return description.trim().slice(0, 120)
@@ -148,7 +149,8 @@ const updateTask = async (
   params: UpdateTaskParams,
   logger: Logger,
 ): Promise<UpdateTaskResult> => {
-  const { vaultPath, path, blockId, line, status, priority, lane } = params
+  const { vaultPath, path, blockId, line, status, priority, lane, format } =
+    params
 
   // Validation: exactly one identifier
   const identifierCount =
@@ -235,6 +237,14 @@ const updateTask = async (
 
     // Apply in-line mutations
     let mutatedLine = originalTaskLine
+    // Resolve format config: explicit param > plugin config > emoji default
+    const pluginConfig = await readTaskFormatConfig(vaultPath)
+    const formatConfig = {
+      taskFormat: format ?? pluginConfig.taskFormat,
+      setDoneDate: pluginConfig.setDoneDate,
+      setCancelledDate: pluginConfig.setCancelledDate,
+    }
+
     const changes: string[] = []
 
     if (status !== undefined) {
@@ -252,13 +262,22 @@ const updateTask = async (
             : oldChar === "/"
               ? "in_progress"
               : "todo"
-      mutatedLine = tasks.updateTaskLineStatus(mutatedLine, status, today)
+      mutatedLine = tasks.updateTaskLineStatus(
+        mutatedLine,
+        status,
+        today,
+        formatConfig,
+      )
       changes.push(`status: ${oldStatus} → ${status}`)
     }
 
     if (priority !== undefined) {
       const newPriority = priority === "none" ? null : priority
-      mutatedLine = tasks.updateTaskLinePriority(mutatedLine, newPriority)
+      mutatedLine = tasks.updateTaskLinePriority(
+        mutatedLine,
+        newPriority,
+        formatConfig,
+      )
       changes.push(`priority: ${priority === "none" ? "removed" : priority}`)
     }
 
