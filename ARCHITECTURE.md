@@ -31,17 +31,17 @@ The server provides three capability layers, each additive:
 
 ## User Requirements
 
-| ID  | Requirement                     | Phase | Summary                                                                                     |
-| --- | ------------------------------- | ----- | ------------------------------------------------------------------------------------------- |
-| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                               |
-| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                         |
-| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                                 |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder/dates.                             |
-| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                           |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                     |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. Free local, low-cost VPS remote. IaC via SST.            |
-| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite.   |
-| R9  | Vault-wide task queries         | 3     | Task index parsing Tasks plugin emoji + Dataview formats. Kanban-aware, structured filters. |
+| ID  | Requirement                     | Phase | Summary                                                                                   |
+| --- | ------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
+| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                             |
+| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                       |
+| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                               |
+| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder/dates.                           |
+| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
+| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
+| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. Free local, low-cost VPS remote. IaC via SST.          |
+| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
+| R9  | Vault-wide task management      | 3     | Task index + one-call mutations. Tasks plugin emoji + Dataview formats. Kanban-aware.     |
 
 ## Component Diagram
 
