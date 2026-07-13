@@ -109,19 +109,19 @@ const detectDoneLane = (
 ): string => {
   const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
 
-  if (doneLanes.length === 1) {
-    const lane = doneLanes[0]
-    if (lane === undefined) throw new Error("unexpected empty done lanes")
-    return lane
-  }
-
   if (doneLanes.length > 1) {
     throw new Error("multiple done lanes detected; pass lane to specify which")
   }
 
+  if (doneLanes.length === 1) {
+    const lane = doneLanes[0]
+    if (!lane) throw new Error("unexpected empty done lanes")
+    return lane
+  }
+
   // Fallback: look for a heading named "Done"
   const doneHeading = headings.find((heading) => heading.text === "Done")
-  if (doneHeading !== undefined) return "Done"
+  if (doneHeading) return "Done"
 
   throw new Error(
     "no done lane detected; pass lane explicitly or add **Complete** marker to a lane",
@@ -153,8 +153,7 @@ const updateTask = async (
     params
 
   // Validation: exactly one identifier
-  const identifierCount =
-    (blockId !== undefined ? 1 : 0) + (line !== undefined ? 1 : 0)
+  const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
   if (identifierCount === 0) {
     throw new Error("exactly one of block_id or line is required")
   }
@@ -163,9 +162,7 @@ const updateTask = async (
   }
 
   // Validation: at least one mutation
-  const hasMutation =
-    status !== undefined || priority !== undefined || lane !== undefined
-  if (!hasMutation) {
+  if (!status && !priority && !lane) {
     throw new Error(
       "at least one mutation (status, priority, or lane) is required",
     )
@@ -194,42 +191,38 @@ const updateTask = async (
 
     // Locate the task line (0-based index into bodyLines)
     let taskLineIndex: number
-    if (blockId !== undefined) {
+    if (blockId) {
       const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
       if (foundIndex === null) {
         throw new Error(`block_id "${blockId}" not found in "${path}"`)
       }
       taskLineIndex = foundIndex
     } else {
-      // Convert 1-based file line to 0-based body line index.
       // line is guaranteed defined here: the identifier validation
       // above ensures exactly one of blockId/line is set.
-      if (line === undefined) {
+      if (!line) {
         throw new Error("exactly one of block_id or line is required")
       }
-      const fileLine = line
-      taskLineIndex = fileLine - 1 - bodyStartLine
+      taskLineIndex = line - 1 - bodyStartLine
       const taskLineText = bodyLines[taskLineIndex]
       if (
         taskLineIndex < 0 ||
         taskLineIndex >= bodyLines.length ||
-        taskLineText === undefined ||
+        !taskLineText ||
         !tasks.isTaskLine(taskLineText)
       ) {
-        throw new Error(`no task at line ${fileLine}`)
+        throw new Error(`no task at line ${line}`)
       }
     }
 
     const originalTaskLine = bodyLines[taskLineIndex]
-    if (originalTaskLine === undefined) {
+    if (!originalTaskLine) {
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
-    const isKanbanBoard =
-      parsed.data["kanban-plugin"] !== undefined &&
-      parsed.data["kanban-plugin"] !== null
+    const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
 
     // Validate lane param requires a Kanban board
-    if (lane !== undefined && !isKanbanBoard) {
+    if (lane && !isKanbanBoard) {
       throw new Error(
         "lane requires a Kanban board (note must have kanban-plugin frontmatter)",
       )
@@ -247,7 +240,7 @@ const updateTask = async (
 
     const changes: string[] = []
 
-    if (status !== undefined) {
+    if (status) {
       const today = DateTime.now().toISODate()
       if (today === null) {
         throw new Error("failed to determine today's date")
@@ -271,7 +264,7 @@ const updateTask = async (
       changes.push(`status: ${oldStatus} → ${status}`)
     }
 
-    if (priority !== undefined) {
+    if (priority) {
       const newPriority = priority === "none" ? null : priority
       mutatedLine = tasks.updateTaskLinePriority(
         mutatedLine,
@@ -283,7 +276,7 @@ const updateTask = async (
 
     // Determine lane move target
     let targetLane = lane
-    if (targetLane === undefined && status === "done" && isKanbanBoard) {
+    if (!targetLane && status === "done" && isKanbanBoard) {
       targetLane = detectDoneLane(bodyLines, headings)
     }
 
@@ -291,11 +284,11 @@ const updateTask = async (
     const resultLines = [...bodyLines]
     resultLines[taskLineIndex] = mutatedLine
 
-    if (targetLane !== undefined) {
+    if (targetLane) {
       const targetHeading = headings.find(
         (heading) => heading.text === targetLane,
       )
-      if (targetHeading === undefined) {
+      if (!targetHeading) {
         const availableHeadings = headings
           .map((heading) => heading.text)
           .join(", ")
@@ -324,7 +317,7 @@ const updateTask = async (
         const updatedTargetHeading = updatedHeadings.find(
           (heading) => heading.text === targetLane,
         )
-        if (updatedTargetHeading === undefined) {
+        if (!updatedTargetHeading) {
           throw new Error(
             `heading "${targetLane}" not found after line removal`,
           )
