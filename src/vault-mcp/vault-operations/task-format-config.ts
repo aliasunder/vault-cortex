@@ -7,6 +7,9 @@
 
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+import { logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -64,7 +67,12 @@ export const readTaskFormatConfig = async (
           ? parsed.setCancelledDate
           : DEFAULTS.setCancelledDate,
     }
-  } catch {
+  } catch (error) {
+    if (!isErrnoException(error, "ENOENT")) {
+      logger.debug("failed to read Tasks plugin config, using defaults", {
+        error: describeError(error),
+      })
+    }
     cachedConfig = { ...DEFAULTS }
   }
 
