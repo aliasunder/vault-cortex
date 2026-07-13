@@ -124,6 +124,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
+      # The base stage's apt-get upgrade layer is content-addressed — it
+      # caches indefinitely until the Dockerfile or base image changes.
+      # Passing today's date as APT_UPGRADE_DATE busts that layer daily so
+      # Debian security patches are always current in the scanned image.
+      - name: Cache-bust date for apt-get upgrade
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
       # Both Dockerfile targets build and scan as steps of this one job —
       # its job ID is the required-status-check context in the branch
       # ruleset, so adding a job would need a ruleset update.
@@ -136,6 +144,7 @@ jobs:
           # scan step can reference it by tag.
           load: true
           tags: vault-cortex:pr-scan
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -146,6 +155,7 @@ jobs:
           target: remote
           load: true
           tags: vault-cortex:pr-scan-remote
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

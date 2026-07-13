@@ -49,7 +49,10 @@ WORKDIR /app
 # the remote target replaces it with `obsidian` at the same UID/GID.
 # apt-get upgrade: applies Debian security fixes at build time, covering
 # the window between a Debian security release and the next upstream
-# node:24-slim rebuild + digest-pin refresh.
+# node:24-slim rebuild + digest-pin refresh. APT_UPGRADE_DATE busts the
+# Docker layer cache daily in CI so security patches stay current even
+# when the Dockerfile hasn't changed.
+ARG APT_UPGRADE_DATE
 RUN apt-get update -qq && apt-get upgrade -y && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/data/index.db
 # OCI image metadata. The ownership marker must match `name` in server.json

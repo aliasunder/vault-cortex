@@ -23,5 +23,5 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ vars.DOCKERHUB_USERNAME }}/vault-cortex
-          short-description: "Standalone MCP server for Obsidian vaults — hybrid search, memory, tasks, 27 tools, OAuth 2.1."
+          short-description: "Standalone MCP server for Obsidian vaults — hybrid search, memory, tasks, 28 tools, OAuth 2.1."
           readme-filepath: DOCKERHUB.md

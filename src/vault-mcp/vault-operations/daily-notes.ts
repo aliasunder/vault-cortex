@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { DateTime } from "luxon"
-import type { Logger } from "../../logger.js"
+import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { describeError } from "../../utils/describe-error.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 // ── Moment.js → Luxon format conversion ────────────────────────
 
@@ -96,7 +97,12 @@ export const readDailyNotesConfig = async (
           ? parsedConfig.format
           : OBSIDIAN_DEFAULTS.format,
     }
-  } catch {
+  } catch (error) {
+    if (!isErrnoException(error, "ENOENT")) {
+      logger.debug("failed to read daily notes config, using defaults", {
+        error: describeError(error),
+      })
+    }
     cachedConfig = { ...OBSIDIAN_DEFAULTS }
   }
 

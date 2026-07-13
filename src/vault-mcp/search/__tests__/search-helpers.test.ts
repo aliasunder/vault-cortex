@@ -165,6 +165,7 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   heading: "Tasks",
   folder: "Projects/Alpha",
   is_kanban_task: 0,
+  kanban_done_lanes: null,
   ...overrides,
 })
 
@@ -249,7 +250,28 @@ describe("rowToTaskEntry", () => {
       tags: ["bug"],
       block_id: null,
       is_kanban_task: false,
+      lane: null,
+      done_lanes: null,
     })
+  })
+
+  it("maps lane and done_lanes for Kanban tasks", () => {
+    const entry = rowToTaskEntry(
+      makeTaskRow({
+        is_kanban_task: 1,
+        heading: "Active",
+        kanban_done_lanes: JSON.stringify(["Done"]),
+      }),
+    )
+    expect(entry.lane).toBe("Active")
+    expect(entry.done_lanes).toEqual(["Done"])
+    expect(entry.is_kanban_task).toBe(true)
+  })
+
+  it("sets lane to null for non-Kanban tasks", () => {
+    const entry = rowToTaskEntry(makeTaskRow({ is_kanban_task: 0 }))
+    expect(entry.lane).toBeNull()
+    expect(entry.done_lanes).toBeNull()
   })
 
   it("renames note_path to path", () => {

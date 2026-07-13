@@ -284,11 +284,12 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
-### Task Queries (R9)
+### Tasks (R9)
 
-| Tool               | Input                                                                                                                                          | Annotation   |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `vault_list_tasks` | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
+| Tool                | Input                                                                                                                                          | Annotation   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   |              |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
 
@@ -298,7 +299,9 @@ Each row carries its full attribution: note path, full parent folder, nearest he
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
-- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order.
+- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name (also surfaced as a `lane` alias field), and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
+
+`vault_update_task` applies status, priority, and/or lane mutations in a single atomic read-modify-write under one exclusive file lock. Status changes toggle the checkbox character and manage done/cancelled dates. Priority changes insert, replace, or remove the emoji signifier at the correct position. Lane moves splice the task block (task line plus indented sub-items) from its current heading to the target heading's body. When `status: "done"` is set on a Kanban board without an explicit `lane`, the tool auto-detects the done lane — first checking for `**Complete**`-marked lanes, then falling back to a heading named "Done". The task line mutations are pure string transforms in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-updater.ts`.
 
 ### Hybrid Search (R8)
 

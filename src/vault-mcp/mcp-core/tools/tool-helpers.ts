@@ -1,5 +1,6 @@
 /** Shared types and helpers for tool group modules. */
 
+import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
@@ -42,6 +43,24 @@ export const formatNoteMetadata = (meta: {
       : {}),
   }
 }
+
+/** Shared Zod schema for one date filter ({ before, on, after }) — used by
+ *  vault_list_tasks' task date filters and vault_search's created/modified. */
+export const dateFilterSchema = z
+  .object({
+    before: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
+    on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
+    after: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
+  })
+  .optional()
 
 /** Wraps a handler with try/catch, returning isError on failure. */
 export const safeHandler = async <T>(

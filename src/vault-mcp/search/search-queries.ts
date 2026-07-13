@@ -526,7 +526,7 @@ const anyTermLexicalCandidates = (
   memory.ftsSearchStmt
     .all(sanitizeFtsQueryAnyTerm(query))
     .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row) => row !== undefined)
+    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
     .map((row, ftsRank) => ({
       row,
@@ -695,7 +695,7 @@ export const memoryRecall = async (
   const ftsRows = memory.ftsSearchStmt
     .all(sanitizeFtsQuery(params.query))
     .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row) => row !== undefined)
+    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
 
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is
@@ -760,7 +760,7 @@ export const memoryRecall = async (
   const candidates: MemoryRecallCandidate[] = []
   for (const { path: entryId, score } of fusedScores) {
     const row = rowsById.get(entryId)
-    if (row === undefined) continue
+    if (!row) continue
     const ftsHit = ftsIds.has(entryId)
     if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue
     candidates.push({
@@ -1252,7 +1252,8 @@ export const listTasks = (
            t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
            t.tags, t.block_id, t.heading, t.folder,
            CASE WHEN json_extract(n.properties, '$.kanban-plugin') IS NOT NULL
-                THEN 1 ELSE 0 END AS is_kanban_task
+                THEN 1 ELSE 0 END AS is_kanban_task,
+           n.kanban_done_lanes
     FROM tasks t
     JOIN notes n ON n.path = t.note_path
     ${whereClause}

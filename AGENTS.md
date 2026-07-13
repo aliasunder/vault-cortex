@@ -109,7 +109,7 @@ src/
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
-      tasks.ts                         # Tasks-plugin task-line grammar (emoji + Dataview fields)
+      tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
@@ -118,6 +118,8 @@ src/
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver
+      task-updater.ts                  # Task state mutations (status, priority, lane moves)
+      task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
@@ -161,6 +163,15 @@ on**, not just its topic:
   they're trivially unit-testable. `lines.ts` is the single home of the
   CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
   threads it, so they can't disagree about where a fence opens.
+  **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
+  signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
+  `[priority:: high]`). Mutation functions must strip both formats when removing
+  a field (a Dataview-formatted task must not get fields orphaned). New fields
+  are written in the format configured by the user's Tasks plugin
+  (`taskFormat` in `.obsidian/plugins/obsidian-tasks-plugin/data.json`) — emoji
+  by default. The `setDoneDate`/`setCancelledDate` settings control whether
+  completion dates are stamped at all. When `.obsidian/` is not synced to the
+  server, the tool defaults to emoji format.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -450,6 +461,25 @@ continue }` over `if/else if` chains — each branch is
   guard's condition positive (`if (hardLinksSupported) { … return }`),
   so it pairs naturally with the early-return rule above — the common
   path returns, the fallback flows beneath it, no `else`.
+- Prefer truthy/falsy checks over verbose comparisons for optional
+  values. `if (!taskLine)` over `if (taskLine === undefined)`;
+  `if (!finding.suggestion)` over
+  `if (finding.suggestion === null || finding.suggestion === "")`.
+  Leverage optional chaining and nullish coalescing to flatten
+  guard chains: `heading?.text ?? "(none)"` over a nested
+  `if (heading) { heading.text } else { "(none)" }`. Only use
+  explicit comparisons when the falsy set is wrong (e.g. `0` or
+  `false` are valid values).
+- Don't use a thunk or callback when a plain value suffices. A
+  function accepting `() => T` where `T` would do adds indirection
+  without benefit — the caller has to reason about evaluation timing,
+  and the function body gains nothing from deferred computation. If
+  the value is already available at the call site, pass it directly.
+- Data-layer helpers should not truncate or lossy-transform their
+  output — the consumer decides presentation limits. A function that
+  silently caps its return to N characters loses information the
+  caller may need; if truncation is wanted, apply it at the call
+  site. Extraction and presentation are separate concerns.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
