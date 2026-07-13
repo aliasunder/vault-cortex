@@ -180,12 +180,14 @@ const updateTask = async (
     // starts (frontmatter delimiters + content). extractTasks uses the
     // same formula: file_line = bodyStartLine + bodyLineIndex + 1.
     const allFileLines = splitIntoLines(fileContent)
+    const hasFrontmatter = allFileLines[0] === "---"
+    const closingDelimiterIndex = hasFrontmatter
+      ? allFileLines.findIndex(
+          (fileLine, index) => index > 0 && fileLine === "---",
+        )
+      : -1
     const bodyStartLine =
-      allFileLines[0] === "---"
-        ? allFileLines.findIndex(
-            (fileLine, index) => index > 0 && fileLine === "---",
-          ) + 1
-        : 0
+      closingDelimiterIndex === -1 ? 0 : closingDelimiterIndex + 1
 
     // Locate the task line (0-based index into bodyLines)
     let taskLineIndex: number
