@@ -153,10 +153,10 @@ const updateTask = async (
   // Validation: exactly one identifier
   const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
   if (identifierCount === 0) {
-    throw new Error("exactly one of block_id or line is required")
+    throw new Error("exactly one of blockId or line is required")
   }
   if (identifierCount > 1) {
-    throw new Error("block_id and line are mutually exclusive")
+    throw new Error("blockId and line are mutually exclusive")
   }
 
   // Validation: at least one mutation
@@ -199,7 +199,7 @@ const updateTask = async (
       // line is guaranteed defined here: the identifier validation
       // above ensures exactly one of blockId/line is set.
       if (!line) {
-        throw new Error("exactly one of block_id or line is required")
+        throw new Error("exactly one of blockId or line is required")
       }
       taskLineIndex = line - 1 - bodyStartLine
       const taskLineText = bodyLines[taskLineIndex]

@@ -687,7 +687,7 @@ describe("task-updater", () => {
           },
           logger,
         ),
-      ).rejects.toThrow("block_id and line are mutually exclusive")
+      ).rejects.toThrow("blockId and line are mutually exclusive")
     })
 
     it("no identifier provided is rejected", async () => {
@@ -699,7 +699,7 @@ describe("task-updater", () => {
           { vaultPath: vault, path: "tasks.md", status: "done" },
           logger,
         ),
-      ).rejects.toThrow("exactly one of block_id or line is required")
+      ).rejects.toThrow("exactly one of blockId or line is required")
     })
 
     it("throws when no done lane exists for auto-completion", async () => {
