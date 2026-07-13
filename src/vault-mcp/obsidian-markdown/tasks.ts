@@ -305,7 +305,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     onMatch: (match: RegExpExecArray) => void,
   ): void => {
     const match = regex.exec(line)
-    if (match === null) return
+    if (!match) return
     onMatch(match)
     line = line.replace(regex, "").trim()
     matchedThisPass = true
@@ -469,7 +469,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     if (commentResult.lineIsComment) continue
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
-    if (taskLineMatch === null) continue
+    if (!taskLineMatch) continue
 
     const statusChar = matchedText(taskLineMatch, 1)
     // The block link sits at the absolute end of the line — strip it before

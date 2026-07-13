@@ -526,7 +526,7 @@ const anyTermLexicalCandidates = (
   memory.ftsSearchStmt
     .all(sanitizeFtsQueryAnyTerm(query))
     .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row) => row !== undefined)
+    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
     .map((row, ftsRank) => ({
       row,
@@ -695,7 +695,7 @@ export const memoryRecall = async (
   const ftsRows = memory.ftsSearchStmt
     .all(sanitizeFtsQuery(params.query))
     .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row) => row !== undefined)
+    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
 
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is
@@ -760,7 +760,7 @@ export const memoryRecall = async (
   const candidates: MemoryRecallCandidate[] = []
   for (const { path: entryId, score } of fusedScores) {
     const row = rowsById.get(entryId)
-    if (row === undefined) continue
+    if (!row) continue
     const ftsHit = ftsIds.has(entryId)
     if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue
     candidates.push({
