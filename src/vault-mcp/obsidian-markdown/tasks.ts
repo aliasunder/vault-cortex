@@ -759,5 +759,6 @@ export const tasks = {
   updateTaskLinePriority,
   findTaskByBlockId,
   extractDoneLanes,
+  statusForChar,
   FIRST_METADATA_SIGNIFIER_RE,
 }

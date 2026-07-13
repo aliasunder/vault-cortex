@@ -244,15 +244,7 @@ const updateTask = async (
         throw new Error("failed to determine today's date")
       }
       const checkboxMatch = /\[(.)]/.exec(originalTaskLine)
-      const oldChar = checkboxMatch?.[1] ?? " "
-      const oldStatus =
-        oldChar === "x" || oldChar === "X"
-          ? "done"
-          : oldChar === "-"
-            ? "cancelled"
-            : oldChar === "/"
-              ? "in_progress"
-              : "todo"
+      const oldStatus = tasks.statusForChar(checkboxMatch?.[1] ?? " ")
       mutatedLine = tasks.updateTaskLineStatus({
         taskLine: mutatedLine,
         newStatus: status,
