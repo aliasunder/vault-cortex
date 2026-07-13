@@ -753,12 +753,12 @@ const extractDoneLanes = (
 export const tasks = {
   extractTasks,
   charForStatus,
+  statusForChar,
   emojiForPriority,
   isTaskLine,
   updateTaskLineStatus,
   updateTaskLinePriority,
   findTaskByBlockId,
   extractDoneLanes,
-  statusForChar,
   FIRST_METADATA_SIGNIFIER_RE,
 }
