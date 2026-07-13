@@ -601,18 +601,18 @@ const formatPriority = (
 /** Stamps or strips a completion-style date field on a task line.
  *  When stamping is enabled, replaces an existing field or inserts before
  *  the block ID; when disabled, strips any existing field. */
-const applyCompletionDate = (
-  taskLine: string,
-  shouldStamp: boolean,
-  formatDate: () => string,
-  dateRegex: RegExp,
-): string => {
-  if (!shouldStamp) return stripField(taskLine, dateRegex)
+const applyCompletionDate = (params: {
+  taskLine: string
+  shouldStamp: boolean
+  formatDate: () => string
+  dateRegex: RegExp
+}): string => {
+  if (!params.shouldStamp) return stripField(params.taskLine, params.dateRegex)
 
-  const dateField = formatDate()
-  return dateRegex.test(taskLine)
-    ? taskLine.replace(dateRegex, dateField)
-    : insertBeforeBlockId(taskLine, dateField)
+  const dateField = params.formatDate()
+  return params.dateRegex.test(params.taskLine)
+    ? params.taskLine.replace(params.dateRegex, dateField)
+    : insertBeforeBlockId(params.taskLine, dateField)
 }
 
 /** Updates the status-related fields of a task line: checkbox character
@@ -636,21 +636,21 @@ const updateTaskLineStatus = (
   )
 
   if (newStatus === "done") {
-    return applyCompletionDate(
-      stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
-      config.setDoneDate,
-      () => formatDoneDate(today, config.taskFormat),
-      DONE_DATE_INLINE_RE,
-    )
+    return applyCompletionDate({
+      taskLine: stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
+      shouldStamp: config.setDoneDate,
+      formatDate: () => formatDoneDate(today, config.taskFormat),
+      dateRegex: DONE_DATE_INLINE_RE,
+    })
   }
 
   if (newStatus === "cancelled") {
-    return applyCompletionDate(
-      stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
-      config.setCancelledDate,
-      () => formatCancelledDate(today, config.taskFormat),
-      CANCELLED_DATE_INLINE_RE,
-    )
+    return applyCompletionDate({
+      taskLine: stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+      shouldStamp: config.setCancelledDate,
+      formatDate: () => formatCancelledDate(today, config.taskFormat),
+      dateRegex: CANCELLED_DATE_INLINE_RE,
+    })
   }
 
   // todo / in_progress — strip both completion dates
