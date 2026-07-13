@@ -636,6 +636,15 @@ deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
 Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
 file focused on conventions; don't duplicate procedure here.
 
+**Write for the Obsidian user, not the developer.** User-facing docs
+(README, deploy guides, cli/README) describe what a feature does in
+terms the end user thinks in — "complete a task," "move between lanes,"
+"filter by due date" — not implementation vocabulary ("mutate,"
+"atomic write cycle," "composable mutations"). Internal docs (AGENTS.md,
+ARCHITECTURE.md, code comments) use precise engineering language. The
+test: would an Obsidian user with no programming background understand
+the sentence? If not, rewrite it.
+
 Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
 for the generated release notes with a `BREAKING CHANGE:` footer in the PR
