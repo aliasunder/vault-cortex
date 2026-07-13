@@ -616,9 +616,9 @@ export const createSearchIndex = (
     memoryDir && embedder
       ? db.prepare<
           [string],
-          { id: number; section: string; entry_text: string }
+          { id: number; file: string; section: string; entry_text: string }
         >(
-          `SELECT id, section, entry_text FROM memory_entries
+          `SELECT id, file, section, entry_text FROM memory_entries
            WHERE file = ? AND id NOT IN (SELECT entry_id FROM memory_entry_vectors)
            ORDER BY id`,
         )
@@ -1176,8 +1176,9 @@ export const createSearchIndex = (
    *  texts straight from memory_entries WHERE no vector exists — gating on
    *  vector ABSENCE rather than content hashes, so a crash between upsert and
    *  embed self-heals on the next call. The embedding input prefixes the
-   *  section name (topic context, like the chunker's title prefix) but not
-   *  the date, which is semantic noise. Returns the number embedded. */
+   *  file and section name ("Agents > Communication\n...") so both the
+   *  embedder and cross-encoder see which file an entry belongs to — the
+   *  date is excluded (semantic noise). Returns the number embedded. */
   const embedMemoryEntriesForFile = async (
     memoryFile: string,
     logger: Logger,
@@ -1202,7 +1203,9 @@ export const createSearchIndex = (
         batchStart + MEMORY_EMBED_BATCH_SIZE,
       )
       const embeddings = await embedder.embedBatch(
-        batchRows.map((row) => `${row.section}\n${row.entry_text}`),
+        batchRows.map(
+          (row) => `${row.file} > ${row.section}\n${row.entry_text}`,
+        ),
       )
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {

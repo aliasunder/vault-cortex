@@ -234,28 +234,32 @@ The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from
 | `vault_list_memory_files` | —                                | readOnlyHint     |
 | `vault_memory_recall`     | `query, file?, max_results?`     | readOnlyHint     |
 
-**Entry-granular recall:** `vault_memory_recall` retrieves at the dated-entry
-level — the granularity the other layers miss (`vault_get_memory` returns whole
-files/sections; `vault_search` is note-granular).
+**Entry-granular recall:** `vault_memory_recall` retrieves individual dated
+entries — the granularity the other layers miss (`vault_get_memory` returns
+whole files/sections; `vault_search` is note-granular).
 
-A pure entry parser (`obsidian-markdown/memory-entries.ts`) feeds dedicated
-index tables: `memory_entries` + `memory_entries_fts` exist whenever the memory
-layer is on (the lexical leg works with embeddings off); `memory_entry_vectors`
-(cosine metric) additionally requires the embedder. Entries reconcile by
-content-hash identity rather than position, so a newest-first top-insert
-re-embeds exactly one entry.
+_Indexing:_
 
-The query unions every lexical match with the vector top-100, fused by RRF,
-then cuts on an absolute cross-encoder relevance floor (sigmoid ≥ 0.05; lexical
-hits always survive) — evolution-arc origins with drifted vocabulary are kept
-while vague queries stay bounded. Degrades to a distance-margin cut without the
-reranker and lexical-only without vectors. A result that would otherwise be
-empty — a meta-phrased query with no all-terms lexical anchor whose vector
-candidates all fall below the floor — retries the lexical leg with any-term
-(OR) matching over the query's content words (stopwords dropped, so "on" or
-"in" can't match the whole corpus) before giving up; an empty rescue stays
-empty. Output ascends by
-date; truncation drops the least-relevant entries, never a date end.
+- A pure entry parser (`obsidian-markdown/memory-entries.ts`) feeds dedicated
+  index tables: `memory_entries` + FTS, plus `memory_entry_vectors` when
+  embeddings are enabled
+- Embedding and cross-encoder input include the file name as a prefix
+  (`"Agents > Communication\n..."`) so queries like "how agents communicate"
+  match the structural context, not just entry text
+- Entries reconcile by content-hash identity, not position — a newest-first
+  append re-embeds exactly one entry
+
+_Query pipeline:_
+
+1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF
+2. **Cut** — adaptive cross-encoder relevance floor: 10% of the best score,
+   clamped between a 0.001 sanity floor and a 0.05 ceiling. Lexical hits always
+   survive the cut
+3. **Fallbacks** — degrades to a distance-margin cut without the reranker, and
+   lexical-only without vectors. An empty result retries with any-term (OR)
+   keyword matching (stopwords dropped) before giving up
+4. **Output** — ascending by date; truncation drops the least-relevant entries,
+   never a date end
 
 **Auto-initialization:** On first startup, if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure. `vault_update_memory` also auto-creates files and sections on write — agents can save preferences without manual setup, and a newly-created file is seeded with a placeholder scope callout to fill in. This is the two-layer bootstrap: startup seeds the default structure, write-time handles growth beyond templates.
 
