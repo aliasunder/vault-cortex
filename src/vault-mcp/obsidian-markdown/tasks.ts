@@ -490,7 +490,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       statusChar,
       status: statusForChar(statusChar),
       blockId,
-      heading: nearestHeading === undefined ? null : nearestHeading.text,
+      heading: nearestHeading?.text ?? null,
       ...parseTaskMetadata(taskBody),
     })
   }

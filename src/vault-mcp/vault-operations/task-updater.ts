@@ -94,7 +94,7 @@ const findTaskBlockEnd = (
   // Trim trailing blank lines from the block
   while (endIndex > taskLineIndex + 1) {
     const prevLine = lines[endIndex - 1]
-    if (prevLine !== undefined && prevLine.trim() !== "") break
+    if (prevLine?.trim()) break
     endIndex--
   }
 
