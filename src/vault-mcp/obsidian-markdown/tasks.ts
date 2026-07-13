@@ -731,11 +731,9 @@ const extractDoneLanes = (
       lineIndex < heading.bodyEndLine;
       lineIndex++
     ) {
-      const line = bodyLines[lineIndex]
-      if (line === undefined) break
-      const trimmed = line.trim()
-
-      if (trimmed === "") continue
+      const trimmed = bodyLines[lineIndex]?.trim()
+      if (trimmed === undefined) break
+      if (!trimmed) continue
 
       if (trimmed === COMPLETE_MARKER) {
         doneLanes.push(heading.text)
