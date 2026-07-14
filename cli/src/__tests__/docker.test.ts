@@ -8,8 +8,8 @@ import {
   REMOTE_IMAGE,
 } from "../docker.js"
 
-const okResponse = { ok: true } as Response
-const failResponse = { ok: false } as Response
+const okResponse = new Response(null, { status: 200 })
+const failResponse = new Response(null, { status: 500 })
 
 describe("buildDockerRunArgs", () => {
   it("produces the correct args for local mode", () => {
@@ -205,7 +205,7 @@ describe("pollHealth", () => {
       () => Promise.resolve(failResponse),
       () => Promise.resolve(okResponse),
     ]
-    const fetchStub = (): Promise<Response> => {
+    const fetchStub: typeof fetch = () => {
       const nextResponse = responses.shift()
       if (nextResponse === undefined)
         throw new Error("fetch called after success")
@@ -218,7 +218,7 @@ describe("pollHealth", () => {
         timeoutMs: 1_000,
         intervalMs: 1,
       },
-      fetchStub as typeof fetch,
+      fetchStub,
     )
 
     expect(healthy).toBe(true)

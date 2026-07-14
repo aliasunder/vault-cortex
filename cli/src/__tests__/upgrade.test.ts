@@ -139,9 +139,16 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(dockerRunParams).toHaveLength(1)
-    expect(dockerRunParams[0][0].mode).toBe("local")
-    expect(dockerRunParams[0][0].vaultPath).toBe("/home/user/MyVault")
+    expect(dockerRunParams).toEqual([
+      [
+        {
+          mode: "local",
+          envFilePath: join(targetDir, ".env"),
+          port: 8000,
+          vaultPath: "/home/user/MyVault",
+        },
+      ],
+    ])
   })
 
   it("detects remote mode and runs without a vault path", async () => {
@@ -163,9 +170,16 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(dockerRunParams).toHaveLength(1)
-    expect(dockerRunParams[0][0].mode).toBe("remote")
-    expect(dockerRunParams[0][0].vaultPath).toBeUndefined()
+    expect(dockerRunParams).toEqual([
+      [
+        {
+          mode: "remote",
+          envFilePath: join(targetDir, ".env"),
+          port: 8000,
+          vaultPath: undefined,
+        },
+      ],
+    ])
   })
 
   it("exits 1 when image pull fails", async () => {
