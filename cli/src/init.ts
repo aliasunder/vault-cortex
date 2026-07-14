@@ -109,6 +109,7 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
   return validation.path
 }
 
+/** Trailing `/mcp` path segment (case-insensitive, optional trailing slashes). */
 const TRAILING_MCP_PATH = /\/mcp\/*$/i
 
 const parseHttpUrl = (value: string): URL | null => {
@@ -245,7 +246,7 @@ const runLocalInit = async (
       ? undefined
       : validateVaultPath(flags.vaultPath)
   if (flags.yes) {
-    if (vaultPathResult === undefined || vaultPathResult.kind === "error") {
+    if (!vaultPathResult || vaultPathResult.kind === "error") {
       prompts.error(vaultPathResult?.message ?? "--yes requires --vault-path.")
       return 1
     }
@@ -255,7 +256,7 @@ const runLocalInit = async (
   }
 
   const vaultPath =
-    vaultPathResult !== undefined && vaultPathResult.kind !== "error"
+    vaultPathResult && vaultPathResult.kind !== "error"
       ? vaultPathResult.path
       : await askVaultPath(prompts)
 

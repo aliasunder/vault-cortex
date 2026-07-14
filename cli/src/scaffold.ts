@@ -47,7 +47,7 @@ export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
 export const readEnvPort = (envFilePath: string): number => {
   if (!existsSync(envFilePath)) return DEFAULT_PORT
   const match = ENV_PORT_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match === null ? DEFAULT_PORT : Number(match[1])
+  return match ? Number(match[1]) : DEFAULT_PORT
 }
 
 /**
@@ -57,7 +57,7 @@ export const readEnvPort = (envFilePath: string): number => {
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match === null ? undefined : match[1].trim()
+  return match?.[1].trim()
 }
 
 /**
