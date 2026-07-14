@@ -5,7 +5,7 @@
 // cli/src/templates.test.ts fails CI when these drift; this script is
 // the one-command fix.
 //
-// Usage: npm run sync:cli-templates
+// Usage: npm run sync:cli-env-blocks
 
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"

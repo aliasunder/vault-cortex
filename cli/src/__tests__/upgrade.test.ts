@@ -117,7 +117,7 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("VAULT_PATH not found")
+    expect(scripted.errors[0]).toContain("VAULT_PATH is empty or missing")
   })
 
   it("detects local mode and runs with the vault path from .env", async () => {

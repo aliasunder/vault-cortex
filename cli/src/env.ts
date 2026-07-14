@@ -16,14 +16,14 @@ export type RemoteEnvAnswers = {
 }
 
 // Optional env blocks are synced from deploy/<mode>/.env.example by
-// npm run sync:cli-templates. Edit the deploy/ files, then re-run the script.
+// npm run sync:cli-env-blocks. Edit the deploy/ files, then re-run the script.
 // cli/src/templates.test.ts asserts the CLI optional block vars match the
 // deploy/ .env.example optional vars, so a new var breaks CI until both
 // surfaces carry it.
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │
-// │ Source: deploy/local/.env.example → npm run sync:cli-templates         │
+// │ Source: deploy/local/.env.example → npm run sync:cli-env-blocks         │
 // │ The script replaces everything between :begin and :end on each run.    │
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:local-optional:begin
@@ -96,7 +96,7 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │
-// │ Source: deploy/remote/.env.example → npm run sync:cli-templates        │
+// │ Source: deploy/remote/.env.example → npm run sync:cli-env-blocks        │
 // │ VAULT_PASSWORD is excluded (handled conditionally in buildRemoteEnv).  │
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:remote-optional:begin

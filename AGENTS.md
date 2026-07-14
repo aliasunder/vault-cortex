@@ -72,7 +72,7 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  sync-cli-templates.ts                # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
+  sync-cli-env-blocks.ts                # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
   render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
@@ -684,7 +684,7 @@ changed:
 | `deploy/local/` + `deploy/remote/`            | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory                                                                                                       |
 | `.env.example` (root)                         | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                       |
 | `cli/README.md`                               | Feature description or search capability changes — this is the npmjs.com landing page                                                                                                                                                                       |
-| `cli/src/env.ts`                              | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-templates` — run the script after editing deploy/ env files                                                                                                                  |
+| `cli/src/env.ts`                              | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files                                                                                                                 |
 | `CONTRIBUTING.md`                             | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                   |
 | `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                   |
 | `DOCKERHUB.md`                                | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                            |
@@ -706,7 +706,7 @@ pattern:
 3. **Deploy .env.example** (`deploy/local/.env.example` and/or
    `deploy/remote/.env.example`) — document for users with comment + default.
    These are the source of truth for optional var documentation.
-4. **Run `npm run sync:cli-templates`** — syncs the optional sections from
+4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
    step 3 into `cli/src/env.ts` (`LOCAL_OPTIONAL_BLOCK` /
    `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
 5. **Root .env.example** — Lightsail reference deployment (if applicable)

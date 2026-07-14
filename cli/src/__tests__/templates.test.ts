@@ -120,7 +120,7 @@ describe("env var consistency across deploy surfaces", () => {
   )
 
   it.each(modes)(
-    "$mode: CLI optional block vars match .env.example optional vars (fix: npm run sync:cli-templates)",
+    "$mode: CLI optional block vars match .env.example optional vars (fix: npm run sync:cli-env-blocks)",
     ({ mode, buildEnv, conditionalVars }) => {
       const conditionalSet = new Set(conditionalVars)
 

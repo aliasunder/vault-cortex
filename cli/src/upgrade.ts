@@ -53,7 +53,7 @@ export const runUpgrade = async (
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
   if (mode === "local" && !vaultPath) {
     prompts.error(
-      `VAULT_PATH not found in ${targetDir}/.env — cannot start the container.`,
+      `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
     )
     return 1
   }
