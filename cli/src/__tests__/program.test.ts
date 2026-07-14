@@ -2,28 +2,32 @@ import { describe, expect, it } from "vitest"
 
 import { buildProgram } from "../program.js"
 import type { InitFlags } from "../init.js"
+import type { UpgradeFlags } from "../upgrade.js"
 
 const buildCapturingProgram = () => {
-  const calls: InitFlags[] = []
+  const initCalls: InitFlags[] = []
+  const upgradeCalls: UpgradeFlags[] = []
   const program = buildProgram({
     version: "0.0.0-test",
     runInit: async (flags) => {
-      calls.push(flags)
+      initCalls.push(flags)
+      return 0
+    },
+    runUpgrade: async (flags) => {
+      upgradeCalls.push(flags)
       return 0
     },
   })
-  // Throw instead of process.exit, and swallow help/error output.
-  // Subcommands don't inherit these settings, so apply to each explicitly.
   for (const command of [program, ...program.commands]) {
     command.exitOverride()
     command.configureOutput({ writeOut: () => {}, writeErr: () => {} })
   }
-  return { program, calls }
+  return { program, initCalls, upgradeCalls }
 }
 
-describe("buildProgram", () => {
+describe("buildProgram init", () => {
   it("passes all init flags through to runInit", async () => {
-    const { program, calls } = buildCapturingProgram()
+    const { program, initCalls } = buildCapturingProgram()
 
     await program.parseAsync(
       [
@@ -39,26 +43,26 @@ describe("buildProgram", () => {
       { from: "user" },
     )
 
-    expect(calls).toEqual([
+    expect(initCalls).toEqual([
       { mode: "remote", vaultPath: "/vaults/Mine", dir: "./out", yes: true },
     ])
   })
 
   it("invokes init with no flags when none are given", async () => {
-    const { program, calls } = buildCapturingProgram()
+    const { program, initCalls } = buildCapturingProgram()
 
     await program.parseAsync(["init"], { from: "user" })
 
-    expect(calls).toEqual([{}])
+    expect(initCalls).toEqual([{}])
   })
 
   it("rejects unknown options instead of passing them through", async () => {
-    const { program, calls } = buildCapturingProgram()
+    const { program, initCalls } = buildCapturingProgram()
 
     await expect(
       program.parseAsync(["init", "--bogus"], { from: "user" }),
     ).rejects.toThrow("unknown option '--bogus'")
-    expect(calls).toEqual([])
+    expect(initCalls).toEqual([])
   })
 
   it("reports the package version via --version", async () => {
@@ -67,5 +71,25 @@ describe("buildProgram", () => {
     await expect(
       program.parseAsync(["--version"], { from: "user" }),
     ).rejects.toThrow("0.0.0-test")
+  })
+})
+
+describe("buildProgram upgrade", () => {
+  it("passes --dir through to runUpgrade", async () => {
+    const { program, upgradeCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["upgrade", "--dir", "/opt/vault-cortex"], {
+      from: "user",
+    })
+
+    expect(upgradeCalls).toEqual([{ dir: "/opt/vault-cortex" }])
+  })
+
+  it("invokes upgrade with no flags when none are given", async () => {
+    const { program, upgradeCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["upgrade"], { from: "user" })
+
+    expect(upgradeCalls).toEqual([{}])
   })
 })

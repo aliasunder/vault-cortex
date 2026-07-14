@@ -1,9 +1,191 @@
 import { describe, expect, it } from "vitest"
 
-import { pollHealth } from "../docker.js"
+import {
+  buildDockerRunArgs,
+  CONTAINER_NAME,
+  LOCAL_IMAGE,
+  pollHealth,
+  REMOTE_IMAGE,
+} from "../docker.js"
 
-const okResponse = { ok: true } as Response
-const failResponse = { ok: false } as Response
+const okResponse = new Response(null, { status: 200 })
+const failResponse = new Response(null, { status: 500 })
+
+describe("buildDockerRunArgs", () => {
+  it("produces the correct args for local mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "local",
+      envFilePath: "/home/user/vault-cortex/.env",
+      port: 8000,
+      vaultPath: "/home/user/MyVault",
+    })
+
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      CONTAINER_NAME,
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/home/user/vault-cortex/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8000:8000",
+      "-v",
+      "/home/user/MyVault:/vault:rw",
+      "-v",
+      "vault-cortex_mcp_data:/data",
+      "--health-cmd",
+      expect.stringContaining("healthz"),
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "3",
+      "--health-start-period",
+      "20s",
+      LOCAL_IMAGE,
+    ])
+  })
+
+  it("produces the correct args for remote mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "remote",
+      envFilePath: "/opt/vault-cortex/.env",
+      port: 8000,
+    })
+
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      CONTAINER_NAME,
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/opt/vault-cortex/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8000:8000",
+      "--hostname",
+      CONTAINER_NAME,
+      "-v",
+      "vault-cortex_vault_data:/vault",
+      "-v",
+      "vault-cortex_mcp_data:/data",
+      "-v",
+      "vault-cortex_obsidian_config:/home/obsidian/.config",
+      "--health-cmd",
+      expect.stringContaining("healthz"),
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "5",
+      "--health-start-period",
+      "60s",
+      "--log-driver",
+      "json-file",
+      "--log-opt",
+      "max-size=10m",
+      "--log-opt",
+      "max-file=3",
+      REMOTE_IMAGE,
+    ])
+  })
+
+  it("uses a custom port for the host-side mapping", () => {
+    const args = buildDockerRunArgs({
+      mode: "local",
+      envFilePath: "/tmp/.env",
+      port: 9000,
+      vaultPath: "/vault",
+    })
+
+    expect(args).toContain("-p")
+    const portIndex = args.indexOf("-p")
+    expect(args[portIndex + 1]).toBe("9000:8000")
+  })
+
+  it("overrides VAULT_PATH so the host path does not leak into the container", () => {
+    const args = buildDockerRunArgs({
+      mode: "local",
+      envFilePath: "/tmp/.env",
+      port: 8000,
+      vaultPath: "/Users/me/My Vault",
+    })
+
+    const envOverrideIndex = args.indexOf("VAULT_PATH=/vault")
+    expect(envOverrideIndex).toBeGreaterThan(0)
+    expect(args[envOverrideIndex - 1]).toBe("-e")
+  })
+
+  it("throws when local mode is missing vaultPath", () => {
+    expect(() =>
+      buildDockerRunArgs({
+        mode: "local",
+        envFilePath: "/tmp/.env",
+        port: 8000,
+      }),
+    ).toThrow("vaultPath is required for local mode")
+  })
+
+  it("uses compose-prefixed volume names for backward compatibility", () => {
+    const localArgs = buildDockerRunArgs({
+      mode: "local",
+      envFilePath: "/tmp/.env",
+      port: 8000,
+      vaultPath: "/vault",
+    })
+    expect(localArgs).toContain("vault-cortex_mcp_data:/data")
+
+    const remoteArgs = buildDockerRunArgs({
+      mode: "remote",
+      envFilePath: "/tmp/.env",
+      port: 8000,
+    })
+    expect(remoteArgs).toContain("vault-cortex_vault_data:/vault")
+    expect(remoteArgs).toContain("vault-cortex_mcp_data:/data")
+    expect(remoteArgs).toContain(
+      "vault-cortex_obsidian_config:/home/obsidian/.config",
+    )
+  })
+
+  it("includes remote-specific log rotation and longer healthcheck timings", () => {
+    const args = buildDockerRunArgs({
+      mode: "remote",
+      envFilePath: "/tmp/.env",
+      port: 8000,
+    })
+
+    expect(args).toContain("--log-driver")
+    expect(args).toContain("json-file")
+    expect(args).toContain("--log-opt")
+    expect(args).toContain("max-size=10m")
+
+    const retriesIndex = args.indexOf("--health-retries")
+    expect(args[retriesIndex + 1]).toBe("5")
+    const startPeriodIndex = args.indexOf("--health-start-period")
+    expect(args[startPeriodIndex + 1]).toBe("60s")
+  })
+})
 
 describe("pollHealth", () => {
   it("returns true as soon as the endpoint responds ok", async () => {
@@ -23,7 +205,7 @@ describe("pollHealth", () => {
       () => Promise.resolve(failResponse),
       () => Promise.resolve(okResponse),
     ]
-    const fetchStub = (): Promise<Response> => {
+    const fetchStub: typeof fetch = () => {
       const nextResponse = responses.shift()
       if (nextResponse === undefined)
         throw new Error("fetch called after success")
@@ -31,8 +213,12 @@ describe("pollHealth", () => {
     }
 
     const healthy = await pollHealth(
-      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 1_000, intervalMs: 1 },
-      fetchStub as typeof fetch,
+      {
+        url: "http://127.0.0.1:8000/healthz",
+        timeoutMs: 1_000,
+        intervalMs: 1,
+      },
+      fetchStub,
     )
 
     expect(healthy).toBe(true)

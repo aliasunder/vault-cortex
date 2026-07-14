@@ -35,11 +35,11 @@ const sectionRule = (label: string): string =>
 
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
-const composeUpCommand = (targetDir: string): string =>
-  `cd "${targetDir}" && docker compose up -d`
+const upgradeCommand = (targetDir: string): string =>
+  `npx vault-cortex upgrade --dir "${targetDir}"`
 
 const startServerLine = (targetDir: string): string =>
-  `Start the server:\n  ${composeUpCommand(targetDir)}`
+  `Start the server:\n  ${upgradeCommand(targetDir)}`
 
 /** Remote start line: running, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
@@ -50,7 +50,7 @@ const remoteStartLine = (params: {
   const { targetDir, started, obsidianTokenMissing } = params
   if (started) return "The server is running."
   if (obsidianTokenMissing) {
-    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${composeUpCommand(targetDir)}`
+    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${upgradeCommand(targetDir)}`
   }
   return startServerLine(targetDir)
 }
@@ -107,11 +107,9 @@ const smokeTest = (healthUrl: string): string =>
   `Smoke test:
   curl ${healthUrl}`
 
-// Compose does not pull new images on `up` — without this hint users stay
-// on the image from init day forever while believing they track releases.
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
-  cd "${targetDir}" && docker compose pull && docker compose up -d`
+  ${upgradeCommand(targetDir)}`
 
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
@@ -171,7 +169,7 @@ ${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging) are commented
 out in ${targetDir}/.env — uncomment, set a value, then apply with
-"docker compose up -d" (restart alone does not re-read .env).
+"npx vault-cortex upgrade" (restart alone does not re-read .env).
 
 ${updateGuidance(targetDir)}
 
@@ -218,7 +216,8 @@ export const buildRemoteConnectMessage = (params: {
   // know which case it is, so the http branch states it rather than asking.
   // Case-insensitive: askPublicUrl stores the scheme as typed, so an HTTPS://
   // input is valid and must still route to the https branch.
-  const clientGuidance = publicUrl.toLowerCase().startsWith("https://")
+  const isHttps = publicUrl.toLowerCase().startsWith("https://")
+  const clientGuidance = isHttps
     ? `${connectGuidance(`${publicUrl}/mcp`)}
 
 Reachable over https from any MCP client — Claude Desktop, claude.ai (web
@@ -251,8 +250,8 @@ ${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
-value, then apply with "docker compose up -d" (restart alone does not
-re-read .env).
+value, then apply with "npx vault-cortex upgrade" (restart alone does
+not re-read .env).
 
 ${updateGuidance(targetDir)}
 

@@ -1,10 +1,12 @@
 import { Command } from "commander"
 
 import type { InitFlags } from "./init.js"
+import type { UpgradeFlags } from "./upgrade.js"
 
 export type ProgramOptions = {
   version: string
   runInit: (flags: InitFlags) => Promise<number>
+  runUpgrade: (flags: UpgradeFlags) => Promise<number>
 }
 
 export const buildProgram = (options: ProgramOptions): Command => {
@@ -19,9 +21,7 @@ export const buildProgram = (options: ProgramOptions): Command => {
 
   program
     .command("init")
-    .description(
-      "Scaffold docker-compose.yml + .env and optionally start the server",
-    )
+    .description("Scaffold .env and optionally start the server")
     .option("--mode <mode>", 'deployment mode: "local" (default) or "remote"')
     .option(
       "--vault-path <path>",
@@ -39,7 +39,19 @@ export const buildProgram = (options: ProgramOptions): Command => {
       process.exitCode = await options.runInit(flags)
     })
 
-  // Bare `npx vault-cortex` shows help instead of a "missing command" error.
+  program
+    .command("upgrade")
+    .description(
+      "Pull the latest image, re-create the container, and verify health",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .action(async (flags: UpgradeFlags) => {
+      process.exitCode = await options.runUpgrade(flags)
+    })
+
   program.action(() => {
     program.help()
   })

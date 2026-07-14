@@ -32,7 +32,7 @@
     "build": "npm run build:server && npm run build:cli",
     "build:server": "tsc",
     "build:cli": "tsc -p cli/tsconfig.json && tsc -p cli/tsconfig.test.json",
-    "sync:cli-templates": "tsx scripts/sync-cli-templates.ts",
+    "sync:cli-env-blocks": "tsx scripts/sync-cli-env-blocks.ts",
     "generate:dockerhub-readme": "tsx scripts/generate-dockerhub-readme.ts",
     "dev:mcp": "tsx watch src/vault-mcp/server.ts",
     "dev:docker": "docker compose -f docker-compose.local.yml up --build",

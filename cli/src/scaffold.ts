@@ -6,12 +6,11 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 
 export type Mode = "local" | "remote"
 
 export type FileToWrite = {
-  /** Filename inside the target directory (e.g. "docker-compose.yml"). */
+  /** Filename inside the target directory (e.g. ".env"). */
   name: string
   content: string
   /** Unix permission bits for files holding secrets (e.g. 0o600 for .env). */
@@ -23,30 +22,22 @@ export type FileWriteResult = {
   status: "created" | "unchanged" | "overwritten" | "kept"
 }
 
-/** Default host port — matches the compose templates' `${PORT:-8000}`. */
+/** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000
 
 /** Matches an active (uncommented) PORT line in a .env file. */
 const ENV_PORT_LINE = /^PORT=(\d+)\s*$/m
 
-/**
- * Reads the bundled docker-compose template for a mode. The templates are
- * verbatim copies of deploy/<mode>/docker-compose.yml, shipped inside the
- * npm package (kept in sync by cli/src/__tests__/templates.test.ts).
- */
-export const readComposeTemplate = (mode: Mode): string =>
-  readFileSync(
-    fileURLToPath(
-      new URL(`../templates/${mode}/docker-compose.yml`, import.meta.url),
-    ),
-    "utf8",
-  )
+/** Matches an active (uncommented) VAULT_PATH line in a .env file. */
+const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
 
-export const buildFilesToWrite = (
-  mode: Mode,
-  envContent: string,
-): FileToWrite[] => [
-  { name: "docker-compose.yml", content: readComposeTemplate(mode) },
+/** Matches an active (uncommented) PUBLIC_URL line. */
+const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
+
+/** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
+const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
+
+export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
   // .env holds the bearer token (and possibly a vault password) — owner-only.
   { name: ".env", content: envContent, mode: 0o600 },
 ]
@@ -60,7 +51,38 @@ export const buildFilesToWrite = (
 export const readEnvPort = (envFilePath: string): number => {
   if (!existsSync(envFilePath)) return DEFAULT_PORT
   const match = ENV_PORT_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match === null ? DEFAULT_PORT : Number(match[1])
+  return match ? Number(match[1]) : DEFAULT_PORT
+}
+
+/**
+ * Reads the host vault path from a .env file. Returns undefined when the
+ * file is missing or has no uncommented VAULT_PATH line.
+ */
+export const readEnvVaultPath = (envFilePath: string): string | undefined => {
+  if (!existsSync(envFilePath)) return undefined
+  const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
+  return match?.[1].trim()
+}
+
+/**
+ * Returns true when the .env file has an active (uncommented) PUBLIC_URL line.
+ * Used by upgrade to detect .env files from the old compose-based CLI, where
+ * PUBLIC_URL was provided by docker-compose defaults rather than the .env.
+ */
+export const hasEnvPublicUrl = (envFilePath: string): boolean => {
+  if (!existsSync(envFilePath)) return false
+  return ENV_PUBLIC_URL_LINE.test(readFileSync(envFilePath, "utf8"))
+}
+
+/**
+ * Detects the deployment mode from a .env file. Remote mode requires
+ * OBSIDIAN_AUTH_TOKEN (absent from local). Returns undefined when the
+ * .env file does not exist.
+ */
+export const detectMode = (envFilePath: string): Mode | undefined => {
+  if (!existsSync(envFilePath)) return undefined
+  const content = readFileSync(envFilePath, "utf8")
+  return OBSIDIAN_AUTH_TOKEN_LINE.test(content) ? "remote" : "local"
 }
 
 /**
