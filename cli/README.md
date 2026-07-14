@@ -36,7 +36,9 @@ Pull the latest image, re-create the container, and verify health:
 npx vault-cortex upgrade
 ```
 
-Also applies `.env` changes (`docker restart` does not re-read env files).
+Your vault data, search index, and `.env` settings are preserved across
+upgrades — only the server image is replaced. Also applies `.env` changes
+(`docker restart` does not re-read env files).
 
 Prefer Docker Compose? The CLI uses `docker run` for simplicity, but the
 [deploy guides](https://github.com/aliasunder/vault-cortex/blob/main/deploy/)

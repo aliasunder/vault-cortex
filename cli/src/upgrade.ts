@@ -114,6 +114,7 @@ export const runUpgrade = async (
   }
   spinner.stop("Server is up — health check passed.")
 
+  prompts.log("Your vault data, search index, and settings are preserved.")
   prompts.outro("Upgrade complete.")
   return 0
 }
