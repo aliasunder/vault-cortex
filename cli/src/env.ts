@@ -190,6 +190,10 @@ MCP_AUTH_TOKEN=${answers.mcpAuthToken}
 # Absolute path to your Obsidian vault on this machine.
 VAULT_PATH=${answers.vaultPath}
 
+# Public URL for OAuth issuer URL in discovery metadata.
+# Override if you expose the server on a different URL (e.g. via a reverse proxy).
+PUBLIC_URL=http://localhost:8000
+
 ${LOCAL_OPTIONAL_BLOCK}`
 
 export const buildRemoteEnv = (answers: RemoteEnvAnswers): string => {

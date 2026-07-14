@@ -7,7 +7,12 @@ import {
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
-import { detectMode, readEnvPort, readEnvVaultPath } from "./scaffold.js"
+import {
+  detectMode,
+  hasEnvPublicUrl,
+  readEnvPort,
+  readEnvVaultPath,
+} from "./scaffold.js"
 import { expandTilde } from "./vault.js"
 import type { Prompts } from "./prompts.js"
 
@@ -49,6 +54,13 @@ export const runUpgrade = async (
   if (mode === "local" && !vaultPath) {
     prompts.error(
       `VAULT_PATH not found in ${targetDir}/.env — cannot start the container.`,
+    )
+    return 1
+  }
+  if (mode === "local" && !hasEnvPublicUrl(envFilePath)) {
+    prompts.error(
+      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
+        `Add this line to your .env:\n  PUBLIC_URL=http://localhost:${port}`,
     )
     return 1
   }

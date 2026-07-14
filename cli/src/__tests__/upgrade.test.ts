@@ -66,7 +66,7 @@ const fetchNever: typeof fetch = async () => {
 const writeLocalEnv = (targetDir: string): void => {
   writeFileSync(
     join(targetDir, ".env"),
-    "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n",
+    "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=http://localhost:8000\n",
   )
 }
 
@@ -272,7 +272,7 @@ describe("runUpgrade", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
     writeFileSync(
       join(targetDir, ".env"),
-      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\n",
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
     )
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
