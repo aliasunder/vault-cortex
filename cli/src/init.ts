@@ -225,14 +225,13 @@ const offerDockerRun = async (
   }
   const startNow = await prompts.confirm("Start the server now?", true)
   if (!startNow) return false
-  if (
-    !docker.dockerRun({
-      mode,
-      envFilePath: join(targetDir, ".env"),
-      port,
-      vaultPath,
-    })
-  ) {
+  const containerStarted = docker.dockerRun({
+    mode,
+    envFilePath: join(targetDir, ".env"),
+    port,
+    vaultPath,
+  })
+  if (!containerStarted) {
     prompts.error("docker run failed — see output above.")
     return false
   }

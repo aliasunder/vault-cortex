@@ -86,7 +86,13 @@ export const runUpgrade = async (
   docker.stopAndRemoveContainer()
 
   prompts.log("Starting container...")
-  if (!docker.dockerRun({ mode, envFilePath, port, vaultPath })) {
+  const containerStarted = docker.dockerRun({
+    mode,
+    envFilePath,
+    port,
+    vaultPath,
+  })
+  if (!containerStarted) {
     prompts.error("docker run failed — see output above.")
     return 1
   }
