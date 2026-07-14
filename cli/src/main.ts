@@ -1,4 +1,5 @@
 import { createDockerRunner } from "./docker.js"
+import { runGetToken } from "./get-token.js"
 import { runInit } from "./init.js"
 import { buildProgram } from "./program.js"
 import { createPrompts } from "./prompts.js"
@@ -18,6 +19,11 @@ export const run = async (version: string): Promise<void> => {
         prompts: createPrompts(),
         docker: createDockerRunner(),
         fetchFn: fetch,
+      }),
+    runGetToken: (flags) =>
+      runGetToken(flags, {
+        prompts: createPrompts(),
+        docker: createDockerRunner(),
       }),
   })
   await program.parseAsync()

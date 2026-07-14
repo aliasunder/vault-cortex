@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 
-import { REMOTE_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
 describe("buildLocalEnv", () => {
@@ -74,9 +73,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(env).toContain("FILL THIS IN")
-    // The guidance must name the actual get-token image, not just the
-    // subcommand — "get-token" alone would pass with a stale image name.
-    expect(env).toContain(`get-token \\\n#     ${REMOTE_IMAGE}`)
+    expect(env).toContain("npx vault-cortex get-token")
   })
 
   it("links to the canonical .env.example and keeps optional sync settings commented out", () => {

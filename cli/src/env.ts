@@ -1,5 +1,3 @@
-import { REMOTE_IMAGE } from "./docker.js"
-
 export type LocalEnvAnswers = {
   mcpAuthToken: string
   vaultPath: string
@@ -208,8 +206,7 @@ VAULT_PASSWORD=${answers.vaultPassword}`
     answers.obsidianAuthToken === ""
       ? `# Obsidian Sync auth token — FILL THIS IN before starting the server.
 # Generate once with:
-#   docker run --rm -it --entrypoint get-token \\
-#     ${REMOTE_IMAGE}`
+#   npx vault-cortex get-token`
       : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

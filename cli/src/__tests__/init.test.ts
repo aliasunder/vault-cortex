@@ -91,7 +91,7 @@ const dockerUnavailable: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetToken: () => false,
+  runGetTokenWithMount: () => false,
 }
 
 const fetchNever: typeof fetch = async () => {
@@ -540,13 +540,13 @@ describe("runInit interactive local flow", () => {
 })
 
 describe("runInit remote flow", () => {
-  it("asks the remote sequence and writes .env", async () => {
+  it("asks the remote sequence with auto-capture declined and writes .env", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // public URL (trailing slash trimmed)
       "MyVault", // vault name
-      false, // don't run get-token now (offered because daemon is running)
-      "sync-token-xyz", // obsidian sync token
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback — obsidian sync token
       false, // no end-to-end encryption
       false, // don't start the server
     ])
@@ -568,7 +568,7 @@ describe("runInit remote flow", () => {
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
-      "Run the get-token command now?",
+      "Generate the token now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
       "Start the server now?",
@@ -581,12 +581,49 @@ describe("runInit remote flow", () => {
     expect(scripted.prints[0]).toContain("Optional settings (timezone, memory")
   })
 
-  it("skips the compose-up offer when the sync token was left blank", async () => {
+  it("skips paste prompt when auto-capture succeeds", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      true, // generate the token now
+      false, // no end-to-end encryption
+      false, // don't start the server
+    ])
+    const dockerWithCapture: DockerRunner = {
+      ...dockerUnavailable,
+      isDaemonRunning: () => true,
+      runGetTokenWithMount: (configMountPath) => {
+        const tokenDir = join(configMountPath, "obsidian-headless")
+        mkdirSync(tokenDir, { recursive: true })
+        writeFileSync(join(tokenDir, "auth_token"), "captured-token")
+        return true
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithCapture,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain(
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+    )
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=captured-token\n")
+  })
+
+  it("skips the docker-run offer when the sync token was left blank", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "http://203.0.113.10:8000",
       "MyVault",
-      "", // blank token — fill in later
+      "", // blank token — fill in later (Docker unavailable, no capture offer)
       false, // no encryption
     ])
 
@@ -660,7 +697,7 @@ describe("runInit with a kept existing .env", () => {
       dockerRun: () => true,
       pullImage: () => true,
       stopAndRemoveContainer: () => true,
-      runGetToken: () => false,
+      runGetTokenWithMount: () => false,
     }
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
@@ -713,26 +750,25 @@ describe("runInit remote encryption password", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
-      "sync-token-xyz",
+      false, // decline auto-capture
+      "sync-token-xyz", // paste fallback
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
       false, // don't start the server
     ])
-    const dockerComposeReady: DockerRunner = {
+    const dockerReady: DockerRunner = {
       isDaemonRunning: () => true,
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
-      runGetToken: () => false,
+      runGetTokenWithMount: () => false,
     }
-    // get-token confirm slots in after VAULT_NAME when Docker is usable.
-    scripted.remaining.splice(2, 0, false)
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerComposeReady,
+        docker: dockerReady,
         fetchFn: fetchNever,
       },
     )
@@ -745,61 +781,29 @@ describe("runInit remote encryption password", () => {
   })
 })
 
-describe("runInit get-token paste prompt wording", () => {
-  it('says "printed above" only when get-token ran to completion', async () => {
+describe("runInit get-token auto-capture fallback", () => {
+  it("falls back to paste prompt when auto-capture fails", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
-      true, // run get-token now
-      "sync-token-xyz",
+      true, // try to generate the token
+      "", // paste fallback — blank token, fill in later
       false, // no encryption
-      false, // don't start the server
     ])
-    const dockerWithWorkingGetToken: DockerRunner = {
+    const dockerWithFailingCapture: DockerRunner = {
       isDaemonRunning: () => true,
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
-      runGetToken: () => true,
+      runGetTokenWithMount: () => false,
     }
 
     await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerWithWorkingGetToken,
-        fetchFn: fetchNever,
-      },
-    )
-
-    expect(scripted.asked).toContain(
-      "Paste the Obsidian Sync token printed above (leave blank to fill in .env later):",
-    )
-  })
-
-  it('omits "printed above" when get-token failed', async () => {
-    const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts([
-      "https://vault.example.com",
-      "MyVault",
-      true, // try to run get-token
-      "", // blank token — fill in later
-      false, // no encryption
-    ])
-    const dockerWithFailingGetToken: DockerRunner = {
-      isDaemonRunning: () => true,
-      dockerRun: () => false,
-      pullImage: () => false,
-      stopAndRemoveContainer: () => false,
-      runGetToken: () => false,
-    }
-
-    await runInit(
-      { mode: "remote", dir: targetDir },
-      {
-        prompts: scripted.prompts,
-        docker: dockerWithFailingGetToken,
+        docker: dockerWithFailingCapture,
         fetchFn: fetchNever,
       },
     )

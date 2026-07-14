@@ -23,8 +23,46 @@ export type DockerRunner = {
   pullImage: (image: string) => boolean
   /** Stops and removes the vault-cortex container (idempotent). */
   stopAndRemoveContainer: () => boolean
-  /** Runs the vault-cortex get-token flow with inherited stdio. */
-  runGetToken: () => boolean
+  /** Runs get-token with a volume mount for auto-capture. */
+  runGetTokenWithMount: (configMountPath: string) => boolean
+}
+
+export type GetTokenArgParams = {
+  configMountPath: string
+  /** Defaults to process.platform. */
+  platform?: NodeJS.Platform
+  /** Host UID for --user flag on Linux. */
+  uid?: number
+  /** Host GID for --user flag on Linux. */
+  gid?: number
+}
+
+/**
+ * Builds the `docker run` args for get-token with a volume mount that
+ * captures the auth token file. Pure function for testability.
+ *
+ * On Linux, includes `--user uid:gid` so the token file is host-user-owned
+ * (macOS Docker Desktop translates UIDs automatically).
+ */
+export const buildGetTokenArgs = (params: GetTokenArgParams): string[] => {
+  const { configMountPath, platform = process.platform, uid, gid } = params
+
+  const args = [
+    "run",
+    "--rm",
+    "-it",
+    "--entrypoint",
+    "get-token",
+    "-v",
+    `${configMountPath}:/home/obsidian/.config`,
+  ]
+
+  if (platform === "linux" && uid !== undefined && gid !== undefined) {
+    args.push("--user", `${uid}:${gid}`)
+  }
+
+  args.push(REMOTE_IMAGE)
+  return args
 }
 
 /**
@@ -105,10 +143,14 @@ export const createDockerRunner = (): DockerRunner => ({
     spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
   stopAndRemoveContainer: () =>
     spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
-  runGetToken: () =>
+  runGetTokenWithMount: (configMountPath) =>
     spawnSync(
       "docker",
-      ["run", "--rm", "-it", "--entrypoint", "get-token", REMOTE_IMAGE],
+      buildGetTokenArgs({
+        configMountPath,
+        uid: process.getuid?.(),
+        gid: process.getgid?.(),
+      }),
       { stdio: "inherit" },
     ).status === 0,
 })

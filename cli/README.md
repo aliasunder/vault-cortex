@@ -28,6 +28,25 @@ container; this CLI scaffolds the config so you don't have to.
 
 Existing files are never overwritten without asking.
 
+## Get Token
+
+Generate an Obsidian Sync auth token without leaving the CLI:
+
+```bash
+npx vault-cortex get-token
+```
+
+The command runs the Obsidian login flow inside Docker and captures the
+resulting token automatically — no manual paste needed. Use `--dir` to
+write the token directly to an existing `.env`:
+
+```bash
+npx vault-cortex get-token --dir ./vault-cortex
+```
+
+During `init --mode remote`, this flow runs automatically when Docker is
+available.
+
 ## Upgrade
 
 Pull the latest image, re-create the container, and verify health:

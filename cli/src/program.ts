@@ -1,5 +1,6 @@
 import { Command } from "commander"
 
+import type { GetTokenFlags } from "./get-token.js"
 import type { InitFlags } from "./init.js"
 import type { UpgradeFlags } from "./upgrade.js"
 
@@ -7,6 +8,7 @@ export type ProgramOptions = {
   version: string
   runInit: (flags: InitFlags) => Promise<number>
   runUpgrade: (flags: UpgradeFlags) => Promise<number>
+  runGetToken: (flags: GetTokenFlags) => Promise<number>
 }
 
 export const buildProgram = (options: ProgramOptions): Command => {
@@ -50,6 +52,19 @@ export const buildProgram = (options: ProgramOptions): Command => {
     )
     .action(async (flags: UpgradeFlags) => {
       process.exitCode = await options.runUpgrade(flags)
+    })
+
+  program
+    .command("get-token")
+    .description(
+      "Generate an Obsidian Sync auth token via Docker and print it or write it to .env",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env to update with the token",
+    )
+    .action(async (flags: GetTokenFlags) => {
+      process.exitCode = await options.runGetToken(flags)
     })
 
   program.action(() => {

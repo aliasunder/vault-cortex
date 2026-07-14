@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest"
 
 import { buildProgram } from "../program.js"
+import type { GetTokenFlags } from "../get-token.js"
 import type { InitFlags } from "../init.js"
 import type { UpgradeFlags } from "../upgrade.js"
 
 const buildCapturingProgram = () => {
   const initCalls: InitFlags[] = []
   const upgradeCalls: UpgradeFlags[] = []
+  const getTokenCalls: GetTokenFlags[] = []
   const program = buildProgram({
     version: "0.0.0-test",
     runInit: async (flags) => {
@@ -17,12 +19,16 @@ const buildCapturingProgram = () => {
       upgradeCalls.push(flags)
       return 0
     },
+    runGetToken: async (flags) => {
+      getTokenCalls.push(flags)
+      return 0
+    },
   })
   for (const command of [program, ...program.commands]) {
     command.exitOverride()
     command.configureOutput({ writeOut: () => {}, writeErr: () => {} })
   }
-  return { program, initCalls, upgradeCalls }
+  return { program, initCalls, upgradeCalls, getTokenCalls }
 }
 
 describe("buildProgram init", () => {
@@ -91,5 +97,25 @@ describe("buildProgram upgrade", () => {
     await program.parseAsync(["upgrade"], { from: "user" })
 
     expect(upgradeCalls).toEqual([{}])
+  })
+})
+
+describe("buildProgram get-token", () => {
+  it("passes --dir through to runGetToken", async () => {
+    const { program, getTokenCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["get-token", "--dir", "/opt/vault-cortex"], {
+      from: "user",
+    })
+
+    expect(getTokenCalls).toEqual([{ dir: "/opt/vault-cortex" }])
+  })
+
+  it("invokes get-token with no flags when none are given", async () => {
+    const { program, getTokenCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["get-token"], { from: "user" })
+
+    expect(getTokenCalls).toEqual([{}])
   })
 })

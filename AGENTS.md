@@ -85,6 +85,7 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     scaffold.ts                        # File generation (.env)
     docker.ts                          # Container management (docker run, health-check wait)
     upgrade.ts                         # Upgrade command (pull + re-create + health check)
+    get-token.ts                       # Get-token subcommand (auto-capture via volume mount)
     env.ts                             # Environment file handling (.env generation)
     token.ts                           # Secure token generation (openssl rand)
     vault.ts                           # Vault path validation
