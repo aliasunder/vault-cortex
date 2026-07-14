@@ -109,9 +109,21 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
   return validation.path
 }
 
-/** Trailing `/mcp` path segment (case-insensitive, optional trailing slashes). */
+/**
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
+ * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
+ * appends it when building the connect URL, so PUBLIC_URL must be the base
+ * origin; a re-included `/mcp` is rejected, not silently rewritten.
+ */
 const TRAILING_MCP_PATH = /\/mcp\/*$/i
 
+/**
+ * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
+ * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
+ * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
+ * would pass malformed inputs like `https://` or `https://a b.com`.
+ */
 const parseHttpUrl = (value: string): URL | null => {
   try {
     const url = new URL(value)
@@ -121,6 +133,7 @@ const parseHttpUrl = (value: string): URL | null => {
   }
 }
 
+/** Re-prompts until the answer is a valid base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
     "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
@@ -136,15 +149,22 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
     )
     return askPublicUrl(prompts)
   }
+  // Reject a re-included endpoint path instead of stripping it silently —
+  // PUBLIC_URL is the base origin and the server adds /mcp itself.
   if (TRAILING_MCP_PATH.test(url.pathname)) {
     prompts.error(
       "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
     )
     return askPublicUrl(prompts)
   }
+  // Store the input as typed, trimming only a trailing slash so the connect
+  // URL is `${base}/mcp`, never `${base}//mcp`. URL's own normalization is
+  // unusable here: `.href` adds a trailing slash and `.origin` drops the path,
+  // so neither round-trips a reverse-proxy subpath like https://host/api.
   return trimmed.replace(/\/+$/, "")
 }
 
+/** Re-prompts until non-empty. */
 const askVaultName = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
     "Exact name of your Obsidian vault (case-sensitive):",
@@ -158,8 +178,10 @@ const askVaultName = async (prompts: Prompts): Promise<string> => {
   return answer.trim()
 }
 
+/** Non-interactive conflict policy: always keep the existing file. */
 const keepExisting = async (): Promise<boolean> => false
 
+/** Interactive conflict policy: ask per differing file, defaulting to keep. */
 const confirmOverwrite =
   (prompts: Prompts) =>
   (name: string): Promise<boolean> =>
@@ -235,12 +257,16 @@ const offerDockerRun = async (
 
 // Local flow: resolve vault path → resolve target dir → generate token →
 // write .env → optionally start the container → print connect instructions.
+// Returns a process exit code.
 const runLocalInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
   const { prompts } = deps
 
+  // Vault path comes from --vault-path when given and valid; interactive
+  // runs fall back to prompting on a bad flag, while --yes must fail hard
+  // because there is no prompt to fall back to.
   const vaultPathResult =
     flags.vaultPath === undefined
       ? undefined
@@ -251,15 +277,21 @@ const runLocalInit = async (
       return 1
     }
   }
+  // Interactive: surface a bad flag before falling back to the prompt —
+  // otherwise the flag appears silently ignored.
   if (!flags.yes && vaultPathResult?.kind === "error") {
     prompts.error(`--vault-path: ${vaultPathResult.message}`)
   }
 
+  // A warn-level flag path (no .obsidian/) is accepted without the confirm a
+  // prompted path gets — passing the flag is already an explicit choice.
   const vaultPath =
     vaultPathResult && vaultPathResult.kind !== "error"
       ? vaultPathResult.path
       : await askVaultPath(prompts)
 
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(
     expandTilde(
       flags.dir ??
@@ -274,6 +306,9 @@ const runLocalInit = async (
 
   const token = generateToken()
 
+  // Conflict policy: identical existing files are skipped silently;
+  // differing ones prompt per file (default keep). --yes never overwrites —
+  // any differing file becomes an exit-1 below, leaving it untouched.
   const files = buildFilesToWrite(
     buildLocalEnv({ mcpAuthToken: token, vaultPath }),
   )
@@ -289,12 +324,16 @@ const runLocalInit = async (
     return 1
   }
 
+  // When an existing .env was kept, this run's generated token was never
+  // saved — the connect message must point at the token (and PORT) actually
+  // on disk, or a pasted token fails auth with no hint why.
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
     envResult?.status === "created" || envResult?.status === "overwritten"
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 
+  // --yes is for scripts/CI, so it never starts Docker.
   const started = flags.yes
     ? false
     : await offerDockerRun({ targetDir, port, mode: "local", vaultPath }, deps)
@@ -307,13 +346,16 @@ const runLocalInit = async (
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
 // VAULT_NAME → Obsidian Sync token (optionally running get-token via
 // Docker) → optional E2E vault password → generate token → write .env →
-// optionally start → print connect instructions. Always interactive.
+// optionally start → print connect instructions. Always interactive —
+// the sync-token step can't be defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
   const { prompts, docker } = deps
 
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(
     expandTilde(
       flags.dir ??
@@ -327,10 +369,17 @@ const runRemoteInit = async (
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
+  // The Obsidian Sync token comes from an interactive docker run (the
+  // get-token entrypoint logs into Obsidian). We print the command, offer to
+  // run it when Docker is usable, then ask the user to paste the result —
+  // get-token writes to the terminal, so it can't be captured automatically.
+  // A blank answer is allowed: the .env is written with an empty
+  // OBSIDIAN_AUTH_TOKEN and a fill-this-in comment.
   prompts.note(GET_TOKEN_COMMAND, "Obsidian Sync token — generate once with")
   const getTokenRan = docker.isDaemonRunning()
     ? await offerGetTokenRun(prompts, docker)
     : false
+  // "printed above" is only true when get-token actually ran to completion.
   const pastePrompt = getTokenRan
     ? "Paste the Obsidian Sync token printed above (leave blank to fill in .env later):"
     : "Paste the Obsidian Sync token (leave blank to fill in .env later):"
@@ -362,12 +411,18 @@ const runRemoteInit = async (
   )
   reportWrites({ targetDir, results }, prompts)
 
+  // Same kept-.env handling as the local flow: the server only reads config
+  // from the .env on disk, so when an existing file was kept, this run's
+  // generated token was never saved (printing it would fail auth) and PORT
+  // may differ from the default.
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
     envResult?.status === "created" || envResult?.status === "overwritten"
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 
+  // Without the sync token the container can't start (init-check-auth fails
+  // and s6 stops it), so only offer docker run when it was provided.
   const started =
     obsidianAuthToken === ""
       ? false
@@ -410,6 +465,8 @@ export const runInit = async (
 
   prompts.intro("vault-cortex init")
 
+  // Mode resolution: explicit --mode wins; --yes implies local; otherwise
+  // ask, defaulting to local — it's the simpler activation path.
   const mode: Mode =
     flags.mode !== undefined && isMode(flags.mode)
       ? flags.mode

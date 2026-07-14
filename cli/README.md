@@ -38,6 +38,10 @@ npx vault-cortex upgrade
 
 Also applies `.env` changes (`docker restart` does not re-read env files).
 
+Prefer Docker Compose? The CLI uses `docker run` for simplicity, but the
+[deploy guides](https://github.com/aliasunder/vault-cortex/blob/main/deploy/)
+include Compose files you can use directly.
+
 ## Non-interactive
 
 ```bash

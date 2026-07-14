@@ -38,6 +38,7 @@ const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
 
 export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
+  // .env holds the bearer token (and possibly a vault password) — owner-only.
   { name: ".env", content: envContent, mode: 0o600 },
 ]
 
@@ -114,6 +115,8 @@ export const writeFiles = async (
       results.push({ name: file.name, status: "kept" })
       continue
     }
+    // writeFileSync's mode only applies on creation — tighten explicitly
+    // when replacing an existing file.
     writeFileSync(filePath, file.content)
     if (file.mode !== undefined) chmodSync(filePath, file.mode)
     results.push({ name: file.name, status: "overwritten" })
