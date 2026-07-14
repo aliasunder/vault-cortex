@@ -90,6 +90,13 @@ that change `cli/` should **not** bump the version — the release workflow owns
 it. The npm package is deliberately absent from `server.json` — it's a
 scaffolder, not a way to run the server.
 
+**Beta testing:** The same **"Release CLI"** workflow supports a `beta` bump
+option that publishes a prerelease under the `beta` dist-tag for testing CLI
+changes before a real release. Dispatch from any branch — the version is set
+to `{current}-beta.{run_number}` ephemerally (no commits, no tags, no GitHub
+release). Test with `npx vault-cortex@beta`. The `latest` dist-tag is never
+touched.
+
 ## Code Conventions
 
 All code conventions — style, naming, logging, test patterns, MCP tool naming —
