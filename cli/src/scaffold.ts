@@ -57,7 +57,7 @@ export const readEnvPort = (envFilePath: string): number => {
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match === null ? undefined : match[1]
+  return match === null ? undefined : match[1].trim()
 }
 
 /**
