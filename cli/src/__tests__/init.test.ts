@@ -59,17 +59,17 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     },
     select: async (message, _options, initialValue) => {
       selectCalls.push({ message, initialValue })
-      return nextAnswer(message) as string
+      return String(nextAnswer(message))
     },
     text: async (message, options) => {
-      const answer = nextAnswer(message) as string
+      const answer = String(nextAnswer(message))
       // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
       if (answer === "" && options?.defaultValue !== undefined)
         return options.defaultValue
       return answer
     },
-    password: async (message) => nextAnswer(message) as string,
-    confirm: async (message, _initialValue) => nextAnswer(message) as boolean,
+    password: async (message) => String(nextAnswer(message)),
+    confirm: async (message, _initialValue) => Boolean(nextAnswer(message)),
     spinner: () => ({ start: () => {}, stop: () => {} }),
   }
 
