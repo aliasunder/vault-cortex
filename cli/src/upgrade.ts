@@ -69,8 +69,8 @@ export const runUpgrade = async (
 
   if (!docker.isDaemonRunning()) {
     prompts.error(
-      "Docker daemon not running — start your container runtime\n" +
-        "(Docker Desktop, Colima, OrbStack, etc.).",
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
     )
     return 1
   }

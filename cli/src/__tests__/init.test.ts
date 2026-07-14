@@ -514,7 +514,7 @@ describe("runInit interactive local flow", () => {
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toHaveLength(1)
-    expect(scripted.warnings[0]).toContain("Docker daemon not running")
+    expect(scripted.warnings[0]).toContain("Container runtime not running")
   })
 
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {

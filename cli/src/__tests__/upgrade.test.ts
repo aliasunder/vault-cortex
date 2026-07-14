@@ -103,7 +103,7 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("Docker daemon not running")
+    expect(scripted.errors[0]).toContain("Container runtime not running")
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {

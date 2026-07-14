@@ -217,8 +217,8 @@ const offerDockerRun = async (
   const { prompts, docker, fetchFn } = deps
   if (!docker.isDaemonRunning()) {
     prompts.warn(
-      "Docker daemon not running — start your container runtime\n" +
-        "(Docker Desktop, Colima, OrbStack, etc.), then run:\n" +
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime, then run:\n" +
         `  npx vault-cortex upgrade --dir "${targetDir}"`,
     )
     return false
