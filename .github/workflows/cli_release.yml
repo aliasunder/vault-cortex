@@ -3,7 +3,9 @@ name: Release CLI
 # Publishes the cli/ package to npm. CLI releases are explicit and
 # independent of server releases — run this workflow when a merged cli/
 # change should ship. "none" publishes the current cli/package.json
-# version without bumping (used for the first publish).
+# version without bumping (used for the first publish). "beta" publishes
+# a prerelease under the `beta` dist-tag for testing from any branch —
+# no commit, no tag, no GitHub release. Test with: npx vault-cortex@beta
 #
 # Safe to re-run after a failed publish: a version that is tagged but
 # absent from npm is detected as a failed earlier release. Bump "none"
@@ -22,6 +24,7 @@ on:
           - patch
           - minor
           - major
+          - beta
           - none
 
 concurrency:
@@ -40,6 +43,7 @@ jobs:
       id-token: write # npm provenance
     steps:
       - name: Generate App token
+        if: inputs.bump != 'beta'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -72,7 +76,9 @@ jobs:
             echo "::error::cli/package.json has no version field"
             exit 1
           fi
-          if [ "$BUMP" = "none" ]; then
+          if [ "$BUMP" = "beta" ]; then
+            NEXT="${CURRENT}-beta.${{ github.run_number }}"
+          elif [ "$BUMP" = "none" ]; then
             NEXT="$CURRENT"
           # The checked-out version being tagged yet absent from npm is the
           # signature of a release that failed at npm publish. Don't bump
@@ -117,6 +123,7 @@ jobs:
           npx prettier --write cli/package.json
 
       - name: Commit, tag, and push
+        if: inputs.bump != 'beta'
         env:
           NEXT: ${{ steps.next.outputs.version }}
           # The App token enters git only here, after npm ci has run.
@@ -135,7 +142,23 @@ jobs:
           git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD --tags
 
       - name: Publish to npm (Trusted Publishing / OIDC)
-        run: npm publish ./cli --provenance --access public
+        env:
+          TAG_FLAG: ${{ inputs.bump == 'beta' && '--tag beta' || '' }}
+        run: npm publish ./cli $TAG_FLAG --provenance --access public
+
+      - name: Beta summary
+        if: inputs.bump == 'beta'
+        env:
+          BETA_VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          echo "### CLI Beta Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Version:** \`vault-cortex@${BETA_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Test with:" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`bash" >> "$GITHUB_STEP_SUMMARY"
+          echo "npx vault-cortex@beta" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
       # --latest=false keeps the "Latest" badge on server releases. Notes
       # list only cli/ commits — server commits interleave on main, so
@@ -143,6 +166,7 @@ jobs:
       # fails after a successful publish, create the release manually
       # (re-running the workflow would refuse to republish the version).
       - name: Create GitHub release
+        if: inputs.bump != 'beta'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT: ${{ steps.next.outputs.version }}
