@@ -115,8 +115,7 @@ export const createDockerRunner = (): DockerRunner => ({
 
 /**
  * Polls the health endpoint until it responds OK or the timeout elapses.
- * The first `docker run` pulls a ~150MB image, so the default window
- * is generous.
+ * The first `docker run` pulls the image, so the default window is generous.
  *
  * Native Date.now() rather than the server's Luxon convention: the published
  * CLI deliberately keeps its dependency set to two packages, and this is an

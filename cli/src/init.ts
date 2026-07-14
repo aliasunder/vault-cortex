@@ -239,7 +239,7 @@ const offerDockerRun = async (
 
   const spinner = prompts.spinner()
   spinner.start(
-    "Waiting for the server to come up (first run pulls a ~150MB image)",
+    "Waiting for the server to come up (first run may take a moment)",
   )
   const healthy = await pollHealth(
     { url: `http://127.0.0.1:${port}/healthz` },
