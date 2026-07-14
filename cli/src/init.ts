@@ -74,7 +74,8 @@ const offerGetTokenRun = async (
     "Handing the terminal to get-token — it will ask for your Obsidian " +
       "account login and print a token at the end.",
   )
-  if (!docker.runGetToken()) {
+  const tokenGenerated = docker.runGetToken()
+  if (!tokenGenerated) {
     prompts.warn(
       "get-token did not complete — you can run it later and edit .env.",
     )

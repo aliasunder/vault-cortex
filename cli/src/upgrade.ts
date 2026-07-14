@@ -77,7 +77,8 @@ export const runUpgrade = async (
 
   const spinner = prompts.spinner()
   spinner.start(`Pulling ${image}`)
-  if (!docker.pullImage(image)) {
+  const imagePulled = docker.pullImage(image)
+  if (!imagePulled) {
     spinner.stop("Image pull failed — see output above.")
     return 1
   }

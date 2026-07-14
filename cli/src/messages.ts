@@ -216,7 +216,8 @@ export const buildRemoteConnectMessage = (params: {
   // know which case it is, so the http branch states it rather than asking.
   // Case-insensitive: askPublicUrl stores the scheme as typed, so an HTTPS://
   // input is valid and must still route to the https branch.
-  const clientGuidance = publicUrl.toLowerCase().startsWith("https://")
+  const isHttps = publicUrl.toLowerCase().startsWith("https://")
+  const clientGuidance = isHttps
     ? `${connectGuidance(`${publicUrl}/mcp`)}
 
 Reachable over https from any MCP client — Claude Desktop, claude.ai (web
