@@ -254,6 +254,10 @@ jobs:
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
           SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
           TZ: ${{ vars.TZ }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          LOG_DIR: ${{ vars.LOG_DIR }}
+          LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
+          WINDOWS_MODE: ${{ vars.WINDOWS_MODE }}
         run: |
           umask 077
           cat > "$RUNNER_TEMP/lightsail.env" <<EOF
@@ -275,8 +279,10 @@ jobs:
           DEVICE_NAME=vault-cortex-lightsail
           CONFLICT_STRATEGY=merge
           SYNC_MODE=bidirectional
-          LOG_LEVEL=info
-          LOG_RETENTION_DAYS=365
+          LOG_LEVEL=${LOG_LEVEL:-info}
+          LOG_DIR=${LOG_DIR:-/data/logs}
+          LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+          WINDOWS_MODE=${WINDOWS_MODE:-false}
           TZ=${TZ:-UTC}
           EOF
 

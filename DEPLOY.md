@@ -256,8 +256,12 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                        |
 | `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                        |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                         |
+| `LOG_LEVEL`                 | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                   |
+| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`.                                                                                                                         |
+| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup. Default: `30`.                                                                                                                              |
+| `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                     |
 
-`WINDOWS_MODE` and `LOG_DIR` are not passed through the CI pipeline — set them directly in the instance `.env` file if needed. `LOG_LEVEL` and `LOG_RETENTION_DAYS` are set to fixed values (`info` and `365`) in the deploy template. See the [Configuration](./README.md#configuration) section in the README for all available settings.
+All optional variables default in the deploy template when unset — no GitHub Variable needed unless you want to override.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
@@ -269,7 +273,7 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
 | `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
 | `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                                 |
-| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (README sync). Only needed when `DOCKERHUB_USERNAME` is set.                  |
+| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.            |
 | `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                       |
 | `OBSIDIAN_AUTH_TOKEN`    | Output of `docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/vault-cortex:remote`.                                                                                                                    |
 | `VAULT_PASSWORD`         | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                               |
