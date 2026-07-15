@@ -20,8 +20,6 @@ optional — the same container runs with
 
 ## Setup
 
-### CLI (recommended)
-
 ```bash
 npx vault-cortex@latest init --mode remote
 ```
@@ -42,10 +40,8 @@ sudo apt-get install -y nodejs
 
 </details>
 
-### Manual setup (no Node.js needed)
-
 <details>
-<summary><strong>Step-by-step manual instructions</strong></summary>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
 **1. SSH into your server** and create a working directory:
 
@@ -95,17 +91,11 @@ from Obsidian's servers. The initial sync takes 30–120 seconds depending on
 vault size. The MCP server starts once sync is running and builds its search
 index as files arrive.
 
-</details>
-
-### docker run (no Compose)
-
-The same `.env` file works with any OCI runtime — swap `docker` for `podman`
-or `nerdctl` as needed. One caveat: plain `docker run` doesn't apply the
-compose file's fallback defaults, so first set two extra values in `.env`
-(both are commented in `.env.example`): `DEVICE_NAME=vault-cortex` —
-otherwise the initial Obsidian Sync device registers under a random
-container-ID hostname — and `CONFLICT_STRATEGY=merge`, whose compose
-default differs from the CLI's built-in default (`conflict`).
+**docker run (no Compose):** The `docker run` command below passes your `.env`
+via `--env-file`. Swap `docker` for `podman` or `nerdctl` as needed. First
+uncomment two values in `.env` (both are already in `.env.example`):
+`DEVICE_NAME=vault-cortex` and `CONFLICT_STRATEGY=merge` — the compose file
+supplies these as defaults, but `docker run` only sees what's in `.env`.
 
 ```bash
 docker run -d --name vault-cortex \
@@ -117,6 +107,8 @@ docker run -d --name vault-cortex \
   --restart unless-stopped \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
+
+</details>
 
 ## HTTPS access
 
