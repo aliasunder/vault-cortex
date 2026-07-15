@@ -515,19 +515,19 @@ aws lightsail put-instance-public-ports \
 
 ## Port 8000 Hardening (Optional)
 
-By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and close port 8000 entirely.
+By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000.
 
 ### How it works
 
 `ORIGIN_URL` tells API Gateway where to route MCP traffic. When set, API Gateway sends requests to this URL instead of `http://<lightsail-ip>:8000`. The URL can be a Cloudflare Tunnel, Caddy reverse proxy, Tailscale Funnel, or any HTTPS frontend that proxies to `localhost:8000` on the Lightsail instance.
 
-`MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead).
+`MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
-Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` closes the direct path.
+Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
 
 ### Example: Cloudflare Tunnel
 
-Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is removed from the firewall entirely. The tunnel hostname serves as the HTTPS endpoint.
+Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is blocked on the firewall (non-routable CIDR). The tunnel hostname serves as the HTTPS endpoint.
 
 **Prerequisites:** A free [Cloudflare account](https://dash.cloudflare.com/sign-up) with at least one domain using Cloudflare's nameservers. The tunnel routes through a subdomain on that domain (e.g., `tunnel.yourdomain.dev`).
 
