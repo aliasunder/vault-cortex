@@ -246,6 +246,9 @@ jobs:
           VAULT_NAME: ${{ secrets.VAULT_NAME }}
           VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
           GHCR_USER: ${{ vars.GHCR_USER }}
+          EMBEDDING_ENABLED: ${{ vars.EMBEDDING_ENABLED }}
+          RERANK_MODE: ${{ vars.RERANK_MODE }}
+          MEMORY_ENABLED: ${{ vars.MEMORY_ENABLED }}
           MEMORY_DIR: ${{ vars.MEMORY_DIR }}
           PROTECTED_PATHS: ${{ vars.PROTECTED_PATHS }}
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
@@ -260,6 +263,9 @@ jobs:
           VAULT_NAME=$VAULT_NAME
           VAULT_PASSWORD=$VAULT_PASSWORD
           GHCR_USER=$GHCR_USER
+          EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-true}
+          RERANK_MODE=${RERANK_MODE:-blended}
+          MEMORY_ENABLED=${MEMORY_ENABLED:-true}
           MEMORY_DIR=${MEMORY_DIR:-About Me}
           PROTECTED_PATHS=$PROTECTED_PATHS
           ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS

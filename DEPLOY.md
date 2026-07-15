@@ -138,7 +138,7 @@ npx sst remove   # removes Lightsail, API Gateway, Lambda
 
 ## CI/CD
 
-GitHub Actions runs lint/test/build plus security scans (secret detection, image vulnerabilities) on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
+GitHub Actions runs lint/test/build plus security scans (secret detection, image vulnerabilities) on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo secret pins the SST stage).
 
 ### Workflows
 
@@ -244,17 +244,20 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
-| Variable                    | Purpose                                                                                                                                                                                   |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                  |
-| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                               |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                              |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                  |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                |
-| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`). |
+| Variable                    | Purpose                                                                                                                                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                          |
+| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                       |
+| `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                  |
+| `RERANK_MODE`               | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true. |
+| `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                             |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                      |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                                          |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                        |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                        |
+| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                         |
 
-Optional server settings not listed above (`EMBEDDING_ENABLED`, `RERANK_MODE`, `MEMORY_ENABLED`, `WINDOWS_MODE`, `LOG_LEVEL`) are not passed through the CI pipeline — set them directly in the instance `.env` file. See the [Configuration](./README.md#configuration) section in the README for all available settings.
+Optional server settings not listed above (`WINDOWS_MODE`, `LOG_LEVEL`, `LOG_DIR`, `LOG_RETENTION_DAYS`) are not passed through the CI pipeline — set them directly in the instance `.env` file. See the [Configuration](./README.md#configuration) section in the README for all available settings.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
