@@ -166,14 +166,44 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 
 The deploy workflow uses [GitHub OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) to assume an AWS IAM role without long-lived credentials. If you're forking this project, you need to create your own OIDC provider and IAM role in your AWS account.
 
-**1. Create the OIDC identity provider** in IAM (one-time, per AWS account):
+**1. Create the OIDC provider and IAM role.** The reference deployment manages these via Terraform (replace `YOUR_ACCOUNT_ID` and `YOUR_ORG/YOUR_FORK`):
+
+```hcl
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+}
+
+resource "aws_iam_role" "github_deploy" {
+  name = "github-deploy-vault-cortex"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.github_actions.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:YOUR_ORG/YOUR_FORK:*" }
+      }
+    }]
+  })
+}
+```
+
+<details>
+<summary><strong>Console alternative</strong> (no Terraform)</summary>
+
+**Create the OIDC identity provider** in IAM (one-time, per AWS account):
 
 - Provider URL: `https://token.actions.githubusercontent.com`
 - Audience: `sts.amazonaws.com`
 
 See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html).
 
-**2. Create an IAM role** with this trust policy (replace the repo reference with your fork):
+**Create an IAM role** with this trust policy (replace the repo reference with your fork):
 
 ```json
 {
@@ -198,9 +228,11 @@ See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest
 }
 ```
 
-**3. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+</details>
 
-**4. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` variable in your fork's GitHub Actions settings.
+**2. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+
+**3. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` variable in your fork's GitHub Actions settings.
 
 ### SST stage
 

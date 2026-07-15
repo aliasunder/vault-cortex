@@ -327,11 +327,15 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 
 ## Deployment Options
 
-| Path          | What                                               | Guide                                |
-| ------------- | -------------------------------------------------- | ------------------------------------ |
-| **Local**     | Docker on your machine, vault bind-mounted         | [`deploy/local/`](./deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync, access from anywhere          | [`deploy/remote/`](./deploy/remote/) |
-| **AWS (SST)** | Full IaC: Lightsail + API Gateway + Lambda + CI/CD | [`DEPLOY.md`](./DEPLOY.md)           |
+Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+
+| Path          | What                                                              | Guide                                |
+| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)   |
+| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/) |
+| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)           |
+
+The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
 Both paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 

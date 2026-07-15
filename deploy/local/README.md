@@ -120,8 +120,13 @@ curl http://localhost:8000/.well-known/oauth-protected-resource
 
 ## Updating
 
-Compose does **not** pull new images on `up` — once `:latest` is on your
-machine, you stay on that exact image until you pull explicitly:
+**Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
+re-creates the container, and verifies health. Your vault data, search index,
+and `.env` settings all persist — nothing is deleted.
+
+**Using Compose?** Compose does **not** pull new images on `up` — once
+`:latest` is on your machine, you stay on that exact image until you pull
+explicitly:
 
 ```bash
 # Pull the latest image and recreate the container:
