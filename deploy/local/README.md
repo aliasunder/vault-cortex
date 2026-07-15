@@ -126,25 +126,23 @@ and `.env` settings all persist — nothing is deleted.
 
 **Set up with Docker Compose?** Stick with Compose for updates — the CLI and
 Compose manage the container independently. Compose does **not** pull new
-images on `up` — once `:latest` is on your machine, you stay on that exact
-image until you pull explicitly:
+images on `up`, so pull explicitly:
 
 ```bash
-# Pull the latest image and recreate the container:
 docker compose pull && docker compose up -d
 ```
 
-Your search index persists in its Docker volume across updates; unchanged
-notes are not re-embedded (content-hash cache), so restarts after an update
-are fast.
-
 ## Stop
 
+**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+
+**Docker Compose:**
+
 ```bash
-# Stop the server (search index is preserved in a Docker volume):
+# Stop (data persists in Docker volumes):
 docker compose down
 
-# Stop and delete all data (index rebuilds on next start):
+# Stop and delete all volumes (index rebuilds on next start):
 docker compose down -v
 ```
 
@@ -168,6 +166,12 @@ checking it, so a value copied out of a terminal (where a long token can wrap
 across lines) still works. If you still see this error, double-check you copied
 the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
 usual cause.
+
+**"container name vault-cortex already in use" on start or upgrade.** A
+container from a different management method is still running. The CLI
+(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+manage the container independently — stop the existing one first with
+`docker rm -f vault-cortex`, then retry with your preferred method.
 
 ## Windows (Docker Desktop)
 

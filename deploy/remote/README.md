@@ -252,27 +252,14 @@ and `.env` settings all persist — nothing is deleted.
 
 **Set up with Docker Compose?** Stick with Compose for updates — the CLI and
 Compose manage the container independently. Compose does **not** pull new
-images on `up` — once `:remote` is on the server, you stay on that exact
-image until you pull explicitly:
+images on `up`, so pull explicitly:
 
 ```bash
-# Pull the latest image and recreate the container:
 docker compose pull && docker compose up -d
 ```
 
-Named volumes persist across updates: your synced vault, search index, and
-Obsidian login state all carry over — no re-sync, no device re-registration,
+Named volumes persist across updates — no re-sync, no device re-registration,
 and unchanged notes are not re-embedded.
-
-Running with plain `docker run` instead of Compose? There's no in-place
-update — pull, then recreate the container with the same `docker run`
-command you started it with:
-
-```bash
-docker pull ghcr.io/aliasunder/vault-cortex:remote
-docker rm -f vault-cortex
-# then re-run your original docker run command
-```
 
 ## Restart
 
@@ -295,8 +282,12 @@ policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
+**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+
+**Docker Compose:**
+
 ```bash
-# Stop containers — named volumes persist your vault data and search index:
+# Stop (data persists in Docker volumes):
 docker compose down
 
 # Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
@@ -363,3 +354,11 @@ OAuth session. These optional measures add defense-in-depth:
 
 These measures stack. Start with whichever is easiest for your setup — even
 one makes a meaningful difference.
+
+## Troubleshooting
+
+**"container name vault-cortex already in use" on start or upgrade.** A
+container from a different management method is still running. The CLI
+(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+manage the container independently — stop the existing one first with
+`docker rm -f vault-cortex`, then retry with your preferred method.
