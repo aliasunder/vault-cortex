@@ -257,7 +257,7 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                        |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                         |
 
-Optional server settings not listed above (`WINDOWS_MODE`, `LOG_LEVEL`, `LOG_DIR`, `LOG_RETENTION_DAYS`) are not passed through the CI pipeline — set them directly in the instance `.env` file. See the [Configuration](./README.md#configuration) section in the README for all available settings.
+`WINDOWS_MODE` and `LOG_DIR` are not passed through the CI pipeline — set them directly in the instance `.env` file if needed. `LOG_LEVEL` and `LOG_RETENTION_DAYS` are set to fixed values (`info` and `365`) in the deploy template. See the [Configuration](./README.md#configuration) section in the README for all available settings.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
