@@ -160,18 +160,18 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # LOG_RETENTION_DAYS=30
 
 # User/group IDs for obsidian-sync (default: 1000).
-# PUID=1000
-# PGID=1000
+PUID=1000
+PGID=1000
 
 # Device name shown in Obsidian Sync settings.
-# DEVICE_NAME=vault-cortex
+DEVICE_NAME=vault-cortex
 
 # Obsidian Sync conflict resolution: merge | conflict (default: merge).
 # 'merge' integrates changes automatically; 'conflict' writes a separate conflict file.
-# CONFLICT_STRATEGY=merge
+CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
-# SYNC_MODE=bidirectional
+SYNC_MODE=bidirectional
 `
 
 // sync:remote-optional:end

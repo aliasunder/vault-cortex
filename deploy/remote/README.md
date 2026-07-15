@@ -91,11 +91,8 @@ from Obsidian's servers. The initial sync takes 30–120 seconds depending on
 vault size. The MCP server starts once sync is running and builds its search
 index as files arrive.
 
-**docker run (no Compose):** The `docker run` command below passes your `.env`
-via `--env-file`. Swap `docker` for `podman` or `nerdctl` as needed. First
-uncomment two values in `.env` (both are already in `.env.example`):
-`DEVICE_NAME=vault-cortex` and `CONFLICT_STRATEGY=merge` — the compose file
-supplies these as defaults, but `docker run` only sees what's in `.env`.
+**docker run (no Compose):** The same `.env` file works with any OCI runtime —
+swap `docker` for `podman` or `nerdctl` as needed.
 
 ```bash
 docker run -d --name vault-cortex \
