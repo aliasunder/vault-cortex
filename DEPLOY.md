@@ -232,49 +232,48 @@ See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest
 
 **2. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
 
-**3. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` variable in your fork's GitHub Actions settings.
+**3. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` secret in your fork's GitHub Actions settings.
 
 ### SST stage
 
-SST creates a stage on your first `sst deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` variable must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
+SST creates a stage on your first `sst deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` secret must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
 
 To find your stage: `cat .sst/stage` (after your first deploy).
 
 ### Required repo configuration
 
-**Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
+**Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
-| Variable                    | Purpose                                                                                                                                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN`       | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above. An identifier, not a credential — use a repo variable, not a secret.                                                                    |
-| `AWS_REGION`                | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                   |
-| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                          |
-| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically on push to main. Omit to skip Hub mirroring entirely.                         |
-| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
-| `SST_STAGE`                 | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
-| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
-| `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                  |
-| `RERANK_MODE`               | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true. |
-| `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                             |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). Ignored when `MEMORY_ENABLED` is `false`. See the [Configuration](./README.md#configuration) section.                                            |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                                          |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                        |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                        |
-| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                         |
+| Variable                    | Purpose                                                                                                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                  |
+| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                               |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                              |
+| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                  |
+| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                |
+| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                |
+| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`). |
 
-**Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
+Optional server settings not listed above (`EMBEDDING_ENABLED`, `RERANK_MODE`, `MEMORY_ENABLED`, `WINDOWS_MODE`, `LOG_LEVEL`) are not passed through the CI pipeline — set them directly in the instance `.env` file. See the [Configuration](./README.md#configuration) section in the README for all available settings.
 
-| Secret                   | Purpose                                                                                                                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                |
-| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (README sync). Only needed when `DOCKERHUB_USERNAME` is set. |
-| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                      |
-| `OBSIDIAN_AUTH_TOKEN`    | Output of `docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/vault-cortex:remote`.                                                                                                   |
-| `VAULT_PASSWORD`         | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                              |
-| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                               |
-| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                           |
-| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                     |
-| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                |
+**Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
+
+| Secret                   | Purpose                                                                                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                         |
+| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                   |
+| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
+| `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
+| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
+| `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                                 |
+| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (README sync). Only needed when `DOCKERHUB_USERNAME` is set.                  |
+| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN`    | Output of `docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/vault-cortex:remote`.                                                                                                                    |
+| `VAULT_PASSWORD`         | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                               |
+| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                |
+| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                            |
+| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                      |
+| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                 |
 
 Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
 
@@ -443,12 +442,12 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 
 **GitHub repo settings:**
 
-| Type     | Name                            | Value                                               |
-| -------- | ------------------------------- | --------------------------------------------------- |
-| Variable | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
-| Variable | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
+| Type   | Name                            | Value                                               |
+| ------ | ------------------------------- | --------------------------------------------------- |
+| Secret | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
+| Secret | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
+| Secret | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
+| Secret | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
 
 **Tailscale admin setup:**
 
