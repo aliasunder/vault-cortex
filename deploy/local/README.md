@@ -202,12 +202,16 @@ File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`.
 
 ## Memory
 
-On first startup, if your vault doesn't already have a memory folder (default:
-`About Me/`), the server creates one with template files (Me.md, Opinions.md,
-Principles.md, Routines.md, Agents.md). Agents can also create new memory files
-and sections on the fly via `vault_update_memory` — no manual setup needed.
-Once entries accumulate, `vault_memory_recall` answers topic questions across
-the layer's full dated history. Memory files are append-only by default; a file can declare
+The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
+`.env` to disable it — memory tools are hidden, no files are created, and the
+server runs without it.
+
+When enabled, the server creates a memory folder (default: `About Me/`) on
+first startup with template files (Me.md, Opinions.md, Principles.md,
+Routines.md, Agents.md). Agents can also create new memory files and sections
+on the fly via `vault_update_memory` — no manual setup needed. Once entries
+accumulate, `vault_memory_recall` answers topic questions across the layer's
+full dated history. Memory files are append-only by default; a file can declare
 `entry-policy: living` in frontmatter for current-state content whose expired
 entries get pruned (the Routines template ships this way) — see
 [templates/memory](../../templates/memory/README.md) for the full convention.
