@@ -250,9 +250,10 @@ docker compose ps
 re-creates the container, and verifies health. Your vault data, search index,
 and `.env` settings all persist — nothing is deleted.
 
-**Using Compose?** Compose does **not** pull new images on `up` — once
-`:remote` is on the server, you stay on that exact image until you pull
-explicitly:
+**Set up with Docker Compose?** Stick with Compose for updates — the CLI and
+Compose manage the container independently. Compose does **not** pull new
+images on `up` — once `:remote` is on the server, you stay on that exact
+image until you pull explicitly:
 
 ```bash
 # Pull the latest image and recreate the container:
