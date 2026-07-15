@@ -240,7 +240,7 @@ SST creates a stage on your first `sst deploy` — the default is your OS userna
 
 To find your stage: `cat .sst/stage` (after your first deploy).
 
-### Required repo configuration
+### CI/CD configuration
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
@@ -260,8 +260,6 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`.                                                                                                                         |
 | `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup. Default: `30`.                                                                                                                              |
 | `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                     |
-
-All optional variables default in the deploy template when unset — no GitHub Variable needed unless you want to override.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
@@ -328,7 +326,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is scoped to both a specific AWS account and repo. Before using the deploy or release workflows, provision your own AWS infrastructure and configure your fork's variables — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [Required repo configuration](#required-repo-configuration) above.
+Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is scoped to both a specific AWS account and repo. Before using the deploy or release workflows, provision your own AWS infrastructure and configure your fork's variables — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [CI/CD configuration](#cicd-configuration) above.
 
 ---
 
