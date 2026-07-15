@@ -8,8 +8,8 @@ Everything runs in **one container**: the `vault-cortex:remote` image bundles
 the Obsidian Sync process and the MCP server under
 [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. Docker
 Compose is used below for its restart policy and log rotation, but it's
-optional — the same container runs with [plain `docker run`](#docker-run-no-compose),
-Podman, or any OCI runtime.
+optional — the same container runs with
+[plain docker run](#docker-run-no-compose), Podman, or any OCI runtime.
 
 ## Prerequisites
 
