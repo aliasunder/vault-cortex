@@ -42,6 +42,29 @@
 
 
 
+
+## [0.29.3] — 2026-07-15
+
+### ⚠ BREAKING CHANGES
+
+- `npx vault-cortex init` no longer generates `docker-compose.yml`. Existing compose files are orphaned (not deleted) and can be removed. Use `npx vault-cortex upgrade` instead of `docker compose up -d`.
+
+### Features
+
+- **cli:** Replace docker compose with docker run + upgrade subcommand (#329)
+- **cli:** Add beta publish option to Release CLI workflow (#330)
+
+### Bug Fixes
+
+- Trim DOCKERHUB.md to stay under Docker Hub's 25KB limit (#332)
+- Bust apt-get upgrade cache in deploy and test-deploy workflows (#328)
+
+### Documentation
+
+- Fix roadmap phase lettering (3a, 3b, 3c) (#327)
+- R9 task queries → task management, reorder roadmap (#326)
+- Update CHANGELOG.md for v0.29.2
+
 ## [0.29.2] — 2026-07-13
 
 ### Features
