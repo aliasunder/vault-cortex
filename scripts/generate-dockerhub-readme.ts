@@ -46,6 +46,10 @@ const LICENSE_REPLACEMENT = [
 
 const EXCLUDED_H2 = new Set([
   "Quick Start",
+  "How It Works",
+  "Hybrid Search",
+  "Memory",
+  "Tasks",
   "Data Integrity",
   "Authentication",
   "Development",
