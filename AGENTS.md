@@ -47,6 +47,7 @@ tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
 Dockerfile                             # Two-target build: local (default) + remote
 Brewfile                               # Homebrew dev dependencies (optipng)
+.puppeteerrc.cjs                       # Skips puppeteer's install-time Chrome download (render script installs on demand)
 obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
   package.json                         #   pins obsidian-headless version
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
@@ -717,9 +718,13 @@ CI drift tests in `templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.
 
 **Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
-The script uses Puppeteer's bundled Chromium with an embedded DejaVu Sans
-`@font-face` for deterministic rendering regardless of host system fonts.
-It losslessly optimizes the PNG with `optipng` if available (not required).
+The script uses Puppeteer's pinned Chrome for Testing build with an embedded
+DejaVu Sans `@font-face` for deterministic rendering regardless of host system
+fonts. `npm ci` skips the browser download (`.puppeteerrc.cjs` — keeps installs
+working in environments without a zip archiver, e.g. registry build images);
+the render script installs the browser on demand, so the first run downloads
+it (~350MB on disk). It losslessly optimizes the PNG with `optipng` if
+available (not required).
 
 Not every PR touches these — a new tool in an existing category needs
 a `server.json` + `README.md` count bump but nothing else. A module

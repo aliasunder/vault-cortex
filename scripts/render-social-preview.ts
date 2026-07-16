@@ -1,6 +1,7 @@
 // Renders assets/social-preview.svg to assets/social-preview.png using Puppeteer's
-// bundled Chromium. Embeds DejaVu Sans via @font-face for deterministic text
-// rendering regardless of host system fonts.
+// pinned Chrome for Testing build (installed on demand by the npm script — `npm ci`
+// skips the download via .puppeteerrc.cjs). Embeds DejaVu Sans via @font-face for
+// deterministic text rendering regardless of host system fonts.
 //
 // Usage: npm run render:social-preview
 
@@ -48,7 +49,7 @@ const optimizePng = (pngPath: string): void => {
 }
 
 const renderSocialPreview = async (): Promise<void> => {
-  // Clear env vars that override Puppeteer's bundled browser resolution
+  // Clear env vars that override Puppeteer's cached-browser resolution
   // (some systems set PUPPETEER_EXECUTABLE_PATH or PUPPETEER_SKIP_DOWNLOAD globally)
   delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
   delete process.env.PUPPETEER_SKIP_DOWNLOAD
