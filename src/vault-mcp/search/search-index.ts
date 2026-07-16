@@ -520,7 +520,7 @@ export const createSearchIndex = (
   const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
   )
-  /** All three base_path/basename/suffix queries use ORDER BY length(path), path
+  /** All four base_path/basename/suffix queries use ORDER BY length(path), path
    *  so resolution is deterministic when multiple non-md files share a stem —
    *  shortest path wins, matching links.resolve's note-resolution heuristic. */
   const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
@@ -533,7 +533,10 @@ export const createSearchIndex = (
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
    *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
    *  and `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdBySuffixPathStmt = db.prepare<[string], { path: string }>(
+  const resolveNonMdByBasePathSuffixStmt = db.prepare<
+    [string],
+    { path: string }
+  >(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   /** Suffix match on the full stored path, for targets that include their
@@ -541,7 +544,10 @@ export const createSearchIndex = (
    *  lives in a deeper folder (Obsidian's shortest-path format). The
    *  base_path/basename columns strip the extension, so with-extension targets
    *  can only ever match the path column. Same ESCAPE rationale as above. */
-  const resolveNonMdByPathSuffixStmt = db.prepare<[string], { path: string }>(
+  const resolveNonMdByFullPathSuffixStmt = db.prepare<
+    [string],
+    { path: string }
+  >(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── Vector prepared statements (conditional on embedder) ──────
@@ -740,8 +746,8 @@ export const createSearchIndex = (
     if (fullPathMatch) return fullPathMatch.path
 
     // Exact base_path match ("path from vault folder")
-    const exactMatch = resolveNonMdByBasePathStmt.get(target)
-    if (exactMatch) return exactMatch.path
+    const basePathMatch = resolveNonMdByBasePathStmt.get(target)
+    if (basePathMatch) return basePathMatch.path
 
     // Relative-to-source match ("path from current file") — the path column
     // for with-extension targets ("../assets/photo.png"), base_path for
@@ -751,29 +757,30 @@ export const createSearchIndex = (
       const relativeFullPathMatch =
         resolveNonMdByFullPathStmt.get(relativeTarget)
       if (relativeFullPathMatch) return relativeFullPathMatch.path
-      const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
-      if (relativeMatch) return relativeMatch.path
+      const relativeBasePathMatch =
+        resolveNonMdByBasePathStmt.get(relativeTarget)
+      if (relativeBasePathMatch) return relativeBasePathMatch.path
     }
 
     // Path-suffix match for with-extension targets ("photo.png",
     // "assets/photo.png") — Obsidian's shortest-path format for assets in a
     // deeper folder. Runs before the base_path tiers so a file whose full
     // name matches the target beats one whose extension-stripped stem
-    // happens to (e.g. [[photo.png]] prefers a/photo.png over b/photo.png.canvas).
-    const pathSuffixMatch = resolveNonMdByPathSuffixStmt.get(
+    // happens to match (e.g. [[photo.png]] prefers a/photo.png over b/photo.png.canvas).
+    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(
       escapeLikeWildcards(target),
     )
-    if (pathSuffixMatch) return pathSuffixMatch.path
+    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
 
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
     // When the target includes folder segments (e.g. "views/Inventory"),
     // preserve them in the match — only strip to pure basename when the
     // target is already a bare name. Mirrors links.resolve's endsWith check.
     if (target.includes("/")) {
-      const suffixMatch = resolveNonMdBySuffixPathStmt.get(
+      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(
         escapeLikeWildcards(target),
       )
-      return suffixMatch?.path ?? null
+      return basePathSuffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target)
     return basenameMatch?.path ?? null
