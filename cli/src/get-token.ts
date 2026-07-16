@@ -111,7 +111,8 @@ export const captureObsidianToken = (
         "account email, password, and MFA code. The token is captured " +
         "automatically, so there's nothing to copy.",
     )
-    if (!runLoginContainer(configMountPath, deps)) {
+    const succeeded = runLoginContainer(configMountPath, deps)
+    if (!succeeded) {
       prompts.warn(
         "get-token did not complete — you can run it later with:\n" +
           "  npx vault-cortex get-token",
