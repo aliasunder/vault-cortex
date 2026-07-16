@@ -36,15 +36,6 @@ export default defineConfig(
     },
   },
   {
-    // CommonJS config files (.puppeteerrc.cjs) — declare the CJS globals
-    // the default ESM sourceType doesn't provide.
-    files: ["**/*.cjs"],
-    languageOptions: {
-      sourceType: "commonjs",
-      globals: { module: "readonly" },
-    },
-  },
-  {
     ignores: ["dist/", "cli/dist/", ".sst/", "sst-env.d.ts"],
   },
 )

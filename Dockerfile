@@ -26,9 +26,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 onnxruntime
 FROM node:24-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5 AS build
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
-# .puppeteerrc.cjs must ride along — it's what makes plain npm ci skip the
-# Chrome download (this image has no unzip, so the download would fail).
-COPY package.json package-lock.json* .puppeteerrc.cjs ./
+COPY package.json package-lock.json* ./
 RUN npm ci
 COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
