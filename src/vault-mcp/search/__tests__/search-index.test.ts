@@ -2732,13 +2732,24 @@ describe("markdown-style links to non-md targets", () => {
       {
         filePath: "source.md",
         rawContent:
-          "# Source\n\n[o](obsidian://open?vault=v) [z](zotero://select/items/123) [f](ftp://host/file.pdf) [u](HTTPS://x.com/a.png)\n",
+          "# Source\n\n[o](obsidian://open?vault=v) [z](zotero://select/items/123) [f](ftp://host/file.pdf) [u](HTTPS://x.com/a.png) [[Control]]\n",
         fileStat: testStat(1000),
       },
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    // The Control wikilink proves link indexing ran — without it, both
+    // assertions could pass from extraction silently producing nothing.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "Control",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 })
 

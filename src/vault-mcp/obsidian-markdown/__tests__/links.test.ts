@@ -382,6 +382,11 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Control"])
   })
 
+  it("strips the heading anchor from a non-md markdown link", () => {
+    const targets = links.extractFromBody("[docs](papers/report.pdf#page=2)")
+    expect(targets).toEqual(["papers/report.pdf"])
+  })
+
   it("falls back to raw target when percent-encoding is malformed", () => {
     const targets = links.extractFromBody("[done](100%zzcomplete.md)")
     expect(targets).toEqual(["100%zzcomplete.md"])
