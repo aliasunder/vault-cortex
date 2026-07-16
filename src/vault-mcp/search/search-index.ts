@@ -727,7 +727,7 @@ export const createSearchIndex = (
    *  instead of the notes table. Extensionless targets match the
    *  extension-stripped base_path/basename columns; with-extension targets
    *  match the path column — the two column families are disjoint by target
-   *  form, so within each tier the miss costs one indexed lookup. */
+   *  form, so within each tier the miss costs one query. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,
