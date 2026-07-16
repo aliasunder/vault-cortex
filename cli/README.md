@@ -36,9 +36,10 @@ Generate an Obsidian Sync auth token without leaving the CLI:
 npx vault-cortex get-sync-token
 ```
 
-The command runs the Obsidian login flow inside Docker and captures the
-resulting token automatically — no manual paste needed. Use `--dir` to
-write the token directly to an existing `.env`:
+The command opens the Obsidian login inside Docker. Once you've signed
+in, it picks up your token and prints it — nothing to dig out of the
+login output. Use `--dir` to write the token straight into an existing
+`.env` instead:
 
 ```bash
 npx vault-cortex get-sync-token --dir ./vault-cortex

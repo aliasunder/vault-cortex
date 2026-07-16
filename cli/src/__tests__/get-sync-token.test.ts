@@ -133,7 +133,7 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "The Obsidian login completed but no token was captured — the token file " +
+      "The Obsidian login finished, but the token it should have saved " +
         "was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-sync-token",
     )
@@ -154,7 +154,7 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "The Obsidian login completed but no token was captured — the token file " +
+      "The Obsidian login finished, but the token it should have saved " +
         "was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-sync-token",
     )
@@ -211,8 +211,9 @@ describe("captureObsidianToken", () => {
 
     expect(silent.logs[0]).toBe(
       "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. The token is captured " +
-        "automatically, so there's nothing to copy.",
+        "account email, password, and MFA code. Once you've signed in, " +
+        "vault-cortex picks up the token itself — you won't need to find " +
+        "or copy it.",
     )
   })
 })
@@ -255,7 +256,7 @@ describe("runGetSyncToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toBe("Could not capture the auth token.")
+    expect(silent.errors[0]).toBe("Could not retrieve the auth token.")
   })
 
   it("writes the token to .env when --dir is set", async () => {

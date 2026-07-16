@@ -29,7 +29,7 @@ const makeTempMountDir = (prompts: Prompts): string | undefined => {
     return mkdtempSync(join(tmpdir(), "vault-cortex-sync-token-"))
   } catch (error) {
     prompts.warn(
-      `Could not create a temp directory for token capture — ${describeError(error)}`,
+      `Could not create a temp directory for the login — ${describeError(error)}`,
     )
     return undefined
   }
@@ -108,8 +108,9 @@ export const captureObsidianToken = (
   try {
     prompts.log(
       "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. The token is captured " +
-        "automatically, so there's nothing to copy.",
+        "account email, password, and MFA code. Once you've signed in, " +
+        "vault-cortex picks up the token itself — you won't need to find " +
+        "or copy it.",
     )
     const loginSucceeded = runLoginContainer(configMountPath, deps)
     if (!loginSucceeded) {
@@ -122,7 +123,7 @@ export const captureObsidianToken = (
     const token = readCapturedTokenFile(configMountPath)
     if (!token) {
       prompts.warn(
-        "The Obsidian login completed but no token was captured — the token file " +
+        "The Obsidian login finished, but the token it should have saved " +
           "was missing, empty, or unreadable. You can retry with:\n" +
           "  npx vault-cortex get-sync-token",
       )
@@ -157,7 +158,7 @@ export const runGetSyncToken = async (
 
   const token = captureObsidianToken({ docker, prompts })
   if (!token) {
-    prompts.error("Could not capture the auth token.")
+    prompts.error("Could not retrieve the auth token.")
     return 1
   }
 
