@@ -134,17 +134,19 @@ All settings are environment variables with sensible defaults.
 | `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                            |
 | `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                                                                                                                          |
 | `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                               |
-| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.                                                                                                                                                              |
+| `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                             |
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 
 ## Deployment Options
 
-| Path          | What                                               | Guide                                |
-| ------------- | -------------------------------------------------- | ------------------------------------ |
-| **Local**     | Docker on your machine, vault bind-mounted         | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync, access from anywhere          | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
-| **AWS (SST)** | Full IaC: Lightsail + API Gateway + Lambda + CI/CD | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md)           |
+Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+
+| Path          | What                                                              | Guide                                |
+| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/)   |
+| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
+| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md)           |
 
 
 ## License
