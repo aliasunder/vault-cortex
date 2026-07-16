@@ -230,9 +230,9 @@ jobs:
           EOF
           # Only write user-specific overrides when the repo Variable is set —
           # the server falls back to sensible defaults when these are absent.
-          [ -n "$PROTECTED_PATHS" ] && echo "PROTECTED_PATHS=$PROTECTED_PATHS" >> "$RUNNER_TEMP/lightsail.env"
-          [ -n "$ORPHAN_EXCLUDE_FOLDERS" ] && echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"
-          [ -n "$SERVICE_DOCUMENTATION_URL" ] && echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"
+          if [ -n "$PROTECTED_PATHS" ]; then echo "PROTECTED_PATHS=$PROTECTED_PATHS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$ORPHAN_EXCLUDE_FOLDERS" ]; then echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$SERVICE_DOCUMENTATION_URL" ]; then echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:
