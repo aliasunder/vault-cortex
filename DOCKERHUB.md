@@ -57,53 +57,6 @@
 
 See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quick-start) for local setup (2 minutes with Docker), remote deployment with Obsidian Sync, and MCP client configuration.
 
-## How It Works
-
-
-The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. The sync service keeps the vault in sync with your Obsidian apps — it ships inside the same container in the `:remote` image variant (remote deployments only; the default `:latest` image is the MCP server alone).
-
-See [ARCHITECTURE.md](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
-
-## Hybrid Search
-
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
-
-Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#hybrid-search-r8):
-
-- **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
-- **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
-- **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
-
-All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
-
-See [ARCHITECTURE.md → Hybrid Search](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#hybrid-search-r8) for model details, blend weights, and the full pipeline breakdown.
-
-## Memory
-
-A memory layer that only grows is only useful if agents can retrieve the right entries without dumping everything into context. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — reading whole files wastes context on irrelevant material and buries the signal. The memory system is designed for targeted retrieval: agents accumulate knowledge over time and recall exactly what's relevant to the task at hand.
-
-The layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Three properties make it work:
-
-- **Append-only** — entries are never overwritten; corrections arrive as new dated entries. The layer becomes a personal knowledge base that captures your current state _and_ the evolution behind it
-- **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, keyword- and semantically-matched, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
-- **Grows without degrading** — capping results (`max_results`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
-
-Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
-
-See [templates/memory](https://github.com/aliasunder/vault-cortex/tree/main/templates/memory/) for the file format, entry-policy convention, and starter templates.
-
-## Tasks
-
-Task metadata lives in plain markdown — scattered across files, encoded in emoji signifiers or inline fields, organized under Kanban headings. An agent answering "what's overdue?" would need to parse every file and understand your chosen format; completing a task on a Kanban board means knowing the board's lane structure, the date syntax, and which heading is the done lane.
-
-The task layer handles this so agents don't have to:
-
-- **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its lane, note path, heading, and line number — no follow-up reads needed to locate a task
-- **Update** — complete, reprioritize, and move tasks between Kanban lanes in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. All three changes can happen at once
-- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
-
-See [ARCHITECTURE.md → Tasks](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
-
 ## Tools
 
 | Category        | Tool                         | Description                                                                            |
@@ -181,17 +134,19 @@ All settings are environment variables with sensible defaults.
 | `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                            |
 | `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                                                                                                                          |
 | `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                               |
-| `LOG_DIR`                   | —           | `/data/logs` (Docker)                | Directory for persistent log files. Logs survive container restarts.                                                                                                                                                              |
+| `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                             |
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 
 ## Deployment Options
 
-| Path          | What                                               | Guide                                |
-| ------------- | -------------------------------------------------- | ------------------------------------ |
-| **Local**     | Docker on your machine, vault bind-mounted         | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync, access from anywhere          | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
-| **AWS (SST)** | Full IaC: Lightsail + API Gateway + Lambda + CI/CD | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md)           |
+Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+
+| Path          | What                                                              | Guide                                |
+| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/)   |
+| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
+| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md)           |
 
 
 ## License

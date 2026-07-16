@@ -19,8 +19,9 @@ const resolvePath = (repoRelative: string): string =>
 
 /** Header prepended to each optional block in the CLI-generated .env. */
 const CLI_OPTIONAL_HEADER = `# Optional ──────────────────────────────────────────────────
-# To override a setting: uncomment it, set a value, then apply with
-# "npx vault-cortex upgrade" (restart alone does not re-read this file).
+# To change a setting: edit its value (uncommenting it first if needed),
+# then apply with "npx vault-cortex upgrade" (restart alone does not
+# re-read this file).
 
 `
 

@@ -55,6 +55,10 @@ Pull the latest image, re-create the container, and verify health:
 npx vault-cortex upgrade
 ```
 
+Run it from the same directory where you ran `init` — it looks for your
+config in `./vault-cortex/.env` (pass `--dir <path>` if you scaffolded
+somewhere else).
+
 Your vault data, search index, and `.env` settings are preserved across
 upgrades — only the server image is replaced. Also applies `.env` changes
 (`docker restart` does not re-read env files).

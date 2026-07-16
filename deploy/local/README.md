@@ -120,48 +120,32 @@ curl http://localhost:8000/.well-known/oauth-protected-resource
 
 ## Updating
 
-Compose does **not** pull new images on `up` — once `:latest` is on your
-machine, you stay on that exact image until you pull explicitly:
+**Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
+re-creates the container, and verifies health. Run it from the same directory
+where you ran `init`. Your vault data, search index, and `.env` settings all
+persist — nothing is deleted.
+
+**Set up with Docker Compose?** Stick with Compose for updates — the CLI and
+Compose manage the container independently. Compose does **not** pull new
+images on `up`, so pull explicitly:
 
 ```bash
-# Pull the latest image and recreate the container:
 docker compose pull && docker compose up -d
 ```
 
-Your search index persists in its Docker volume across updates; unchanged
-notes are not re-embedded (content-hash cache), so restarts after an update
-are fast.
-
 ## Stop
 
+**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+
+**Docker Compose:**
+
 ```bash
-# Stop the server (search index is preserved in a Docker volume):
+# Stop (data persists in Docker volumes):
 docker compose down
 
-# Stop and delete all data (index rebuilds on next start):
+# Stop and delete all volumes (index rebuilds on next start):
 docker compose down -v
 ```
-
-## Troubleshooting
-
-**`invalid_client` / "Invalid client_id" when connecting.** Your MCP client
-cached an OAuth registration from a previous server at this address. Recreating
-the server (`docker compose down -v`, or scaffolding a fresh instance) resets
-`oauth.db`, so the cached `client_id` no longer exists and `/authorize` rejects
-it. Clear the client's stored authorization for this server and reconnect so it
-registers fresh:
-
-- **Claude Code:** `claude mcp remove <name>`, then
-  `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
-- **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
-- **Other clients:** remove and re-add the server.
-
-**"Invalid token" on the consent page even with the correct token.** The
-consent form trims surrounding whitespace and line breaks from the token before
-checking it, so a value copied out of a terminal (where a long token can wrap
-across lines) still works. If you still see this error, double-check you copied
-the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
-usual cause.
 
 ## Windows (Docker Desktop)
 
@@ -196,12 +180,16 @@ File Explorer at `\\wsl$\Ubuntu\home\you\vaults\MyVault`.
 
 ## Memory
 
-On first startup, if your vault doesn't already have a memory folder (default:
-`About Me/`), the server creates one with template files (Me.md, Opinions.md,
-Principles.md, Routines.md, Agents.md). Agents can also create new memory files
-and sections on the fly via `vault_update_memory` — no manual setup needed.
-Once entries accumulate, `vault_memory_recall` answers topic questions across
-the layer's full dated history. Memory files are append-only by default; a file can declare
+The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
+`.env` to disable it — memory tools are hidden, no files are created, and the
+server runs without it.
+
+When enabled, the server creates a memory folder (default: `About Me/`) on
+first startup with template files (Me.md, Opinions.md, Principles.md,
+Routines.md, Agents.md). Agents can also create new memory files and sections
+on the fly via `vault_update_memory` — no manual setup needed. Once entries
+accumulate, `vault_memory_recall` answers topic questions across the layer's
+full dated history. Memory files are append-only by default; a file can declare
 `entry-policy: living` in frontmatter for current-state content whose expired
 entries get pruned (the Routines template ships this way) — see
 [templates/memory](../../templates/memory/README.md) for the full convention.
@@ -211,6 +199,33 @@ entries get pruned (the Routines template ships this way) — see
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 (memory folder, protected paths, orphan exclusions, timezone), see the
 [Configuration](../../README.md#configuration) section in the main README.
+
+## Troubleshooting
+
+**`invalid_client` / "Invalid client_id" when connecting.** Your MCP client
+cached an OAuth registration from a previous server at this address. Recreating
+the server (`docker compose down -v`, or scaffolding a fresh instance) resets
+`oauth.db`, so the cached `client_id` no longer exists and `/authorize` rejects
+it. Clear the client's stored authorization for this server and reconnect so it
+registers fresh:
+
+- **Claude Code:** `claude mcp remove <name>`, then
+  `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
+- **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
+- **Other clients:** remove and re-add the server.
+
+**"Invalid token" on the consent page even with the correct token.** The
+consent form trims surrounding whitespace and line breaks from the token before
+checking it, so a value copied out of a terminal (where a long token can wrap
+across lines) still works. If you still see this error, double-check you copied
+the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
+usual cause.
+
+**"container name vault-cortex already in use" on start or upgrade.** A
+container from a different management method is still running. The CLI
+(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+manage the container independently — stop the existing one first with
+`docker rm -f vault-cortex`, then retry with your preferred method.
 
 ## Building from source
 

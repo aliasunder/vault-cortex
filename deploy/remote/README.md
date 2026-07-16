@@ -8,12 +8,8 @@ Everything runs in **one container**: the `vault-cortex:remote` image bundles
 the Obsidian Sync process and the MCP server under
 [s6-overlay](https://github.com/just-containers/s6-overlay) supervision. Docker
 Compose is used below for its restart policy and log rotation, but it's
-optional — the same container runs with [plain `docker run`](#docker-run-no-compose),
-Podman, or any OCI runtime.
-
-> **Tip:** if your server has Node.js >= 20.12 installed,
-> `npx vault-cortex@latest init --mode remote` walks through steps 2–6
-> interactively. The manual steps below work on any box with Docker.
+optional — the same container runs with
+[plain docker run](#docker-run-no-compose), Podman, or any OCI runtime.
 
 ## Prerequisites
 
@@ -23,6 +19,29 @@ Podman, or any OCI runtime.
 - A domain name or public IP address for your server
 
 ## Setup
+
+```bash
+npx vault-cortex@latest init --mode remote
+```
+
+The CLI walks through your public URL, Obsidian Sync token (it can run the
+token generator for you), and auth config, then starts the server and prints
+the connection details for your MCP client.
+
+<details>
+<summary><strong>Don't have Node.js installed?</strong></summary>
+
+The CLI needs Node.js >= 20.12 (the server itself runs in Docker). On Ubuntu/Debian:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+</details>
+
+<details>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
 **1. SSH into your server** and create a working directory:
 
@@ -81,15 +100,8 @@ from Obsidian's servers. The initial sync takes 30–120 seconds depending on
 vault size. The MCP server starts once sync is running and builds its search
 index as files arrive.
 
-### docker run (no Compose)
-
-The same `.env` file works with any OCI runtime — swap `docker` for `podman`
-or `nerdctl` as needed. One caveat: plain `docker run` doesn't apply the
-compose file's fallback defaults, so first set two extra values in `.env`
-(both are commented in `.env.example`): `DEVICE_NAME=vault-cortex` —
-otherwise the initial Obsidian Sync device registers under a random
-container-ID hostname — and `CONFLICT_STRATEGY=merge`, whose compose
-default differs from the CLI's built-in default (`conflict`).
+**docker run (no Compose):** The same `.env` file works with any OCI runtime —
+swap `docker` for `podman` or `nerdctl` as needed.
 
 ```bash
 docker run -d --name vault-cortex \
@@ -102,15 +114,34 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
+</details>
+
 ## HTTPS access
 
-MCP clients need to reach your server over the network. Four options:
+MCP clients need to reach your server over HTTPS. Here's how to set it up — these options can be combined (e.g. API Gateway adding an independent auth check in front of a Cloudflare Tunnel that keeps every port closed):
+
+### Cloudflare Tunnel (no open ports — free)
+
+An encrypted outbound connection from your server to Cloudflare's edge. No
+inbound ports need to be open on your server's firewall — traffic flows
+through the tunnel instead of arriving directly. Requires a
+[Cloudflare account](https://dash.cloudflare.com/sign-up) (free) with a
+domain using Cloudflare's nameservers.
+
+Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)
+on your server, create a tunnel in the Cloudflare dashboard
+([Zero Trust](https://one.dash.cloudflare.com/) → Networks → Tunnels), and
+point it at `http://localhost:8000`. Set `PUBLIC_URL` to the tunnel URL
+(e.g. `https://vault.yourdomain.com`).
+
+Once the tunnel is working, close port 8000 on your server's firewall — all
+traffic flows through the tunnel, so the direct port is no longer needed.
+See [Hardening](#hardening-recommended) below.
 
 ### API Gateway (AWS — no domain needed)
 
-This is the approach Vault Cortex's own production deployment uses. AWS API
-Gateway acts as a TLS-terminating reverse proxy in front of your server — no
-domain, no certificate management. You get an HTTPS URL immediately:
+AWS API Gateway acts as a TLS-terminating reverse proxy — no domain, no
+certificate management. You get an HTTPS URL immediately:
 
 ```
 https://<id>.execute-api.<region>.amazonaws.com
@@ -134,8 +165,8 @@ approach, which adds a Lambda authorizer for an extra auth layer.
 ### Reverse proxy (requires a domain)
 
 Use [Caddy](https://caddyserver.com/) or nginx with a domain and TLS
-certificate. Set `PUBLIC_URL` to `https://vault.yourdomain.com`. Caddy handles
-TLS automatically:
+certificate. Caddy handles TLS automatically. Port 443 stays open on your
+server's firewall (unlike a tunnel, your server is still directly reachable):
 
 ```
 vault.yourdomain.com {
@@ -143,12 +174,7 @@ vault.yourdomain.com {
 }
 ```
 
-### Cloudflare Tunnel
-
-Zero-config HTTPS with no open ports. Install
-[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)
-and create a tunnel pointing to `http://localhost:8000`. Set `PUBLIC_URL` to the
-tunnel URL.
+Set `PUBLIC_URL` to `https://vault.yourdomain.com`.
 
 ### Direct access (testing only)
 
@@ -218,27 +244,21 @@ docker compose ps
 
 ## Updating
 
-Compose does **not** pull new images on `up` — once `:remote` is on the
-server, you stay on that exact image until you pull explicitly:
+**Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
+re-creates the container, and verifies health. Run it from the same directory
+where you ran `init`. Your vault data, search index, and `.env` settings all
+persist — nothing is deleted.
+
+**Set up with Docker Compose?** Stick with Compose for updates — the CLI and
+Compose manage the container independently. Compose does **not** pull new
+images on `up`, so pull explicitly:
 
 ```bash
-# Pull the latest image and recreate the container:
 docker compose pull && docker compose up -d
 ```
 
-Named volumes persist across updates: your synced vault, search index, and
-Obsidian login state all carry over — no re-sync, no device re-registration,
+Named volumes persist across updates — no re-sync, no device re-registration,
 and unchanged notes are not re-embedded.
-
-Running with plain `docker run` instead of Compose? There's no in-place
-update — pull, then recreate the container with the same `docker run`
-command you started it with:
-
-```bash
-docker pull ghcr.io/aliasunder/vault-cortex:remote
-docker rm -f vault-cortex
-# then re-run your original docker run command
-```
 
 ## Restart
 
@@ -261,8 +281,12 @@ policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
+**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+
+**Docker Compose:**
+
 ```bash
-# Stop containers — named volumes persist your vault data and search index:
+# Stop (data persists in Docker volumes):
 docker compose down
 
 # Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
@@ -271,12 +295,16 @@ docker compose down -v
 
 ## Memory
 
-On first startup, if your vault doesn't already have a memory folder (default:
-`About Me/`), the server creates one with template files (Me.md, Opinions.md,
-Principles.md, Routines.md, Agents.md). Agents can also create new memory files
-and sections on the fly via `vault_update_memory` — no manual setup needed.
-Once entries accumulate, `vault_memory_recall` answers topic questions across
-the layer's full dated history. Memory files are append-only by default; a file can declare
+The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
+`.env` to disable it — memory tools are hidden, no files are created, and the
+server runs without it.
+
+When enabled, the server creates a memory folder (default: `About Me/`) on
+first startup with template files (Me.md, Opinions.md, Principles.md,
+Routines.md, Agents.md). Agents can also create new memory files and sections
+on the fly via `vault_update_memory` — no manual setup needed. Once entries
+accumulate, `vault_memory_recall` answers topic questions across the layer's
+full dated history. Memory files are append-only by default; a file can declare
 `entry-policy: living` in frontmatter for current-state content whose expired
 entries get pruned (the Routines template ships this way) — see
 [templates/memory](../../templates/memory/README.md) for the full convention.
@@ -284,5 +312,52 @@ entries get pruned (the Routines template ships this way) — see
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
-required. For optional settings (memory folder, protected paths, timezone), see
-the [Configuration](../../README.md#configuration) section in the main README.
+required. These optional settings are worth knowing about:
+
+| Setting             | Default   | What it does                                                                                          |
+| ------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `TZ`                | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
+| `VAULT_PASSWORD`    | —         | Set this if your vault has end-to-end encryption enabled                                              |
+| `EMBEDDING_ENABLED` | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
+| `RERANK_MODE`       | `blended` | Set `none` to skip reranking for lower latency                                                        |
+| `MEMORY_ENABLED`    | `true`    | Set `false` to disable the structured memory layer                                                    |
+
+All settings are documented in `.env.example` and in the
+[Configuration](../../README.md#configuration) section of the main README.
+
+## Hardening (recommended)
+
+The setup above is authenticated — every request requires your token or an
+OAuth session. These optional measures add defense-in-depth:
+
+- **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
+  direct access to port 8000. Do this wherever you manage your server's
+  firewall: the provider's firewall panel, security groups on AWS,
+  infrastructure-as-code, or whatever fits your setup. All traffic
+  then flows through the encrypted path; the raw HTTP port disappears
+  from the network.
+
+- **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
+  open internet. [Tailscale](https://tailscale.com/) (free for personal use)
+  creates a private WireGuard mesh between your devices. Install it on your
+  VPS and your laptop, verify you can SSH through the Tailscale hostname,
+  then close port 22 in your firewall — SSH through Tailscale continues to
+  work because it bypasses the public firewall.
+
+- **Add a second auth layer** — the reference
+  [AWS deployment](../../DEPLOY.md) validates tokens twice: once at the
+  network edge (API Gateway + Lambda authorizer) and once at the server
+  (Express middleware). This is an AWS-specific setup, but the principle
+  applies anywhere — an auth-aware reverse proxy in front of the server
+  means a misconfigured server alone can't expose your vault.
+
+These measures stack. Start with whichever is easiest for your setup — even
+one makes a meaningful difference.
+
+## Troubleshooting
+
+**"container name vault-cortex already in use" on start or upgrade.** A
+container from a different management method is still running. The CLI
+(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+manage the container independently — stop the existing one first with
+`docker rm -f vault-cortex`, then retry with your preferred method.
