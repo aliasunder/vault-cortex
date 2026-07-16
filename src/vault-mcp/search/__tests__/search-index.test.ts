@@ -1490,6 +1490,37 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
+  it("resolves markdown-style asset embeds through the two-pass rebuild", async () => {
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\n![p](photo.png) and [[genuinely-missing]].\n",
+      "utf8",
+    )
+    await writeFile(join(vaultDir, "photo.png"), "png-bytes", "utf8")
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    // Results order by target, so "genuinely-missing" sorts first.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+
   it("resolves extensionless wikilinks to non-md files by basename", async () => {
     await mkdir(join(vaultDir, "canvases"), { recursive: true })
     await writeFile(
@@ -2505,6 +2536,222 @@ describe("brokenLinkCount", () => {
 })
 
 // ── modifiedOnDate ──────────────────────────────────────────────
+
+describe("markdown-style links to non-md targets", () => {
+  it("resolves a markdown image embed as an asset", () => {
+    index.upsertNonMdFile("pics/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent:
+          "# Source\n\n![photo](pics/photo.png) and [[genuinely-missing]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // The broken control link proves link indexing ran — without it, a broken
+    // count of 0 could come from extraction silently producing nothing.
+    // Results order by target, so "genuinely-missing" sorts first.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "pics/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+
+  it("resolves a markdown link to a PDF as an asset", () => {
+    index.upsertNonMdFile("papers/report.pdf")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\nSee [the paper](papers/report.pdf).\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "papers/report.pdf",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("percent-decodes a markdown asset path with folders and spaces", () => {
+    index.upsertNonMdFile("Trip Photos/pic 1.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![shot](Trip%20Photos/pic%201.png)\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "Trip Photos/pic 1.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("percent-decodes a markdown link to a note with spaces end-to-end", () => {
+    index.upsertNote(
+      {
+        filePath: "My Note.md",
+        rawContent: "# My Note\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[link](My%20Note.md)\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "My Note.md",
+        title: "My Note",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("keeps markdown links to .md notes resolving with the target stored as written", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/target.md",
+        rawContent: "# Target\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[t](Projects/target.md)\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "Projects/target.md",
+        title: "target",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("resolves an extensionless markdown link like a wikilink", () => {
+    index.upsertNote(
+      {
+        filePath: "Some Note.md",
+        rawContent: "# Some Note\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[team notes](Some%20Note)\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "Some Note.md",
+        title: "Some Note",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("counts a markdown link to a missing asset as broken with the target as written", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![x](missing.png)\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "missing.png",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+
+  it("does not index scheme-prefixed markdown targets as links", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent:
+          "# Source\n\n[o](obsidian://open?vault=v) [z](zotero://select/items/123) [f](ftp://host/file.pdf) [u](HTTPS://x.com/a.png) [[Control]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // The Control wikilink proves link indexing ran — without it, both
+    // assertions could pass from extraction silently producing nothing.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "Control",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+})
 
 describe("modifiedOnDate", () => {
   const midday = DateTime.fromISO("2026-06-15T12:00:00").toMillis()

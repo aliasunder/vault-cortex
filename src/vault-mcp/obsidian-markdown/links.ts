@@ -20,11 +20,17 @@ import { classifyLines } from "./lines.js"
  *  path/name (group 1) before any # or |. Global — use only with matchAll. */
 const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
 
-/** Matches markdown internal links to .md files: [text](path.md) or
- *  [text](path.md#heading). Excludes external URLs and non-.md assets (images,
- *  PDFs). Captures the path without extension (group 1). Global — matchAll only. */
+/** Matches markdown internal links and embeds to any vault target —
+ *  [text](Note.md), ![alt](image.png), [doc](file.pdf), [text](Extensionless%20Note),
+ *  each optionally with a #heading. Obsidian resolves all of these, so
+ *  recognition must too. External targets are excluded by a URI-scheme
+ *  lookahead ([a-zA-Z][a-zA-Z0-9+.-]*: is RFC 3986 scheme grammar; both letter
+ *  cases because schemes are case-insensitive, and a colon is illegal in
+ *  Obsidian filenames so a scheme-like prefix is never a vault path), plus
+ *  same-page #anchors. Captures the full target including any extension
+ *  (group 1). Global — use only with matchAll. */
 const MD_LINK_RE =
-  /\[[^\]]*\]\((?!https?:\/\/|mailto:|#)([^)#\s]+?)\.md(?:#[^)\s]*)?\)/g
+  /\[[^\]]*\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)#\s]+)(?:#[^)\s]*)?\)/g
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
  *  ignored. Global — use only with matchAll/replaceAll. */
@@ -42,7 +48,10 @@ const TEMPLATER_RE = /<%[-+*_~]?.*?%>/g
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
 /** Splits a matched markdown link into [, `[text](`, path-without-ext, `#heading`,
- *  `)`]. Anchored and non-global — safe for .exec(). */
+ *  `)`]. Deliberately .md-anchored while MD_LINK_RE recognizes any target:
+ *  parsing-for-rewrite serves moveNote, which only relocates notes — so a
+ *  non-.md match is a recognized link that is never rewritten.
+ *  Anchored and non-global — safe for .exec(). */
 const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)\.md(#[^)\s]*)?(\))$/
 
 /** Safely decodes a URI component, falling back to the raw string if the
@@ -147,7 +156,9 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
 }
 
 /** Splits a matched markdown link into its parts (path decoded, .md stripped), or
- *  null when the text is not a well-formed .md link. */
+ *  null when the text is not a well-formed .md link — including recognized
+ *  non-.md links (assets, extensionless targets), which moveNote deliberately
+ *  does not rewrite. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
   if (!parts) return null
