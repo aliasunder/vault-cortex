@@ -263,7 +263,7 @@ export type OutgoingLinkEntry = {
 //
 // Indexing flow:
 //   1. links.extractFromBody() parses wikilinks ([[target]]) and markdown
-//      links ([text](path.md)) from the note body (skipping fenced code
+//      links ([text](target) / ![alt](target)) from the note body (skipping fenced code
 //      blocks and inline code spans); links.extractFromFrontmatter() adds
 //      [[wikilinks]] from frontmatter property values (e.g. related:).
 //   2. links.resolve() maps each raw target to a vault-relative path by trying
