@@ -24,10 +24,9 @@ export type GetTokenDeps = {
  *
  * Returns the token string on success, undefined on any failure.
  */
-export const captureObsidianToken = (deps: {
-  docker: DockerRunner
-  prompts: Prompts
-}): string | undefined => {
+export const captureObsidianToken = (
+  deps: GetTokenDeps,
+): string | undefined => {
   const { docker, prompts } = deps
   const configMountPath = mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
   try {
