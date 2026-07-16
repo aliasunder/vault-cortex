@@ -35,6 +35,12 @@ describe("matchLinksInLine", () => {
       ),
     ).toEqual([])
   })
+
+  it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
+    expect(links.matchLinksInLine("see ![alt](image.png) end")).toEqual([
+      { text: "[alt](image.png)", start: 5, end: 21, kind: "markdown" },
+    ])
+  })
 })
 
 // ── inlineCodeSpans ──────────────────────────────────────────────
@@ -182,7 +188,7 @@ describe("splitMarkdownLink", () => {
     expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
   })
 
-  it("returns null for a non-.md link", () => {
+  it("returns null for a non-.md target — recognized links that moveNote does not rewrite", () => {
     expect(links.splitMarkdownLink("[t](file.txt)")).toBeNull()
   })
 })
@@ -220,9 +226,9 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Embedded Note"])
   })
 
-  it("extracts markdown internal links", () => {
+  it("extracts markdown internal links with the target as written", () => {
     const targets = links.extractFromBody("[click here](Projects/plan.md)")
-    expect(targets).toEqual(["Projects/plan"])
+    expect(targets).toEqual(["Projects/plan.md"])
   })
 
   it("excludes a scheme-prefixed URL even when it ends in .md", () => {
@@ -302,7 +308,7 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody(
       "Real [link](real.md) but `[code](code.md)` is inert.",
     )
-    expect(targets).toEqual(["real"])
+    expect(targets).toEqual(["real.md"])
   })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
@@ -344,16 +350,41 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["Real Link"])
   })
 
-  it("excludes non-.md assets (images, PDFs)", () => {
+  it("extracts markdown links and embeds to non-.md assets", () => {
     const targets = links.extractFromBody(
       "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",
     )
-    expect(targets).toEqual(["Caption"])
+    expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"])
+  })
+
+  it("extracts extensionless markdown links, percent-decoded", () => {
+    const targets = links.extractFromBody("[team notes](Some%20Note)")
+    expect(targets).toEqual(["Some Note"])
+  })
+
+  it("percent-decodes markdown asset paths with folders and spaces", () => {
+    const targets = links.extractFromBody("![shot](Trip%20Photos/pic%201.png)")
+    expect(targets).toEqual(["Trip Photos/pic 1.png"])
+  })
+
+  it("excludes scheme-prefixed targets of any scheme, not just http and mailto", () => {
+    // The control wikilink proves extraction ran — a wrong lookahead would
+    // extract the scheme targets alongside it.
+    const targets = links.extractFromBody(
+      [
+        "[o](obsidian://open?vault=v)",
+        "[z](zotero://select/items/123)",
+        "[f](ftp://host/file.pdf)",
+        "[u](HTTPS://x.com/a.png)",
+        "[[Control]]",
+      ].join(" "),
+    )
+    expect(targets).toEqual(["Control"])
   })
 
   it("falls back to raw target when percent-encoding is malformed", () => {
     const targets = links.extractFromBody("[done](100%zzcomplete.md)")
-    expect(targets).toEqual(["100%zzcomplete"])
+    expect(targets).toEqual(["100%zzcomplete.md"])
   })
 
   it("strips the escaped pipe backslash from wikilink targets in table cells", () => {

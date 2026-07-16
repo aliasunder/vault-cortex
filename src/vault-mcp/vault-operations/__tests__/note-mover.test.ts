@@ -222,6 +222,36 @@ describe("moveNote — link rewriting forms", () => {
     )
   })
 
+  it("leaves a markdown asset link untouched while rewriting a note link beside it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture(
+      "Hub.md",
+      "See [doc](report.pdf) and [summary](Old.md).\n",
+    )
+
+    const result = await moveNote("Old.md", "New.md", ["Hub.md"])
+
+    expect(await readNote("Hub.md")).toBe(
+      "See [doc](report.pdf) and [summary](New.md).\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("leaves the moved note's own markdown asset links untouched", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture(
+      "Inbox/Draft.md",
+      "![img](photo.png) and [doc](papers/report.pdf).\n",
+    )
+
+    await moveNote("Inbox/Draft.md", "Archive/Draft.md")
+
+    expect(await readNote("Archive/Draft.md")).toBe(
+      "![img](photo.png) and [doc](papers/report.pdf).\n",
+    )
+  })
+
   it("rewrites a wikilink stored in a frontmatter property", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
