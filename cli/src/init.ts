@@ -67,7 +67,10 @@ const offerSyncTokenCapture = async (
 ): Promise<string | undefined> => {
   const runNow = await prompts.confirm("Generate the token now?", true)
   if (!runNow) return undefined
-  return captureObsidianToken({ docker, prompts })
+  return captureObsidianToken(
+    { docker, prompts },
+    "The token is captured automatically and stored in your .env — nothing to copy.",
+  )
 }
 
 /**

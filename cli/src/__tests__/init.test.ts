@@ -611,6 +611,11 @@ describe("runInit remote flow", () => {
     )
 
     expect(exitCode).toBe(0)
+    expect(scripted.logs).toContain(
+      "Handing the terminal to the Obsidian login — it will ask for your " +
+        "account email, password, and MFA code. The token is captured " +
+        "automatically and stored in your .env — nothing to copy.",
+    )
     expect(scripted.asked).not.toContain(
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )

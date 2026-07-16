@@ -37,7 +37,7 @@ npx vault-cortex get-sync-token
 ```
 
 The command opens the Obsidian login inside Docker. Once you've signed
-in, it picks up your token and prints it — nothing to dig out of the
+in, it captures your token and prints it — nothing to dig out of the
 login output. Use `--dir` to write the token straight into an existing
 `.env` instead:
 

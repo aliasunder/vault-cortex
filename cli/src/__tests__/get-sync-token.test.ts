@@ -89,10 +89,13 @@ describe("captureObsidianToken", () => {
   it("returns the token when the login writes the auth_token file", () => {
     const { prompts } = createSilentPrompts()
 
-    const token = captureObsidianToken({
-      docker: dockerWithToken("abc123-sync-token"),
-      prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerWithToken("abc123-sync-token"),
+        prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBe("abc123-sync-token")
   })
@@ -100,10 +103,13 @@ describe("captureObsidianToken", () => {
   it("trims whitespace from the token file", () => {
     const { prompts } = createSilentPrompts()
 
-    const token = captureObsidianToken({
-      docker: dockerWithToken("  token-with-whitespace  \n"),
-      prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerWithToken("  token-with-whitespace  \n"),
+        prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBe("token-with-whitespace")
   })
@@ -111,10 +117,13 @@ describe("captureObsidianToken", () => {
   it("returns undefined when docker run fails", () => {
     const silent = createSilentPrompts()
 
-    const token = captureObsidianToken({
-      docker: dockerFailsLogin,
-      prompts: silent.prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerFailsLogin,
+        prompts: silent.prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
@@ -126,15 +135,18 @@ describe("captureObsidianToken", () => {
   it("returns undefined and warns when the token file is empty", () => {
     const silent = createSilentPrompts()
 
-    const token = captureObsidianToken({
-      docker: dockerWithToken(""),
-      prompts: silent.prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerWithToken(""),
+        prompts: silent.prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "The Obsidian login finished, but the token it should have saved " +
-        "was missing, empty, or unreadable. You can retry with:\n" +
+      "The Obsidian login finished, but no token was captured — the " +
+        "token file was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-sync-token",
     )
   })
@@ -147,15 +159,18 @@ describe("captureObsidianToken", () => {
       runObsidianLogin: () => true,
     }
 
-    const token = captureObsidianToken({
-      docker: dockerSucceedsButNoFile,
-      prompts: silent.prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerSucceedsButNoFile,
+        prompts: silent.prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "The Obsidian login finished, but the token it should have saved " +
-        "was missing, empty, or unreadable. You can retry with:\n" +
+      "The Obsidian login finished, but no token was captured — the " +
+        "token file was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-sync-token",
     )
   })
@@ -170,10 +185,13 @@ describe("captureObsidianToken", () => {
       },
     }
 
-    const token = captureObsidianToken({
-      docker: dockerThrows,
-      prompts: silent.prompts,
-    })
+    const token = captureObsidianToken(
+      {
+        docker: dockerThrows,
+        prompts: silent.prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(token).toBeUndefined()
     expect(silent.warnings).toEqual([
@@ -195,7 +213,10 @@ describe("captureObsidianToken", () => {
       },
     }
 
-    captureObsidianToken({ docker: dockerTracker, prompts })
+    captureObsidianToken(
+      { docker: dockerTracker, prompts },
+      "Token destination note.",
+    )
 
     expect(tempDirs).toHaveLength(1)
     expect(existsSync(tempDirs[0])).toBe(false)
@@ -204,16 +225,17 @@ describe("captureObsidianToken", () => {
   it("logs the handoff message before running docker", () => {
     const silent = createSilentPrompts()
 
-    captureObsidianToken({
-      docker: dockerWithToken("token"),
-      prompts: silent.prompts,
-    })
+    captureObsidianToken(
+      {
+        docker: dockerWithToken("token"),
+        prompts: silent.prompts,
+      },
+      "Token destination note.",
+    )
 
     expect(silent.logs[0]).toBe(
       "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. Once you've signed in, " +
-        "vault-cortex picks up the token itself — you won't need to find " +
-        "or copy it.",
+        "account email, password, and MFA code. Token destination note.",
     )
   })
 })
@@ -228,6 +250,11 @@ describe("runGetSyncToken subcommand", () => {
     )
 
     expect(exitCode).toBe(0)
+    expect(silent.logs[0]).toBe(
+      "Handing the terminal to the Obsidian login — it will ask for your " +
+        "account email, password, and MFA code. The token is captured " +
+        "automatically and printed at the end.",
+    )
     expect(silent.logs).toContain("Your OBSIDIAN_AUTH_TOKEN:")
     expect(silent.prints).toEqual(["\n  my-sync-token\n"])
   })
@@ -256,7 +283,7 @@ describe("runGetSyncToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toBe("Could not retrieve the auth token.")
+    expect(silent.errors[0]).toBe("Could not capture the auth token.")
   })
 
   it("writes the token to .env when --dir is set", async () => {
@@ -273,6 +300,11 @@ describe("runGetSyncToken subcommand", () => {
     )
 
     expect(exitCode).toBe(0)
+    expect(silent.logs[0]).toBe(
+      "Handing the terminal to the Obsidian login — it will ask for your " +
+        "account email, password, and MFA code. The token is captured " +
+        `automatically and written to ${join(targetDir, ".env")}.`,
+    )
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-sync-token\nVAULT_NAME=MyVault\n",
     )

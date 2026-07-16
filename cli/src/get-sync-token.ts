@@ -29,7 +29,7 @@ const makeTempMountDir = (prompts: Prompts): string | undefined => {
     return mkdtempSync(join(tmpdir(), "vault-cortex-sync-token-"))
   } catch (error) {
     prompts.warn(
-      `Could not create a temp directory for the login — ${describeError(error)}`,
+      `Could not create a temp directory for token capture — ${describeError(error)}`,
     )
     return undefined
   }
@@ -93,6 +93,11 @@ const removeTempMountDir = (
  * read from the mounted config dir — never printed, so it stays out of
  * terminal scrollback.
  *
+ * tokenDestinationMessage finishes the handoff message by telling the user
+ * where the captured token ends up — the destination differs per flow
+ * (init stores it in the generated .env; the subcommand prints it, or
+ * writes it to an existing .env with --dir).
+ *
  * Returns the token string on success, undefined on any failure — each
  * fallible operation is wrapped individually by the helpers above, so no
  * catch-all is needed here. The bare try/finally only scopes the temp dir
@@ -100,6 +105,7 @@ const removeTempMountDir = (
  */
 export const captureObsidianToken = (
   deps: GetSyncTokenDeps,
+  tokenDestinationMessage: string,
 ): string | undefined => {
   const { prompts } = deps
   const configMountPath = makeTempMountDir(prompts)
@@ -108,9 +114,7 @@ export const captureObsidianToken = (
   try {
     prompts.log(
       "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. Once you've signed in, " +
-        "vault-cortex picks up the token itself — you won't need to find " +
-        "or copy it.",
+        `account email, password, and MFA code. ${tokenDestinationMessage}`,
     )
     const loginSucceeded = runLoginContainer(configMountPath, deps)
     if (!loginSucceeded) {
@@ -123,8 +127,8 @@ export const captureObsidianToken = (
     const token = readCapturedTokenFile(configMountPath)
     if (!token) {
       prompts.warn(
-        "The Obsidian login finished, but the token it should have saved " +
-          "was missing, empty, or unreadable. You can retry with:\n" +
+        "The Obsidian login finished, but no token was captured — the " +
+          "token file was missing, empty, or unreadable. You can retry with:\n" +
           "  npx vault-cortex get-sync-token",
       )
       return undefined
@@ -156,21 +160,31 @@ export const runGetSyncToken = async (
 
   prompts.intro("vault-cortex get-sync-token")
 
-  const token = captureObsidianToken({ docker, prompts })
+  // Resolve the destination up front so the login handoff message can tell
+  // the user where the token will end up.
+  const envFilePath = flags.dir
+    ? join(resolve(expandTilde(flags.dir)), ".env")
+    : undefined
+  const tokenDestinationMessage = envFilePath
+    ? `The token is captured automatically and written to ${envFilePath}.`
+    : "The token is captured automatically and printed at the end."
+
+  const token = captureObsidianToken(
+    { docker, prompts },
+    tokenDestinationMessage,
+  )
   if (!token) {
-    prompts.error("Could not retrieve the auth token.")
+    prompts.error("Could not capture the auth token.")
     return 1
   }
 
-  if (!flags.dir) {
+  if (!envFilePath) {
     prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
     prompts.print(`\n  ${token}\n`)
     prompts.outro("Done.")
     return 0
   }
 
-  const targetDir = resolve(expandTilde(flags.dir))
-  const envFilePath = join(targetDir, ".env")
   const patched = patchEnvObsidianToken(envFilePath, token)
   if (!patched) {
     prompts.error(
