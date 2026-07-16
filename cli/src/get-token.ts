@@ -16,6 +16,74 @@ export type GetTokenDeps = {
   docker: DockerRunner
 }
 
+/** Message from an unknown throw — Error instances keep their message. */
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
+/**
+ * Creates the temp dir the container's config mount writes into.
+ * Returns undefined (after warning) when creation fails.
+ */
+const makeTempMountDir = (prompts: Prompts): string | undefined => {
+  try {
+    return mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
+  } catch (error) {
+    prompts.warn(
+      `Could not create a temp directory for token capture — ${describeError(error)}`,
+    )
+    return undefined
+  }
+}
+
+/**
+ * Runs the interactive Obsidian login container. A throw from the Docker
+ * runner is reported and treated the same as a non-zero exit.
+ */
+const runLoginContainer = (
+  configMountPath: string,
+  deps: GetTokenDeps,
+): boolean => {
+  const { docker, prompts } = deps
+  try {
+    return docker.runGetTokenWithMount(configMountPath)
+  } catch (error) {
+    prompts.warn(`Docker run failed — ${describeError(error)}`)
+    return false
+  }
+}
+
+/**
+ * Reads the captured token file from the config mount, returning "" when
+ * the file is missing, empty, or unreadable — the caller treats all three
+ * as "no token captured".
+ */
+const readCapturedTokenFile = (configMountPath: string): string => {
+  const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
+  try {
+    return existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : ""
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Best-effort removal of the temp mount dir. Failing to remove it (e.g.
+ * root-owned files left by the container) must not turn a successful
+ * capture into a failure, so it warns instead of throwing.
+ */
+const removeTempMountDir = (
+  configMountPath: string,
+  prompts: Prompts,
+): void => {
+  try {
+    rmSync(configMountPath, { recursive: true, force: true })
+  } catch (error) {
+    prompts.warn(
+      `Could not remove temp directory ${configMountPath} — ${describeError(error)}`,
+    )
+  }
+}
+
 /**
  * Runs the Obsidian login (`ob login`) inside a Docker container with a
  * volume mount that captures the auth token file. The interactive login
@@ -23,59 +91,43 @@ export type GetTokenDeps = {
  * read from the mounted config dir — never printed, so it stays out of
  * terminal scrollback.
  *
- * Returns the token string on success, undefined on any failure.
+ * Returns the token string on success, undefined on any failure — each
+ * fallible operation is wrapped individually by the helpers above, so no
+ * catch-all is needed here. The bare try/finally only scopes the temp dir
+ * (acquire → release); it has no catch and swallows nothing.
  */
 export const captureObsidianToken = (
   deps: GetTokenDeps,
 ): string | undefined => {
-  const { docker, prompts } = deps
-  // let: assigned inside the try so the finally can clean up the temp dir on
-  // every path, while staying undefined when mkdtemp itself is what threw.
-  let configMountPath: string | undefined
+  const { prompts } = deps
+  const configMountPath = makeTempMountDir(prompts)
+  if (!configMountPath) return undefined
+
   try {
-    configMountPath = mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
     prompts.log(
       "Handing the terminal to the Obsidian login — it will ask for your " +
         "account email, password, and MFA code. The token is captured " +
         "automatically, so there's nothing to copy.",
     )
-    const succeeded = docker.runGetTokenWithMount(configMountPath)
-    if (!succeeded) {
+    if (!runLoginContainer(configMountPath, deps)) {
       prompts.warn(
         "get-token did not complete — you can run it later with:\n" +
           "  npx vault-cortex get-token",
       )
       return undefined
     }
-    const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
-    const token = existsSync(tokenPath)
-      ? readFileSync(tokenPath, "utf8").trim()
-      : ""
+    const token = readCapturedTokenFile(configMountPath)
     if (!token) {
       prompts.warn(
         "get-token completed but no token was captured — the token file " +
-          "was missing or empty. You can retry with:\n" +
+          "was missing, empty, or unreadable. You can retry with:\n" +
           "  npx vault-cortex get-token",
       )
       return undefined
     }
     return token
-  } catch (error) {
-    prompts.warn(
-      `Token capture failed — ${error instanceof Error ? error.message : String(error)}`,
-    )
-    return undefined
   } finally {
-    // Best-effort cleanup: failing to remove the temp dir (e.g. root-owned
-    // files left by the container) must not turn a successful capture into
-    // a failure, so it only warns.
-    if (configMountPath) {
-      try {
-        rmSync(configMountPath, { recursive: true, force: true })
-      } catch {
-        prompts.warn(`Could not remove temp directory: ${configMountPath}`)
-      }
-    }
+    removeTempMountDir(configMountPath, prompts)
   }
 }
 

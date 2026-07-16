@@ -134,7 +134,7 @@ describe("captureObsidianToken", () => {
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
       "get-token completed but no token was captured — the token file " +
-        "was missing or empty. You can retry with:\n" +
+        "was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-token",
     )
   })
@@ -155,12 +155,12 @@ describe("captureObsidianToken", () => {
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
       "get-token completed but no token was captured — the token file " +
-        "was missing or empty. You can retry with:\n" +
+        "was missing, empty, or unreadable. You can retry with:\n" +
         "  npx vault-cortex get-token",
     )
   })
 
-  it("returns undefined and warns when token capture throws", () => {
+  it("treats a docker runner throw as a failed run and returns undefined", () => {
     const silent = createSilentPrompts()
     const dockerThrows: DockerRunner = {
       ...dockerDown,
@@ -176,9 +176,11 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(silent.warnings[0]).toBe(
-      "Token capture failed — spawn docker ENOENT",
-    )
+    expect(silent.warnings).toEqual([
+      "Docker run failed — spawn docker ENOENT",
+      "get-token did not complete — you can run it later with:\n" +
+        "  npx vault-cortex get-token",
+    ])
   })
 
   it("cleans up the temp directory even on failure", () => {
