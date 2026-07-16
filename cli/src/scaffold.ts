@@ -99,7 +99,12 @@ export const patchEnvObsidianToken = (
   /** Matches the full OBSIDIAN_AUTH_TOKEN line for replacement. */
   const fullTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/m
   if (!fullTokenLine.test(content)) return false
-  const patched = content.replace(fullTokenLine, `OBSIDIAN_AUTH_TOKEN=${token}`)
+  // Function replacement avoids $ pattern interpretation ($&, $', etc.)
+  // that String.prototype.replace applies to string replacements.
+  const patched = content.replace(
+    fullTokenLine,
+    () => `OBSIDIAN_AUTH_TOKEN=${token}`,
+  )
   writeFileSync(envFilePath, patched)
   return true
 }
