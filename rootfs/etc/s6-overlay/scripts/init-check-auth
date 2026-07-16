@@ -1,11 +1,18 @@
 #!/command/with-contenv sh
-# Validate that OBSIDIAN_AUTH_TOKEN is set before proceeding.
-set -e
+# Init-chain gate: refuse to start when no Obsidian Sync auth token is
+# configured — everything downstream (login, sync-setup) would fail with a
+# far less obvious error.
+set -eu
 
-if [ -z "$OBSIDIAN_AUTH_TOKEN" ]; then
-  echo "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is not set." >&2
-  echo "[obsidian-sync] Run: docker run --rm -it --entrypoint get-sync-token <image>" >&2
-  exit 1
+if [ -n "${OBSIDIAN_AUTH_TOKEN:-}" ]; then
+  echo "[obsidian-sync] Auth token present."
+  exit 0
 fi
 
-echo "[obsidian-sync] Auth token present."
+{
+  echo "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is empty or unset."
+  echo "[obsidian-sync] Generate one with:"
+  echo "[obsidian-sync]   docker run --rm -it --entrypoint get-sync-token <image>"
+  echo "[obsidian-sync] then add it to your .env and restart the container."
+} >&2
+exit 1
