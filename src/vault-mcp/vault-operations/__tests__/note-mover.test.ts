@@ -224,15 +224,18 @@ describe("moveNote — link rewriting forms", () => {
 
   it("leaves a markdown asset link untouched while rewriting a note link beside it", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Old.md", "content\n")
+    const oldPath = "Old.md"
+    const newPath = "New.md"
+    const backlinkSource = "Hub.md"
+    await writeFixture(oldPath, "content\n")
     await writeFixture(
-      "Hub.md",
+      backlinkSource,
       "See [doc](report.pdf) and [summary](Old.md).\n",
     )
 
-    const result = await moveNote("Old.md", "New.md", ["Hub.md"])
+    const result = await moveNote(oldPath, newPath, [backlinkSource])
 
-    expect(await readNote("Hub.md")).toBe(
+    expect(await readNote(backlinkSource)).toBe(
       "See [doc](report.pdf) and [summary](New.md).\n",
     )
     expect(result.links_updated).toBe(1)
@@ -240,14 +243,16 @@ describe("moveNote — link rewriting forms", () => {
 
   it("leaves the moved note's own markdown asset links untouched", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
+    const oldPath = "Inbox/Draft.md"
+    const newPath = "Archive/Draft.md"
     await writeFixture(
-      "Inbox/Draft.md",
+      oldPath,
       "![img](photo.png) and [doc](papers/report.pdf).\n",
     )
 
-    await moveNote("Inbox/Draft.md", "Archive/Draft.md")
+    await moveNote(oldPath, newPath)
 
-    expect(await readNote("Archive/Draft.md")).toBe(
+    expect(await readNote(newPath)).toBe(
       "![img](photo.png) and [doc](papers/report.pdf).\n",
     )
   })
