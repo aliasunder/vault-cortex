@@ -536,6 +536,14 @@ export const createSearchIndex = (
   const resolveNonMdBySuffixPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
+  /** Suffix match on the full stored path, for targets that include their
+   *  extension — [[photo.png]] or ![img](attachments/photo.png) where the file
+   *  lives in a deeper folder (Obsidian's shortest-path format). The
+   *  base_path/basename columns strip the extension, so with-extension targets
+   *  can only ever match the path column. Same ESCAPE rationale as above. */
+  const resolveNonMdByPathSuffixStmt = db.prepare<[string], { path: string }>(
+    `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
+  )
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
     ? db.prepare(
@@ -712,9 +720,14 @@ export const createSearchIndex = (
 
   /** Resolves a wikilink target to a known non-markdown file path, or null
    *  when no match is found. Handles both extensionless targets ([[Trip Route]]
-   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]] →
-   *  photo.png). Mirrors links.resolve's three-tier strategy but checks against
-   *  non_md_files instead of the notes table. */
+   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]],
+   *  ![img](attachments/photo.png)) in every form Obsidian resolves — exact
+   *  path, relative to the source note, and basename/shortest path. Mirrors
+   *  links.resolve's three-tier strategy but checks against non_md_files
+   *  instead of the notes table. Extensionless targets match the
+   *  extension-stripped base_path/basename columns; with-extension targets
+   *  match the path column — the two column families are disjoint by target
+   *  form, so within each tier the miss costs one indexed lookup. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,
@@ -730,12 +743,27 @@ export const createSearchIndex = (
     const exactMatch = resolveNonMdByBasePathStmt.get(target)
     if (exactMatch) return exactMatch.path
 
-    // Relative-to-source match ("path from current file")
+    // Relative-to-source match ("path from current file") — the path column
+    // for with-extension targets ("../assets/photo.png"), base_path for
+    // extensionless ones ("../boards/Trip Route").
     if (sourcePath) {
       const relativeTarget = posix.join(posix.dirname(sourcePath), target)
+      const relativeFullPathMatch =
+        resolveNonMdByFullPathStmt.get(relativeTarget)
+      if (relativeFullPathMatch) return relativeFullPathMatch.path
       const relativeMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
       if (relativeMatch) return relativeMatch.path
     }
+
+    // Path-suffix match for with-extension targets ("photo.png",
+    // "assets/photo.png") — Obsidian's shortest-path format for assets in a
+    // deeper folder. Runs before the base_path tiers so a file whose full
+    // name matches the target beats one whose extension-stripped stem
+    // happens to (e.g. [[photo.png]] prefers a/photo.png over b/photo.png.canvas).
+    const pathSuffixMatch = resolveNonMdByPathSuffixStmt.get(
+      escapeLikeWildcards(target),
+    )
+    if (pathSuffixMatch) return pathSuffixMatch.path
 
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
     // When the target includes folder segments (e.g. "views/Inventory"),
