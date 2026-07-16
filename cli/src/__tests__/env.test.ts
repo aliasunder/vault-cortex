@@ -15,24 +15,31 @@ describe("buildLocalEnv", () => {
     expect(lines).toContain("VAULT_PATH=/Users/you/My Vault")
   })
 
-  it("links to the canonical .env.example and keeps optional settings commented out", () => {
+  it("states defaulted optional settings as uncommented lines", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+    const lines = env.split("\n")
+
+    expect(lines).toContain("MEMORY_DIR=About Me")
+    expect(lines).toContain("PORT=8000")
+    expect(lines).toContain("LOG_LEVEL=info")
+  })
+
+  it("links to the canonical .env.example and keeps settings with no universal default commented out", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
     expect(env).toContain("deploy/local/.env.example")
     expect(env).toContain("# TZ=America/New_York")
-    expect(env).toContain("# MEMORY_DIR=About Me")
-    expect(env).toContain("# PORT=8000")
-    expect(env).toContain("# LOG_LEVEL=info")
+    expect(env).toContain("# LOG_DIR=/data/logs")
     expect(env).not.toMatch(/^TZ=/m)
-    expect(env).not.toMatch(/^MEMORY_DIR=/m)
+    expect(env).not.toMatch(/^LOG_DIR=/m)
   })
 
-  it("tells the user how to override an optional and apply the change", () => {
+  it("tells the user how to change a setting and apply it", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
-    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      '"npx vault-cortex upgrade" (restart alone does not re-read this file)',
+      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
     )
   })
 })
@@ -79,22 +86,32 @@ describe("buildRemoteEnv", () => {
     expect(env).toContain(`get-token \\\n#     ${REMOTE_IMAGE}`)
   })
 
-  it("links to the canonical .env.example and keeps optional sync settings commented out", () => {
+  it("states defaulted sync settings as uncommented lines", () => {
+    const env = buildRemoteEnv(baseAnswers)
+    const lines = env.split("\n")
+
+    expect(lines).toContain("DEVICE_NAME=vault-cortex")
+    expect(lines).toContain("CONFLICT_STRATEGY=merge")
+    expect(lines).toContain("SYNC_MODE=bidirectional")
+    expect(lines).toContain("PUID=1000")
+  })
+
+  it("links to the canonical .env.example and keeps settings with no universal default commented out", () => {
     const env = buildRemoteEnv(baseAnswers)
 
     expect(env).toContain("deploy/remote/.env.example")
-    expect(env).toContain("# DEVICE_NAME=vault-cortex")
-    expect(env).toContain("# CONFLICT_STRATEGY=merge")
-    expect(env).toContain("# SYNC_MODE=bidirectional")
-    expect(env).toContain("# PUID=1000")
+    expect(env).toContain("# TZ=America/New_York")
+    expect(env).toContain("# PROTECTED_PATHS=About Me,Daily Notes")
+    expect(env).not.toMatch(/^TZ=/m)
+    expect(env).not.toMatch(/^PROTECTED_PATHS=/m)
   })
 
-  it("tells the user how to override an optional and apply the change", () => {
+  it("tells the user how to change a setting and apply it", () => {
     const env = buildRemoteEnv(baseAnswers)
 
-    expect(env).toContain("To override a setting: uncomment it")
+    expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      '"npx vault-cortex upgrade" (restart alone does not re-read this file)',
+      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
     )
   })
 })

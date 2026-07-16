@@ -28,8 +28,9 @@ export type RemoteEnvAnswers = {
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
-# To override a setting: uncomment it, set a value, then apply with
-# "npx vault-cortex upgrade" (restart alone does not re-read this file).
+# To change a setting: edit its value (uncommenting it first if needed),
+# then apply with "npx vault-cortex upgrade" (restart alone does not
+# re-read this file).
 
 # Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
@@ -89,7 +90,7 @@ LOG_RETENTION_DAYS=30
 # through Docker Desktop (switches the file watcher to polling and note moves
 # to rename-based writes). Only strictly needed when your vault is on a C:
 # drive rather than inside WSL2, but harmless to enable for any Windows setup.
-# WINDOWS_MODE=false
+WINDOWS_MODE=false
 `
 
 // sync:local-optional:end
@@ -101,8 +102,9 @@ LOG_RETENTION_DAYS=30
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
-# To override a setting: uncomment it, set a value, then apply with
-# "npx vault-cortex upgrade" (restart alone does not re-read this file).
+# To change a setting: edit its value (uncommenting it first if needed),
+# then apply with "npx vault-cortex upgrade" (restart alone does not
+# re-read this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
