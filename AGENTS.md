@@ -53,7 +53,7 @@ obsidian-headless/                     # Lockfile-pinned obsidian-headless for D
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
 rootfs/                                # Container filesystem overlay (remote target)
   etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
-  usr/local/bin/get-token              #   interactive Obsidian Sync token helper
+  usr/local/bin/get-sync-token         #   interactive Obsidian Sync token helper (manual flow)
 docker-compose.yml                     # Lightsail: single vault-cortex:remote service
 docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env
@@ -86,6 +86,7 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     scaffold.ts                        # File generation (.env)
     docker.ts                          # Container management (docker run, health-check wait)
     upgrade.ts                         # Upgrade command (pull + re-create + health check)
+    get-sync-token.ts                  # Get-sync-token subcommand (Sync token auto-capture via volume mount)
     env.ts                             # Environment file handling (.env generation)
     token.ts                           # Secure token generation (openssl rand)
     vault.ts                           # Vault path validation

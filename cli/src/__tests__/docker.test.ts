@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildDockerRunArgs,
+  buildObsidianLoginArgs,
   CONTAINER_NAME,
   LOCAL_IMAGE,
   pollHealth,
@@ -184,6 +185,71 @@ describe("buildDockerRunArgs", () => {
     expect(args[retriesIndex + 1]).toBe("5")
     const startPeriodIndex = args.indexOf("--health-start-period")
     expect(args[startPeriodIndex + 1]).toBe("60s")
+  })
+})
+
+describe("buildObsidianLoginArgs", () => {
+  it("produces the correct args on macOS (no --user flag)", () => {
+    const args = buildObsidianLoginArgs({
+      configMountPath: "/tmp/vault-cortex-sync-token-abc",
+      platform: "darwin",
+      uid: 501,
+      gid: 20,
+    })
+
+    expect(args).toEqual([
+      "run",
+      "--rm",
+      "-it",
+      "--entrypoint",
+      "ob",
+      "-v",
+      "/tmp/vault-cortex-sync-token-abc:/home/obsidian/.config",
+      REMOTE_IMAGE,
+      "login",
+    ])
+  })
+
+  it("includes --user uid:gid on Linux", () => {
+    const args = buildObsidianLoginArgs({
+      configMountPath: "/tmp/vault-cortex-sync-token-abc",
+      platform: "linux",
+      uid: 1000,
+      gid: 1000,
+    })
+
+    expect(args).toEqual([
+      "run",
+      "--rm",
+      "-it",
+      "--entrypoint",
+      "ob",
+      "-v",
+      "/tmp/vault-cortex-sync-token-abc:/home/obsidian/.config",
+      "--user",
+      "1000:1000",
+      REMOTE_IMAGE,
+      "login",
+    ])
+  })
+
+  it("omits --user on Linux when uid/gid are not provided", () => {
+    const args = buildObsidianLoginArgs({
+      configMountPath: "/tmp/test",
+      platform: "linux",
+    })
+
+    expect(args).toEqual([
+      "run",
+      "--rm",
+      "-it",
+      "--entrypoint",
+      "ob",
+      "-v",
+      "/tmp/test:/home/obsidian/.config",
+      REMOTE_IMAGE,
+      "login",
+    ])
   })
 })
 

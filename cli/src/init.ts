@@ -1,11 +1,12 @@
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
+import { captureObsidianToken } from "./get-sync-token.js"
 import {
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "./messages.js"
-import { REMOTE_IMAGE, pollHealth, type DockerRunner } from "./docker.js"
+import { pollHealth, type DockerRunner } from "./docker.js"
 import {
   buildFilesToWrite,
   readEnvPort,
@@ -55,33 +56,21 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
   return isMode(selected) ? selected : "local"
 }
 
-const GET_TOKEN_COMMAND = `docker run --rm -it --entrypoint get-token \\
-  ${REMOTE_IMAGE}`
-
 /**
- * Offers to run the vault-cortex image's get-token flow in this terminal.
- * Returns true only when it ran to completion (and so printed a token the
- * user can scroll up to). The handoff log exists because the clack UI gives
- * way to raw docker output — image pull, then the tool's own login prompts.
+ * Offers to auto-capture the Obsidian Sync token via a Docker volume mount.
+ * Returns the captured token string, or undefined when the user declines or
+ * the capture fails (the caller falls back to a paste prompt).
  */
-const offerGetTokenRun = async (
+const offerSyncTokenCapture = async (
   prompts: Prompts,
   docker: DockerRunner,
-): Promise<boolean> => {
-  const runNow = await prompts.confirm("Run the get-token command now?", true)
-  if (!runNow) return false
-  prompts.log(
-    "Handing the terminal to get-token — it will ask for your Obsidian " +
-      "account login and print a token at the end.",
+): Promise<string | undefined> => {
+  const runNow = await prompts.confirm("Generate the token now?", true)
+  if (!runNow) return undefined
+  return captureObsidianToken(
+    { docker, prompts },
+    "The token is captured automatically and stored in your .env — nothing to copy.",
   )
-  const tokenGenerated = docker.runGetToken()
-  if (!tokenGenerated) {
-    prompts.warn(
-      "get-token did not complete — you can run it later and edit .env.",
-    )
-    return false
-  }
-  return true
 }
 
 /**
@@ -344,7 +333,7 @@ const runLocalInit = async (
 }
 
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
-// VAULT_NAME → Obsidian Sync token (optionally running get-token via
+// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
 // Docker) → optional E2E vault password → generate token → write .env →
 // optionally start → print connect instructions. Always interactive —
 // the sync-token step can't be defaulted.
@@ -369,23 +358,22 @@ const runRemoteInit = async (
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
-  // The Obsidian Sync token comes from an interactive docker run (the
-  // get-token entrypoint logs into Obsidian). We print the command, offer to
-  // run it when Docker is usable, then ask the user to paste the result —
-  // get-token writes to the terminal, so it can't be captured automatically.
-  // A blank answer is allowed: the .env is written with an empty
-  // OBSIDIAN_AUTH_TOKEN and a fill-this-in comment.
-  prompts.note(GET_TOKEN_COMMAND, "Obsidian Sync token — generate once with")
-  const getTokenRan = docker.isDaemonRunning()
-    ? await offerGetTokenRun(prompts, docker)
-    : false
-  // "printed above" is only true when get-token actually ran to completion.
-  const pastePrompt = getTokenRan
-    ? "Paste the Obsidian Sync token printed above (leave blank to fill in .env later):"
-    : "Paste the Obsidian Sync token (leave blank to fill in .env later):"
-  const obsidianAuthToken = (
-    await prompts.text(pastePrompt, { defaultValue: "" })
-  ).trim()
+  // Auto-capture the Obsidian Sync token via a Docker volume mount when
+  // the daemon is reachable. Falls back to a paste prompt when capture
+  // fails or the user declines.
+  const capturedToken = docker.isDaemonRunning()
+    ? await offerSyncTokenCapture(prompts, docker)
+    : undefined
+  // Masked prompt: the sync token is a credential and must not echo into
+  // the terminal or scrollback. An empty submission still means "fill in
+  // .env later" — clack's password prompt accepts blank input.
+  const obsidianAuthToken =
+    capturedToken ??
+    (
+      await prompts.password(
+        "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      )
+    ).trim()
 
   const usesEncryption = await prompts.confirm(
     "Does your vault use end-to-end encryption?",

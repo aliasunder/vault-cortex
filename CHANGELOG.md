@@ -43,6 +43,23 @@
 
 
 
+
+## [0.29.4] — 2026-07-16
+
+### Features
+
+- **deploy:** Pass optional config vars through CI, state .env defaults explicitly, and restructure deploy guides (#333)
+
+### Bug Fixes
+
+- **deploy:** Omit user-specific overrides from .env when unset (#337)
+- **deploy:** Sync test_deploy.yml env template with deploy.yml (#335)
+- **build:** Skip puppeteer's Chrome download during npm ci, install on demand for the render script (#334)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.29.3
+
 ## [0.29.3] — 2026-07-15
 
 ### ⚠ BREAKING CHANGES
