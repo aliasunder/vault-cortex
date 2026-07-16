@@ -2893,6 +2893,56 @@ describe("asset targets written with extensions", () => {
     ])
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
+
+  it("upsertNonMdFile re-resolves a previously unresolved with-extension target", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+
+    index.upsertNonMdFile("attachments/photo.png")
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "attachments/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
+    // Only photo1final.png exists — if the _ in the target were treated as a
+    // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
+    index.upsertNonMdFile("img/photo1final.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo_final.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo_final.png",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
 })
 
 describe("modifiedOnDate", () => {
