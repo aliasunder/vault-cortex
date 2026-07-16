@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildDockerRunArgs,
-  buildGetTokenArgs,
+  buildObsidianLoginArgs,
   CONTAINER_NAME,
   LOCAL_IMAGE,
   pollHealth,
@@ -188,10 +188,10 @@ describe("buildDockerRunArgs", () => {
   })
 })
 
-describe("buildGetTokenArgs", () => {
+describe("buildObsidianLoginArgs", () => {
   it("produces the correct args on macOS (no --user flag)", () => {
-    const args = buildGetTokenArgs({
-      configMountPath: "/tmp/vault-cortex-get-token-abc",
+    const args = buildObsidianLoginArgs({
+      configMountPath: "/tmp/vault-cortex-sync-token-abc",
       platform: "darwin",
       uid: 501,
       gid: 20,
@@ -204,15 +204,15 @@ describe("buildGetTokenArgs", () => {
       "--entrypoint",
       "ob",
       "-v",
-      "/tmp/vault-cortex-get-token-abc:/home/obsidian/.config",
+      "/tmp/vault-cortex-sync-token-abc:/home/obsidian/.config",
       REMOTE_IMAGE,
       "login",
     ])
   })
 
   it("includes --user uid:gid on Linux", () => {
-    const args = buildGetTokenArgs({
-      configMountPath: "/tmp/vault-cortex-get-token-abc",
+    const args = buildObsidianLoginArgs({
+      configMountPath: "/tmp/vault-cortex-sync-token-abc",
       platform: "linux",
       uid: 1000,
       gid: 1000,
@@ -225,7 +225,7 @@ describe("buildGetTokenArgs", () => {
       "--entrypoint",
       "ob",
       "-v",
-      "/tmp/vault-cortex-get-token-abc:/home/obsidian/.config",
+      "/tmp/vault-cortex-sync-token-abc:/home/obsidian/.config",
       "--user",
       "1000:1000",
       REMOTE_IMAGE,
@@ -234,7 +234,7 @@ describe("buildGetTokenArgs", () => {
   })
 
   it("omits --user on Linux when uid/gid are not provided", () => {
-    const args = buildGetTokenArgs({
+    const args = buildObsidianLoginArgs({
       configMountPath: "/tmp/test",
       platform: "linux",
     })

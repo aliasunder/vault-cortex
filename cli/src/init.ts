@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { captureObsidianToken } from "./get-token.js"
+import { captureObsidianToken } from "./get-sync-token.js"
 import {
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
@@ -61,7 +61,7 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
  * Returns the captured token string, or undefined when the user declines or
  * the capture fails (the caller falls back to a paste prompt).
  */
-const offerGetTokenCapture = async (
+const offerSyncTokenCapture = async (
   prompts: Prompts,
   docker: DockerRunner,
 ): Promise<string | undefined> => {
@@ -330,7 +330,7 @@ const runLocalInit = async (
 }
 
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
-// VAULT_NAME → Obsidian Sync token (optionally running get-token via
+// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
 // Docker) → optional E2E vault password → generate token → write .env →
 // optionally start → print connect instructions. Always interactive —
 // the sync-token step can't be defaulted.
@@ -359,7 +359,7 @@ const runRemoteInit = async (
   // the daemon is reachable. Falls back to a paste prompt when capture
   // fails or the user declines.
   const capturedToken = docker.isDaemonRunning()
-    ? await offerGetTokenCapture(prompts, docker)
+    ? await offerSyncTokenCapture(prompts, docker)
     : undefined
   // Masked prompt: the sync token is a credential and must not echo into
   // the terminal or scrollback. An empty submission still means "fill in

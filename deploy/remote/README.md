@@ -64,7 +64,7 @@ If you have Node.js >= 20.12 on this machine, the CLI captures the token
 automatically:
 
 ```bash
-npx vault-cortex get-token
+npx vault-cortex get-sync-token
 ```
 
 Otherwise, run the Docker image directly:

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { captureObsidianToken, runGetToken } from "../get-token.js"
+import { captureObsidianToken, runGetSyncToken } from "../get-sync-token.js"
 import type { DockerRunner } from "../docker.js"
 import type { Prompts } from "../prompts.js"
 
@@ -52,16 +52,16 @@ const createSilentPrompts = () => {
 }
 
 /**
- * Creates a DockerRunner whose runGetTokenWithMount writes a fake
- * auth_token file into the config mount path, simulating the container's
- * get-token behavior.
+ * Creates a DockerRunner whose runObsidianLogin writes a fake
+ * auth_token file into the config mount path, simulating the
+ * containerized login writing the token file.
  */
 const dockerWithToken = (token: string): DockerRunner => ({
   isDaemonRunning: () => true,
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetTokenWithMount: (configMountPath) => {
+  runObsidianLogin: (configMountPath) => {
     const tokenDir = join(configMountPath, "obsidian-headless")
     mkdirSync(tokenDir, { recursive: true })
     writeFileSync(join(tokenDir, "auth_token"), token)
@@ -69,12 +69,12 @@ const dockerWithToken = (token: string): DockerRunner => ({
   },
 })
 
-const dockerFailsGetToken: DockerRunner = {
+const dockerFailsLogin: DockerRunner = {
   isDaemonRunning: () => true,
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetTokenWithMount: () => false,
+  runObsidianLogin: () => false,
 }
 
 const dockerDown: DockerRunner = {
@@ -82,11 +82,11 @@ const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetTokenWithMount: () => false,
+  runObsidianLogin: () => false,
 }
 
 describe("captureObsidianToken", () => {
-  it("returns the token when get-token writes the auth_token file", () => {
+  it("returns the token when the login writes the auth_token file", () => {
     const { prompts } = createSilentPrompts()
 
     const token = captureObsidianToken({
@@ -112,14 +112,14 @@ describe("captureObsidianToken", () => {
     const silent = createSilentPrompts()
 
     const token = captureObsidianToken({
-      docker: dockerFailsGetToken,
+      docker: dockerFailsLogin,
       prompts: silent.prompts,
     })
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "get-token did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-token",
+      "The Obsidian login did not complete — you can run it later with:\n" +
+        "  npx vault-cortex get-sync-token",
     )
   })
 
@@ -133,18 +133,18 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "get-token completed but no token was captured — the token file " +
+      "The Obsidian login completed but no token was captured — the token file " +
         "was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-token",
+        "  npx vault-cortex get-sync-token",
     )
   })
 
-  it("returns undefined and warns when get-token succeeds but writes no token file", () => {
+  it("returns undefined and warns when the login succeeds but writes no token file", () => {
     const silent = createSilentPrompts()
     const dockerSucceedsButNoFile: DockerRunner = {
       ...dockerDown,
       isDaemonRunning: () => true,
-      runGetTokenWithMount: () => true,
+      runObsidianLogin: () => true,
     }
 
     const token = captureObsidianToken({
@@ -154,9 +154,9 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(silent.warnings[0]).toBe(
-      "get-token completed but no token was captured — the token file " +
+      "The Obsidian login completed but no token was captured — the token file " +
         "was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-token",
+        "  npx vault-cortex get-sync-token",
     )
   })
 
@@ -165,7 +165,7 @@ describe("captureObsidianToken", () => {
     const dockerThrows: DockerRunner = {
       ...dockerDown,
       isDaemonRunning: () => true,
-      runGetTokenWithMount: () => {
+      runObsidianLogin: () => {
         throw new Error("spawn docker ENOENT")
       },
     }
@@ -178,8 +178,8 @@ describe("captureObsidianToken", () => {
     expect(token).toBeUndefined()
     expect(silent.warnings).toEqual([
       "Docker run failed — spawn docker ENOENT",
-      "get-token did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-token",
+      "The Obsidian login did not complete — you can run it later with:\n" +
+        "  npx vault-cortex get-sync-token",
     ])
   })
 
@@ -189,7 +189,7 @@ describe("captureObsidianToken", () => {
     const dockerTracker: DockerRunner = {
       ...dockerDown,
       isDaemonRunning: () => true,
-      runGetTokenWithMount: (configMountPath) => {
+      runObsidianLogin: (configMountPath) => {
         tempDirs.push(configMountPath)
         return false
       },
@@ -217,11 +217,11 @@ describe("captureObsidianToken", () => {
   })
 })
 
-describe("runGetToken subcommand", () => {
+describe("runGetSyncToken subcommand", () => {
   it("prints the token to stdout when --dir is not set", async () => {
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       {},
       { prompts: silent.prompts, docker: dockerWithToken("my-sync-token") },
     )
@@ -234,7 +234,7 @@ describe("runGetToken subcommand", () => {
   it("exits 1 when the docker daemon is not running", async () => {
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       {},
       { prompts: silent.prompts, docker: dockerDown },
     )
@@ -249,9 +249,9 @@ describe("runGetToken subcommand", () => {
   it("exits 1 when token capture fails", async () => {
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       {},
-      { prompts: silent.prompts, docker: dockerFailsGetToken },
+      { prompts: silent.prompts, docker: dockerFailsLogin },
     )
 
     expect(exitCode).toBe(1)
@@ -259,14 +259,14 @@ describe("runGetToken subcommand", () => {
   })
 
   it("writes the token to .env when --dir is set", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-get-token-"))
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sync-token-"))
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
     )
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       { dir: targetDir },
       { prompts: silent.prompts, docker: dockerWithToken("new-sync-token") },
     )
@@ -279,11 +279,11 @@ describe("runGetToken subcommand", () => {
   })
 
   it("exits 1 when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-get-token-"))
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sync-token-"))
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       { dir: targetDir },
       { prompts: silent.prompts, docker: dockerWithToken("new-sync-token") },
     )
@@ -297,12 +297,12 @@ describe("runGetToken subcommand", () => {
 
   it("exits 1 when --dir .env does not exist", async () => {
     const targetDir = join(
-      mkdtempSync(join(tmpdir(), "vault-cli-get-token-")),
+      mkdtempSync(join(tmpdir(), "vault-cli-sync-token-")),
       "nonexistent",
     )
     const silent = createSilentPrompts()
 
-    const exitCode = await runGetToken(
+    const exitCode = await runGetSyncToken(
       { dir: targetDir },
       { prompts: silent.prompts, docker: dockerWithToken("new-sync-token") },
     )

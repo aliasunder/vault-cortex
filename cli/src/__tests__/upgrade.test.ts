@@ -46,7 +46,7 @@ const dockerReady: DockerRunner = {
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
-  runGetTokenWithMount: () => false,
+  runObsidianLogin: () => false,
 }
 
 const dockerDown: DockerRunner = {
@@ -54,7 +54,7 @@ const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetTokenWithMount: () => false,
+  runObsidianLogin: () => false,
 }
 
 const fetchOk: typeof fetch = async () => ({ ok: true }) as Response

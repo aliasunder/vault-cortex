@@ -24,10 +24,10 @@ export type DockerRunner = {
   /** Stops and removes the vault-cortex container (idempotent). */
   stopAndRemoveContainer: () => boolean
   /** Runs the Obsidian login with a volume mount for token auto-capture. */
-  runGetTokenWithMount: (configMountPath: string) => boolean
+  runObsidianLogin: (configMountPath: string) => boolean
 }
 
-export type GetTokenArgParams = {
+export type ObsidianLoginArgParams = {
   configMountPath: string
   /** Defaults to process.platform. */
   platform?: NodeJS.Platform
@@ -50,7 +50,9 @@ export type GetTokenArgParams = {
  * flag is always set there — keeping the token file host-user-owned. macOS
  * Docker Desktop translates UIDs automatically, so no flag is needed.
  */
-export const buildGetTokenArgs = (params: GetTokenArgParams): string[] => {
+export const buildObsidianLoginArgs = (
+  params: ObsidianLoginArgParams,
+): string[] => {
   const { configMountPath, platform = process.platform, uid, gid } = params
 
   const args = [
@@ -149,10 +151,10 @@ export const createDockerRunner = (): DockerRunner => ({
     spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
   stopAndRemoveContainer: () =>
     spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
-  runGetTokenWithMount: (configMountPath) =>
+  runObsidianLogin: (configMountPath) =>
     spawnSync(
       "docker",
-      buildGetTokenArgs({
+      buildObsidianLoginArgs({
         configMountPath,
         uid: process.getuid?.(),
         gid: process.getgid?.(),

@@ -80,7 +80,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(env).toContain("FILL THIS IN")
-    expect(env).toContain("npx vault-cortex get-token")
+    expect(env).toContain("npx vault-cortex get-sync-token")
   })
 
   it("states defaulted sync settings as uncommented lines", () => {

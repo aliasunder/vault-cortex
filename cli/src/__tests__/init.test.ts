@@ -91,7 +91,7 @@ const dockerUnavailable: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  runGetTokenWithMount: () => false,
+  runObsidianLogin: () => false,
 }
 
 const fetchNever: typeof fetch = async () => {
@@ -593,7 +593,7 @@ describe("runInit remote flow", () => {
     const dockerWithCapture: DockerRunner = {
       ...dockerUnavailable,
       isDaemonRunning: () => true,
-      runGetTokenWithMount: (configMountPath) => {
+      runObsidianLogin: (configMountPath) => {
         const tokenDir = join(configMountPath, "obsidian-headless")
         mkdirSync(tokenDir, { recursive: true })
         writeFileSync(join(tokenDir, "auth_token"), "captured-token")
@@ -701,7 +701,7 @@ describe("runInit with a kept existing .env", () => {
       dockerRun: () => true,
       pullImage: () => true,
       stopAndRemoveContainer: () => true,
-      runGetTokenWithMount: () => false,
+      runObsidianLogin: () => false,
     }
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
@@ -765,7 +765,7 @@ describe("runInit remote encryption password", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
-      runGetTokenWithMount: () => false,
+      runObsidianLogin: () => false,
     }
 
     const exitCode = await runInit(
@@ -785,7 +785,7 @@ describe("runInit remote encryption password", () => {
   })
 })
 
-describe("runInit get-token auto-capture fallback", () => {
+describe("runInit sync-token auto-capture fallback", () => {
   it("falls back to paste prompt when auto-capture fails", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
@@ -800,7 +800,7 @@ describe("runInit get-token auto-capture fallback", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
-      runGetTokenWithMount: () => false,
+      runObsidianLogin: () => false,
     }
 
     await runInit(
@@ -815,6 +815,8 @@ describe("runInit get-token auto-capture fallback", () => {
     expect(scripted.asked).toContain(
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )
-    expect(scripted.warnings[0]).toContain("get-token did not complete")
+    expect(scripted.warnings[0]).toContain(
+      "The Obsidian login did not complete",
+    )
   })
 })

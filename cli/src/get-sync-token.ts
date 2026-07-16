@@ -7,11 +7,11 @@ import type { Prompts } from "./prompts.js"
 import { patchEnvObsidianToken } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
 
-export type GetTokenFlags = {
+export type GetSyncTokenFlags = {
   dir?: string
 }
 
-export type GetTokenDeps = {
+export type GetSyncTokenDeps = {
   prompts: Prompts
   docker: DockerRunner
 }
@@ -26,7 +26,7 @@ const describeError = (error: unknown): string =>
  */
 const makeTempMountDir = (prompts: Prompts): string | undefined => {
   try {
-    return mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
+    return mkdtempSync(join(tmpdir(), "vault-cortex-sync-token-"))
   } catch (error) {
     prompts.warn(
       `Could not create a temp directory for token capture — ${describeError(error)}`,
@@ -41,11 +41,11 @@ const makeTempMountDir = (prompts: Prompts): string | undefined => {
  */
 const runLoginContainer = (
   configMountPath: string,
-  deps: GetTokenDeps,
+  deps: GetSyncTokenDeps,
 ): boolean => {
   const { docker, prompts } = deps
   try {
-    return docker.runGetTokenWithMount(configMountPath)
+    return docker.runObsidianLogin(configMountPath)
   } catch (error) {
     prompts.warn(`Docker run failed — ${describeError(error)}`)
     return false
@@ -99,7 +99,7 @@ const removeTempMountDir = (
  * (acquire → release); it has no catch and swallows nothing.
  */
 export const captureObsidianToken = (
-  deps: GetTokenDeps,
+  deps: GetSyncTokenDeps,
 ): string | undefined => {
   const { prompts } = deps
   const configMountPath = makeTempMountDir(prompts)
@@ -114,17 +114,17 @@ export const captureObsidianToken = (
     const loginSucceeded = runLoginContainer(configMountPath, deps)
     if (!loginSucceeded) {
       prompts.warn(
-        "get-token did not complete — you can run it later with:\n" +
-          "  npx vault-cortex get-token",
+        "The Obsidian login did not complete — you can run it later with:\n" +
+          "  npx vault-cortex get-sync-token",
       )
       return undefined
     }
     const token = readCapturedTokenFile(configMountPath)
     if (!token) {
       prompts.warn(
-        "get-token completed but no token was captured — the token file " +
+        "The Obsidian login completed but no token was captured — the token file " +
           "was missing, empty, or unreadable. You can retry with:\n" +
-          "  npx vault-cortex get-token",
+          "  npx vault-cortex get-sync-token",
       )
       return undefined
     }
@@ -139,9 +139,9 @@ export const captureObsidianToken = (
  * Without --dir, prints the token to stdout.
  * With --dir, writes it directly to `<dir>/.env`.
  */
-export const runGetToken = async (
-  flags: GetTokenFlags,
-  deps: GetTokenDeps,
+export const runGetSyncToken = async (
+  flags: GetSyncTokenFlags,
+  deps: GetSyncTokenDeps,
 ): Promise<number> => {
   const { prompts, docker } = deps
 
@@ -153,7 +153,7 @@ export const runGetToken = async (
     return 1
   }
 
-  prompts.intro("vault-cortex get-token")
+  prompts.intro("vault-cortex get-sync-token")
 
   const token = captureObsidianToken({ docker, prompts })
   if (!token) {
