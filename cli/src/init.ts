@@ -361,12 +361,14 @@ const runRemoteInit = async (
   const capturedToken = docker.isDaemonRunning()
     ? await offerGetTokenCapture(prompts, docker)
     : undefined
+  // Masked prompt: the sync token is a credential and must not echo into
+  // the terminal or scrollback. An empty submission still means "fill in
+  // .env later" — clack's password prompt accepts blank input.
   const obsidianAuthToken =
     capturedToken ??
     (
-      await prompts.text(
+      await prompts.password(
         "Paste the Obsidian Sync token (leave blank to fill in .env later):",
-        { defaultValue: "" },
       )
     ).trim()
 

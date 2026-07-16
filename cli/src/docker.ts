@@ -41,8 +41,10 @@ export type GetTokenArgParams = {
  * Builds the `docker run` args for get-token with a volume mount that
  * captures the auth token file. Pure function for testability.
  *
- * On Linux, includes `--user uid:gid` so the token file is host-user-owned
- * (macOS Docker Desktop translates UIDs automatically).
+ * On Linux, includes `--user uid:gid` when uid/gid are provided — Node
+ * exposes process.getuid/getgid on every POSIX platform, so in practice the
+ * flag is always set there — keeping the token file host-user-owned. macOS
+ * Docker Desktop translates UIDs automatically, so no flag is needed.
  */
 export const buildGetTokenArgs = (params: GetTokenArgParams): string[] => {
   const { configMountPath, platform = process.platform, uid, gid } = params

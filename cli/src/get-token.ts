@@ -28,26 +28,48 @@ export const captureObsidianToken = (
   deps: GetTokenDeps,
 ): string | undefined => {
   const { docker, prompts } = deps
-  const configMountPath = mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
+  // Outer try/catch upholds the "undefined on any failure" contract — a
+  // throw from temp-dir creation, Docker, or the file read must degrade to
+  // the paste fallback, not abort the whole init flow.
   try {
-    prompts.log(
-      "Handing the terminal to get-token — it will ask for your Obsidian " +
-        "account login and print a token at the end.",
+    const configMountPath = mkdtempSync(
+      join(tmpdir(), "vault-cortex-get-token-"),
     )
-    const succeeded = docker.runGetTokenWithMount(configMountPath)
-    if (!succeeded) {
-      prompts.warn(
-        "get-token did not complete — you can run it later with:\n" +
-          "  npx vault-cortex get-token",
+    try {
+      prompts.log(
+        "Handing the terminal to get-token — it will ask for your Obsidian " +
+          "account login and print a token at the end. The token is " +
+          "captured automatically, so there's no need to copy it.",
       )
-      return undefined
+      const succeeded = docker.runGetTokenWithMount(configMountPath)
+      if (!succeeded) {
+        prompts.warn(
+          "get-token did not complete — you can run it later with:\n" +
+            "  npx vault-cortex get-token",
+        )
+        return undefined
+      }
+      const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
+      const token = existsSync(tokenPath)
+        ? readFileSync(tokenPath, "utf8").trim()
+        : ""
+      if (!token) {
+        prompts.warn(
+          "get-token completed but no token was captured — the token file " +
+            "was missing or empty. You can retry with:\n" +
+            "  npx vault-cortex get-token",
+        )
+        return undefined
+      }
+      return token
+    } finally {
+      rmSync(configMountPath, { recursive: true, force: true })
     }
-    const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
-    if (!existsSync(tokenPath)) return undefined
-    const token = readFileSync(tokenPath, "utf8").trim()
-    return token || undefined
-  } finally {
-    rmSync(configMountPath, { recursive: true, force: true })
+  } catch (error) {
+    prompts.warn(
+      `Token capture failed — ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return undefined
   }
 }
 

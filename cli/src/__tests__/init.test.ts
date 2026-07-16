@@ -615,7 +615,11 @@ describe("runInit remote flow", () => {
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=captured-token\n")
+    // Exact line match — a substring check would also pass for a commented
+    // or prefixed entry (e.g. "# OBSIDIAN_AUTH_TOKEN=captured-token").
+    expect(envContent.split("\n")).toContain(
+      "OBSIDIAN_AUTH_TOKEN=captured-token",
+    )
   })
 
   it("skips the docker-run offer when the sync token was left blank", async () => {

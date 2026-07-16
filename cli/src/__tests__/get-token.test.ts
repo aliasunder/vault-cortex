@@ -123,19 +123,24 @@ describe("captureObsidianToken", () => {
     )
   })
 
-  it("returns undefined when the token file is empty", () => {
-    const { prompts } = createSilentPrompts()
+  it("returns undefined and warns when the token file is empty", () => {
+    const silent = createSilentPrompts()
 
     const token = captureObsidianToken({
       docker: dockerWithToken(""),
-      prompts,
+      prompts: silent.prompts,
     })
 
     expect(token).toBeUndefined()
+    expect(silent.warnings[0]).toBe(
+      "get-token completed but no token was captured — the token file " +
+        "was missing or empty. You can retry with:\n" +
+        "  npx vault-cortex get-token",
+    )
   })
 
-  it("returns undefined when get-token succeeds but writes no token file", () => {
-    const { prompts } = createSilentPrompts()
+  it("returns undefined and warns when get-token succeeds but writes no token file", () => {
+    const silent = createSilentPrompts()
     const dockerSucceedsButNoFile: DockerRunner = {
       ...dockerDown,
       isDaemonRunning: () => true,
@@ -144,10 +149,36 @@ describe("captureObsidianToken", () => {
 
     const token = captureObsidianToken({
       docker: dockerSucceedsButNoFile,
-      prompts,
+      prompts: silent.prompts,
     })
 
     expect(token).toBeUndefined()
+    expect(silent.warnings[0]).toBe(
+      "get-token completed but no token was captured — the token file " +
+        "was missing or empty. You can retry with:\n" +
+        "  npx vault-cortex get-token",
+    )
+  })
+
+  it("returns undefined and warns when token capture throws", () => {
+    const silent = createSilentPrompts()
+    const dockerThrows: DockerRunner = {
+      ...dockerDown,
+      isDaemonRunning: () => true,
+      runGetTokenWithMount: () => {
+        throw new Error("spawn docker ENOENT")
+      },
+    }
+
+    const token = captureObsidianToken({
+      docker: dockerThrows,
+      prompts: silent.prompts,
+    })
+
+    expect(token).toBeUndefined()
+    expect(silent.warnings[0]).toBe(
+      "Token capture failed — spawn docker ENOENT",
+    )
   })
 
   it("cleans up the temp directory even on failure", () => {
@@ -176,7 +207,11 @@ describe("captureObsidianToken", () => {
       prompts: silent.prompts,
     })
 
-    expect(silent.logs[0]).toContain("Handing the terminal to get-token")
+    expect(silent.logs[0]).toBe(
+      "Handing the terminal to get-token — it will ask for your Obsidian " +
+        "account login and print a token at the end. The token is " +
+        "captured automatically, so there's no need to copy it.",
+    )
   })
 })
 
@@ -252,7 +287,10 @@ describe("runGetToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toContain("no OBSIDIAN_AUTH_TOKEN line")
+    expect(silent.errors[0]).toBe(
+      `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
+        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+    )
   })
 
   it("exits 1 when --dir .env does not exist", async () => {
@@ -268,6 +306,9 @@ describe("runGetToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toContain("the file is missing")
+    expect(silent.errors[0]).toBe(
+      `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
+        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+    )
   })
 })
