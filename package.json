@@ -52,7 +52,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky",
-    "render:social-preview": "tsx scripts/render-social-preview.ts"
+    "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
   "lint-staged": {
     "*.{json,md}": "prettier --write",
@@ -107,5 +107,8 @@
   },
   "allowScripts": {
     "puppeteer@25.3.0": true
+  },
+  "puppeteer": {
+    "skipDownload": true
   }
 }
