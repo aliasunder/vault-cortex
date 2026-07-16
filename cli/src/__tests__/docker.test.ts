@@ -202,10 +202,11 @@ describe("buildGetTokenArgs", () => {
       "--rm",
       "-it",
       "--entrypoint",
-      "get-token",
+      "ob",
       "-v",
       "/tmp/vault-cortex-get-token-abc:/home/obsidian/.config",
       REMOTE_IMAGE,
+      "login",
     ])
   })
 
@@ -222,12 +223,13 @@ describe("buildGetTokenArgs", () => {
       "--rm",
       "-it",
       "--entrypoint",
-      "get-token",
+      "ob",
       "-v",
       "/tmp/vault-cortex-get-token-abc:/home/obsidian/.config",
       "--user",
       "1000:1000",
       REMOTE_IMAGE,
+      "login",
     ])
   })
 
@@ -242,10 +244,11 @@ describe("buildGetTokenArgs", () => {
       "--rm",
       "-it",
       "--entrypoint",
-      "get-token",
+      "ob",
       "-v",
       "/tmp/test:/home/obsidian/.config",
       REMOTE_IMAGE,
+      "login",
     ])
   })
 })

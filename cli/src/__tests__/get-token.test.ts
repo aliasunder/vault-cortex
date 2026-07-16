@@ -208,9 +208,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(silent.logs[0]).toBe(
-      "Handing the terminal to get-token — it will ask for your Obsidian " +
-        "account login and print a token at the end. The token is " +
-        "captured automatically, so there's no need to copy it.",
+      "Handing the terminal to the Obsidian login — it will ask for your " +
+        "account email, password, and MFA code. The token is captured " +
+        "automatically, so there's nothing to copy.",
     )
   })
 })

@@ -17,10 +17,11 @@ export type GetTokenDeps = {
 }
 
 /**
- * Runs get-token inside a Docker container with a volume mount that
- * captures the auth token file. The interactive login (email, password,
- * MFA) still shows in the terminal — only the resulting token is
- * captured automatically.
+ * Runs the Obsidian login (`ob login`) inside a Docker container with a
+ * volume mount that captures the auth token file. The interactive login
+ * (email, password, MFA) shows in the terminal, but the resulting token is
+ * read from the mounted config dir — never printed, so it stays out of
+ * terminal scrollback.
  *
  * Returns the token string on success, undefined on any failure.
  */
@@ -28,48 +29,53 @@ export const captureObsidianToken = (
   deps: GetTokenDeps,
 ): string | undefined => {
   const { docker, prompts } = deps
-  // Outer try/catch upholds the "undefined on any failure" contract — a
-  // throw from temp-dir creation, Docker, or the file read must degrade to
-  // the paste fallback, not abort the whole init flow.
+  // let: assigned inside the try so the finally can clean up the temp dir on
+  // every path, while staying undefined when mkdtemp itself is what threw.
+  let configMountPath: string | undefined
   try {
-    const configMountPath = mkdtempSync(
-      join(tmpdir(), "vault-cortex-get-token-"),
+    configMountPath = mkdtempSync(join(tmpdir(), "vault-cortex-get-token-"))
+    prompts.log(
+      "Handing the terminal to the Obsidian login — it will ask for your " +
+        "account email, password, and MFA code. The token is captured " +
+        "automatically, so there's nothing to copy.",
     )
-    try {
-      prompts.log(
-        "Handing the terminal to get-token — it will ask for your Obsidian " +
-          "account login and print a token at the end. The token is " +
-          "captured automatically, so there's no need to copy it.",
+    const succeeded = docker.runGetTokenWithMount(configMountPath)
+    if (!succeeded) {
+      prompts.warn(
+        "get-token did not complete — you can run it later with:\n" +
+          "  npx vault-cortex get-token",
       )
-      const succeeded = docker.runGetTokenWithMount(configMountPath)
-      if (!succeeded) {
-        prompts.warn(
-          "get-token did not complete — you can run it later with:\n" +
-            "  npx vault-cortex get-token",
-        )
-        return undefined
-      }
-      const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
-      const token = existsSync(tokenPath)
-        ? readFileSync(tokenPath, "utf8").trim()
-        : ""
-      if (!token) {
-        prompts.warn(
-          "get-token completed but no token was captured — the token file " +
-            "was missing or empty. You can retry with:\n" +
-            "  npx vault-cortex get-token",
-        )
-        return undefined
-      }
-      return token
-    } finally {
-      rmSync(configMountPath, { recursive: true, force: true })
+      return undefined
     }
+    const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
+    const token = existsSync(tokenPath)
+      ? readFileSync(tokenPath, "utf8").trim()
+      : ""
+    if (!token) {
+      prompts.warn(
+        "get-token completed but no token was captured — the token file " +
+          "was missing or empty. You can retry with:\n" +
+          "  npx vault-cortex get-token",
+      )
+      return undefined
+    }
+    return token
   } catch (error) {
     prompts.warn(
       `Token capture failed — ${error instanceof Error ? error.message : String(error)}`,
     )
     return undefined
+  } finally {
+    // Best-effort cleanup: failing to remove the temp dir (e.g. root-owned
+    // files left by the container) must not turn a successful capture into
+    // a failure, so it only warns.
+    if (configMountPath) {
+      try {
+        rmSync(configMountPath, { recursive: true, force: true })
+      } catch {
+        prompts.warn(`Could not remove temp directory: ${configMountPath}`)
+      }
+    }
   }
 }
 

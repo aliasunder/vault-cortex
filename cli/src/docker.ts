@@ -23,7 +23,7 @@ export type DockerRunner = {
   pullImage: (image: string) => boolean
   /** Stops and removes the vault-cortex container (idempotent). */
   stopAndRemoveContainer: () => boolean
-  /** Runs get-token with a volume mount for auto-capture. */
+  /** Runs the Obsidian login with a volume mount for token auto-capture. */
   runGetTokenWithMount: (configMountPath: string) => boolean
 }
 
@@ -38,8 +38,12 @@ export type GetTokenArgParams = {
 }
 
 /**
- * Builds the `docker run` args for get-token with a volume mount that
- * captures the auth token file. Pure function for testability.
+ * Builds the `docker run` args for the Obsidian login with a volume mount
+ * that captures the auth token file. Runs `ob login` directly instead of
+ * the image's get-token script: the script's additions are locating and
+ * printing the token, and the mount makes both unnecessary — the CLI reads
+ * the token file itself, and not echoing a credential keeps it out of
+ * terminal scrollback. Pure function for testability.
  *
  * On Linux, includes `--user uid:gid` when uid/gid are provided — Node
  * exposes process.getuid/getgid on every POSIX platform, so in practice the
@@ -54,7 +58,7 @@ export const buildGetTokenArgs = (params: GetTokenArgParams): string[] => {
     "--rm",
     "-it",
     "--entrypoint",
-    "get-token",
+    "ob",
     "-v",
     `${configMountPath}:/home/obsidian/.config`,
   ]
@@ -63,7 +67,7 @@ export const buildGetTokenArgs = (params: GetTokenArgParams): string[] => {
     args.push("--user", `${uid}:${gid}`)
   }
 
-  args.push(REMOTE_IMAGE)
+  args.push(REMOTE_IMAGE, "login")
   return args
 }
 
