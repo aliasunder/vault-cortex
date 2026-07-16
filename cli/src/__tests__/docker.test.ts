@@ -237,8 +237,16 @@ describe("buildGetTokenArgs", () => {
       platform: "linux",
     })
 
-    expect(args).not.toContain("--user")
-    expect(args).toContain(REMOTE_IMAGE)
+    expect(args).toEqual([
+      "run",
+      "--rm",
+      "-it",
+      "--entrypoint",
+      "get-token",
+      "-v",
+      "/tmp/test:/home/obsidian/.config",
+      REMOTE_IMAGE,
+    ])
   })
 })
 

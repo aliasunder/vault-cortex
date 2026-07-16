@@ -324,6 +324,19 @@ describe("patchEnvObsidianToken", () => {
     )
   })
 
+  it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n")
+
+    const result = patchEnvObsidianToken(envPath, "abc$&def$$1$'end")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n",
+    )
+  })
+
   it("preserves surrounding content when patching", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
     const envPath = join(targetDir, ".env")

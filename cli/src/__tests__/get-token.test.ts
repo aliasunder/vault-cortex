@@ -117,7 +117,10 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(silent.warnings[0]).toContain("get-token did not complete")
+    expect(silent.warnings[0]).toBe(
+      "get-token did not complete — you can run it later with:\n" +
+        "  npx vault-cortex get-token",
+    )
   })
 
   it("returns undefined when the token file is empty", () => {
@@ -200,7 +203,10 @@ describe("runGetToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toContain("Container runtime not running")
+    expect(silent.errors[0]).toBe(
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime and try again.",
+    )
   })
 
   it("exits 1 when token capture fails", async () => {
@@ -212,7 +218,7 @@ describe("runGetToken subcommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(silent.errors[0]).toContain("Could not capture the auth token")
+    expect(silent.errors[0]).toBe("Could not capture the auth token.")
   })
 
   it("writes the token to .env when --dir is set", async () => {
