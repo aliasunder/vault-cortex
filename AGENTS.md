@@ -32,7 +32,7 @@ At minimum, recognize every form Obsidian recognizes; behavior that is a strict
 subset of Obsidian's is a bug, not a limitation. For link resolution
 specifically, that means all of Obsidian's link styles (`[[wikilink]]`,
 `[[wikilink|alias]]`, `[[wikilink#heading]]`, `![[embed]]`, `[md](path.md)`,
-`![md](image.png)`),
+`![alt](image.png)`),
 links in frontmatter properties (e.g. `related:`), and all three "New link
 format" modes — shortest path, path from vault folder, and path from current
 file (including relative `../` paths).
