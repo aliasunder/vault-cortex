@@ -44,8 +44,8 @@ write the token directly to an existing `.env`:
 npx vault-cortex get-token --dir ./vault-cortex
 ```
 
-During `init --mode remote`, this flow runs automatically when Docker is
-available.
+During `init --mode remote`, this flow is offered automatically when Docker
+is available.
 
 ## Upgrade
 
