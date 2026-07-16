@@ -321,8 +321,8 @@ The setup above is authenticated — every request requires your token or an
 OAuth session. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000. How depends on where you run: your VPS
-  provider's firewall panel, security groups on AWS,
+  direct access to port 8000. Do this wherever you manage your server's
+  firewall: the provider's firewall panel, security groups on AWS,
   infrastructure-as-code, or whatever fits your setup. All traffic
   then flows through the encrypted path; the raw HTTP port disappears
   from the network.
