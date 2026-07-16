@@ -121,8 +121,9 @@ curl http://localhost:8000/.well-known/oauth-protected-resource
 ## Updating
 
 **Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
-re-creates the container, and verifies health. Your vault data, search index,
-and `.env` settings all persist — nothing is deleted.
+re-creates the container, and verifies health. Run it from the same directory
+where you ran `init`. Your vault data, search index, and `.env` settings all
+persist — nothing is deleted.
 
 **Set up with Docker Compose?** Stick with Compose for updates — the CLI and
 Compose manage the container independently. Compose does **not** pull new
