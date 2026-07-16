@@ -53,16 +53,18 @@ const runLoginContainer = (
 }
 
 /**
- * Reads the captured token file from the config mount, returning "" when
- * the file is missing, empty, or unreadable — the caller treats all three
- * as "no token captured".
+ * Reads the captured token file from the config mount. Returns undefined
+ * when the file is missing, empty, or unreadable — the caller treats all
+ * three as "no token captured".
  */
-const readCapturedTokenFile = (configMountPath: string): string => {
+const readCapturedTokenFile = (configMountPath: string): string | undefined => {
   const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
   try {
-    return existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : ""
+    if (!existsSync(tokenPath)) return undefined
+    const token = readFileSync(tokenPath, "utf8").trim()
+    return token || undefined
   } catch {
-    return ""
+    return undefined
   }
 }
 
