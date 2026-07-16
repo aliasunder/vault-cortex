@@ -13,6 +13,13 @@ import { captureObsidianToken, runGetSyncToken } from "../get-sync-token.js"
 import type { DockerRunner } from "../docker.js"
 import type { Prompts } from "../prompts.js"
 
+/**
+ * Destination sentence passed to captureObsidianToken in direct-call tests —
+ * production callers supply their own flow-specific sentence (stored in
+ * .env / printed / written to a path).
+ */
+const TOKEN_DESTINATION_MESSAGE = "The token is captured automatically."
+
 const createSilentPrompts = () => {
   const errors: string[] = []
   const warnings: string[] = []
@@ -94,7 +101,7 @@ describe("captureObsidianToken", () => {
         docker: dockerWithToken("abc123-sync-token"),
         prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBe("abc123-sync-token")
@@ -108,7 +115,7 @@ describe("captureObsidianToken", () => {
         docker: dockerWithToken("  token-with-whitespace  \n"),
         prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBe("token-with-whitespace")
@@ -122,7 +129,7 @@ describe("captureObsidianToken", () => {
         docker: dockerFailsLogin,
         prompts: silent.prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBeUndefined()
@@ -140,7 +147,7 @@ describe("captureObsidianToken", () => {
         docker: dockerWithToken(""),
         prompts: silent.prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBeUndefined()
@@ -164,7 +171,7 @@ describe("captureObsidianToken", () => {
         docker: dockerSucceedsButNoFile,
         prompts: silent.prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBeUndefined()
@@ -190,7 +197,7 @@ describe("captureObsidianToken", () => {
         docker: dockerThrows,
         prompts: silent.prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(token).toBeUndefined()
@@ -215,7 +222,7 @@ describe("captureObsidianToken", () => {
 
     captureObsidianToken(
       { docker: dockerTracker, prompts },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(tempDirs).toHaveLength(1)
@@ -230,12 +237,12 @@ describe("captureObsidianToken", () => {
         docker: dockerWithToken("token"),
         prompts: silent.prompts,
       },
-      "Token destination note.",
+      TOKEN_DESTINATION_MESSAGE,
     )
 
     expect(silent.logs[0]).toBe(
       "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. Token destination note.",
+        "account email, password, and MFA code. The token is captured automatically.",
     )
   })
 })
