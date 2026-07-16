@@ -109,7 +109,7 @@ docker run -d --name vault-cortex \
 
 ## HTTPS access
 
-MCP clients need to reach your server over HTTPS. Here's how to set it up — these options can be combined (e.g. API Gateway for TLS + a Cloudflare Tunnel behind it to close all ports):
+MCP clients need to reach your server over HTTPS. Here's how to set it up — these options can be combined (e.g. API Gateway adding an independent auth check in front of a Cloudflare Tunnel that keeps every port closed):
 
 ### Cloudflare Tunnel (no open ports — free)
 
@@ -321,8 +321,8 @@ The setup above is authenticated — every request requires your token or an
 OAuth session. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000. How depends on your setup — your VPS
-  provider's firewall panel, security groups if you're on AWS,
+  direct access to port 8000. How depends on where you run: your VPS
+  provider's firewall panel, security groups on AWS,
   infrastructure-as-code, or whatever fits your setup. All traffic
   then flows through the encrypted path; the raw HTTP port disappears
   from the network.

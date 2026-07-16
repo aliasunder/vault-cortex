@@ -92,7 +92,7 @@ On startup, Compose runs one `vault-cortex` container (the `:remote` image). Ins
 curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 
 # Direct hit on the Lightsail VM (skips API Gateway).
-# Skip if you've set MCP_PORT_CIDRS=none (port 8000 closed).
+# Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
 curl http://<lightsailIp>:8000/healthz
 
 # If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server:
@@ -166,13 +166,20 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 
 The deploy workflow uses [GitHub OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) to assume an AWS IAM role without long-lived credentials. If you're forking this project, you need to create your own OIDC provider and IAM role in your AWS account.
 
-**1. Create the OIDC provider and IAM role.** The reference deployment manages these via Terraform (replace `YOUR_ACCOUNT_ID` and `YOUR_ORG/YOUR_FORK`):
+**1. Create the OIDC provider and IAM role.** The reference deployment manages these via Terraform (replace `YOUR_ORG/YOUR_FORK`):
 
 ```hcl
 resource "aws_iam_openid_connect_provider" "github_actions" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+
+  # GitHub Actions OIDC root CA thumbprints. AWS no longer requires these
+  # since June 2023 but keeping them satisfies older provider versions and
+  # IaC scanners that still check for them.
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  ]
 }
 
 resource "aws_iam_role" "github_deploy" {
@@ -401,7 +408,7 @@ By default, SSH (port 22) is open to all IPs on the Lightsail firewall. For prod
 
 ### How it works
 
-Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By removing port 22 from the firewall, public SSH is blocked while SSH via the Tailscale IP continues to work.
+Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By blocking port 22 on the firewall, public SSH is cut off while SSH via the Tailscale IP continues to work.
 
 ### Setup
 
@@ -431,7 +438,7 @@ This connects via MagicDNS. You can also use the Tailscale IP directly (`100.x.y
 SSH_CIDRS=none npx sst deploy
 ```
 
-This removes port 22 from the Lightsail firewall. SSH via the public IP is now blocked; SSH via Tailscale continues to work.
+This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work.
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
@@ -450,7 +457,7 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 | Type   | Name                            | Value                                               |
 | ------ | ------------------------------- | --------------------------------------------------- |
 | Secret | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
-| Secret | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
+| Secret | `SSH_CIDRS`                     | `none` (blocks port 22 on the public firewall)      |
 | Secret | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
 | Secret | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
 
@@ -487,7 +494,7 @@ CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth clien
 
 ### Fresh VM bootstrap (chicken-and-egg)
 
-If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is closed on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is blocked on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
 
 1. Temporarily set `SSH_CIDRS=0.0.0.0/0` (or remove the variable)
 2. Deploy — port 22 re-opens
@@ -559,23 +566,23 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before closing port 8000:
+**4. Verify the tunnel** before blocking port 8000:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-**5. Close port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+**5. Block port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
 
 ```bash
 ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
 ```
 
-**6. Verify port 8000 is closed:**
+**6. Verify port 8000 is blocked:**
 
 ```bash
-# Direct access — should timeout (port closed on firewall)
+# Direct access — should timeout (port blocked on firewall)
 curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 
 # API Gateway — should return 200 (routed through tunnel)
@@ -595,7 +602,7 @@ curl https://<api-gateway-url>/healthz
 
 ### Fresh VM bootstrap
 
-If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is closed — but `cloudflared` isn't running on the new VM yet. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
 1. Temporarily open both ports and disable tunnel routing:
    ```bash
@@ -674,7 +681,7 @@ curl https://mcp.example.com/healthz
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
-- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be closed if `SSH_CIDRS=none`, port 8000 may be closed if `MCP_PORT_CIDRS=none`).
+- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.
