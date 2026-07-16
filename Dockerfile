@@ -74,7 +74,7 @@ EXPOSE 8000
 # ---------------------------------------------------------------------------
 # remote: s6-overlay supervises obsidian-sync + vault-mcp in one container.
 # Absorbed from aliasunder/obsidian-headless-sync-docker (rootfs/, including
-# the get-token helper), adapted from Alpine to Debian.
+# the interactive token helper, since rewritten as get-sync-token), adapted from Alpine to Debian.
 # ---------------------------------------------------------------------------
 FROM base AS remote
 
@@ -140,9 +140,9 @@ RUN userdel -r node \
     && chown -R obsidian:obsidian /vault /home/obsidian
 
 # s6 service definitions (init chain + svc-obsidian-sync + svc-vault-mcp)
-# and the interactive get-token helper (rootfs/usr/local/bin/get-token).
+# and the interactive get-sync-token helper (rootfs/usr/local/bin/get-sync-token).
 COPY rootfs/ /
-RUN chmod +x /usr/local/bin/get-token \
+RUN chmod +x /usr/local/bin/get-sync-token \
     && chmod +x /etc/s6-overlay/scripts/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-obsidian-sync/run \
        /etc/s6-overlay/s6-rc.d/svc-vault-mcp/run

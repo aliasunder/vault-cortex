@@ -70,7 +70,7 @@ npx vault-cortex get-sync-token
 Otherwise, run the Docker image directly:
 
 ```bash
-docker run --rm -it --entrypoint get-token \
+docker run --rm -it --entrypoint get-sync-token \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 

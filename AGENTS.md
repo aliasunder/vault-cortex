@@ -52,7 +52,7 @@ obsidian-headless/                     # Lockfile-pinned obsidian-headless for D
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
 rootfs/                                # Container filesystem overlay (remote target)
   etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
-  usr/local/bin/get-token              #   interactive Obsidian Sync token helper
+  usr/local/bin/get-sync-token         #   interactive Obsidian Sync token helper (manual flow)
 docker-compose.yml                     # Lightsail: single vault-cortex:remote service
 docker-compose.local.yml               # Contributor dev: builds from source
 .env.example                           # template for Lightsail .env

@@ -40,7 +40,7 @@ export type ObsidianLoginArgParams = {
 /**
  * Builds the `docker run` args for the Obsidian login with a volume mount
  * that captures the auth token file. Runs `ob login` directly instead of
- * the image's get-token script: the script's additions are locating and
+ * the image's get-sync-token script: the script's additions are locating and
  * printing the token, and the mount makes both unnecessary — the CLI reads
  * the token file itself, and not echoing a credential keeps it out of
  * terminal scrollback. Pure function for testability.
