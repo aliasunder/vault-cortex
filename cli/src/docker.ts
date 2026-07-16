@@ -23,8 +23,54 @@ export type DockerRunner = {
   pullImage: (image: string) => boolean
   /** Stops and removes the vault-cortex container (idempotent). */
   stopAndRemoveContainer: () => boolean
-  /** Runs the vault-cortex get-token flow with inherited stdio. */
-  runGetToken: () => boolean
+  /** Runs the Obsidian login with a volume mount for token auto-capture. */
+  runObsidianLogin: (configMountPath: string) => boolean
+}
+
+export type ObsidianLoginArgParams = {
+  configMountPath: string
+  /** Defaults to process.platform. */
+  platform?: NodeJS.Platform
+  /** Host UID for --user flag on Linux. */
+  uid?: number
+  /** Host GID for --user flag on Linux. */
+  gid?: number
+}
+
+/**
+ * Builds the `docker run` args for the Obsidian login with a volume mount
+ * that captures the auth token file. Runs `ob login` directly instead of
+ * the image's get-sync-token script: the script's additions are locating and
+ * printing the token, and the mount makes both unnecessary — the CLI reads
+ * the token file itself, and not echoing a credential keeps it out of
+ * terminal scrollback. Pure function for testability.
+ *
+ * On Linux, includes `--user uid:gid` when uid/gid are provided — Node
+ * exposes process.getuid/getgid on every POSIX platform, so in practice the
+ * flag is always set there — keeping the token file host-user-owned. macOS
+ * Docker Desktop translates UIDs automatically, so no flag is needed.
+ */
+export const buildObsidianLoginArgs = (
+  params: ObsidianLoginArgParams,
+): string[] => {
+  const { configMountPath, platform = process.platform, uid, gid } = params
+
+  const args = [
+    "run",
+    "--rm",
+    "-it",
+    "--entrypoint",
+    "ob",
+    "-v",
+    `${configMountPath}:/home/obsidian/.config`,
+  ]
+
+  if (platform === "linux" && uid !== undefined && gid !== undefined) {
+    args.push("--user", `${uid}:${gid}`)
+  }
+
+  args.push(REMOTE_IMAGE, "login")
+  return args
 }
 
 /**
@@ -105,10 +151,14 @@ export const createDockerRunner = (): DockerRunner => ({
     spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
   stopAndRemoveContainer: () =>
     spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
-  runGetToken: () =>
+  runObsidianLogin: (configMountPath) =>
     spawnSync(
       "docker",
-      ["run", "--rm", "-it", "--entrypoint", "get-token", REMOTE_IMAGE],
+      buildObsidianLoginArgs({
+        configMountPath,
+        uid: process.getuid?.(),
+        gid: process.getgid?.(),
+      }),
       { stdio: "inherit" },
     ).status === 0,
 })

@@ -1,11 +1,14 @@
 #!/command/with-contenv sh
-# Authenticate with Obsidian using the provided auth token.
-set -e
+# Init-chain step: log obsidian-headless in to the Obsidian account, using
+# the OBSIDIAN_AUTH_TOKEN provided via the environment (validated by
+# init-check-auth, which runs before this step). Runs as the obsidian user
+# so the stored credentials are owned by the service account.
+set -eu
 
-echo "[obsidian-sync] Logging in to Obsidian..."
-if ! s6-setuidgid obsidian ob login; then
-  echo "[obsidian-sync] ERROR: ob login failed." >&2
+echo "[obsidian-sync] Authenticating with Obsidian..."
+s6-setuidgid obsidian ob login || {
+  echo "[obsidian-sync] ERROR: login was rejected — the auth token may be" >&2
+  echo "[obsidian-sync] stale. Generate a fresh one with get-sync-token." >&2
   exit 1
-fi
-
-echo "[obsidian-sync] Login successful."
+}
+echo "[obsidian-sync] Authenticated."

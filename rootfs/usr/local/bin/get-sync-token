@@ -1,0 +1,46 @@
+#!/bin/sh
+# get-sync-token — interactive helper for the manual (no-CLI) flow: signs in
+# to the user's Obsidian account and prints the Sync auth token for .env.
+#
+# Run with the s6 services bypassed:
+#   docker run --rm -it --entrypoint get-sync-token <image>
+#
+# The npx CLI (`npx vault-cortex get-sync-token`) captures the token file
+# through a volume mount instead and never runs this script.
+
+set -eu
+
+# The Dockerfile sets HOME=/home/obsidian; default it so the script also
+# works outside the image (e.g. during development).
+export HOME="${HOME:-/home/obsidian}"
+
+printf '%s\n' \
+  "" \
+  "Obsidian Sync token setup" \
+  "Sign in with your Obsidian account — email, password, and MFA code if enabled." \
+  ""
+
+ob login
+
+# obsidian-headless writes the token under XDG config; fall back to a
+# filesystem search in case a future version relocates it.
+token_file="${HOME}/.config/obsidian-headless/auth_token"
+if [ ! -s "$token_file" ]; then
+  token_file="$(find "$HOME" -name auth_token -path '*obsidian-headless*' 2>/dev/null | head -n 1)"
+fi
+
+# -s also rejects an empty path (the find found nothing) and an empty file.
+if [ ! -s "${token_file}" ]; then
+  printf '%s\n' \
+    "The login finished but no auth token file was found." \
+    "Search for it manually with:" \
+    "  find ~ -name auth_token 2>/dev/null" >&2
+  exit 1
+fi
+
+printf '%s\n' \
+  "" \
+  "Login complete. Copy this line into your .env:" \
+  "" \
+  "  OBSIDIAN_AUTH_TOKEN=$(cat "$token_file")" \
+  ""

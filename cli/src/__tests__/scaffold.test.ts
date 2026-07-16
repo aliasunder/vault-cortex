@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildFilesToWrite,
   detectMode,
+  patchEnvObsidianToken,
   readEnvPort,
   readEnvVaultPath,
   writeFiles,
@@ -268,5 +269,85 @@ describe("writeFiles permissions", () => {
 
     const fileMode = statSync(envPath).mode & 0o777
     expect(fileMode).toBe(0o600)
+  })
+})
+
+describe("patchEnvObsidianToken", () => {
+  it("replaces an existing token value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
+    )
+
+    const result = patchEnvObsidianToken(envPath, "new-token")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\n",
+    )
+  })
+
+  it("replaces an empty token value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=\n")
+
+    const result = patchEnvObsidianToken(envPath, "filled-in")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "OBSIDIAN_AUTH_TOKEN=filled-in\n",
+    )
+  })
+
+  it("returns false when the file does not exist", () => {
+    const result = patchEnvObsidianToken(
+      join(tmpdir(), "vault-cli-no-such-file", ".env"),
+      "token",
+    )
+
+    expect(result).toBe(false)
+  })
+
+  it("returns false when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
+
+    const result = patchEnvObsidianToken(envPath, "token")
+
+    expect(result).toBe(false)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n",
+    )
+  })
+
+  it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n")
+
+    const result = patchEnvObsidianToken(envPath, "abc$&def$$1$'end")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n",
+    )
+  })
+
+  it("preserves surrounding content when patching", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    const original =
+      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
+    writeFileSync(envPath, original)
+
+    patchEnvObsidianToken(envPath, "new")
+
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new\nVAULT_NAME=Test\n# Footer\n",
+    )
   })
 })

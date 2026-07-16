@@ -86,6 +86,30 @@ export const detectMode = (envFilePath: string): Mode | undefined => {
 }
 
 /**
+ * Patches the OBSIDIAN_AUTH_TOKEN value in an existing .env file.
+ * Returns true when the patch succeeded, false when the file is missing
+ * or has no active OBSIDIAN_AUTH_TOKEN line (e.g. a local-mode .env).
+ */
+export const patchEnvObsidianToken = (
+  envFilePath: string,
+  token: string,
+): boolean => {
+  if (!existsSync(envFilePath)) return false
+  const content = readFileSync(envFilePath, "utf8")
+  /** Matches the full OBSIDIAN_AUTH_TOKEN line for replacement. */
+  const fullTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/m
+  if (!fullTokenLine.test(content)) return false
+  // Function replacement avoids $ pattern interpretation ($&, $', etc.)
+  // that String.prototype.replace applies to string replacements.
+  const patched = content.replace(
+    fullTokenLine,
+    () => `OBSIDIAN_AUTH_TOKEN=${token}`,
+  )
+  writeFileSync(envFilePath, patched)
+  return true
+}
+
+/**
  * Writes the files into targetDir (created if missing). Existing files
  * are never overwritten silently: identical content is skipped, and differing
  * content defers to the resolveConflict callback (interactive prompt, or a
