@@ -92,7 +92,7 @@ On startup, Compose runs one `vault-cortex` container (the `:remote` image). Ins
 curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 
 # Direct hit on the Lightsail VM (skips API Gateway).
-# Skip if you've set MCP_PORT_CIDRS=none (port 8000 closed).
+# Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
 curl http://<lightsailIp>:8000/healthz
 
 # If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server:
@@ -138,7 +138,7 @@ npx sst remove   # removes Lightsail, API Gateway, Lambda
 
 ## CI/CD
 
-GitHub Actions runs lint/test/build plus security scans (secret detection, image vulnerabilities) on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo variable pins the SST stage).
+GitHub Actions runs lint/test/build plus security scans (secret detection, image vulnerabilities) on every PR and push to main, and handles releases via tag push or manual dispatch. CI deploys land on the same Lightsail instance as your laptop deploys (the `SST_STAGE` repo secret pins the SST stage).
 
 ### Workflows
 
@@ -156,7 +156,7 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `publish-registry.yml`      | Reusable (`workflow_call`)       | Publishes `server.json` to the [official MCP Registry](https://registry.modelcontextprotocol.io/) via `mcp-publisher`, authenticating with GitHub OIDC. Runs after `deploy` (so the GHCR image referenced in `server.json` already exists).                                                                                                              |
 | `cli_release.yml`           | Actions UI (`workflow_dispatch`) | Publishes the `cli/` package to npm via Trusted Publishing — independent of server releases. See [CONTRIBUTING.md](./CONTRIBUTING.md#the-cli-package).                                                                                                                                                                                                   |
 | `ghcr-cleanup.yml`          | Weekly cron + Actions UI         | Deletes untagged GHCR image digests to reclaim storage. Manual runs default to dry-run mode.                                                                                                                                                                                                                                                             |
-| `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `README.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by both release workflows after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                    |
+| `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `DOCKERHUB.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by both release workflows after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                 |
 
 > **Why two release paths?** Tag pushes done by `GITHUB_TOKEN` from inside a workflow can't trigger other workflows (GitHub's anti-loop guard). So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
 
@@ -166,14 +166,51 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 
 The deploy workflow uses [GitHub OIDC](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) to assume an AWS IAM role without long-lived credentials. If you're forking this project, you need to create your own OIDC provider and IAM role in your AWS account.
 
-**1. Create the OIDC identity provider** in IAM (one-time, per AWS account):
+**1. Create the OIDC provider and IAM role.** The reference deployment manages these via Terraform (replace `YOUR_ORG/YOUR_FORK`):
+
+```hcl
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+
+  # GitHub Actions OIDC root CA thumbprints. AWS no longer requires these
+  # since June 2023 but keeping them satisfies older provider versions and
+  # IaC scanners that still check for them.
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  ]
+}
+
+resource "aws_iam_role" "github_deploy" {
+  name = "github-deploy-vault-cortex"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.github_actions.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:YOUR_ORG/YOUR_FORK:*" }
+      }
+    }]
+  })
+}
+```
+
+<details>
+<summary><strong>Console alternative</strong> (no Terraform)</summary>
+
+**Create the OIDC identity provider** in IAM (one-time, per AWS account):
 
 - Provider URL: `https://token.actions.githubusercontent.com`
 - Audience: `sts.amazonaws.com`
 
 See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html).
 
-**2. Create an IAM role** with this trust policy (replace the repo reference with your fork):
+**Create an IAM role** with this trust policy (replace the repo reference with your fork):
 
 ```json
 {
@@ -198,51 +235,57 @@ See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest
 }
 ```
 
-**3. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+</details>
 
-**4. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` variable in your fork's GitHub Actions settings.
+**2. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+
+**3. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` secret in your fork's GitHub Actions settings.
 
 ### SST stage
 
-SST creates a stage on your first `sst deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` variable must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
+SST creates a stage on your first `sst deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` secret must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
 
 To find your stage: `cat .sst/stage` (after your first deploy).
 
-### Required repo configuration
+### CI/CD configuration
 
-**Variables** (Settings → Secrets and variables → Actions → Variables tab) — non-sensitive identifiers and config:
+**Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
 | Variable                    | Purpose                                                                                                                                                                                                           |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN`       | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above. An identifier, not a credential — use a repo variable, not a secret.                                                                    |
-| `AWS_REGION`                | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                   |
 | `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                          |
-| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically on push to main. Omit to skip Hub mirroring entirely.                         |
-| `PUBLIC_URL`                | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
-| `SST_STAGE`                 | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
-| `VAULT_NAME`                | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
+| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                       |
 | `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                  |
 | `RERANK_MODE`               | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true. |
 | `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                             |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). Ignored when `MEMORY_ENABLED` is `false`. See the [Configuration](./README.md#configuration) section.                                            |
+| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                      |
 | `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, Daily Notes`). Overrides the default entirely when set.                                                                          |
 | `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `Daily Notes, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                        |
 | `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                        |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                         |
+| `LOG_LEVEL`                 | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                   |
+| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`.                                                                                                                         |
+| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup. Default: `30`.                                                                                                                              |
+| `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                     |
 
-**Secrets** (Settings → Secrets and variables → Actions → Secrets tab) — sensitive credentials:
+**Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
-| Secret                   | Purpose                                                                                                                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                |
-| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (README sync). Only needed when `DOCKERHUB_USERNAME` is set. |
-| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                      |
-| `OBSIDIAN_AUTH_TOKEN`    | Output of `docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/vault-cortex:remote`.                                                                                                   |
-| `VAULT_PASSWORD`         | Optional — only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                              |
-| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                               |
-| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                           |
-| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                     |
-| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                |
+| Secret                   | Purpose                                                                                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                         |
+| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                   |
+| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
+| `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
+| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
+| `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                                 |
+| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.            |
+| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN`    | Output of `docker run --rm -it --entrypoint get-token ghcr.io/aliasunder/vault-cortex:remote`.                                                                                                                    |
+| `VAULT_PASSWORD`         | Optional. Only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                                |
+| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                |
+| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                            |
+| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                      |
+| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                 |
 
 Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
 
@@ -290,7 +333,7 @@ gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 
 ### Don't fork-deploy without re-staging
 
-Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is scoped to both a specific AWS account and repo. Before using the deploy or release workflows, provision your own AWS infrastructure and configure your fork's variables — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [Required repo configuration](#required-repo-configuration) above.
+Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is scoped to both a specific AWS account and repo. Before using the deploy or release workflows, provision your own AWS infrastructure and configure your fork's variables — see [GitHub OIDC setup](#github-oidc-setup-for-forkers) and [CI/CD configuration](#cicd-configuration) above.
 
 ---
 
@@ -365,7 +408,7 @@ By default, SSH (port 22) is open to all IPs on the Lightsail firewall. For prod
 
 ### How it works
 
-Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By removing port 22 from the firewall, public SSH is blocked while SSH via the Tailscale IP continues to work.
+Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By blocking port 22 on the firewall, public SSH is cut off while SSH via the Tailscale IP continues to work.
 
 ### Setup
 
@@ -395,7 +438,7 @@ This connects via MagicDNS. You can also use the Tailscale IP directly (`100.x.y
 SSH_CIDRS=none npx sst deploy
 ```
 
-This removes port 22 from the Lightsail firewall. SSH via the public IP is now blocked; SSH via Tailscale continues to work.
+This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work.
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
@@ -411,12 +454,12 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 
 **GitHub repo settings:**
 
-| Type     | Name                            | Value                                               |
-| -------- | ------------------------------- | --------------------------------------------------- |
-| Variable | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
-| Variable | `SSH_CIDRS`                     | `none` (removes port 22 from public firewall)       |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
-| Secret   | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
+| Type   | Name                            | Value                                               |
+| ------ | ------------------------------- | --------------------------------------------------- |
+| Secret | `TAILSCALE_SSH_HOST`            | `vault-cortex` (MagicDNS) or the Tailscale IP       |
+| Secret | `SSH_CIDRS`                     | `none` (blocks port 22 on the public firewall)      |
+| Secret | `TAILSCALE_OAUTH_CLIENT_ID`     | From Tailscale admin → Settings → Trust Credentials |
+| Secret | `TAILSCALE_OAUTH_CLIENT_SECRET` | (same)                                              |
 
 **Tailscale admin setup:**
 
@@ -451,7 +494,7 @@ CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth clien
 
 ### Fresh VM bootstrap (chicken-and-egg)
 
-If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is closed on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is blocked on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
 
 1. Temporarily set `SSH_CIDRS=0.0.0.0/0` (or remove the variable)
 2. Deploy — port 22 re-opens
@@ -479,19 +522,19 @@ aws lightsail put-instance-public-ports \
 
 ## Port 8000 Hardening (Optional)
 
-By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and close port 8000 entirely.
+By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000.
 
 ### How it works
 
 `ORIGIN_URL` tells API Gateway where to route MCP traffic. When set, API Gateway sends requests to this URL instead of `http://<lightsail-ip>:8000`. The URL can be a Cloudflare Tunnel, Caddy reverse proxy, Tailscale Funnel, or any HTTPS frontend that proxies to `localhost:8000` on the Lightsail instance.
 
-`MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead).
+`MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
-Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` closes the direct path.
+Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
 
 ### Example: Cloudflare Tunnel
 
-Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is removed from the firewall entirely. The tunnel hostname serves as the HTTPS endpoint.
+Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is blocked on the firewall (non-routable CIDR). The tunnel hostname serves as the HTTPS endpoint.
 
 **Prerequisites:** A free [Cloudflare account](https://dash.cloudflare.com/sign-up) with at least one domain using Cloudflare's nameservers. The tunnel routes through a subdomain on that domain (e.g., `tunnel.yourdomain.dev`).
 
@@ -523,23 +566,23 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before closing port 8000:
+**4. Verify the tunnel** before blocking port 8000:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-**5. Close port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+**5. Block port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
 
 ```bash
 ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
 ```
 
-**6. Verify port 8000 is closed:**
+**6. Verify port 8000 is blocked:**
 
 ```bash
-# Direct access — should timeout (port closed on firewall)
+# Direct access — should timeout (port blocked on firewall)
 curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 
 # API Gateway — should return 200 (routed through tunnel)
@@ -559,7 +602,7 @@ curl https://<api-gateway-url>/healthz
 
 ### Fresh VM bootstrap
 
-If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is closed — but `cloudflared` isn't running on the new VM yet. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
 1. Temporarily open both ports and disable tunnel routing:
    ```bash
@@ -638,7 +681,7 @@ curl https://mcp.example.com/healthz
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
 - **`sst dev` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
-- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be closed if `SSH_CIDRS=none`, port 8000 may be closed if `MCP_PORT_CIDRS=none`).
+- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `userData` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.
