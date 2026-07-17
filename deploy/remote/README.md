@@ -318,7 +318,9 @@ and unchanged notes are not re-embedded.
 
 The server runs startup tasks on every boot: rebuilds the search index, creates
 memory template files if the memory folder doesn't exist, and starts the file
-watcher. To re-run the startup flow (e.g., to test bootstrap behavior):
+watcher. To re-run the startup flow (e.g., to test bootstrap behavior) — the
+same command works for every setup method, since all three name the container
+`vault-cortex`:
 
 ```bash
 # Restart the container (sync and the MCP server both restart —
@@ -414,16 +416,17 @@ manage the container independently — stop the existing one first with
 `docker rm -f vault-cortex`, then retry with your preferred method.
 
 **Vault re-syncs from scratch (or the search index is empty) after switching
-between the CLI, Compose, and `docker run`.** All three methods share the
-same named volumes (`vault-cortex_vault_data`, `vault-cortex_mcp_data`,
-`vault-cortex_obsidian_config`) — but only when the names match exactly. A
-mismatched volume name produces **no error**: Docker silently creates fresh,
-empty volumes and the container starts with a clean slate — Obsidian Sync
-registers a new device and re-syncs the vault, and the search index rebuilds.
-Nothing is lost; your data is still in the old volumes. Run
-`docker volume ls` — if the list shows both unprefixed and prefixed names
-(e.g. `vault_data` alongside `vault-cortex_vault_data`), the two setups used
-different volumes. Two ways to recover:
+between the CLI, Compose, and `docker run`.** All three methods use the same
+named volumes, so data normally carries over — but only when the names match
+exactly, and a mismatch produces **no error**. Docker silently creates
+fresh, empty volumes and the container starts with a clean slate: Obsidian
+Sync registers a new device and re-syncs the vault, and the search index
+rebuilds.
+
+Nothing is lost — your data is still in the old volumes. Confirm with
+`docker volume ls`: unprefixed names (`vault_data`) alongside prefixed ones
+(`vault-cortex_vault_data`) mean an earlier setup used different volumes.
+Two ways to recover:
 
 - **Let the re-sync finish (simplest).** Your vault's source of truth is
   Obsidian Sync, so the fresh volumes repopulate on their own — wait for the
