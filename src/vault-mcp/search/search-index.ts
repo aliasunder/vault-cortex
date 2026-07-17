@@ -761,7 +761,7 @@ export const createSearchIndex = (
 
     // Relative-to-source match ("path from current file"), e.g.
     // ![x](../assets/photo.png).
-    if (relativeTarget !== null) {
+    if (relativeTarget) {
       const relativeFullPathMatch =
         resolveNonMdByFullPathStmt.get(relativeTarget)
       if (relativeFullPathMatch) return relativeFullPathMatch.path
@@ -782,7 +782,7 @@ export const createSearchIndex = (
 
     // Relative-to-source match for extensionless targets
     // (e.g. [[../boards/Trip Route]]).
-    if (relativeTarget !== null) {
+    if (relativeTarget) {
       const relativeBasePathMatch =
         resolveNonMdByBasePathStmt.get(relativeTarget)
       if (relativeBasePathMatch) return relativeBasePathMatch.path
