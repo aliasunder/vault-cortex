@@ -45,6 +45,14 @@
 
 
 
+
+## [0.29.6] — 2026-07-17
+
+### Documentation
+
+- CLI commands index, CLI-first deploy guides, dedup + jargon sweep, DEPLOY.md TOC (#339)
+- Update CHANGELOG.md for v0.29.5
+
 ## [0.29.5] — 2026-07-17
 
 ### Features
