@@ -733,8 +733,8 @@ export const createSearchIndex = (
    *  instead of the notes table.
    *
    *  The full-filename tiers (path column) all run before any stem tier
-   *  (extension-stripped base_path/basename columns). The families are NOT
-   *  disjoint: a multi-dot filename's stem retains its inner dots
+   *  (extension-stripped base_path/basename columns). The families are
+   *  NOT disjoint: a multi-dot filename's stem retains its inner dots
    *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
    *  can stem-match a different file. Family ordering makes the full-filename
    *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
