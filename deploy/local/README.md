@@ -163,7 +163,12 @@ docker compose pull && docker compose up -d
 
 ## Stop
 
-**Set up with the CLI?** `docker stop vault-cortex` — data persists in Docker volumes.
+**Set up with the CLI?**
+
+```bash
+# Stop (data persists in Docker volumes):
+docker stop vault-cortex
+```
 
 **Set up with Docker Compose?**
 

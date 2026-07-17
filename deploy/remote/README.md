@@ -324,9 +324,14 @@ policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
-**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+**Set up with the CLI (or `docker run`)?**
 
-**Docker Compose:**
+```bash
+# Stop (data persists in Docker volumes):
+docker stop vault-cortex
+```
+
+**Set up with Docker Compose?**
 
 ```bash
 # Stop (data persists in Docker volumes):
