@@ -274,26 +274,30 @@ docker ps
 
 ## Updating
 
+Update with the same method you set up with — each one manages the container
+independently.
+
 **Set up with the CLI?**
 
 ```bash
 npx vault-cortex upgrade
 ```
 
-Run it from the same directory where you ran `init`. Nothing is deleted —
-see [`upgrade`](../../cli/#upgrade) in the CLI reference for what's preserved
+Run it from the same directory where you ran `init` — it pulls the new image
+and re-creates the container for you. Nothing is deleted — see
+[`upgrade`](../../cli/#upgrade) in the CLI reference for what's preserved
 and the `--dir` flag.
 
-**Set up with Docker Compose?** Stick with Compose for updates — the CLI and
-Compose manage the container independently. Compose does **not** pull new
-images on `up`, so pull explicitly:
+**Set up with Docker Compose?** Compose does **not** pull new images on
+`up`, so pull explicitly:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-**Plain `docker run` (or Podman)?** Pull the new image, remove the container,
-then re-run the `docker run` command from [Setup](#setup):
+**Set up with `docker run` (no Compose)?** Do manually what `upgrade` does —
+pull the new image, remove the container, then re-run the `docker run`
+command from [Setup](#setup):
 
 ```bash
 docker pull ghcr.io/aliasunder/vault-cortex:remote
