@@ -4,15 +4,17 @@ Full cloud deployment using SST v4 for infrastructure-as-code. Provisions a Ligh
 
 For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)).
 
+**Contents** — [Prerequisites](#prerequisites) · [One-time setup](#one-time-setup) · [Deploy](#deploy) · [Verify](#verify) · [Monitoring](#monitoring) · [Commands](#command-reference) · [Updating](#updating-the-deployed-app) · [Teardown](#tearing-down) · [CI/CD](#cicd) · [Hardening](#hardening) · [Custom Domain](#custom-domain-optional) · [Troubleshooting](#troubleshooting)
+
 ---
 
-SST uses a stage name based on your OS username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use the default.
+SST manages the AWS infrastructure declared in `sst.config.ts`, with each developer's resources isolated under a stage. The stage name is based on your OS username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use the default.
 
 ## Prerequisites
 
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
-- A GitHub PAT with `read:packages` + `write:packages` scopes
+- A GitHub PAT with `read:packages` + `write:packages` scopes (for pushing and pulling Docker images from GitHub Container Registry)
 - A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
 - An [Obsidian](https://obsidian.md) vault (the data this server exposes)
 - An [Obsidian Sync](https://obsidian.md/sync) subscription (the remote deploy bundles a sync process that mirrors the vault between this VM and your Obsidian apps)
@@ -112,6 +114,69 @@ aws lightsail get-static-ip --static-ip-name vault-cortex-ip-<stage> \
   --query staticIp.ipAddress --output text
 ```
 
+## Monitoring
+
+### SSH into the server
+
+```bash
+ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
+```
+
+`<lightsailIp>` comes from `aws lightsail get-static-ip` (see [Verify](#verify) — it is deliberately not an SST output). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
+
+### Tailing logs
+
+The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
+
+```bash
+# Follow the logs in real time
+docker logs -f vault-cortex
+
+# With timestamps
+docker logs -f --timestamps vault-cortex
+
+# Last 50 lines + follow
+docker logs -f --tail 50 vault-cortex
+
+# Sync activity only — everything that isn't a JSON log line comes from
+# the sync side (init chain + ob sync output):
+docker logs vault-cortex 2>&1 | grep -v '^{'
+```
+
+### Filtering with jq
+
+MCP server logs are structured JSON with `timestamp`, `level`, `message`, `source` (file:line), plus contextual properties like `requestId`, `sessionId`, `tool`, `clientIp`.
+
+```bash
+# Errors only (token mismatch, watcher failures — things that need fixing)
+docker logs vault-cortex 2>&1 | jq 'select(.level == "error")'
+
+# Trace a single request across all layers
+docker logs vault-cortex 2>&1 | jq 'select(.requestId == "1")'
+
+# All activity from a specific client IP
+docker logs vault-cortex 2>&1 | jq 'select(.clientIp == "203.0.113.42")'
+
+# All tool calls
+docker logs vault-cortex 2>&1 | jq 'select(.message == "tool_call")'
+
+# Auth failures
+docker logs vault-cortex 2>&1 | jq 'select(.message | startswith("auth_failed"))'
+```
+
+Note: `2>&1` is needed because error-level logs go to stderr — piping to jq requires combining both streams.
+
+### Log levels
+
+| Level   | Meaning                           | Examples                                                  |
+| ------- | --------------------------------- | --------------------------------------------------------- |
+| `error` | Something is broken — investigate | Token mismatch, file watcher failure, unhandled exception |
+| `warn`  | Unexpected but not broken         | Malformed auth header, stale session ID, tool input error |
+| `info`  | Normal operations                 | Tool calls, reads, writes, searches, session lifecycle    |
+| `debug` | Verbose tracing (dev only)        | File watcher indexing individual files                    |
+
+Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
+
 ## Command reference
 
 | Command                  | What it does                                                                                                    |
@@ -164,7 +229,7 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `ghcr-cleanup.yml`          | Weekly cron + Actions UI         | Deletes untagged GHCR image digests to reclaim storage. Manual runs default to dry-run mode.                                                                                                                                                                                                                                                             |
 | `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `DOCKERHUB.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by both release workflows after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                 |
 
-> **Why two release paths?** Tag pushes done by `GITHUB_TOKEN` from inside a workflow can't trigger other workflows (GitHub's anti-loop guard). So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
+> **Why two release paths?** GitHub prevents a tag pushed by `GITHUB_TOKEN` from inside a workflow from triggering other workflows. So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
 
 > **MCP Registry publishing is automatic.** Both release paths call `publish-registry.yml`, so the [official MCP Registry](https://registry.modelcontextprotocol.io/) entry tracks every release — no manual `mcp-publisher publish`. It authenticates with [GitHub OIDC](https://modelcontextprotocol.io/registry/github-actions) and needs **no secret**: the registry authorizes the `io.github.<owner>/*` namespace from the OIDC token's repo owner, so a fork publishing `io.github.<your-user>/...` works out of the box (unlike the AWS OIDC role below, which you must provision).
 
@@ -243,7 +308,7 @@ See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest
 
 </details>
 
-**2. Attach permissions.** SST recommends `AdministratorAccess` for simplicity. For a scoped-down policy, see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
+**2. Attach permissions.** SST recommends `AdministratorAccess` for simplicity; for production, scope the policy down — see [SST's IAM credentials guide](https://sst.dev/docs/iam-credentials).
 
 **3. Set the role ARN** as the `AWS_DEPLOY_ROLE_ARN` secret in your fork's GitHub Actions settings.
 
@@ -343,80 +408,19 @@ Forks don't inherit GitHub Actions variables or secrets, and the OIDC role is sc
 
 ---
 
-## Monitoring
+## Hardening
 
-### SSH into the server
+Two optional hardening layers for the reference deployment: restrict SSH to a private network, and take port 8000 off the public internet. Each is reversible, with bootstrap and rollback steps.
 
-```bash
-ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
-```
-
-`<lightsailIp>` comes from `aws lightsail get-static-ip` (see [Verify](#verify) — it is deliberately not an SST output). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
-
-### Tailing logs
-
-The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
-
-```bash
-# Follow the logs in real time
-docker logs -f vault-cortex
-
-# With timestamps
-docker logs -f --timestamps vault-cortex
-
-# Last 50 lines + follow
-docker logs -f --tail 50 vault-cortex
-
-# Sync activity only — everything that isn't a JSON log line comes from
-# the sync side (init chain + ob sync output):
-docker logs vault-cortex 2>&1 | grep -v '^{'
-```
-
-### Filtering with jq
-
-MCP server logs are structured JSON with `timestamp`, `level`, `message`, `source` (file:line), plus contextual properties like `requestId`, `sessionId`, `tool`, `clientIp`.
-
-```bash
-# Errors only (token mismatch, watcher failures — things that need fixing)
-docker logs vault-cortex 2>&1 | jq 'select(.level == "error")'
-
-# Trace a single request across all layers
-docker logs vault-cortex 2>&1 | jq 'select(.requestId == "1")'
-
-# All activity from a specific client IP
-docker logs vault-cortex 2>&1 | jq 'select(.clientIp == "203.0.113.42")'
-
-# All tool calls
-docker logs vault-cortex 2>&1 | jq 'select(.message == "tool_call")'
-
-# Auth failures
-docker logs vault-cortex 2>&1 | jq 'select(.message | startswith("auth_failed"))'
-```
-
-Note: `2>&1` is needed because error-level logs go to stderr — piping to jq requires combining both streams.
-
-### Log levels
-
-| Level   | Meaning                           | Examples                                                  |
-| ------- | --------------------------------- | --------------------------------------------------------- |
-| `error` | Something is broken — investigate | Token mismatch, file watcher failure, unhandled exception |
-| `warn`  | Unexpected but not broken         | Malformed auth header, stale session ID, tool input error |
-| `info`  | Normal operations                 | Tool calls, reads, writes, searches, session lifecycle    |
-| `debug` | Verbose tracing (dev only)        | File watcher indexing individual files                    |
-
-Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
-
----
-
-## SSH Hardening with Tailscale (Optional)
+### SSH Hardening with Tailscale (Optional)
 
 By default, SSH (port 22) is open to all IPs on the Lightsail firewall. For production or public-facing deployments, restrict SSH to your Tailscale network.
 
-### How it works
+#### How it works
 
 Tailscale creates a WireGuard mesh network between your devices. Traffic between Tailscale nodes flows through the `tailscale0` interface, which **bypasses** the Lightsail public-IP firewall entirely. By blocking port 22 on the firewall, public SSH is cut off while SSH via the Tailscale IP continues to work.
 
-### Setup
+#### Setup
 
 **Prerequisites:** Tailscale installed on your laptop/phone (client) and the Lightsail VM (server).
 
@@ -454,7 +458,7 @@ LIGHTSAIL_SSH_HOST=vault-cortex
 
 Now `npm run lightsail:up` connects via Tailscale instead of the public IP.
 
-### CI/CD with Tailscale
+#### CI/CD with Tailscale
 
 The deploy workflow supports optional Tailscale connectivity for SSH steps. Gated by the presence of `TAILSCALE_SSH_HOST` — if not set, CI uses the public IP (default behavior).
 
@@ -486,7 +490,7 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 
 CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth client auth method.
 
-### SSH_CIDRS reference
+#### SSH_CIDRS reference
 
 `SSH_CIDRS` accepts any of these values:
 
@@ -498,7 +502,7 @@ CI nodes are ephemeral (auto-removed after inactivity) thanks to the OAuth clien
 | `203.0.113.42/32`              | Single IP (e.g., home IP)                            |
 | `100.64.0.0/10,203.0.113.0/24` | Multiple CIDRs (comma-separated)                     |
 
-### Fresh VM bootstrap (chicken-and-egg)
+#### Fresh VM bootstrap (chicken-and-egg)
 
 If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 22 is blocked on the public IP — but Tailscale isn't yet running on the new VM. Recovery:
 
@@ -507,7 +511,7 @@ If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 
 3. SSH in, install Tailscale, authenticate with the reusable auth key
 4. Set `SSH_CIDRS=none` and redeploy
 
-### Rollback
+#### Rollback
 
 To revert to public SSH at any time:
 
@@ -524,13 +528,11 @@ aws lightsail put-instance-public-ports \
   --port-infos '[{"protocol":"tcp","fromPort":22,"toPort":22,"cidrs":["0.0.0.0/0"]},{"protocol":"tcp","fromPort":8000,"toPort":8000,"cidrs":["0.0.0.0/0"]}]'
 ```
 
----
-
-## Port 8000 Hardening (Optional)
+### Port 8000 Hardening (Optional)
 
 By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000.
 
-### How it works
+#### How it works
 
 `ORIGIN_URL` tells API Gateway where to route MCP traffic. When set, API Gateway sends requests to this URL instead of `http://<lightsail-ip>:8000`. The URL can be a Cloudflare Tunnel, Caddy reverse proxy, Tailscale Funnel, or any HTTPS frontend that proxies to `localhost:8000` on the Lightsail instance.
 
@@ -538,7 +540,7 @@ By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway 
 
 Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
 
-### Example: Cloudflare Tunnel
+#### Example: Cloudflare Tunnel
 
 Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is blocked on the firewall (non-routable CIDR). The tunnel hostname serves as the HTTPS endpoint.
 
@@ -595,7 +597,7 @@ curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 curl https://<api-gateway-url>/healthz
 ```
 
-### MCP_PORT_CIDRS reference
+#### MCP_PORT_CIDRS reference
 
 `MCP_PORT_CIDRS` accepts any of these values:
 
@@ -606,7 +608,7 @@ curl https://<api-gateway-url>/healthz
 | `<your-ip>/32`    | Single IP (e.g., your home IP)                             |
 | `<cidr1>,<cidr2>` | Multiple CIDRs (comma-separated)                           |
 
-### Fresh VM bootstrap
+#### Fresh VM bootstrap
 
 If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
@@ -628,7 +630,7 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
 
 The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
 
-### Rollback
+#### Rollback
 
 To revert to direct port 8000 access at any time:
 
