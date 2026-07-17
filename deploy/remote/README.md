@@ -2,14 +2,19 @@
 
 Run Vault Cortex on a VPS with Obsidian Sync for remote access from any device.
 Your vault stays in sync; MCP tools work from Claude Desktop, Claude Code,
-claude.ai, or any MCP client — anywhere.
+claude.ai, or any MCP client — anywhere. (Vault on this machine and no
+Obsidian Sync? Use the [local quickstart](../local/) instead.)
 
 Everything runs in **one container**: the `vault-cortex:remote` image bundles
-the Obsidian Sync process and the MCP server under
-[s6-overlay](https://github.com/just-containers/s6-overlay) supervision. Docker
-Compose is used below for its restart policy and log rotation, but it's
+the Obsidian Sync process and the MCP server, supervised together so both
+restart automatically
+([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
+Docker Compose is used below for its restart policy and log rotation, but it's
 optional — the same container runs with
-[plain docker run](#docker-run-no-compose), Podman, or any OCI runtime.
+[plain docker run](#docker-run-no-compose), Podman, or any OCI-compatible
+container runtime.
+
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -24,9 +29,10 @@ optional — the same container runs with
 npx vault-cortex@latest init --mode remote
 ```
 
-The CLI walks through your public URL, Obsidian Sync token (it can run the
-token generator for you), and auth config, then starts the server and prints
-the connection details for your MCP client.
+The CLI walks through your public URL, Obsidian Sync token (it can run
+[`get-sync-token`](../../cli/#get-sync-token) for you), and auth config, then
+starts the server and prints the connection details for your MCP client
+([CLI reference →](../../cli/)).
 
 <details>
 <summary><strong>Don't have Node.js installed?</strong></summary>
@@ -82,12 +88,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                |
-| `PUBLIC_URL`          | Your server's public base URL — no `/mcp` (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                  |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                     |
+| Variable              | Value                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                             |
+| `PUBLIC_URL`          | Your server's public base URL — must match how clients reach the server, with **no `/mcp`** at the end (see [HTTPS access](#https-access) below) |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                                                                               |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                  |
 
 **6. Start the server:**
 
@@ -118,13 +124,25 @@ docker run -d --name vault-cortex \
 
 ## HTTPS access
 
-MCP clients need to reach your server over HTTPS. Here's how to set it up — these options can be combined (e.g. API Gateway adding an independent auth check in front of a Cloudflare Tunnel that keeps every port closed):
+MCP clients need to reach your server over HTTPS. Pick one option — they can
+also be combined (e.g. API Gateway adding an independent auth check in front
+of a Cloudflare Tunnel that keeps every port closed):
+
+| Option                                                      | Cost                          | Domain needed       | Ports open on your server |
+| ----------------------------------------------------------- | ----------------------------- | ------------------- | ------------------------- |
+| [Cloudflare Tunnel](#cloudflare-tunnel-no-open-ports--free) | Free                          | Yes (on Cloudflare) | None                      |
+| [API Gateway](#api-gateway-aws--no-domain-needed)           | Free tier covers personal use | No                  | 8000                      |
+| [Reverse proxy](#reverse-proxy-requires-a-domain)           | Free (Caddy/nginx)            | Yes                 | 443                       |
+| [Direct access](#direct-access-testing-only)                | Free                          | No                  | 8000 (testing only)       |
+
+> **Just trying it out?** Start with [direct access](#direct-access-testing-only)
+> to confirm everything works, then come back and set up HTTPS.
 
 ### Cloudflare Tunnel (no open ports — free)
 
-An encrypted outbound connection from your server to Cloudflare's edge. No
-inbound ports need to be open on your server's firewall — traffic flows
-through the tunnel instead of arriving directly. Requires a
+Lets clients reach your server without opening any ports — the tunnel is an
+encrypted connection your server makes outward to Cloudflare, and traffic
+flows back through it instead of arriving directly. Requires a
 [Cloudflare account](https://dash.cloudflare.com/sign-up) (free) with a
 domain using Cloudflare's nameservers.
 
@@ -140,8 +158,9 @@ See [Hardening](#hardening-recommended) below.
 
 ### API Gateway (AWS — no domain needed)
 
-AWS API Gateway acts as a TLS-terminating reverse proxy — no domain, no
-certificate management. You get an HTTPS URL immediately:
+AWS API Gateway gives you an HTTPS address immediately — no domain, no
+certificate to manage (it handles TLS in front of your server). You get an
+HTTPS URL like:
 
 ```
 https://<id>.execute-api.<region>.amazonaws.com
@@ -244,10 +263,15 @@ docker compose ps
 
 ## Updating
 
-**Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
-re-creates the container, and verifies health. Run it from the same directory
-where you ran `init`. Your vault data, search index, and `.env` settings all
-persist — nothing is deleted.
+**Set up with the CLI?**
+
+```bash
+npx vault-cortex upgrade
+```
+
+Run it from the same directory where you ran `init`. Nothing is deleted —
+see [`upgrade`](../../cli/#upgrade) in the CLI reference for what's preserved
+and the `--dir` flag.
 
 **Set up with Docker Compose?** Stick with Compose for updates — the CLI and
 Compose manage the container independently. Compose does **not** pull new
@@ -268,7 +292,7 @@ watcher. To re-run the startup flow (e.g., to test bootstrap behavior):
 
 ```bash
 # Restart the container (sync and the MCP server both restart —
-# s6 replays the init chain, which is idempotent):
+# restarting is safe, the startup steps re-run cleanly):
 docker compose restart
 ```
 
@@ -299,15 +323,10 @@ The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
 `.env` to disable it — memory tools are hidden, no files are created, and the
 server runs without it.
 
-When enabled, the server creates a memory folder (default: `About Me/`) on
-first startup with template files (Me.md, Opinions.md, Principles.md,
-Routines.md, Agents.md). Agents can also create new memory files and sections
-on the fly via `vault_update_memory` — no manual setup needed. Once entries
-accumulate, `vault_memory_recall` answers topic questions across the layer's
-full dated history. Memory files are append-only by default; a file can declare
-`entry-policy: living` in frontmatter for current-state content whose expired
-entries get pruned (the Routines template ships this way) — see
-[templates/memory](../../templates/memory/README.md) for the full convention.
+When enabled, the server creates a memory folder (default: `About Me/`) with
+starter template files on first startup, and agents grow it from there. See
+[Memory](../../README.md#memory) in the main README for how the layer works,
+and [templates/memory](../../templates/memory/README.md) for the file format.
 
 ## Configuration
 
@@ -331,25 +350,20 @@ The setup above is authenticated — every request requires your token or an
 OAuth session. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000. Do this wherever you manage your server's
-  firewall: the provider's firewall panel, security groups on AWS,
-  infrastructure-as-code, or whatever fits your setup. All traffic
-  then flows through the encrypted path; the raw HTTP port disappears
-  from the network.
+  direct access to port 8000 wherever you manage your server's firewall
+  (provider panel, AWS security groups, infrastructure-as-code). All traffic
+  then flows through the encrypted path.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
-  creates a private WireGuard mesh between your devices. Install it on your
-  VPS and your laptop, verify you can SSH through the Tailscale hostname,
-  then close port 22 in your firewall — SSH through Tailscale continues to
-  work because it bypasses the public firewall.
+  creates a private network between your devices: install it on the VPS and
+  your laptop, verify SSH works through the Tailscale hostname, then close
+  port 22 in your firewall.
 
-- **Add a second auth layer** — the reference
-  [AWS deployment](../../DEPLOY.md) validates tokens twice: once at the
-  network edge (API Gateway + Lambda authorizer) and once at the server
-  (Express middleware). This is an AWS-specific setup, but the principle
-  applies anywhere — an auth-aware reverse proxy in front of the server
-  means a misconfigured server alone can't expose your vault.
+- **Add a second auth layer** — the reference [AWS deployment](../../DEPLOY.md)
+  validates tokens once at the network edge (API Gateway + Lambda authorizer)
+  and again at the server. The principle applies anywhere: an auth-aware
+  proxy in front means a misconfigured server alone can't expose your vault.
 
 These measures stack. Start with whichever is easiest for your setup — even
 one makes a meaningful difference.

@@ -5,7 +5,10 @@ Obsidian Sync — just Docker and a folder of `.md` files.
 
 > **Fastest path:** `npx vault-cortex@latest init` does all of the below
 > interactively — generates the token and config files, starts the server, and
-> prints the connection details. The steps below are the manual equivalent.
+> prints the connection details ([CLI reference →](../../cli/)). The steps
+> below are the manual equivalent.
+
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -39,28 +42,40 @@ cp .env.example .env
 docker compose up
 ```
 
-Add `-d` to run in the background. First start pulls the image (~150MB) and
-builds the keyword index in seconds; the semantic (embedding) index builds in
-the background — expect a few minutes on a large vault, with search served
-keyword-only until it finishes.
+Add `-d` to run in the background. What happens on first start:
+
+- The image is pulled (~150MB)
+- The keyword index builds in seconds — search works right away
+- The semantic (embedding) index builds in the background — expect a few
+  minutes on a large vault, with search served keyword-only until it finishes
 
 ## Connect your MCP client
 
 The server listens at `http://localhost:8000/mcp`.
 
-**Claude Code:**
+- "Remote" refers to the connection type (HTTP, as opposed to a stdio process
+  the client launches itself) — this server still runs entirely on your
+  machine.
+- Claude Mobile and claude.ai web can't reach localhost — use the
+  [remote quickstart](../remote/) for access from other devices.
+
+### Claude Code
 
 1. Run `claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp`
    (`--scope user` registers it for every project; drop it to scope the server
    to the current directory only)
-2. Approve the consent page in your browser with your `MCP_AUTH_TOKEN`.
+2. Approve the consent page with your `MCP_AUTH_TOKEN` (a browser tab opens
+   automatically).
 3. Done. The client receives auto-refreshing access tokens, so the token
    itself never sits in client config.
 
-**Claude Desktop:** the "Add custom connector" dialog only accepts `https`
-URLs, so a localhost server can't be added there. Register it in
-`claude_desktop_config.json` (Settings → Developer → Edit Config) through the
-[mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+### Claude Desktop
+
+The "Add custom connector" dialog only accepts `https` URLs, so a localhost
+server can't be added there. Register it in `claude_desktop_config.json`
+(Settings → Developer → Edit Config) through
+[mcp-remote](https://github.com/geelen/mcp-remote) — a small helper that lets
+Claude Desktop talk to a local HTTP server:
 
 ```json
 {
@@ -83,7 +98,7 @@ On Windows, spaces inside `args` can be mangled — move the header value into
 an env var instead: `"--header", "Authorization:${AUTH_HEADER}"` with
 `"env": { "AUTH_HEADER": "Bearer <your MCP_AUTH_TOKEN>" }`.
 
-**Other OAuth clients (Cursor and most MCP clients):**
+### Other OAuth clients (Cursor and most MCP clients)
 
 1. Add `http://localhost:8000/mcp` as a remote MCP server, leaving OAuth
    Client ID and Secret empty.
@@ -91,15 +106,10 @@ an env var instead: `"--header", "Authorization:${AUTH_HEADER}"` with
 3. Done. The client receives auto-refreshing access tokens, so the token
    itself never sits in client config.
 
-- "Remote" refers to the connection type (HTTP, as opposed to a stdio process
-  the client launches itself) — this server still runs entirely on your
-  machine.
-- Claude Mobile and claude.ai web can't reach localhost — use the
-  [remote quickstart](../remote/) for access from other devices.
+### Bearer token (MCP Inspector, scripts, clients without OAuth)
 
-**Bearer token (MCP Inspector, scripts, clients without OAuth):** Enter
-`http://localhost:8000/mcp` as the server URL and your token as the Bearer
-token.
+Enter `http://localhost:8000/mcp` as the server URL and your token as the
+Bearer token.
 
 **curl:**
 
@@ -120,10 +130,15 @@ curl http://localhost:8000/.well-known/oauth-protected-resource
 
 ## Updating
 
-**Set up with the CLI?** `npx vault-cortex upgrade` pulls the latest image,
-re-creates the container, and verifies health. Run it from the same directory
-where you ran `init`. Your vault data, search index, and `.env` settings all
-persist — nothing is deleted.
+**Set up with the CLI?**
+
+```bash
+npx vault-cortex upgrade
+```
+
+Run it from the same directory where you ran `init`. Nothing is deleted —
+see [`upgrade`](../../cli/#upgrade) in the CLI reference for what's preserved
+and the `--dir` flag.
 
 **Set up with Docker Compose?** Stick with Compose for updates — the CLI and
 Compose manage the container independently. Compose does **not** pull new
@@ -184,15 +199,10 @@ The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
 `.env` to disable it — memory tools are hidden, no files are created, and the
 server runs without it.
 
-When enabled, the server creates a memory folder (default: `About Me/`) on
-first startup with template files (Me.md, Opinions.md, Principles.md,
-Routines.md, Agents.md). Agents can also create new memory files and sections
-on the fly via `vault_update_memory` — no manual setup needed. Once entries
-accumulate, `vault_memory_recall` answers topic questions across the layer's
-full dated history. Memory files are append-only by default; a file can declare
-`entry-policy: living` in frontmatter for current-state content whose expired
-entries get pruned (the Routines template ships this way) — see
-[templates/memory](../../templates/memory/README.md) for the full convention.
+When enabled, the server creates a memory folder (default: `About Me/`) with
+starter template files on first startup, and agents grow it from there. See
+[Memory](../../README.md#memory) in the main README for how the layer works,
+and [templates/memory](../../templates/memory/README.md) for the file format.
 
 ## Configuration
 
@@ -203,11 +213,11 @@ Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 ## Troubleshooting
 
 **`invalid_client` / "Invalid client_id" when connecting.** Your MCP client
-cached an OAuth registration from a previous server at this address. Recreating
-the server (`docker compose down -v`, or scaffolding a fresh instance) resets
-`oauth.db`, so the cached `client_id` no longer exists and `/authorize` rejects
-it. Clear the client's stored authorization for this server and reconnect so it
-registers fresh:
+saved login details from a previous server at this address, and the new server
+doesn't recognize them. Recreating the server (`docker compose down -v`, or
+scaffolding a fresh instance) resets `oauth.db`, so the cached `client_id` no
+longer exists and `/authorize` rejects it. Clear the client's stored
+authorization for this server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
   `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
