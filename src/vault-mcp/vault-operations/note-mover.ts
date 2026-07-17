@@ -216,11 +216,10 @@ const rewriteTarget = (
   // extension (markdown links always keep theirs; a wikilink to a note never
   // carries ".md"; a stem-form asset link stays extensionless).
   const resolvedExtension = posix.extname(desiredTarget)
-  const writtenExtension =
+  const originalCarriedExtension =
     (targetKind === "asset" || grammar === "markdown") &&
     originalExtension === resolvedExtension
-      ? resolvedExtension
-      : ""
+  const writtenExtension = originalCarriedExtension ? resolvedExtension : ""
 
   return buildReplacementTarget({
     form: classifyLinkForm({
