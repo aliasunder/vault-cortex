@@ -2869,6 +2869,57 @@ describe("asset targets written with extensions", () => {
     ])
   })
 
+  it("prefers a full-filename match over a multi-dot stem match", () => {
+    // "photo.png.canvas" strips to base_path "photo.png" — the same text as
+    // the target — so the stem tiers would hit it. The full-filename family
+    // must win: the target names an actual .png that exists elsewhere.
+    index.upsertNonMdFile("photo.png.canvas")
+    index.upsertNonMdFile("a/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "a/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("falls back to a multi-dot stem match when no full-filename match exists", () => {
+    // With only photo.png.canvas in the vault, [[photo.png]] still resolves
+    // via its stem — the same matching that gives [[Trip Route]] →
+    // Trip Route.canvas. The stem tiers are a fallback, not dead code.
+    index.upsertNonMdFile("photo.png.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo.png.canvas",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
   it("does not resolve a basename whose extension differs from the file's", () => {
     index.upsertNonMdFile("attachments/photo.jpg")
     index.upsertNote(

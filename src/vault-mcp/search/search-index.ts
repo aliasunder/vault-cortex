@@ -730,47 +730,63 @@ export const createSearchIndex = (
    *  ![img](attachments/photo.png)) in every form Obsidian resolves — exact
    *  path, relative to the source note, and basename/shortest path. Mirrors
    *  links.resolve's three-tier strategy but checks against non_md_files
-   *  instead of the notes table. Extensionless targets match the
-   *  extension-stripped base_path/basename columns; with-extension targets
-   *  match the path column — the two column families are disjoint by target
-   *  form, so within each tier the miss costs one query. */
+   *  instead of the notes table.
+   *
+   *  The full-filename tiers (path column) all run before any stem tier
+   *  (extension-stripped base_path/basename columns). The families are NOT
+   *  disjoint: a multi-dot filename's stem retains its inner dots
+   *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
+   *  can stem-match a different file. Family ordering makes the full-filename
+   *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
+   *  the fallback so [[photo.png]] with only photo.png.canvas in the vault
+   *  still resolves — mirroring Obsidian's [[Trip Route]] → Trip Route.canvas
+   *  stem matching. Extensionless targets fall through the full-filename
+   *  family unmatched (stored paths always carry an extension) at the cost of
+   *  three query misses. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,
   ): string | null => {
-    // Full-path match for targets that already include a non-md extension
-    // (e.g. [[photo.png]], ![[diagram.svg]]). Checked first because the
-    // base_path column strips the extension, so "photo.png" wouldn't match
-    // base_path "photo".
+    const relativeTarget =
+      sourcePath === undefined
+        ? null
+        : posix.join(posix.dirname(sourcePath), target)
+
+    // ── Full-filename family: exact → relative → path suffix ──
+
+    // Exact path match for targets that already include a non-md extension
+    // (e.g. [[photo.png]], ![[diagram.svg]]).
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
     if (fullPathMatch) return fullPathMatch.path
+
+    // Relative-to-source match ("path from current file"), e.g.
+    // ![x](../assets/photo.png).
+    if (relativeTarget !== null) {
+      const relativeFullPathMatch =
+        resolveNonMdByFullPathStmt.get(relativeTarget)
+      if (relativeFullPathMatch) return relativeFullPathMatch.path
+    }
+
+    // Path-suffix match ("photo.png", "assets/photo.png") — Obsidian's
+    // shortest-path format for assets in a deeper folder.
+    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(
+      escapeLikeWildcards(target),
+    )
+    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
+
+    // ── Stem family: exact → relative → suffix/basename ──
 
     // Exact base_path match ("path from vault folder")
     const basePathMatch = resolveNonMdByBasePathStmt.get(target)
     if (basePathMatch) return basePathMatch.path
 
-    // Relative-to-source match ("path from current file") — the path column
-    // for with-extension targets ("../assets/photo.png"), base_path for
-    // extensionless ones ("../boards/Trip Route").
-    if (sourcePath) {
-      const relativeTarget = posix.join(posix.dirname(sourcePath), target)
-      const relativeFullPathMatch =
-        resolveNonMdByFullPathStmt.get(relativeTarget)
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
+    // Relative-to-source match for extensionless targets
+    // (e.g. [[../boards/Trip Route]]).
+    if (relativeTarget !== null) {
       const relativeBasePathMatch =
         resolveNonMdByBasePathStmt.get(relativeTarget)
       if (relativeBasePathMatch) return relativeBasePathMatch.path
     }
-
-    // Path-suffix match for with-extension targets ("photo.png",
-    // "assets/photo.png") — Obsidian's shortest-path format for assets in a
-    // deeper folder. Runs before the base_path tiers so a file whose full
-    // name matches the target beats one whose extension-stripped stem
-    // happens to match (e.g. [[photo.png]] prefers a/photo.png over b/photo.png.canvas).
-    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(
-      escapeLikeWildcards(target),
-    )
-    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
 
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
     // When the target includes folder segments (e.g. "views/Inventory"),
