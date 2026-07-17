@@ -74,9 +74,15 @@ The server listens at `http://localhost:8000/mcp`.
 
 ### Claude Code
 
-1. Run `claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp`
-   (`--scope user` registers it for every project; drop it to scope the server
-   to the current directory only)
+1. Add the server:
+
+   ```bash
+   claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp
+   ```
+
+   `--scope user` registers it for every project; drop it to scope the server
+   to the current directory only.
+
 2. Approve the consent page with your `MCP_AUTH_TOKEN` (a browser tab opens
    automatically).
 3. Done. The client receives auto-refreshing access tokens, so the token
