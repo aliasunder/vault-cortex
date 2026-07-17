@@ -57,9 +57,9 @@
 npx vault-cortex@latest init
 ```
 
-That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client.
+That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex upgrade` ([details →](./cli/#upgrade)) · [Full CLI reference →](./cli/)
+**Set up with the CLI?** Upgrade later with `npx vault-cortex upgrade` ([details →](./cli/#upgrade))
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -90,9 +90,9 @@ docker compose up
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server.
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex upgrade` ([details →](./cli/#upgrade)) · [Full CLI reference →](./cli/)
+**Set up with the CLI?** Upgrade later with `npx vault-cortex upgrade` ([details →](./cli/#upgrade))
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
