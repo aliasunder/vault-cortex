@@ -186,7 +186,9 @@ const rewriteTarget = (
     })
   if (resolvedBefore === null) return null
 
-  // Follow the moved note to its new location; leave other targets as-is.
+  // Follow the moved note to its new location; every other target (an
+  // unmoved note, or an asset — assets never move) keeps its resolved path,
+  // and the rewrite below only re-expresses how the link reaches it.
   const desiredTarget =
     targetKind === "note" && resolvedBefore === context.oldTargetPath
       ? context.newTargetPath

@@ -387,7 +387,8 @@ const resolveAsset = (params: {
   }
 
   // A target with folder segments keeps them in the match (suffix on the
-  // stem); a bare name matches on the filename stem only.
+  // stem); a bare name matches on the filename stem only. Either way this is
+  // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
     return shortestOf(
       allAssetPaths.filter((assetPath) =>
