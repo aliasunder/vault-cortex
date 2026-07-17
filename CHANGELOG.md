@@ -44,6 +44,22 @@
 
 
 
+
+## [0.29.5] — 2026-07-17
+
+### Features
+
+- **cli:** Add get-sync-token subcommand with auto-capture via volume mount (#331)
+
+### Bug Fixes
+
+- **search:** Resolve asset targets written with extensions by relative path and path suffix (#338)
+- **links:** Extract markdown-style links to non-md and extensionless targets (#336)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.29.4
+
 ## [0.29.4] — 2026-07-16
 
 ### Features
