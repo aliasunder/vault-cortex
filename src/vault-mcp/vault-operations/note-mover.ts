@@ -135,10 +135,9 @@ const buildReplacementTarget = (params: {
     writtenExtension,
     resolveCandidate,
   } = params
-  const absoluteForm =
-    writtenExtension === ""
-      ? links.stripExtension(desiredTarget)
-      : desiredTarget
+  const absoluteForm = writtenExtension
+    ? desiredTarget
+    : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean =>
     resolveCandidate(candidate) === desiredTarget
