@@ -405,5 +405,26 @@ registers a new device and re-syncs the vault, and the search index rebuilds.
 Nothing is lost; your data is still in the old volumes. Run
 `docker volume ls` — if the list shows both unprefixed and prefixed names
 (e.g. `vault_data` alongside `vault-cortex_vault_data`), the two setups used
-different volumes. Stop the container and re-run with the volume names your
-data lives in.
+different volumes. Two ways to recover:
+
+- **Let the re-sync finish (simplest).** Your vault's source of truth is
+  Obsidian Sync, so the fresh volumes repopulate on their own — wait for the
+  sync and index rebuild to complete, then delete the old volumes
+  (`docker volume rm vault_data mcp_data obsidian_config`).
+
+- **Carry your existing data over** — keeps the built search index (no
+  re-embedding) and the already-registered Sync device. Remove the container
+  and the freshly created volumes, copy each old volume into its prefixed
+  counterpart, then start the server again with your preferred method:
+
+  ```bash
+  docker rm -f vault-cortex
+  docker volume rm vault-cortex_vault_data vault-cortex_mcp_data vault-cortex_obsidian_config
+
+  docker run --rm -v vault_data:/from -v vault-cortex_vault_data:/to \
+    --entrypoint sh ghcr.io/aliasunder/vault-cortex:remote -c "cp -a /from/. /to/"
+  docker run --rm -v mcp_data:/from -v vault-cortex_mcp_data:/to \
+    --entrypoint sh ghcr.io/aliasunder/vault-cortex:remote -c "cp -a /from/. /to/"
+  docker run --rm -v obsidian_config:/from -v vault-cortex_obsidian_config:/to \
+    --entrypoint sh ghcr.io/aliasunder/vault-cortex:remote -c "cp -a /from/. /to/"
+  ```
