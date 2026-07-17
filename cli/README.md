@@ -111,8 +111,9 @@ is available.
 ## Requirements
 
 - Node.js >= 20.12 (only for this CLI — the server itself runs in Docker)
-- [Docker](https://docs.docker.com/get-docker/) (or any OCI-compatible
-  runtime, e.g. Podman) to run the server
+- [Docker](https://docs.docker.com/get-docker/) or a Docker-compatible
+  runtime (OrbStack, Colima, Podman) to run the server — the CLI manages
+  the container through the `docker` command
 
 ## Docs
 

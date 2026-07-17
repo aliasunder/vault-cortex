@@ -51,7 +51,7 @@
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime — OrbStack, Colima, Podman), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
@@ -83,7 +83,7 @@ docker compose up
 
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
-**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
+**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
 ```bash
 # On your VPS:
