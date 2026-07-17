@@ -193,7 +193,9 @@ approach, which adds a Lambda authorizer for an extra auth layer.
 
 Use [Caddy](https://caddyserver.com/) or nginx with a domain and TLS
 certificate. Caddy handles TLS automatically. Port 443 stays open on your
-server's firewall (unlike a tunnel, your server is still directly reachable):
+server's firewall — the proxy receives traffic directly, so your server
+stays reachable from the internet, whereas a tunnel needs no inbound ports
+at all once port 8000 is closed:
 
 ```
 vault.yourdomain.com {
