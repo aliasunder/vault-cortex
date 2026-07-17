@@ -298,10 +298,9 @@ describe("moveNote — link rewriting forms", () => {
     })
 
     // The relative note link is rewritten to keep resolving from the new
-    // folder; the relative asset link passes through byte-identical even
-    // though its resolution changed — moveNote resolves targets against note
-    // paths only, so asset links are never rewritten (known Obsidian-parity
-    // gap, tracked as its own card).
+    // folder; the relative asset link stays unchanged because no asset file
+    // exists in this fixture — the link is unresolved, so moveNote leaves
+    // it alone.
     expect(await readNote("C/Deep/Draft.md")).toBe(
       "![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n",
     )

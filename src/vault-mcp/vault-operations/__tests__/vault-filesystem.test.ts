@@ -824,8 +824,15 @@ describe("listAssets", () => {
   })
 
   it("skips hidden files and directories", async () => {
+    await writeFile(join(vault, "readme.txt"), "visible", "utf8")
     const files = await listAssets({ vaultPath: vault }, logger)
-    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
+    // readme.txt is listed; .DS_Store and .obsidian/plugin.js (from
+    // beforeEach) are excluded by the hidden-segment filter.
+    expect(files).toEqual([
+      "assets/board.canvas",
+      "assets/photo.png",
+      "readme.txt",
+    ])
   })
 
   it("includes a symlinked asset in the listing", async () => {
