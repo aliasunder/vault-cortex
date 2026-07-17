@@ -87,12 +87,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                                                                                                            |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                             |
-| `PUBLIC_URL`          | Your server's public base URL — must match how clients reach the server, with **no `/mcp`** at the end (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                                                                               |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                  |
+| Variable              | Value                                                                                                                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                           |
+| `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — clients connect at `<PUBLIC_URL>/mcp`, and the server adds the `/mcp` itself, so leave it off here (see [HTTPS access](#https-access) below) |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                                                                                                                                             |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                                |
 
 **6. Start the server:**
 
@@ -206,13 +206,14 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge with its
 `--allow-http` flag.
 
-> **Note:** `PUBLIC_URL` must match exactly how MCP clients reach the server.
-> OAuth discovery metadata uses this URL, so a mismatch causes authentication
-> failures.
+> **Note:** Clients connect at `<PUBLIC_URL>/mcp`, but `PUBLIC_URL` itself is
+> the **base URL only** — the server serves the endpoint at `/mcp` and appends
+> it for you, so a `PUBLIC_URL` ending in `/mcp` becomes `…/mcp/mcp` and won't
+> connect.
 >
-> Use the **base origin only**, without `/mcp` — the server serves the endpoint
-> at `/mcp` and the URLs below append it, so a `PUBLIC_URL` ending in `/mcp`
-> becomes `…/mcp/mcp` and won't connect.
+> The base must be exactly the one clients reach the server through (scheme,
+> host, and any path prefix) — OAuth discovery metadata uses this URL, so a
+> mismatch causes authentication failures.
 
 ## Connect your MCP client
 
