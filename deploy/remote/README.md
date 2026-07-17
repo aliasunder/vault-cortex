@@ -10,9 +10,8 @@ the Obsidian Sync process and the MCP server, supervised together so both
 restart automatically
 ([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
 Docker Compose is used below for its restart policy and log rotation, but it's
-optional — the same container runs with
-[plain docker run](#docker-run-no-compose), Podman, or any OCI-compatible
-container runtime.
+optional — the same container runs with plain `docker run` (shown in the
+manual setup below), Podman, or any OCI-compatible container runtime.
 
 **Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
