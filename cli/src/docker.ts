@@ -144,9 +144,14 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
 export const createDockerRunner = (): DockerRunner => ({
   isDaemonRunning: () =>
     spawnSync("docker", ["info"], { timeout: 5_000 }).status === 0,
+  // stdout is discarded: `docker run -d` prints only the container ID there,
+  // which lands as a raw hex line between the wizard's prompts. stderr stays
+  // inherited — image-pull progress and error output print live, which the
+  // "see output above" failure messages rely on.
   dockerRun: (params) =>
-    spawnSync("docker", buildDockerRunArgs(params), { stdio: "inherit" })
-      .status === 0,
+    spawnSync("docker", buildDockerRunArgs(params), {
+      stdio: ["ignore", "ignore", "inherit"],
+    }).status === 0,
   pullImage: (image) =>
     spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
   stopAndRemoveContainer: () =>
