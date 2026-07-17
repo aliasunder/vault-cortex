@@ -1,1 +1,2 @@
 brew "optipng"
+brew "vhs"
