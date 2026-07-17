@@ -425,11 +425,8 @@ const deleteNote = async (
 /** Walks the vault (or a folder within it) and returns the sorted
  *  vault-relative paths of every file of the requested kind — "note"
  *  (.md files) or "asset" (everything else). The .md extension is the
- *  single definition of that boundary. Symlinks may point outside the
- *  vault (e.g. ARCHITECTURE.md → ~/Code/repo/ARCHITECTURE.md) — Obsidian
- *  supports this natively, so we follow suit. Only broken symlinks and
- *  non-file targets are excluded. Hidden segments (any path part starting
- *  with ".") are skipped. */
+ *  single definition of that boundary. Follows valid symlinks; hidden
+ *  segments (any path part starting with ".") are skipped. */
 const listVaultFilePaths = async (
   params: {
     vaultPath: string
@@ -446,6 +443,9 @@ const listVaultFilePaths = async (
 
   const normalizedVault = resolve(params.vaultPath)
 
+  // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
+  // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
+  // follow suit. Only broken symlinks and non-file targets are excluded.
   const entries = await filterValidSymlinks({
     entries: allEntries,
     normalizedRoot: normalizedVault,
