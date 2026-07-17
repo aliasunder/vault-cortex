@@ -2753,6 +2753,249 @@ describe("markdown-style links to non-md targets", () => {
   })
 })
 
+describe("asset targets written with extensions", () => {
+  it("resolves a wikilink embed by basename when the asset lives in a subfolder", () => {
+    index.upsertNonMdFile("attachments/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "attachments/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a markdown embed by basename when the asset lives in a subfolder", () => {
+    index.upsertNonMdFile("attachments/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![diagram](photo.png)\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "attachments/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a relative asset link against the source note's folder", () => {
+    index.upsertNonMdFile("assets/photo.png")
+    index.upsertNote(
+      {
+        filePath: "A/note.md",
+        rawContent: "# Note\n\n![x](../assets/photo.png)\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "A/note.md" }, logger)).toEqual([
+      {
+        path: "assets/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a folder-qualified target with extension by path suffix", () => {
+    index.upsertNonMdFile("deep/sub/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n[[sub/photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "deep/sub/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a shared basename deterministically to the shortest path", () => {
+    index.upsertNonMdFile("bb/photo.png")
+    index.upsertNonMdFile("a/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "a/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("prefers a full-filename match over a multi-dot stem match", () => {
+    // "photo.png.canvas" strips to base_path "photo.png" — the same text as
+    // the target — so the stem tiers would hit it. The full-filename family
+    // must win: the target names an actual .png that exists elsewhere.
+    index.upsertNonMdFile("photo.png.canvas")
+    index.upsertNonMdFile("a/photo.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "a/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("falls back to a multi-dot stem match when no full-filename match exists", () => {
+    // With only photo.png.canvas in the vault, [[photo.png]] still resolves
+    // via its stem — the same matching that gives [[Trip Route]] →
+    // Trip Route.canvas. The stem tiers are a fallback, not dead code.
+    index.upsertNonMdFile("photo.png.canvas")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo.png.canvas",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("does not resolve a basename whose extension differs from the file's", () => {
+    index.upsertNonMdFile("attachments/photo.jpg")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // The suffix match is on the full filename, not the extension-stripped
+    // stem — photo.jpg must not satisfy a photo.png link.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo.png",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+
+  it("upsertNonMdFile re-resolves a previously unresolved with-extension target", () => {
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+
+    index.upsertNonMdFile("attachments/photo.png")
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "attachments/photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
+    // Only photo1final.png exists — if the _ in the target were treated as a
+    // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
+    index.upsertNonMdFile("img/photo1final.png")
+    index.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "# Source\n\n![[photo_final.png]]\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo_final.png",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+  })
+})
+
 describe("modifiedOnDate", () => {
   const midday = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
   const lateEvening = DateTime.fromISO("2026-06-15T23:00:00").toMillis()
