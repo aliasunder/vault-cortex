@@ -113,10 +113,13 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain(`${localDefaults.targetDir}/.env`)
   })
 
-  it("includes the local docs link", () => {
+  it("links Full docs to the repo front page, not a deep blob URL", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain("deploy/local/README.md")
+    expect(message).toContain(
+      "Full docs: https://github.com/aliasunder/vault-cortex\n",
+    )
+    expect(message).not.toContain("blob/main/deploy/local/README.md")
   })
 
   it("includes the image update command with the targetDir", () => {

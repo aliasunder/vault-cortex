@@ -173,7 +173,7 @@ out in ${targetDir}/.env — uncomment, set a value, then apply with
 
 ${updateGuidance(targetDir)}
 
-Full docs: https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md
+Full docs: https://github.com/aliasunder/vault-cortex
 
 ${bottomRule()}`
 
