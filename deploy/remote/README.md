@@ -316,11 +316,11 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-The server runs startup tasks on every boot: rebuilds the search index, creates
-memory template files if the memory folder doesn't exist, and starts the file
-watcher. To re-run the startup flow (e.g., to test bootstrap behavior) — the
-same command works for every setup method, since all three name the container
-`vault-cortex`:
+The server runs startup tasks on every boot: it rebuilds the search index,
+creates memory template files if the memory folder doesn't exist, and starts
+the file watcher. Restarting the container re-runs this flow (useful when
+testing bootstrap behavior), and one command covers every setup method — the
+CLI, Compose, and `docker run` all name the container `vault-cortex`:
 
 ```bash
 # Restart the container (sync and the MCP server both restart —
