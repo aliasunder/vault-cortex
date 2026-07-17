@@ -1,6 +1,6 @@
 {
   "name": "vault-cortex",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Set up a Vault Cortex MCP server for your Obsidian vault in one command: npx vault-cortex init",
   "license": "MIT",
   "type": "module",
