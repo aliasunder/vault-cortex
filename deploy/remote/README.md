@@ -9,9 +9,11 @@ Everything runs in **one container**: the `vault-cortex:remote` image bundles
 the Obsidian Sync process and the MCP server, supervised together so both
 restart automatically
 ([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
-Docker Compose is used below for its restart policy and log rotation, but it's
-optional — the same container runs with plain `docker run` (shown in the
-manual setup below), Podman, or any OCI-compatible container runtime.
+The CLI setup below manages that container with plain `docker run`; the
+manual setup offers a Docker Compose file that declares the same
+configuration. Both produce an identical container — restart policy, log
+rotation, and health check included — and Podman or any OCI-compatible
+container runtime works in place of Docker.
 
 **Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
@@ -106,16 +108,23 @@ vault size. The MCP server starts once sync is running and builds its search
 index as files arrive.
 
 **docker run (no Compose):** The same `.env` file works with any OCI runtime —
-swap `docker` for `podman` or `nerdctl` as needed.
+swap `docker` for `podman` or `nerdctl` as needed. The flags mirror the
+Compose file, volume names included, so your data carries over if you ever
+switch between methods:
 
 ```bash
 docker run -d --name vault-cortex \
+  --hostname vault-cortex \
   --env-file .env \
-  -v vault_data:/vault \
-  -v mcp_data:/data \
-  -v obsidian_config:/home/obsidian/.config \
+  -v vault-cortex_vault_data:/vault \
+  -v vault-cortex_mcp_data:/data \
+  -v vault-cortex_obsidian_config:/home/obsidian/.config \
   -p 8000:8000 \
   --restart unless-stopped \
+  --health-cmd "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" \
+  --health-interval 15s --health-timeout 5s --health-retries 5 \
+  --health-start-period 60s \
+  --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
@@ -258,7 +267,7 @@ docker logs vault-cortex
 docker logs -f vault-cortex
 
 # Container status — "healthy" tracks the MCP server's /healthz:
-docker compose ps
+docker ps
 ```
 
 ## Updating
@@ -281,6 +290,14 @@ images on `up`, so pull explicitly:
 docker compose pull && docker compose up -d
 ```
 
+**Plain `docker run` (or Podman)?** Pull the new image, remove the container,
+then re-run the `docker run` command from [Setup](#setup):
+
+```bash
+docker pull ghcr.io/aliasunder/vault-cortex:remote
+docker rm -f vault-cortex
+```
+
 Named volumes persist across updates — no re-sync, no device re-registration,
 and unchanged notes are not re-embedded.
 
@@ -293,12 +310,14 @@ watcher. To re-run the startup flow (e.g., to test bootstrap behavior):
 ```bash
 # Restart the container (sync and the MCP server both restart —
 # restarting is safe, the startup steps re-run cleanly):
-docker compose restart
+docker restart vault-cortex
 ```
 
-> **Changed `.env`?** Use `docker compose up -d` instead — `restart` reuses
-> the existing container config and does **not** re-read `.env`; `up -d`
-> recreates the services whose configuration changed.
+> **Changed `.env`?** A restart does **not** re-read `.env` — the container
+> has to be re-created. Set up with the CLI? Run `npx vault-cortex upgrade`
+> (re-creates the container and also pulls the latest image). Using Compose?
+> Run `docker compose up -d` — it re-creates services whose configuration
+> changed.
 
 The container also restarts automatically on crash (`restart: unless-stopped`
 policy), Docker daemon restart, or system reboot.
@@ -375,3 +394,16 @@ container from a different management method is still running. The CLI
 (`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
 `docker rm -f vault-cortex`, then retry with your preferred method.
+
+**Vault re-syncs from scratch (or the search index is empty) after switching
+between the CLI, Compose, and `docker run`.** All three methods share the
+same named volumes (`vault-cortex_vault_data`, `vault-cortex_mcp_data`,
+`vault-cortex_obsidian_config`) — but only when the names match exactly. A
+mismatched volume name produces **no error**: Docker silently creates fresh,
+empty volumes and the container starts with a clean slate — Obsidian Sync
+registers a new device and re-syncs the vault, and the search index rebuilds.
+Nothing is lost; your data is still in the old volumes. Run
+`docker volume ls` — if the list shows both unprefixed and prefixed names
+(e.g. `vault_data` alongside `vault-cortex_vault_data`), the two setups used
+different volumes. Stop the container and re-run with the volume names your
+data lives in.

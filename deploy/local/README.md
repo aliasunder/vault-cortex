@@ -3,19 +3,39 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-> **Fastest path:** `npx vault-cortex@latest init` does all of the below
-> interactively — generates the token and config files, starts the server, and
-> prints the connection details ([CLI reference →](../../cli/)). The steps
-> below are the manual equivalent.
-
 **Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)
+- Node.js >= 20.12 — only for the CLI setup below; the
+  [manual setup](#setup) needs just Docker
 - An Obsidian vault (or any folder of Markdown files)
 
 ## Setup
+
+```bash
+npx vault-cortex@latest init
+```
+
+The CLI asks for your vault path, generates the auth token and config files,
+starts the server, and prints the connection details for your MCP client
+([CLI reference →](../../cli/)).
+
+What happens on first start:
+
+- The image is pulled (~150MB)
+- The keyword index builds in seconds — search works right away
+- The semantic (embedding) index builds in the background — expect a few
+  minutes on a large vault, with search served keyword-only until it finishes
+
+> **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
+> at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
+> generated `.env` after `init` and apply with `npx vault-cortex upgrade`. See
+> [Windows (Docker Desktop)](#windows-docker-desktop) below.
+
+<details>
+<summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
 **1. Get the files.** Download this directory, or clone the repo and `cd deploy/local`.
 
@@ -32,22 +52,15 @@ cp .env.example .env
 | `MCP_AUTH_TOKEN` | Generate with `openssl rand -hex 32`                              |
 | `VAULT_PATH`     | Absolute path to your vault (e.g. `/Users/you/Documents/MyVault`) |
 
-> **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
-> at a normal Windows path like `C:\Users\you\MyVault`. See
-> [Windows (Docker Desktop)](#windows-docker-desktop) below.
-
 **4. Start the server:**
 
 ```bash
 docker compose up
 ```
 
-Add `-d` to run in the background. What happens on first start:
+Add `-d` to run in the background.
 
-- The image is pulled (~150MB)
-- The keyword index builds in seconds — search works right away
-- The semantic (embedding) index builds in the background — expect a few
-  minutes on a large vault, with search served keyword-only until it finishes
+</details>
 
 ## Connect your MCP client
 
@@ -150,9 +163,9 @@ docker compose pull && docker compose up -d
 
 ## Stop
 
-**CLI or `docker run`:** `docker stop vault-cortex` — data persists in Docker volumes.
+**Set up with the CLI?** `docker stop vault-cortex` — data persists in Docker volumes.
 
-**Docker Compose:**
+**Set up with Docker Compose?**
 
 ```bash
 # Stop (data persists in Docker volumes):
