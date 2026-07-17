@@ -84,7 +84,7 @@ jobs:
       # missing-file error on top of the real outcome.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != ''
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-published-image-remote
@@ -190,7 +190,7 @@ jobs:
       # hashFiles guard: no SARIF exists if the build failed before the scan.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results.sarif
           category: trivy-pr-image
@@ -199,7 +199,7 @@ jobs:
       # gates the job first (exit-code 1) or the remote build fails.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-pr-image-remote
