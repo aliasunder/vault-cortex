@@ -144,9 +144,15 @@ describe("splitWikilink", () => {
 describe("splitMarkdownLink", () => {
   const scenarios = [
     {
-      name: "splits a plain markdown link, stripping .md",
+      name: "splits a plain markdown link, capturing the .md extension",
       input: "[t](a/b.md)",
-      expected: { prefix: "[t](", path: "a/b", heading: "", closeParen: ")" },
+      expected: {
+        prefix: "[t](",
+        path: "a/b",
+        extension: ".md",
+        heading: "",
+        closeParen: ")",
+      },
     },
     {
       name: "splits a markdown link with a heading",
@@ -154,6 +160,7 @@ describe("splitMarkdownLink", () => {
       expected: {
         prefix: "[t](",
         path: "a/b",
+        extension: ".md",
         heading: "#sec",
         closeParen: ")",
       },
@@ -164,6 +171,7 @@ describe("splitMarkdownLink", () => {
       expected: {
         prefix: "[t](",
         path: "My Note",
+        extension: ".md",
         heading: "",
         closeParen: ")",
       },
@@ -174,6 +182,51 @@ describe("splitMarkdownLink", () => {
       expected: {
         prefix: "[t](",
         path: "100%zzcomplete",
+        extension: ".md",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "captures a non-.md asset extension",
+      input: "[alt](assets/photo.png)",
+      expected: {
+        prefix: "[alt](",
+        path: "assets/photo",
+        extension: ".png",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "parses an extensionless target with an empty extension",
+      input: "[t](Extensionless%20Note)",
+      expected: {
+        prefix: "[t](",
+        path: "Extensionless Note",
+        extension: "",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "does not read a dot in a folder name as the extension",
+      input: "[t](dir.v2/note)",
+      expected: {
+        prefix: "[t](",
+        path: "dir.v2/note",
+        extension: "",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "splits at the last dot of a multi-dot target",
+      input: "[t](archive.tar.gz)",
+      expected: {
+        prefix: "[t](",
+        path: "archive.tar",
+        extension: ".gz",
         heading: "",
         closeParen: ")",
       },
@@ -186,10 +239,6 @@ describe("splitMarkdownLink", () => {
 
   it("returns null for malformed link text (missing closing paren)", () => {
     expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
-  })
-
-  it("returns null for a non-.md target — recognized links that moveNote does not rewrite", () => {
-    expect(links.splitMarkdownLink("[t](file.txt)")).toBeNull()
   })
 })
 
@@ -575,5 +624,134 @@ describe("resolve", () => {
     // "secret.md" exists at the vault root, but "../secret" from a root note
     // points above the vault — it must stay unresolved, not collapse onto it.
     expect(links.resolve("../secret", ["secret.md"], "note.md")).toBeNull()
+  })
+})
+
+// ── stripExtension ───────────────────────────────────────────────
+
+describe("stripExtension", () => {
+  it("strips the extension after the last dot in the filename", () => {
+    expect(links.stripExtension("boards/Trip Route.canvas")).toBe(
+      "boards/Trip Route",
+    )
+  })
+
+  it("keeps the inner dots of a multi-dot filename", () => {
+    expect(links.stripExtension("assets/photo.png.canvas")).toBe(
+      "assets/photo.png",
+    )
+  })
+
+  it("returns the path unchanged when the filename has no dot", () => {
+    expect(links.stripExtension("assets/LICENSE")).toBe("assets/LICENSE")
+  })
+
+  it("treats a leading-dot file as having no extension", () => {
+    expect(links.stripExtension("config/.hidden")).toBe("config/.hidden")
+  })
+
+  it("ignores dots in folder names", () => {
+    expect(links.stripExtension("v1.2/note")).toBe("v1.2/note")
+  })
+})
+
+// ── resolveAsset ─────────────────────────────────────────────────
+
+describe("resolveAsset", () => {
+  const allAssetPaths = [
+    "assets/photo.png",
+    "boards/Trip Route.canvas",
+    "deep/nested/assets/photo.png",
+    "app/views/Inventory.base",
+  ]
+
+  it("resolves an exact path with extension", () => {
+    expect(
+      links.resolveAsset({ target: "assets/photo.png", allAssetPaths }),
+    ).toBe("assets/photo.png")
+  })
+
+  it("resolves a path relative to the source note's directory", () => {
+    expect(
+      links.resolveAsset({
+        target: "../assets/photo.png",
+        allAssetPaths,
+        sourcePath: "Notes/Note.md",
+      }),
+    ).toBe("assets/photo.png")
+  })
+
+  it("resolves a full-filename suffix to the shortest match", () => {
+    expect(links.resolveAsset({ target: "photo.png", allAssetPaths })).toBe(
+      "assets/photo.png",
+    )
+  })
+
+  it("prefers the full-filename match over a stem match (family ordering)", () => {
+    // "photo.png" stem-matches "b/photo.png.canvas", but the full-filename
+    // family runs first and wins with "a/photo.png".
+    const paths = ["b/photo.png.canvas", "a/photo.png"]
+    expect(
+      links.resolveAsset({ target: "photo.png", allAssetPaths: paths }),
+    ).toBe("a/photo.png")
+  })
+
+  it("resolves an extensionless target by exact stem", () => {
+    expect(
+      links.resolveAsset({ target: "boards/Trip Route", allAssetPaths }),
+    ).toBe("boards/Trip Route.canvas")
+  })
+
+  it("resolves an extensionless target relative to the source by stem", () => {
+    expect(
+      links.resolveAsset({
+        target: "../boards/Trip Route",
+        allAssetPaths,
+        sourcePath: "Notes/N.md",
+      }),
+    ).toBe("boards/Trip Route.canvas")
+  })
+
+  it("resolves a bare-name stem to the shortest basename match", () => {
+    const paths = ["deep/nested/photo.png", "a/photo.png"]
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe(
+      "a/photo.png",
+    )
+  })
+
+  it("resolves a stem with folder segments as a suffix match", () => {
+    expect(
+      links.resolveAsset({ target: "views/Inventory", allAssetPaths }),
+    ).toBe("app/views/Inventory.base")
+  })
+
+  it("resolves a multi-dot stem when no full-filename match exists", () => {
+    expect(
+      links.resolveAsset({
+        target: "photo.png",
+        allAssetPaths: ["assets/photo.png.canvas"],
+      }),
+    ).toBe("assets/photo.png.canvas")
+  })
+
+  it("breaks same-length stem ties lexicographically", () => {
+    // Matches the SQL resolver's ORDER BY length(path), path — deterministic
+    // regardless of array order.
+    const paths = ["a/photo.png", "a/photo.jpg"]
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe(
+      "a/photo.jpg",
+    )
+  })
+
+  it("returns null when nothing matches", () => {
+    expect(
+      links.resolveAsset({ target: "missing.png", allAssetPaths }),
+    ).toBeNull()
+  })
+
+  it("cannot resolve a relative target without a source path", () => {
+    expect(
+      links.resolveAsset({ target: "../assets/photo.png", allAssetPaths }),
+    ).toBeNull()
   })
 })

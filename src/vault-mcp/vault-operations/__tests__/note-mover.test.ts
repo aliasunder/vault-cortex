@@ -55,7 +55,7 @@ const setupVault = () => {
   /** True when a folder still exists in the vault — used to assert pruning. */
   const folderExists = (path: string): Promise<boolean> => noteExists(path)
 
-  /** Moves a note, snapshotting the pre-move path list the way the tool does.
+  /** Moves a note, snapshotting the pre-move path lists the way the tool does.
    *  Named params mirror noteMover.moveNote so call sites are self-describing;
    *  vault plumbing and the defaults (no backlink sources, no pruning, no
    *  Windows mode) are filled in here. */
@@ -74,6 +74,7 @@ const setupVault = () => {
         protectedPaths: PROTECTED,
         backlinkSources: params.backlinkSources ?? [],
         allNotePaths: await vaultFs.listNotes({ vaultPath: vault }, logger),
+        allAssetPaths: await vaultFs.listAssets({ vaultPath: vault }, logger),
         pruneEmptyFolders: params.pruneEmptyFolders ?? false,
         windowsBindMount: params.windowsBindMount ?? false,
       },
@@ -597,6 +598,227 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   })
 })
 
+describe("moveNote — asset link rewriting", () => {
+  it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "Image: ![[../../assets/photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("rewrites a relative markdown link to an asset when the note moves deeper", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Notes/Note.md", "![img](../assets/photo.png)\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "![img](../../assets/photo.png)\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("leaves a basename-form asset embed untouched — it still resolves after the move", async () => {
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Notes/Note.md", "Image: ![[photo.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Archive/Deep/Note.md",
+    })
+
+    // The note provably moved, so the unchanged content is a deliberate
+    // leave-alone, not a silent no-op.
+    expect(await noteExists("Notes/Note.md")).toBe(false)
+    expect(await readNote("Archive/Deep/Note.md")).toBe(
+      "Image: ![[photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(0)
+  })
+
+  it("leaves a vault-absolute asset link untouched", async () => {
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Notes/Note.md", "Image: ![[assets/photo.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Archive/Deep/Note.md",
+    })
+
+    expect(await noteExists("Notes/Note.md")).toBe(false)
+    expect(await readNote("Archive/Deep/Note.md")).toBe(
+      "Image: ![[assets/photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(0)
+  })
+
+  it("rewrites a backlink source's note links but leaves its asset links byte-identical", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture(
+      "Docs/Hub.md",
+      "Links [[Foo]].\nImage: ![[../assets/photo.png]]\n",
+    )
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Docs/Hub.md"],
+    })
+
+    // The source note itself didn't move, so its relative asset link still
+    // resolves — only the link to the moved note is rewritten.
+    expect(await readNote("Docs/Hub.md")).toBe(
+      "Links [[Bar]].\nImage: ![[../assets/photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("rewrites a stem-form asset embed, preserving the extensionless form", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("boards/Trip Route.canvas", "{}")
+    await writeFixture("Notes/Note.md", "Route: ![[../boards/Trip Route]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "Route: ![[../../boards/Trip Route]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("resolves a multi-dot asset target to its full-filename file via the stem family", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    // Only photo.png.canvas exists — ![[../assets/photo.png]] has no
+    // full-filename match, so the stem family resolves it (mirroring the
+    // indexer's resolveNonMarkdownFile).
+    await writeFixture("assets/photo.png.canvas", "{}")
+    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "Image: ![[../../assets/photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("rewrites an extensionless markdown link to a note, preserving the extensionless form", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    // "a/Target.md" defeats the basename fallback (shorter than
+    // deep/x/Target.md), so the link must be rewritten to keep pointing at
+    // the deep note — before this fix it was left to break.
+    await writeFixture("a/Target.md", "decoy\n")
+    await writeFixture("deep/x/Target.md", "content\n")
+    await writeFixture("deep/x/Note.md", "See [text](Target).\n")
+
+    const result = await moveNote({
+      oldPath: "deep/x/Note.md",
+      newPath: "deep/y/Note.md",
+    })
+
+    expect(await readNote("deep/y/Note.md")).toBe("See [text](../x/Target).\n")
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("resolves a bare target to the note over a same-named asset", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/icon.md", "note\n")
+    await writeFixture("assets/icon.png", "img")
+    // "other/icon.md" defeats the basename fallback, forcing a rewrite — had
+    // [[../assets/icon]] stem-matched the asset instead, it would still
+    // resolve after the move and stay byte-identical.
+    await writeFixture("other/icon.md", "decoy\n")
+    await writeFixture("Notes/Note.md", "Link: [[../assets/icon]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "Link: [[../../assets/icon]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("resolves an explicit-extension target to the asset over a same-named note", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/icon.md", "note\n")
+    await writeFixture("assets/icon.png", "img")
+    await writeFixture("Notes/Note.md", "Asset: ![[../assets/icon.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "Asset: ![[../../assets/icon.png]]\n",
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("keeps a basename asset embed pointing at the same file when a shorter same-named asset exists elsewhere", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    // "a/photo.png" is the shorter suffix match, but the link resolved via
+    // the relative tier to "other/photo.png" — the rewrite must not switch
+    // files.
+    await writeFixture("a/photo.png", "img-a")
+    await writeFixture("other/photo.png", "img-other")
+    await writeFixture("other/Note.md", "Image: ![[photo.png]]\n")
+
+    const result = await moveNote({
+      oldPath: "other/Note.md",
+      newPath: "z/Note.md",
+    })
+
+    expect(await readNote("z/Note.md")).toBe("Image: ![[../other/photo.png]]\n")
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("rewrites an asset embed stored in a frontmatter property", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture(
+      "Notes/Note.md",
+      '---\nbanner: "![[../assets/photo.png]]"\n---\nBody\n',
+    )
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      '---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n',
+    )
+    expect(result.links_updated).toBe(1)
+  })
+})
+
 describe("moveNote — counts and summary", () => {
   it("counts every rewritten occurrence and lists changed notes sorted", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
@@ -1016,6 +1238,7 @@ describe("moveNote — concurrent write locking", () => {
     newPath: string
     backlinkSources: string[]
     allNotePaths: string[]
+    allAssetPaths?: string[]
   }): ReturnType<typeof noteMover.moveNote> => {
     const movePromise = noteMover.moveNote(
       {
@@ -1025,6 +1248,7 @@ describe("moveNote — concurrent write locking", () => {
         protectedPaths: PROTECTED,
         backlinkSources: params.backlinkSources,
         allNotePaths: params.allNotePaths,
+        allAssetPaths: params.allAssetPaths ?? [],
         pruneEmptyFolders: false,
         windowsBindMount: false,
       },

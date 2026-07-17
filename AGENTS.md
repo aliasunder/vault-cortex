@@ -113,12 +113,12 @@ src/
       frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser (read + patch)
-      links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md)
+      links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
-      vault-filesystem.ts              # Read/write/list/delete .md files; outline + section reads
+      vault-filesystem.ts              # Read/write/list/delete .md files; list non-md assets; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
