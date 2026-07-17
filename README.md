@@ -51,7 +51,7 @@
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime — OrbStack, Colima, Podman), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime, e.g. OrbStack, Colima, Podman), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
