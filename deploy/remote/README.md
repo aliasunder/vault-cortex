@@ -251,6 +251,8 @@ curl -H "Authorization: Bearer <your-MCP_AUTH_TOKEN>" <PUBLIC_URL>/mcp
 
 ## Verify
 
+Run these on your server:
+
 ```bash
 # Health check (no auth):
 curl http://localhost:8000/healthz
@@ -261,6 +263,9 @@ curl http://localhost:8000/healthz
 # sync output is plain text (filter with: docker logs vault-cortex 2>&1 | grep -v '^{'):
 docker logs vault-cortex
 ```
+
+Once [HTTPS access](#https-access) is set up, the same health check works
+from any device: `curl <PUBLIC_URL>/healthz`.
 
 ## Monitoring
 
