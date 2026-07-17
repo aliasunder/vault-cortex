@@ -423,16 +423,18 @@ const deleteNote = async (
 }
 
 /** Walks the vault (or a folder within it) and returns the sorted
- *  vault-relative paths of every file whose name passes keepFileName.
- *  Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
- *  ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
- *  follow suit. Only broken symlinks and non-file targets are excluded.
- *  Hidden segments (any path part starting with ".") are skipped. */
+ *  vault-relative paths of every file of the requested kind — "note"
+ *  (.md files) or "asset" (everything else). The .md extension is the
+ *  single definition of that boundary. Symlinks may point outside the
+ *  vault (e.g. ARCHITECTURE.md → ~/Code/repo/ARCHITECTURE.md) — Obsidian
+ *  supports this natively, so we follow suit. Only broken symlinks and
+ *  non-file targets are excluded. Hidden segments (any path part starting
+ *  with ".") are skipped. */
 const listVaultFilePaths = async (
   params: {
     vaultPath: string
     folder?: string | undefined
-    keepFileName: (fileName: string) => boolean
+    fileKind: "note" | "asset"
   },
   logger: Logger,
 ): Promise<string[]> => {
@@ -451,11 +453,11 @@ const listVaultFilePaths = async (
   })
 
   return entries
-    .filter(
-      (entry) =>
-        (entry.isFile() || entry.isSymbolicLink()) &&
-        params.keepFileName(entry.name),
-    )
+    .filter((entry) => {
+      const isNoteFile = entry.name.endsWith(".md")
+      const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile
+      return (entry.isFile() || entry.isSymbolicLink()) && matchesKind
+    })
     .map((entry) =>
       relative(normalizedVault, join(entry.parentPath, entry.name)),
     )
@@ -479,7 +481,7 @@ const listNotes = async (
     {
       vaultPath: params.vaultPath,
       folder: params.folder,
-      keepFileName: (fileName) => fileName.endsWith(".md"),
+      fileKind: "note",
     },
     logger,
   )
@@ -500,7 +502,7 @@ const listAssets = async (
   const paths = await listVaultFilePaths(
     {
       vaultPath: params.vaultPath,
-      keepFileName: (fileName) => !fileName.endsWith(".md"),
+      fileKind: "asset",
     },
     logger,
   )
