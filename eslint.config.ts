@@ -47,7 +47,7 @@ export default defineConfig(
     // Tests are exempt — they build Date fixtures for fs interop (utimes)
     // and fake timers.
     files: ["src/**/*.ts"],
-    ignores: ["**/__tests__/**"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -68,7 +68,7 @@ export default defineConfig(
     // Env access goes through the env-var package at the sanctioned read
     // site (config.ts) — never raw process.env scattered through the code.
     files: ["src/**/*.ts"],
-    ignores: ["**/__tests__/**", "src/vault-mcp/config.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts", "src/vault-mcp/config.ts"],
     rules: {
       "no-restricted-properties": [
         "error",
@@ -105,7 +105,7 @@ export default defineConfig(
     // obsidian-markdown/ is a leaf layer of pure parsers: no I/O, no SDKs, no
     // runtime imports of other internal modules.
     files: ["src/vault-mcp/obsidian-markdown/**/*.ts"],
-    ignores: ["**/__tests__/**"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
@@ -145,7 +145,7 @@ export default defineConfig(
     // utils/ is generic with zero domain knowledge; type-only imports from
     // infrastructure modules (Logger, config types) are fine.
     files: ["src/utils/**/*.ts"],
-    ignores: ["**/__tests__/**"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
@@ -165,7 +165,7 @@ export default defineConfig(
   {
     // vault-operations/ builds on the parsers and utils only.
     files: ["src/vault-mcp/vault-operations/**/*.ts"],
-    ignores: ["**/__tests__/**"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
@@ -186,7 +186,7 @@ export default defineConfig(
     // search/ uses the shared parsers — it never reaches sideways into
     // vault-operations/ or up into the protocol layer.
     files: ["src/vault-mcp/search/**/*.ts"],
-    ignores: ["**/__tests__/**"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
