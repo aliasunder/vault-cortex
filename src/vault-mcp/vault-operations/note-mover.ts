@@ -126,21 +126,21 @@ const buildReplacementTarget = (params: {
   desiredTarget: string
   newSourcePath: string
   writtenExtension: string
-  resolveCandidate: (candidate: string) => string | null
+  resolveFromNewSource: (candidate: string) => string | null
 }): string => {
   const {
     form,
     desiredTarget,
     newSourcePath,
     writtenExtension,
-    resolveCandidate,
+    resolveFromNewSource,
   } = params
   const absoluteForm = writtenExtension
     ? desiredTarget
     : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean =>
-    resolveCandidate(candidate) === desiredTarget
+    resolveFromNewSource(candidate) === desiredTarget
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -231,7 +231,7 @@ const rewriteTarget = (
     desiredTarget,
     newSourcePath: context.newSourcePath,
     writtenExtension,
-    resolveCandidate: resolveFromNewSource,
+    resolveFromNewSource,
   })
 }
 
