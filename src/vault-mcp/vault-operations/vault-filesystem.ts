@@ -452,20 +452,19 @@ const listVaultFilePaths = async (
     logger,
   })
 
-  return entries
-    .filter((entry) => {
-      const isNoteFile = entry.name.endsWith(".md")
-      const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile
-      return (entry.isFile() || entry.isSymbolicLink()) && matchesKind
-    })
-    .map((entry) =>
-      relative(normalizedVault, join(entry.parentPath, entry.name)),
-    )
-    .filter(
-      (relativePath) =>
-        !relativePath.split("/").some((segment) => segment.startsWith(".")),
-    )
-    .sort()
+  const kindMatchingEntries = entries.filter((entry) => {
+    const isNoteFile = entry.name.endsWith(".md")
+    const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile
+    return (entry.isFile() || entry.isSymbolicLink()) && matchesKind
+  })
+  const relativePaths = kindMatchingEntries.map((entry) =>
+    relative(normalizedVault, join(entry.parentPath, entry.name)),
+  )
+  const visiblePaths = relativePaths.filter(
+    (relativePath) =>
+      !relativePath.split("/").some((segment) => segment.startsWith(".")),
+  )
+  return visiblePaths.sort()
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
