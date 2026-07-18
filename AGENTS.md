@@ -216,6 +216,10 @@ Two rules keep this honest:
 - **Top level is wiring only.** Folders are domains; the only loose files at
   `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
 
+The dependency-direction rule is lint-enforced: `eslint.config.ts` bans runtime
+cross-layer imports per folder via `@typescript-eslint/no-restricted-imports`
+(type-only imports allowed — erased at compile time; tests exempt).
+
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
 bars. `import type` from infrastructure modules (`Logger`, config types) is fine —
