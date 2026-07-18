@@ -186,9 +186,11 @@ const generate = (): void => {
       } else if (compactTableDone) {
         continue
       } else if (line.trim() !== "") {
-        const lastTableIdx = output.findLastIndex((l) => l.startsWith("|"))
+        const lastTableIdx = output.findLastIndex((outputLine) =>
+          outputLine.startsWith("|"),
+        )
         const lastHeadingIdx = output.findLastIndex(
-          (l) => parseHeading(l) !== undefined,
+          (outputLine) => parseHeading(outputLine) !== undefined,
         )
         if (lastTableIdx > lastHeadingIdx) {
           compactTableDone = true
