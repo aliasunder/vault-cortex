@@ -112,7 +112,9 @@ Errors:
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.`,
+Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.
+
+Limitation: assets are readable and listable but not searchable — vault_search indexes markdown notes only.`,
       inputSchema: {
         path: z
           .string()
@@ -217,8 +219,9 @@ Parameters:
 
 Errors:
 - A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
+- A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
 
-Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).`,
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). Listed assets are readable via vault_read_asset; their contents are not searchable — vault_search indexes markdown notes only.`,
       inputSchema: {
         folder: z
           .string()
