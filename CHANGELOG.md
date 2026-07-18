@@ -46,6 +46,27 @@
 
 
 
+
+## [0.29.7] — 2026-07-18
+
+### Bug Fixes
+
+- **move-note:** Rewrite relative asset links inside a moved note (#347)
+- **cli:** Stop the container ID printing raw into the wizard output (#341)
+
+### Documentation
+
+- **cli:** Re-record demo GIF at 940x560 to fix README footprint (#346)
+- Name Docker-compatible runtimes in Quick Start and CLI requirements (#340)
+- Update CHANGELOG.md for v0.29.6
+
+### Maintenance
+
+- **deps:** Bump node from `cb4e8f7` to `6f7b03f` (#343)
+- **deps:** Bump actions/setup-node from 6.4.0 to 7.0.0 (#342)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.0 to 4.37.1 (#344)
+- **deps-dev:** Bump the development group with 2 updates (#345)
+
 ## [0.29.6] — 2026-07-17
 
 ### Documentation
