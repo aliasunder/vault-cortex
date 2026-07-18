@@ -97,7 +97,7 @@ Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outl
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
 
 What each type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — automatically downscaled and recompressed server-side to fit client response limits — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs deliver their first frame.
+- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — automatically downscaled and recompressed server-side to fit client response limits — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 - PDFs (.pdf): not yet readable — returns an error that confirms the file exists and its size; text extraction is planned.
