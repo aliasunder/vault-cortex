@@ -100,9 +100,10 @@ src/
     file-write-lock.ts                 # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
-    fs.ts                              # readFileOrNull / readdirOrNull / fileExists (ENOENT-safe)
+    fs.ts                              # readFileOrNull / readBinaryFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
+    fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -116,9 +117,10 @@ src/
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
+      canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
-      vault-filesystem.ts              # Read/write/list/delete .md files; list non-md assets; outline + section reads
+      vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
@@ -130,12 +132,13 @@ src/
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
-        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler
+        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         task-tools.ts                  # 2 tools: list-tasks, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
+        asset-tools.ts                 # 2 tools: read-asset, list-assets
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
         vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey
@@ -163,10 +166,14 @@ The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
 use-cases → protocol → wiring. A module's folder is decided by **what it depends
 on**, not just its topic:
 
-- **`obsidian-markdown/`** — pure parsers/transforms over Obsidian-flavored
-  Markdown (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
+- **`obsidian-markdown/`** — pure parsers/transforms over Obsidian's file
+  formats (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
   no MCP**; they take strings/lines and return data or transformed strings, so
-  they're trivially unit-testable. `lines.ts` is the single home of the
+  they're trivially unit-testable. The folder's contract is the dependency
+  profile, not the syntax family: `canvas.ts` parses JSON (JSON Canvas 1.0),
+  but its text nodes and its linearized output are markdown, and it's the same
+  pure leaf layer — Obsidian format parsers belong here regardless of whether
+  the format is markdown, JSON, or YAML. `lines.ts` is the single home of the
   CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
   threads it, so they can't disagree about where a fence opens.
   **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
@@ -559,6 +566,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
   memory-file (`file`) inputs are exempt.
+- **`vault_read_asset` is the deliberate inverse.** Its `path` names any
+  non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
+  rejects notes so the `.md` boundary stays a single rule with two sides
+  (notes → `vault_read_note`, everything else → `vault_read_asset`). Error
+  messages never name tools; the routing guidance lives in each tool's
+  description.
 
 ### Test conventions
 

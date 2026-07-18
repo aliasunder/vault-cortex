@@ -36,6 +36,8 @@ services:
       # Windows: set WINDOWS_MODE=true in .env when your vault is on a C: drive
       # (polling watcher + rename-based moves across the Docker Desktop/WSL2 bridge).
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
+      MAX_ASSET_BYTES: ${MAX_ASSET_BYTES:-52428800}
+      MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       # Optional overrides. When unset, the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes" (blocked from vault_delete_note)

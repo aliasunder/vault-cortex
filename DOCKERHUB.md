@@ -48,6 +48,7 @@
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Assets](https://github.com/aliasunder/vault-cortex#tools)** — read the vault's non-markdown files too: images arrive as actual images (downscaled to fit), canvases as readable outlines, data files as text. Assets are readable and browsable, not yet searchable
 - **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](https://github.com/aliasunder/vault-cortex#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -89,6 +90,8 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                          |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
+| **Assets**      | `vault_read_asset`           | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
+|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-type counts                   |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
 ## Prompts

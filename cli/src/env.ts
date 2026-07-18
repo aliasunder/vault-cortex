@@ -34,6 +34,16 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
 PUBLIC_URL=http://localhost:8000
 
+# Largest asset file vault_read_asset will read, in bytes (default: 52428800 = 50 MiB).
+# Reading a larger file returns an error instead of content.
+MAX_ASSET_BYTES=52428800
+
+# Byte budget for images returned by vault_read_asset, in binary bytes before
+# base64 encoding (default: 49152 = 48 KiB, sized for Claude Code's response cap).
+# Images are downscaled/recompressed server-side to fit. Raise it for clients
+# that accept larger tool responses.
+MAX_IMAGE_OUTPUT_BYTES=49152
+
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
@@ -127,6 +137,16 @@ RERANK_MODE=blended
 # Enables polling for the file watcher and rename-based moves across
 # the Docker Desktop/WSL2 bridge.
 WINDOWS_MODE=false
+
+# Largest asset file vault_read_asset will read, in bytes (default: 52428800 = 50 MiB).
+# Reading a larger file returns an error instead of content.
+MAX_ASSET_BYTES=52428800
+
+# Byte budget for images returned by vault_read_asset, in binary bytes before
+# base64 encoding (default: 49152 = 48 KiB, sized for Claude Code's response cap).
+# Images are downscaled/recompressed server-side to fit. Raise it for clients
+# that accept larger tool responses.
+MAX_IMAGE_OUTPUT_BYTES=49152
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.

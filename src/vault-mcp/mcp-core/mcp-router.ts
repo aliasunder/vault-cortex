@@ -95,10 +95,10 @@ export const createMcpRouter = ({
           },
           {
             instructions: config.memoryEnabled
-              ? `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+              ? `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_asset for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`
-              : `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_write_note for writes.
+              : `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_asset for images, canvases, and other non-markdown files. Use vault_write_note for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
           },

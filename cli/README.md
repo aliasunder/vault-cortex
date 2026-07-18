@@ -8,8 +8,9 @@ npx vault-cortex@latest init
 ```
 
 Vault Cortex is a standalone, remote-capable MCP server that gives any AI
-agent hybrid search, task management, structured memory, and read/write
-access to your Obsidian vault — see the
+agent hybrid search, task management, structured memory, asset reading
+(images, canvases, data files), and read/write access to your Obsidian
+vault — see the
 [full feature overview](https://github.com/aliasunder/vault-cortex#what-you-get).
 The server runs as a Docker container; this CLI scaffolds the config and
 manages the container so you don't have to.

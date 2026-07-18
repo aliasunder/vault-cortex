@@ -47,6 +47,8 @@ services:
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
+      MAX_ASSET_BYTES: ${MAX_ASSET_BYTES:-52428800}
+      MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       # Optional overrides. When unset, the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes" (blocked from vault_delete_note)
