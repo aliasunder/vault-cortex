@@ -47,12 +47,13 @@ const TEMPLATER_RE = /<%[-+*_~]?.*?%>/g
  *  Anchored and non-global — safe for .exec(). */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
-/** Splits a matched markdown link into [, `[text](`, path-without-ext, `#heading`,
- *  `)`]. Deliberately .md-anchored while MD_LINK_RE recognizes any target:
- *  parsing-for-rewrite serves moveNote, which only relocates notes — so a
- *  non-.md match is a recognized link that is never rewritten.
- *  Anchored and non-global — safe for .exec(). */
-const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)\.md(#[^)\s]*)?(\))$/
+/** Splits a matched markdown link into [, `[text](`, path-without-ext,
+ *  extension-with-dot, `#heading`, `)`]. Any extension is captured
+ *  ([text](Note.md), ![alt](image.png), [doc](file.pdf)); an extensionless
+ *  target ([text](Extensionless%20Note)) parses with extension "". The
+ *  extension group excludes "/" so a dot in a folder name is never misread
+ *  as the extension. Anchored and non-global — safe for .exec(). */
+const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)(\.[^/.#\s]+)?(#[^)\s]*)?(\))$/
 
 /** Safely decodes a URI component, falling back to the raw string if the
  *  percent-encoding is malformed (e.g. "100%complete"). */
@@ -98,12 +99,15 @@ type WikilinkParts = {
   alias: string
 }
 
-/** The structural parts of a markdown link [text](path.md#heading). path is the
- *  DECODED target without the .md extension; prefix/closeParen/heading are
- *  verbatim literals for lossless reconstruction. */
+/** The structural parts of a markdown link [text](path.ext#heading). path and
+ *  extension are both DECODED — path is the target without its extension;
+ *  extension keeps its leading dot ("" for an extensionless target);
+ *  prefix/closeParen/heading are verbatim literals for lossless
+ *  reconstruction. */
 type MarkdownLinkParts = {
   prefix: string
   path: string
+  extension: string
   heading: string
   closeParen: string
 }
@@ -155,25 +159,34 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
   return { embed, target, heading, alias }
 }
 
-/** Splits a matched markdown link into its parts (path decoded, .md stripped), or
- *  null when the text is not a well-formed .md link — including recognized
- *  non-.md links (assets, extensionless targets), which moveNote deliberately
- *  does not rewrite. */
+/** Splits a matched markdown link into its parts (target decoded, extension
+ *  captured separately), or null when the text is not a well-formed markdown
+ *  link. Any vault target parses — notes, assets, and extensionless targets —
+ *  so moveNote can rewrite all of them. The full target is decoded before the
+ *  path/extension split: percent-encoding can hide the dot (photo%2Epng) or
+ *  span the extension (photo.p%6Eg), so a split on the raw text would disagree
+ *  with how extraction and Obsidian read the same link. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
   if (!parts) return null
   const prefix = parts[1]
   const encodedPath = parts[2]
-  const heading = parts[3] ?? ""
-  const closeParen = parts[4]
+  const encodedExtension = parts[3] ?? ""
+  const heading = parts[4] ?? ""
+  const closeParen = parts[5]
   const hasRequiredGroups =
     prefix !== undefined &&
     encodedPath !== undefined &&
     closeParen !== undefined
   if (!hasRequiredGroups) return null
+  const decodedTarget = safeDecodeURIComponent(
+    `${encodedPath}${encodedExtension}`,
+  )
+  const path = stripExtension(decodedTarget)
   return {
     prefix,
-    path: safeDecodeURIComponent(encodedPath),
+    path,
+    extension: decodedTarget.slice(path.length),
     heading,
     closeParen,
   }
@@ -300,6 +313,104 @@ const resolve = (
   return null
 }
 
+/** Strips the file extension from a path, or returns the path unchanged when
+ *  the filename has no extension. Uses the last dot in the filename (not the
+ *  path), so a multi-dot name keeps its inner dots ("photo.png.canvas" →
+ *  "photo.png") and dots in folder names are ignored. A leading-dot file
+ *  (".hidden") has no extension. */
+const stripExtension = (filePath: string): string => {
+  const fileName = posix.basename(filePath)
+  const dotIndex = fileName.lastIndexOf(".")
+  if (dotIndex <= 0) return filePath
+  return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
+}
+
+/** Picks the winner among same-tier resolution matches: the shortest path,
+ *  with a lexicographic tiebreak for determinism — mirroring the SQL
+ *  resolver's ORDER BY length(path), path LIMIT 1. */
+const shortestOf = (paths: string[]): string | null => {
+  if (paths.length === 0) return null
+  return paths.reduce((shortest, candidatePath) =>
+    candidatePath.length < shortest.length ||
+    (candidatePath.length === shortest.length && candidatePath < shortest)
+      ? candidatePath
+      : shortest,
+  )
+}
+
+/** Resolves a link target to a known non-markdown vault file, or null when no
+ *  match exists. Pure array-based twin of the indexer's SQL-backed
+ *  resolveNonMarkdownFile (search/search-index.ts) — same tiers, same family
+ *  ordering — so the move rewriter and the index agree on where an asset link
+ *  points. Handles both extensionless targets ([[Trip Route]] →
+ *  Trip Route.canvas) and explicit-extension targets ([[photo.png]],
+ *  ![img](../assets/photo.png)) in every form Obsidian resolves — exact path,
+ *  relative to the source note, and basename/shortest path.
+ *
+ *  The full-filename tiers all run before any stem tier (extension-stripped
+ *  paths): the families are NOT disjoint — a multi-dot filename's stem
+ *  retains its inner dots ("photo.png.canvas" → stem "photo.png"), so a
+ *  with-extension target can stem-match a different file. Family ordering
+ *  makes the full-filename match win, while the stem tiers stay the fallback
+ *  so [[photo.png]] with only photo.png.canvas in the vault still resolves —
+ *  mirroring Obsidian's stem matching. Extensionless targets fall through the
+ *  full-filename family unmatched (stored paths always carry an extension). */
+const resolveAsset = (params: {
+  target: string
+  allAssetPaths: readonly string[]
+  sourcePath?: string
+}): string | null => {
+  const { target, allAssetPaths, sourcePath } = params
+  const relativeTarget = sourcePath
+    ? posix.join(posix.dirname(sourcePath), target)
+    : null
+
+  // ── Full-filename family: exact → relative → path suffix ──
+
+  if (allAssetPaths.includes(target)) return target
+
+  if (relativeTarget && allAssetPaths.includes(relativeTarget)) {
+    return relativeTarget
+  }
+
+  const fullPathSuffixMatch = shortestOf(
+    allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)),
+  )
+  if (fullPathSuffixMatch) return fullPathSuffixMatch
+
+  // ── Stem family: exact → relative → suffix/basename ──
+
+  const exactStemMatch = shortestOf(
+    allAssetPaths.filter((assetPath) => stripExtension(assetPath) === target),
+  )
+  if (exactStemMatch) return exactStemMatch
+
+  if (relativeTarget) {
+    const relativeStemMatch = shortestOf(
+      allAssetPaths.filter(
+        (assetPath) => stripExtension(assetPath) === relativeTarget,
+      ),
+    )
+    if (relativeStemMatch) return relativeStemMatch
+  }
+
+  // A target with folder segments keeps them in the match (suffix on the
+  // stem); a bare name matches on the filename stem only. Either way this is
+  // the last tier: shortestOf returns null on no match — the unresolved case.
+  if (target.includes("/")) {
+    return shortestOf(
+      allAssetPaths.filter((assetPath) =>
+        stripExtension(assetPath).endsWith(`/${target}`),
+      ),
+    )
+  }
+  return shortestOf(
+    allAssetPaths.filter(
+      (assetPath) => stripExtension(posix.basename(assetPath)) === target,
+    ),
+  )
+}
+
 /** A note's complete link set — body links unioned with frontmatter wikilinks,
  *  deduplicated. Single source of truth for "what does this note link to",
  *  shared by incremental upsert and full rebuild — must not diverge. */
@@ -321,4 +432,6 @@ export const links = {
   extractFromFrontmatter,
   extractAll,
   resolve,
+  stripExtension,
+  resolveAsset,
 }

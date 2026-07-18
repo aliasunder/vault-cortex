@@ -715,15 +715,6 @@ export const createSearchIndex = (
      FROM notes WHERE path = ?`,
   )
 
-  /** Strips the file extension from a path, or returns the path unchanged if
-   *  it has no extension. Uses the last dot in the filename (not the path). */
-  const stripExtension = (filePath: string): string => {
-    const fileName = basename(filePath)
-    const dotIndex = fileName.lastIndexOf(".")
-    if (dotIndex <= 0) return filePath
-    return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
-  }
-
   /** Resolves a wikilink target to a known non-markdown file path, or null
    *  when no match is found. Handles both extensionless targets ([[Trip Route]]
    *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]],
@@ -825,8 +816,8 @@ export const createSearchIndex = (
       const relativePath = relative(normalizedVault, absolutePath)
       if (relativePath.split("/").some((segment) => segment.startsWith(".")))
         continue
-      const basePath = stripExtension(relativePath)
-      const baseFilename = stripExtension(directoryEntry.name)
+      const basePath = links.stripExtension(relativePath)
+      const baseFilename = links.stripExtension(directoryEntry.name)
       upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
       filesIndexed += 1
     }
@@ -838,8 +829,8 @@ export const createSearchIndex = (
    *  add/change. Mirrors the note forward-reference re-resolution pattern:
    *  updates the link target from the raw text to the resolved non-md path. */
   const upsertNonMdFile = (filePath: string): void => {
-    const basePath = stripExtension(filePath)
-    const baseFilename = stripExtension(basename(filePath))
+    const basePath = links.stripExtension(filePath)
+    const baseFilename = links.stripExtension(basename(filePath))
     upsertNonMdFileStmt.run(filePath, basePath, baseFilename)
 
     // Re-resolve unresolved links that now match this non-md file — upgrade

@@ -701,7 +701,7 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder. A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder, updating links and the note's own relative links.
@@ -719,7 +719,7 @@ Errors:
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is deleted only after the destination and all backlinks are written, so a failure never loses data. The error message names what failed and the resulting state: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish).
 
-Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its .md extension and link text. Only the target path is changed.
+Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 
 Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of source folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
@@ -775,7 +775,10 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             { path: normalizedOldPath },
             reqLogger,
           )
-          const allNotePaths = await vaultFs.listNotes({ vaultPath }, reqLogger)
+          const [allNotePaths, allAssetPaths] = await Promise.all([
+            vaultFs.listNotes({ vaultPath }, reqLogger),
+            vaultFs.listAssets({ vaultPath }, reqLogger),
+          ])
           return noteMover.moveNote(
             {
               vaultPath,
@@ -784,6 +787,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               protectedPaths: config.protectedPaths,
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allNotePaths,
+              allAssetPaths,
               pruneEmptyFolders,
               windowsBindMount: config.windowsBindMount,
             },

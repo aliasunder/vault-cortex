@@ -37,6 +37,7 @@ const {
   updateProperties,
   deleteNote,
   listNotes,
+  listAssets,
 } = vaultFs
 
 let vault: string
@@ -802,6 +803,52 @@ describe("listNotes", () => {
       "root.md",
       "valid-link.md",
     ])
+  })
+})
+
+describe("listAssets", () => {
+  beforeEach(async () => {
+    await mkdir(join(vault, "assets"), { recursive: true })
+    await mkdir(join(vault, ".obsidian"), { recursive: true })
+    await writeFile(join(vault, "assets/photo.png"), "img", "utf8")
+    await writeFile(join(vault, "assets/board.canvas"), "{}", "utf8")
+    await writeFile(join(vault, "root.md"), "r", "utf8")
+    await writeFile(join(vault, "notes.md"), "n", "utf8")
+    await writeFile(join(vault, ".obsidian/plugin.js"), "x", "utf8")
+    await writeFile(join(vault, ".DS_Store"), "x", "utf8")
+  })
+
+  it("lists non-.md files recursively, excluding notes", async () => {
+    const files = await listAssets({ vaultPath: vault }, logger)
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
+  })
+
+  it("skips hidden files and directories", async () => {
+    await writeFile(join(vault, "readme.txt"), "visible", "utf8")
+    const files = await listAssets({ vaultPath: vault }, logger)
+    // readme.txt is listed; .DS_Store and .obsidian/plugin.js (from
+    // beforeEach) are excluded by the hidden-segment filter.
+    expect(files).toEqual([
+      "assets/board.canvas",
+      "assets/photo.png",
+      "readme.txt",
+    ])
+  })
+
+  it("includes a symlinked asset in the listing", async () => {
+    await symlink("assets/photo.png", join(vault, "linked.png"))
+    const files = await listAssets({ vaultPath: vault }, logger)
+    expect(files).toEqual([
+      "assets/board.canvas",
+      "assets/photo.png",
+      "linked.png",
+    ])
+  })
+
+  it("returns an empty array when the vault has no assets", async () => {
+    await rm(join(vault, "assets"), { recursive: true })
+    const files = await listAssets({ vaultPath: vault }, logger)
+    expect(files).toEqual([])
   })
 })
 

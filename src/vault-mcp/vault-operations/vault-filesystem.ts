@@ -422,12 +422,16 @@ const deleteNote = async (
   })
 }
 
-/** Lists .md files under a folder (or vault root). Supports glob filtering. */
-const listNotes = async (
+/** Walks the vault (or a folder within it) and returns the sorted
+ *  vault-relative paths of every file of the requested kind — "note"
+ *  (.md files) or "asset" (everything else). The .md extension is the
+ *  single definition of that boundary. Follows valid symlinks; hidden
+ *  segments (any path part starting with ".") are skipped. */
+const listVaultFilePaths = async (
   params: {
     vaultPath: string
     folder?: string | undefined
-    glob?: string | undefined
+    fileKind: "note" | "asset"
   },
   logger: Logger,
 ): Promise<string[]> => {
@@ -448,25 +452,61 @@ const listNotes = async (
     logger,
   })
 
-  const paths = entries
-    .filter(
-      (entry) =>
-        (entry.isFile() || entry.isSymbolicLink()) &&
-        entry.name.endsWith(".md"),
-    )
-    .map((entry) =>
-      relative(normalizedVault, join(entry.parentPath, entry.name)),
-    )
-    .filter(
-      (relativePath) =>
-        !relativePath.split("/").some((segment) => segment.startsWith(".")),
-    )
-    .sort()
+  const kindMatchingEntries = entries.filter((entry) => {
+    const isNoteFile = entry.name.endsWith(".md")
+    const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile
+    return (entry.isFile() || entry.isSymbolicLink()) && matchesKind
+  })
+  const relativePaths = kindMatchingEntries.map((entry) =>
+    relative(normalizedVault, join(entry.parentPath, entry.name)),
+  )
+  const visiblePaths = relativePaths.filter(
+    (relativePath) =>
+      !relativePath.split("/").some((segment) => segment.startsWith(".")),
+  )
+  return visiblePaths.sort()
+}
+
+/** Lists .md files under a folder (or vault root). Supports glob filtering. */
+const listNotes = async (
+  params: {
+    vaultPath: string
+    folder?: string | undefined
+    glob?: string | undefined
+  },
+  logger: Logger,
+): Promise<string[]> => {
+  const paths = await listVaultFilePaths(
+    {
+      vaultPath: params.vaultPath,
+      folder: params.folder,
+      fileKind: "note",
+    },
+    logger,
+  )
 
   const isMatch = params.glob ? picomatch(params.glob) : undefined
   const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
+}
+
+/** Lists non-.md files (attachments — images, canvases, PDFs, …) under the
+ *  vault root. Same walk and filters as listNotes; moveNote resolves asset
+ *  links inside a moved note against the result. */
+const listAssets = async (
+  params: { vaultPath: string },
+  logger: Logger,
+): Promise<string[]> => {
+  const paths = await listVaultFilePaths(
+    {
+      vaultPath: params.vaultPath,
+      fileKind: "asset",
+    },
+    logger,
+  )
+  logger.info("listed assets", { count: paths.length })
+  return paths
 }
 
 export const vaultFs = {
@@ -478,4 +518,5 @@ export const vaultFs = {
   updateProperties,
   deleteNote,
   listNotes,
+  listAssets,
 }

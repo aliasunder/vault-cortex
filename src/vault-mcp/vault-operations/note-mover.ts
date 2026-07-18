@@ -68,17 +68,26 @@ type RewriteContext = {
   newTargetPath: string
   allNotePaths: string[]
   allNotePathsAfter: string[]
+  /** Every non-.md path in the vault. Assets never move (moveNote is
+   *  .md-only), so unlike the note lists there is no "after" variant. */
+  allAssetPaths: readonly string[]
 }
 
 /** Which of Obsidian's link forms a raw target used to resolve, so the
  *  replacement can be written back in the same style. */
 type LinkForm = "basename" | "absolute" | "relative"
 
-// ── Target classification + construction ────────────────────────
+/** Which side of the vault a link points at. Notes are checked first — a
+ *  target matching both a note and an asset resolves to the note, matching
+ *  the indexer's precedence. */
+type TargetKind = "note" | "asset"
 
-/** Strips a trailing .md so a vault path can be used as a wikilink target. */
-const withoutExtension = (path: string): string =>
-  path.endsWith(".md") ? path.slice(0, -".md".length) : path
+/** Which link grammar a replacement is written back into. Markdown links
+ *  carry their extension ([text](Note.md), ![alt](photo.png)); wikilinks to
+ *  notes drop it ([[Note]]). */
+type LinkGrammar = "wikilink" | "markdown"
+
+// ── Target classification + construction ────────────────────────
 
 /** Determines which link form (basename, absolute, relative) was used, so the
  *  replacement can be written back in the same style. */
@@ -88,9 +97,14 @@ const classifyLinkForm = (params: {
   resolvedTarget: string
 }): LinkForm => {
   const { rawTarget, sourcePath, resolvedTarget } = params
-  const targetWithExtension = rawTarget.endsWith(".md")
+  // The resolved path carries the file's real extension — ".md" for notes,
+  // the asset's own otherwise — so one rule covers both kinds (a stem-form
+  // asset link gets its extension appended, exactly like an extensionless
+  // wikilink to a note).
+  const extension = posix.extname(resolvedTarget)
+  const targetWithExtension = rawTarget.endsWith(extension)
     ? rawTarget
-    : `${rawTarget}.md`
+    : `${rawTarget}${extension}`
   if (targetWithExtension === resolvedTarget) return "absolute"
   if (
     posix.join(posix.dirname(sourcePath), targetWithExtension) ===
@@ -103,18 +117,29 @@ const classifyLinkForm = (params: {
 
 /** Builds a replacement target that resolves to desiredTarget from the new source
  *  location, keeping the original link form. Falls back to vault-absolute if the
- *  shorter form would resolve elsewhere after the move. */
+ *  shorter form would resolve elsewhere after the move. keepExtension controls
+ *  the extension state: true keeps desiredTarget's extension (the original
+ *  link carried it), false strips it back to the stem/extensionless form. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
   newSourcePath: string
-  allNotePathsAfter: string[]
+  keepExtension: boolean
+  resolveFromNewSource: (candidate: string) => string | null
 }): string => {
-  const { form, desiredTarget, newSourcePath, allNotePathsAfter } = params
-  const absoluteForm = withoutExtension(desiredTarget)
+  const {
+    form,
+    desiredTarget,
+    newSourcePath,
+    keepExtension,
+    resolveFromNewSource,
+  } = params
+  const absoluteForm = keepExtension
+    ? desiredTarget
+    : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean =>
-    links.resolve(candidate, allNotePathsAfter, newSourcePath) === desiredTarget
+    resolveFromNewSource(candidate) === desiredTarget
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -130,31 +155,70 @@ const buildReplacementTarget = (params: {
 }
 
 /** Returns the replacement target for one link, or null to leave it unchanged.
- *  Null when unresolved, still pointing at the right note, or not affected. */
+ *  Null when unresolved, still pointing at the right file, or not affected.
+ *  Notes are resolved before assets (a target matching both resolves to the
+ *  note, matching the indexer's precedence); an asset target never follows
+ *  the move — only the shift in the source note's location can break it. */
 const rewriteTarget = (
-  rawTarget: string,
+  params: {
+    rawTarget: string
+    originalExtension: string
+    grammar: LinkGrammar
+  },
   context: RewriteContext,
 ): string | null => {
-  const resolvedBefore = links.resolve(
+  const { rawTarget, originalExtension, grammar } = params
+
+  const resolvedNoteBefore = links.resolve(
     rawTarget,
     context.allNotePaths,
     context.oldSourcePath,
   )
+  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
+  const resolvedBefore =
+    resolvedNoteBefore ??
+    links.resolveAsset({
+      target: rawTarget,
+      allAssetPaths: context.allAssetPaths,
+      sourcePath: context.oldSourcePath,
+    })
   if (resolvedBefore === null) return null
 
-  // Follow the moved note to its new location; leave other targets as-is.
+  // Follow the moved note to its new location; every other target (an
+  // unmoved note, or an asset — assets never move) keeps its resolved path,
+  // and the rewrite below only re-expresses how the link reaches it.
   const desiredTarget =
-    resolvedBefore === context.oldTargetPath
+    targetKind === "note" && resolvedBefore === context.oldTargetPath
       ? context.newTargetPath
       : resolvedBefore
 
+  // Resolver against the post-move vault from the source's new location —
+  // shared by the "already resolves" check and the candidate verifier.
+  const resolveFromNewSource = (candidate: string): string | null =>
+    targetKind === "note"
+      ? links.resolve(
+          candidate,
+          context.allNotePathsAfter,
+          context.newSourcePath,
+        )
+      : links.resolveAsset({
+          target: candidate,
+          allAssetPaths: context.allAssetPaths,
+          sourcePath: context.newSourcePath,
+        })
+
   // Already resolves correctly from the new location — leave it alone.
-  const resolvedAfter = links.resolve(
-    rawTarget,
-    context.allNotePathsAfter,
-    context.newSourcePath,
-  )
+  const resolvedAfter = resolveFromNewSource(rawTarget)
   if (resolvedAfter === desiredTarget) return null
+
+  // The replacement keeps the original link's extension state: the extension
+  // is kept only when the original carried the resolved file's real
+  // extension (markdown links always keep theirs; a wikilink to a note never
+  // carries ".md"; a stem-form asset link stays extensionless).
+  const resolvedExtension = posix.extname(desiredTarget)
+  const keepExtension =
+    (targetKind === "asset" || grammar === "markdown") &&
+    originalExtension === resolvedExtension
 
   return buildReplacementTarget({
     form: classifyLinkForm({
@@ -164,7 +228,8 @@ const rewriteTarget = (
     }),
     desiredTarget,
     newSourcePath: context.newSourcePath,
-    allNotePathsAfter: context.allNotePathsAfter,
+    keepExtension,
+    resolveFromNewSource,
   })
 }
 
@@ -183,9 +248,14 @@ const encodeMarkdownLinkPath = (path: string): string =>
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
-/** Takes a raw link target string and returns its replacement, or null to
- *  leave the link unchanged. Created by binding rewriteTarget to a context. */
-type RewriteLink = (rawTarget: string) => string | null
+/** Takes a raw link target (with its original extension state and grammar) and
+ *  returns its replacement, or null to leave the link unchanged. Created by
+ *  binding rewriteTarget to a context. */
+type RewriteLink = (params: {
+  rawTarget: string
+  originalExtension: string
+  grammar: LinkGrammar
+}) => string | null
 
 /** Splices link replacements into text in start order. Shared by body-line and
  *  frontmatter-string rewriting. */
@@ -243,22 +313,31 @@ const rewriteWikilinkText = (
 ): string | null => {
   const parts = links.splitWikilink(linkText)
   if (!parts) return null
-  const newTarget = rewriteLink(parts.target.trim())
+  const rawTarget = parts.target.trim()
+  const newTarget = rewriteLink({
+    rawTarget,
+    originalExtension: posix.extname(rawTarget),
+    grammar: "wikilink",
+  })
   if (newTarget === null) return null
   return `${parts.embed}[[${newTarget}${parts.heading}${parts.alias}]]`
 }
 
-/** Rewrites one matched markdown link, preserving the link text and heading;
- *  null when the target needs no change. */
+/** Rewrites one matched markdown link, preserving the link text, heading, and
+ *  the original extension state; null when the target needs no change. */
 const rewriteMarkdownLinkText = (
   linkText: string,
   rewriteLink: RewriteLink,
 ): string | null => {
   const parts = links.splitMarkdownLink(linkText)
   if (!parts) return null
-  const newTarget = rewriteLink(parts.path)
+  const newTarget = rewriteLink({
+    rawTarget: `${parts.path}${parts.extension}`,
+    originalExtension: parts.extension,
+    grammar: "markdown",
+  })
   if (newTarget === null) return null
-  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}.md${parts.heading}${parts.closeParen}`
+  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}${parts.heading}${parts.closeParen}`
 }
 
 /** Rewrites every link in a note body, skipping fenced code blocks. */
@@ -403,6 +482,9 @@ const moveNote = async (
     backlinkSources: readonly string[]
     /** Every .md path in the vault — links.resolve checks against this to determine where links point. */
     allNotePaths: readonly string[]
+    /** Every non-.md path in the vault — links.resolveAsset checks against
+     *  this for asset targets (images, canvases, PDFs, …). */
+    allAssetPaths: readonly string[]
     /** When set, remove any source folders the move leaves empty. */
     pruneEmptyFolders: boolean
     /** Windows-drive bind mount — write the destination via rename, not a hard
@@ -411,7 +493,13 @@ const moveNote = async (
   },
   logger: Logger,
 ): Promise<MoveResult> => {
-  const { vaultPath, protectedPaths, allNotePaths, pruneEmptyFolders } = params
+  const {
+    vaultPath,
+    protectedPaths,
+    allNotePaths,
+    allAssetPaths,
+    pruneEmptyFolders,
+  } = params
   // Normalize before any guard or comparison — see toVaultRelativePath.
   const oldPath = toVaultRelativePath(params.oldPath)
   const newPath = toVaultRelativePath(params.newPath)
@@ -503,8 +591,9 @@ const moveNote = async (
         newTargetPath: newPath,
         allNotePaths: allNotePathsBefore,
         allNotePathsAfter,
+        allAssetPaths,
       }
-      return (rawTarget) => rewriteTarget(rawTarget, context)
+      return (rewriteParams) => rewriteTarget(rewriteParams, context)
     }
 
     // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
