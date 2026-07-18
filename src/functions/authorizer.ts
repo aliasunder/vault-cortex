@@ -42,7 +42,9 @@ const OPEN_PATH_PREFIXES = [
 ]
 
 const isOpenPath = (path: string): boolean =>
-  OPEN_PATH_PREFIXES.some((p) => path === p || path.startsWith(p))
+  OPEN_PATH_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(prefix),
+  )
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,

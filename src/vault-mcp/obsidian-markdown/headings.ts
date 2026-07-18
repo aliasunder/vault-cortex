@@ -184,19 +184,19 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
-  return collectedHeadings.map((h, i) => {
+  return collectedHeadings.map((heading, i) => {
     const nextSameOrHigher = collectedHeadings
       .slice(i + 1)
-      .find((next) => next.level <= h.level)
+      .find((next) => next.level <= heading.level)
     return {
-      text: h.text,
-      level: h.level,
-      startLine: h.startLine,
-      bodyStartLine: h.startLine + 1,
+      text: heading.text,
+      level: heading.level,
+      startLine: heading.startLine,
+      bodyStartLine: heading.startLine + 1,
       // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
       bodyEndLine:
         nextSameOrHigher?.startLine ??
-        Math.max(h.startLine + 1, trailingCommentBlockStart),
+        Math.max(heading.startLine + 1, trailingCommentBlockStart),
     }
   })
 }
@@ -213,12 +213,14 @@ export const findHeading = (
 
   const searchText = text.trim()
   const matches = headings.filter(
-    (h) => h.text === searchText && (level === undefined || h.level === level),
+    (heading) =>
+      heading.text === searchText &&
+      (level === undefined || heading.level === level),
   )
 
   if (matches.length === 0) {
     const availableHeadings = headings
-      .map((h) => `${"#".repeat(h.level)} ${h.text}`)
+      .map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
       .join(", ")
     throw new Error(
       `heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`,
@@ -227,12 +229,15 @@ export const findHeading = (
 
   if (matches.length > 1) {
     const matchedHeadings = matches
-      .map((h) => `${"#".repeat(h.level)} ${h.text} (line ${h.startLine + 1})`)
+      .map(
+        (heading) =>
+          `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
+      )
       .join(", ")
     const firstMatch = matches[0]
     const allSameLevel =
       firstMatch !== undefined &&
-      matches.every((h) => h.level === firstMatch.level)
+      matches.every((heading) => heading.level === firstMatch.level)
     const hint = allSameLevel
       ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
       : "Use heading_level to disambiguate."

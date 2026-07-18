@@ -17,6 +17,68 @@ export default defineConfig(
         "error",
         { assertionStyle: "never" },
       ],
+      // AGENTS.md → Code style: arrow functions over `function` declarations.
+      "func-style": ["error", "expression"],
+      // AGENTS.md → Code style: `type` over `interface`.
+      "@typescript-eslint/consistent-type-definitions": ["error", "type"],
+      // AGENTS.md → Code style: early returns over nested if/else.
+      "no-else-return": "error",
+      // AGENTS.md → Code style: explicit names over abbreviations — no
+      // single-char identifiers. Exceptions: `i` (loop index), `a`/`b`
+      // (sort comparators), `k` (the RRF constant's literature name),
+      // `_` (unused-param convention).
+      "id-length": [
+        "error",
+        { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
+      ],
+    },
+  },
+  {
+    // Logging standard: console never ships in server code — the structured
+    // logger is the only output channel. cli/ and scripts/ are exempt:
+    // console IS their user interface.
+    files: ["src/**/*.ts"],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  {
+    // AGENTS.md → Code style: Luxon DateTime over the native Date API.
+    // Tests are exempt — they build Date fixtures for fs interop (utimes)
+    // and fake timers.
+    files: ["src/**/*.ts"],
+    ignores: ["**/__tests__/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'NewExpression[callee.name="Date"]',
+          message:
+            "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
+        },
+        {
+          selector: 'CallExpression[callee.object.name="Date"]',
+          message:
+            "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
+        },
+      ],
+    },
+  },
+  {
+    // Env access goes through the env-var package at the sanctioned read
+    // site (config.ts) — never raw process.env scattered through the code.
+    files: ["src/**/*.ts"],
+    ignores: ["**/__tests__/**", "src/vault-mcp/config.ts"],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "process",
+          property: "env",
+          message:
+            "Read env via the env-var package in config.ts — never raw process.env",
+        },
+      ],
     },
   },
   {

@@ -58,8 +58,8 @@ export default $config({
       )
     }
 
-    const expandHome = (p: string): string =>
-      p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
+    const expandHome = (path: string): string =>
+      path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
