@@ -321,6 +321,7 @@ describe("vault-orientation full prompt output", () => {
         "- `vault_find_orphans` — full orphan list with exclusion control",
         "- `vault_get_memory` — read memory files in detail",
         "- `vault_read_note` — read any note's full content",
+        "- `vault_list_assets` — browse non-markdown files (images, canvases, data files)",
       ].join("\n"),
     )
   })
