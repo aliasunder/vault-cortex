@@ -21,6 +21,7 @@ import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
+import { statOrNull } from "../../utils/fs.js"
 import {
   isString,
   coerceToArray,
@@ -341,7 +342,8 @@ export const createSearchIndex = (
     CREATE TABLE IF NOT EXISTS non_md_files (
       path      TEXT PRIMARY KEY,
       base_path TEXT NOT NULL,
-      basename  TEXT NOT NULL
+      basename  TEXT NOT NULL,
+      bytes     INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
     CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
@@ -454,6 +456,16 @@ export const createSearchIndex = (
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
 
+  // Same idempotent migration for non_md_files.bytes: a warm database from
+  // before the column existed would fail the upsert. Nullable — NULL means
+  // "not yet statted"; the startup rebuild backfills every row.
+  const nonMdColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`)
+    .all()
+  if (!nonMdColumns.some((column) => column.name === "bytes")) {
+    db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
+  }
+
   // Daily notes folder for forward-ref exclusion — broken links under
   // this folder are treated as intentional "create on click" navigation.
   // Set via setDailyNotesFolder from server.ts config; null until then.
@@ -510,7 +522,7 @@ export const createSearchIndex = (
   // incrementally by the file watcher.
 
   const upsertNonMdFileStmt = db.prepare(
-    `INSERT OR REPLACE INTO non_md_files (path, base_path, basename) VALUES (?, ?, ?)`,
+    `INSERT OR REPLACE INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)`,
   )
   const deleteNonMdFileStmt = db.prepare(
     `DELETE FROM non_md_files WHERE path = ?`,
@@ -793,45 +805,33 @@ export const createSearchIndex = (
     return basenameMatch?.path ?? null
   }
 
-  /** Indexes non-markdown files from a directory listing into the
-   *  non_md_files table. Skips hidden directories (same filter as notes). */
+  /** Indexes pre-statted non-markdown files into the non_md_files table.
+   *  The caller owns entry filtering and stat (fs work stays out of the
+   *  write transaction); this just writes the rows. */
   const indexNonMarkdownFiles = (
-    entries: ReadonlyArray<{
-      isFile: () => boolean
-      isSymbolicLink: () => boolean
-      name: string
-      parentPath: string
-    }>,
-    normalizedVault: string,
+    files: ReadonlyArray<{ relativePath: string; bytes: number }>,
   ): number => {
-    // Counter incremented per non-md file upserted — returned to caller for logging
-    let filesIndexed = 0
-    for (const directoryEntry of entries) {
-      if (
-        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
-        directoryEntry.name.endsWith(".md")
+    for (const file of files) {
+      const basePath = links.stripExtension(file.relativePath)
+      const baseFilename = links.stripExtension(basename(file.relativePath))
+      upsertNonMdFileStmt.run(
+        file.relativePath,
+        basePath,
+        baseFilename,
+        file.bytes,
       )
-        continue
-      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
-      const relativePath = relative(normalizedVault, absolutePath)
-      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
-        continue
-      const basePath = links.stripExtension(relativePath)
-      const baseFilename = links.stripExtension(directoryEntry.name)
-      upsertNonMdFileStmt.run(relativePath, basePath, baseFilename)
-      filesIndexed += 1
     }
-    return filesIndexed
+    return files.length
   }
 
   /** Adds a single non-markdown file to the index and re-resolves any
    *  unresolved links that now match it. Called by the file watcher on
    *  add/change. Mirrors the note forward-reference re-resolution pattern:
    *  updates the link target from the raw text to the resolved non-md path. */
-  const upsertNonMdFile = (filePath: string): void => {
+  const upsertNonMdFile = (filePath: string, bytes: number): void => {
     const basePath = links.stripExtension(filePath)
     const baseFilename = links.stripExtension(basename(filePath))
-    upsertNonMdFileStmt.run(filePath, basePath, baseFilename)
+    upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
 
     // Re-resolve unresolved links that now match this non-md file — upgrade
     // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
@@ -1364,21 +1364,49 @@ export const createSearchIndex = (
       logger,
     })
 
-    // Filter directory entries to visible .md files, then load their content
-    const markdownFiles = entries.reduce<
-      { relativePath: string; absolutePath: string }[]
-    >((filteredFiles, directoryEntry) => {
-      if (
-        (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) ||
-        !directoryEntry.name.endsWith(".md")
+    // Filter directory entries to visible files of one kind (.md notes or
+    // non-md assets) — shared by the notes pass and the non-md stat pass.
+    const visibleFilesOfKind = (
+      fileKind: "note" | "asset",
+    ): { relativePath: string; absolutePath: string }[] =>
+      entries.reduce<{ relativePath: string; absolutePath: string }[]>(
+        (filteredFiles, directoryEntry) => {
+          if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
+            return filteredFiles
+          const isNoteFile = directoryEntry.name.endsWith(".md")
+          const matchesKind = fileKind === "note" ? isNoteFile : !isNoteFile
+          if (!matchesKind) return filteredFiles
+          const absolutePath = join(
+            directoryEntry.parentPath,
+            directoryEntry.name,
+          )
+          const relativePath = relative(normalizedVault, absolutePath)
+          if (
+            relativePath.split("/").some((segment) => segment.startsWith("."))
+          )
+            return filteredFiles
+          return [...filteredFiles, { relativePath, absolutePath }]
+        },
+        [],
       )
-        return filteredFiles
-      const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
-      const relativePath = relative(normalizedVault, absolutePath)
-      if (relativePath.split("/").some((segment) => segment.startsWith(".")))
-        return filteredFiles
-      return [...filteredFiles, { relativePath, absolutePath }]
-    }, [])
+
+    const markdownFiles = visibleFilesOfKind("note")
+
+    // Stat non-md files before the write transaction (fs stays out of it).
+    // A file vanishing between listing and stat (sync race) is dropped here
+    // and re-indexed by its own watcher event.
+    const nonMarkdownFileSizes = (
+      await Promise.all(
+        visibleFilesOfKind("asset").map(async (file) => {
+          const fileStat = await statOrNull(file.absolutePath)
+          if (!fileStat) return null
+          return { relativePath: file.relativePath, bytes: fileStat.size }
+        }),
+      )
+    ).filter(
+      (entry): entry is { relativePath: string; bytes: number } =>
+        entry !== null,
+    )
 
     const noteContents = await Promise.all(
       markdownFiles.map(async (file) => {
@@ -1399,7 +1427,7 @@ export const createSearchIndex = (
     db.transaction(() => {
       // Index non-markdown files so extensionless wikilinks to .canvas, .base,
       // etc. are recognized as asset references rather than broken note links.
-      const nonMdCount = indexNonMarkdownFiles(entries, normalizedVault)
+      const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
       logger.debug("indexed non-md files", { count: nonMdCount })
 
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link

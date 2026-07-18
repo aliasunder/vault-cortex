@@ -325,6 +325,17 @@ const stripExtension = (filePath: string): string => {
   return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
 }
 
+/** Returns the file extension including its dot ("photo.png" → ".png"), or ""
+ *  when the filename has none. Mirrors stripExtension's semantics exactly —
+ *  last dot in the filename (not the path), leading-dot files (".hidden") are
+ *  extensionless — so the two can never disagree about where a name splits. */
+const getExtension = (filePath: string): string => {
+  const fileName = posix.basename(filePath)
+  const dotIndex = fileName.lastIndexOf(".")
+  if (dotIndex <= 0) return ""
+  return fileName.slice(dotIndex)
+}
+
 /** Picks the winner among same-tier resolution matches: the shortest path,
  *  with a lexicographic tiebreak for determinism — mirroring the SQL
  *  resolver's ORDER BY length(path), path LIMIT 1. */
@@ -433,5 +444,6 @@ export const links = {
   extractAll,
   resolve,
   stripExtension,
+  getExtension,
   resolveAsset,
 }

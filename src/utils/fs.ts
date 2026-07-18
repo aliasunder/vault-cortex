@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from "node:fs/promises"
-import type { Dirent } from "node:fs"
+import type { Dirent, Stats } from "node:fs"
 import { isErrnoException } from "./is-errno-exception.js"
 
 /** Reads a UTF-8 file, returning null instead of throwing when it does not exist
@@ -7,6 +7,30 @@ import { isErrnoException } from "./is-errno-exception.js"
 export const readFileOrNull = async (path: string): Promise<string | null> => {
   try {
     return await readFile(path, "utf8")
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
+}
+
+/** Reads a file as raw bytes (no encoding), returning null instead of throwing
+ *  when it does not exist (ENOENT). Any other error propagates. */
+export const readBinaryFileOrNull = async (
+  path: string,
+): Promise<Buffer | null> => {
+  try {
+    return await readFile(path)
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
+}
+
+/** Stats a path, returning null instead of throwing when nothing exists there
+ *  (ENOENT). Any other error propagates. */
+export const statOrNull = async (path: string): Promise<Stats | null> => {
+  try {
+    return await stat(path)
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) return null
     throw error

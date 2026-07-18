@@ -71,6 +71,7 @@
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "picomatch": "4.0.5",
+    "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",
     "yaml": "2.9.0",
     "zod": "4.4.3"
