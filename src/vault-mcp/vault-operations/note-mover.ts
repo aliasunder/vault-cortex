@@ -117,25 +117,24 @@ const classifyLinkForm = (params: {
 
 /** Builds a replacement target that resolves to desiredTarget from the new source
  *  location, keeping the original link form. Falls back to vault-absolute if the
- *  shorter form would resolve elsewhere after the move. writtenExtension is the
- *  extension the replacement is written with: the resolved file's extension
- *  when the original link carried it, "" when the original used a
- *  stem/extensionless form (the extension is stripped back off). */
+ *  shorter form would resolve elsewhere after the move. keepExtension controls
+ *  the extension state: true keeps desiredTarget's extension (the original
+ *  link carried it), false strips it back to the stem/extensionless form. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
   newSourcePath: string
-  writtenExtension: string
+  keepExtension: boolean
   resolveFromNewSource: (candidate: string) => string | null
 }): string => {
   const {
     form,
     desiredTarget,
     newSourcePath,
-    writtenExtension,
+    keepExtension,
     resolveFromNewSource,
   } = params
-  const absoluteForm = writtenExtension
+  const absoluteForm = keepExtension
     ? desiredTarget
     : links.stripExtension(desiredTarget)
 
@@ -212,15 +211,14 @@ const rewriteTarget = (
   const resolvedAfter = resolveFromNewSource(rawTarget)
   if (resolvedAfter === desiredTarget) return null
 
-  // The replacement keeps the original link's extension state: an extension
-  // is written only when the original carried the resolved file's real
+  // The replacement keeps the original link's extension state: the extension
+  // is kept only when the original carried the resolved file's real
   // extension (markdown links always keep theirs; a wikilink to a note never
   // carries ".md"; a stem-form asset link stays extensionless).
   const resolvedExtension = posix.extname(desiredTarget)
-  const originalCarriedExtension =
+  const keepExtension =
     (targetKind === "asset" || grammar === "markdown") &&
     originalExtension === resolvedExtension
-  const writtenExtension = originalCarriedExtension ? resolvedExtension : ""
 
   return buildReplacementTarget({
     form: classifyLinkForm({
@@ -230,7 +228,7 @@ const rewriteTarget = (
     }),
     desiredTarget,
     newSourcePath: context.newSourcePath,
-    writtenExtension,
+    keepExtension,
     resolveFromNewSource,
   })
 }
