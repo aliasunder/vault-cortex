@@ -37,8 +37,8 @@ const loadDotEnv = (): Record<string, string> => {
   return out
 }
 
-const expandHome = (p: string): string =>
-  p.startsWith("~/") ? `${homedir()}${p.slice(1)}` : p
+const expandHome = (path: string): string =>
+  path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
 const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
 

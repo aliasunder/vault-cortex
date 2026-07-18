@@ -363,6 +363,11 @@ throughout the codebase.
 
 ## Code style
 
+Several rules below are lint-enforced in `eslint.config.ts` (arrow functions,
+`type` over `interface`, no `else` after return, single-char identifier ban,
+Luxon over `Date` and no `console` in `src/`, env access only via `config.ts`)
+— the rest remain review-enforced.
+
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
 - `type` over `interface` unless `interface` is specifically required.

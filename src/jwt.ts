@@ -66,7 +66,10 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
       Buffer.from(payload, "base64url").toString(),
     )
     if (!isJwtPayload(decoded)) return null
-    // Reject expired tokens (exp is Unix seconds)
+    // Reject expired tokens (exp is Unix seconds). Native Date here, not
+    // Luxon: this module is bundled into the Lambda authorizer and stays
+    // dependency-free — a single epoch read doesn't justify the bundle weight.
+    // eslint-disable-next-line no-restricted-syntax
     if (decoded.exp < Date.now() / 1000) return null
     return decoded
   } catch {
