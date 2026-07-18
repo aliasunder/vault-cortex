@@ -99,12 +99,7 @@ type TransportMock = {
   onclose: (() => void) | undefined
 }
 
-// registerTool included only for the TEMPORARY debug_image_probe (delete
-// with the probe before merge).
-type ServerMock = {
-  connect: ReturnType<typeof vi.fn>
-  registerTool: ReturnType<typeof vi.fn>
-}
+type ServerMock = { connect: ReturnType<typeof vi.fn> }
 
 type Harness = {
   url: (path?: string) => string
@@ -149,10 +144,7 @@ const setupHarness = async (
   )
 
   vi.mocked(McpServer).mockImplementation(function MockMcpServer() {
-    const server: ServerMock = {
-      connect: vi.fn(async () => {}),
-      registerTool: vi.fn(),
-    }
+    const server: ServerMock = { connect: vi.fn(async () => {}) }
     serverInstances.push(server)
     return server
   } as unknown as typeof McpServer)
