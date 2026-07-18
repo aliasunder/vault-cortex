@@ -21,7 +21,7 @@ import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { watch } from "chokidar"
 import { createSearchIndex } from "../search-index.js"
-import { readdirOrNull } from "../../../utils/fs.js"
+import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
 import { logger } from "../../../logger.js"
@@ -139,6 +139,52 @@ describe("file-watcher", () => {
     const jsonResults = index.fullTextSearch({ query: "value" }, logger)
     expect(jsonResults).toHaveLength(0)
   })
+
+  it(
+    "skips a non-md file that vanishes before its stat",
+    { timeout: 15000 },
+    async () => {
+      const upsertNonMdFileSpy = vi.spyOn(index, "upsertNonMdFile")
+      // Force the stat miss by path — a deterministic stand-in for the file
+      // being deleted between the watcher event and the handler's stat.
+      const actualFsUtils = await vi.importActual<
+        typeof import("../../../utils/fs.js")
+      >("../../../utils/fs.js")
+      vi.mocked(statOrNull).mockImplementation(async (statPath) =>
+        statPath.endsWith("vanished.png")
+          ? null
+          : actualFsUtils.statOrNull(statPath),
+      )
+      onTestFinished(() => {
+        vi.mocked(statOrNull).mockRestore()
+      })
+
+      await startFileWatcher(vault, index, {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      })
+
+      await writeFile(join(vault, "vanished.png"), "gone", "utf8")
+      await writeFile(join(vault, "kept.png"), "here", "utf8")
+
+      // Both non-md events have been processed once each file's stat ran.
+      await waitFor(() =>
+        ["vanished.png", "kept.png"].every((fileName) =>
+          vi
+            .mocked(statOrNull)
+            .mock.calls.some(([statPath]) => statPath.endsWith(fileName)),
+        ),
+      )
+
+      // Only the surviving file is indexed — the vanished one's early return
+      // must not upsert (without the guard, reading .size off null would throw
+      // inside the watcher callback).
+      await waitFor(() => upsertNonMdFileSpy.mock.calls.length > 0)
+      expect(upsertNonMdFileSpy.mock.calls.map(([path]) => path)).toEqual([
+        "kept.png",
+      ])
+    },
+  )
 
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
