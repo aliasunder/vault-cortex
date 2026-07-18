@@ -272,14 +272,13 @@ Returns: JSON with assets (array of { path, extension, bytes }, sorted by path),
 
           const extensionOf = (assetPath: string): string =>
             links.getExtension(assetPath).toLowerCase() || "(none)"
-          const extensionCounts = filteredPaths.reduce<Record<string, number>>(
-            (counts, assetPath) => ({
-              ...counts,
-              [extensionOf(assetPath)]:
-                (counts[extensionOf(assetPath)] ?? 0) + 1,
-            }),
-            {},
-          )
+          // Mutable accumulator: building frequency counts is the textbook
+          // case for a plain loop — no step depends on the prior step's shape.
+          const extensionCounts: Record<string, number> = {}
+          for (const assetPath of filteredPaths) {
+            const ext = extensionOf(assetPath)
+            extensionCounts[ext] = (extensionCounts[ext] ?? 0) + 1
+          }
 
           const pageLimit = limit ?? 50
           const pagePaths = filteredPaths.slice(0, pageLimit)
