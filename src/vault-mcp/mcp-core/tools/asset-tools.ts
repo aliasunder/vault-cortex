@@ -1,0 +1,310 @@
+/** Asset tool registration — reading and discovering non-markdown vault files. */
+
+import { z } from "zod"
+import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { linearizeCanvas } from "../../obsidian-markdown/canvas.js"
+import { links } from "../../obsidian-markdown/links.js"
+import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
+import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
+import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
+
+const TOOL_NAMES = {
+  VAULT_READ_ASSET: "vault_read_asset",
+  VAULT_LIST_ASSETS: "vault_list_assets",
+} as const
+
+export { TOOL_NAMES as ASSET_TOOL_NAMES }
+
+/** Extensions dispatched to the image pipeline (model-visible image blocks). */
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
+
+/** Extensions returned verbatim as text — plain-text formats an agent can
+ *  read directly. .svg is XML source; .base is Obsidian Bases YAML. */
+const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
+  ".svg",
+  ".json",
+  ".txt",
+  ".csv",
+  ".xml",
+  ".log",
+  ".base",
+])
+
+/** Fixed cap on text output (passthrough files and canvas renditions) so a
+ *  huge text asset can't blow a client's response limit. Deliberately not an
+ *  env var — the image budget is the tunable surface; text past this size
+ *  needs paging, not a bigger blob. */
+const MAX_TEXT_OUTPUT_BYTES = 102_400
+
+/** The computed result of one vault_read_asset call, before content-block
+ *  formatting: an image (fitted to the byte budget) or a text rendition. */
+type AssetReadResult =
+  | Readonly<{
+      kind: "image"
+      fitted: FittedImage
+      originalBytes: number
+      path: string
+    }>
+  | Readonly<{ kind: "text"; text: string }>
+
+/** One-line, model-facing summary accompanying an image block: what file it
+ *  is, what was delivered, and whether/how it was shrunk to fit. */
+const describeDeliveredImage = (result: {
+  fitted: FittedImage
+  originalBytes: number
+  path: string
+}): string => {
+  const { fitted, originalBytes, path } = result
+  const delivered = `${path} — ${fitted.mimeType}, ${fitted.width}×${fitted.height}, ${fitted.data.length} bytes`
+  if (!fitted.recompressed)
+    return `${delivered} (original file, not recompressed)`
+  return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
+}
+
+/** Rejects text output past the fixed cap — an explicit error beats silent
+ *  truncation, and states the actual size so the caller knows what exists. */
+const assertTextWithinCap = (params: { text: string; path: string }): void => {
+  const textBytes = Buffer.byteLength(params.text, "utf8")
+  if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
+  throw new Error(
+    `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
+      `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
+  )
+}
+
+/** Normalizes a user-supplied extension filter entry: lowercased, leading dot
+ *  ensured — so "PNG", "png", and ".png" all match ".png". */
+const normalizeExtension = (extension: string): string => {
+  const lowered = extension.toLowerCase()
+  return lowered.startsWith(".") ? lowered : `.${lowered}`
+}
+
+export const registerAssetTools = ({
+  server,
+  vaultPath,
+  logger: sessionLogger,
+  config,
+}: ToolRegistrationContext): void => {
+  server.registerTool(
+    TOOL_NAMES.VAULT_READ_ASSET,
+    {
+      title: "Read Asset",
+      description: `Read a non-markdown vault file (an asset) in its most useful form per type — the read-side companion to vault_read_note for everything that isn't a note.
+
+Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image itself, downscaled to fit response limits
+Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
+Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
+
+What each type returns:
+- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — automatically downscaled and recompressed server-side to fit client response limits — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs deliver their first frame.
+- Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
+- Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
+- PDFs (.pdf): not yet readable — returns an error that confirms the file exists and its size; text extraction is planned.
+
+When to use: whenever a note references an asset you need to actually see or read — an embedded diagram, a linked canvas or data file. Find the assets a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's assets via vault_list_assets. For .md notes use vault_read_note — this tool rejects them.
+
+Errors:
+- "not an asset" — the path ends in .md; read notes with vault_read_note
+- "asset not found" — nothing exists at that path; discover valid paths via vault_list_assets
+- "asset too large" — the file exceeds the server's read cap (MAX_ASSET_BYTES, default 50 MiB)
+- "text output too large" — a text asset renders past the output cap; only smaller files can be returned whole
+- "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
+- unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
+
+Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the asset, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ path }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_READ_ASSET,
+      })
+      reqLogger.info("tool_call", { path })
+      return safeHandlerContent(
+        reqLogger,
+        async (): Promise<AssetReadResult> => {
+          const asset = await vaultFs.readAsset(
+            { vaultPath, path, maxBytes: config.maxAssetBytes },
+            reqLogger,
+          )
+          if (IMAGE_EXTENSIONS.has(asset.extension)) {
+            const fitted = await fitImageToByteBudget({
+              buffer: asset.buffer,
+              budgetBytes: config.maxImageOutputBytes,
+            })
+            return { kind: "image", fitted, originalBytes: asset.bytes, path }
+          }
+          if (asset.extension === ".canvas") {
+            const rendition = linearizeCanvas(asset.buffer.toString("utf8"))
+            assertTextWithinCap({ text: rendition, path })
+            return { kind: "text", text: rendition }
+          }
+          if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
+            const text = asset.buffer.toString("utf8")
+            assertTextWithinCap({ text, path })
+            return { kind: "text", text }
+          }
+          if (asset.extension === ".pdf") {
+            throw new Error(
+              `PDF reading is not yet supported: "${path}" exists ` +
+                `(${asset.bytes} bytes) but text extraction is not available yet`,
+            )
+          }
+          throw new Error(
+            `unsupported asset type "${asset.extension}": "${path}" exists ` +
+              `(${asset.bytes} bytes). Readable types: images ` +
+              `(.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats ` +
+              `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
+          )
+        },
+        (result) => {
+          if (result.kind === "image") {
+            reqLogger.info("tool_result", {
+              path,
+              mimeType: result.fitted.mimeType,
+              deliveredBytes: result.fitted.data.length,
+              recompressed: result.fitted.recompressed,
+            })
+            return [
+              {
+                type: "image" as const,
+                data: result.fitted.data.toString("base64"),
+                mimeType: result.fitted.mimeType,
+              },
+              { type: "text" as const, text: describeDeliveredImage(result) },
+            ]
+          }
+          reqLogger.info("tool_result", {
+            path,
+            textBytes: Buffer.byteLength(result.text, "utf8"),
+          })
+          return [{ type: "text" as const, text: result.text }]
+        },
+      )
+    },
+  )
+
+  server.registerTool(
+    TOOL_NAMES.VAULT_LIST_ASSETS,
+    {
+      title: "List Assets",
+      description: `List non-markdown files (assets) in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
+
+Example: vault_list_assets({}) — every asset in the vault
+Example: vault_list_assets({ folder: "attachments" })
+Example: vault_list_assets({ extensions: [".png", ".jpg"], limit: 20 })
+
+When to use: discovering what assets exist before reading them with vault_read_asset. vault_search, vault_list_notes, and vault_search_by_folder cover only markdown notes, so this is the discovery surface for everything else. For the assets one specific note links to, prefer vault_get_outgoing_links.
+
+Parameters:
+- folder: folder path filter (e.g. "attachments" or "Projects/media"), searched recursively; omit for the whole vault
+- extensions: restrict to these extensions — case-insensitive, with or without the leading dot (".png" and "png" both work)
+- limit: maximum entries returned (default 50). extension_counts and total always reflect the full filtered set, not just the returned page.
+
+Errors:
+- A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
+
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).`,
+      inputSchema: {
+        folder: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Folder path to search recursively (e.g. "attachments"). Omit to list the whole vault.',
+          ),
+        extensions: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            'Only include these extensions, case-insensitive, leading dot optional (e.g. [".png", "jpg"]).',
+          ),
+        limit: z
+          .number()
+          .optional()
+          .describe("Max entries returned (default 50)."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ folder, extensions, limit }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_LIST_ASSETS,
+      })
+      reqLogger.info("tool_call", { folder, extensions, limit })
+      return safeHandler(
+        reqLogger,
+        async () => {
+          const assetPaths = await vaultFs.listAssets(
+            { vaultPath, folder },
+            reqLogger,
+          )
+          const extensionFilter = extensions?.map(normalizeExtension)
+          const filteredPaths = extensionFilter
+            ? assetPaths.filter((assetPath) =>
+                extensionFilter.includes(
+                  links.getExtension(assetPath).toLowerCase(),
+                ),
+              )
+            : assetPaths
+
+          const extensionOf = (assetPath: string): string =>
+            links.getExtension(assetPath).toLowerCase() || "(none)"
+          const extensionCounts = filteredPaths.reduce<Record<string, number>>(
+            (counts, assetPath) => ({
+              ...counts,
+              [extensionOf(assetPath)]:
+                (counts[extensionOf(assetPath)] ?? 0) + 1,
+            }),
+            {},
+          )
+
+          const pageLimit = limit ?? 50
+          const pagePaths = filteredPaths.slice(0, pageLimit)
+          // Stat only the returned page — counts and total come from the path
+          // list, so unpaged files are never statted.
+          const stattedPage = await vaultFs.statAssets(
+            { vaultPath, paths: pagePaths },
+            reqLogger,
+          )
+          return {
+            assets: stattedPage.map((entry) => ({
+              path: entry.path,
+              extension: extensionOf(entry.path),
+              bytes: entry.bytes,
+            })),
+            extension_counts: extensionCounts,
+            total: filteredPaths.length,
+            truncated: filteredPaths.length > pageLimit,
+          }
+        },
+        (result) => {
+          reqLogger.info("tool_result", {
+            total: result.total,
+            returned: result.assets.length,
+          })
+          return JSON.stringify(result)
+        },
+      )
+    },
+  )
+}

@@ -38,6 +38,8 @@ const {
   deleteNote,
   listNotes,
   listAssets,
+  readAsset,
+  statAssets,
 } = vaultFs
 
 let vault: string
@@ -835,6 +837,15 @@ describe("listAssets", () => {
     ])
   })
 
+  it("scopes the listing to a folder, excluding assets outside it", async () => {
+    await writeFile(join(vault, "outside.txt"), "not in assets/", "utf8")
+    const files = await listAssets(
+      { vaultPath: vault, folder: "assets" },
+      logger,
+    )
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
+  })
+
   it("includes a symlinked asset in the listing", async () => {
     await symlink("assets/photo.png", join(vault, "linked.png"))
     const files = await listAssets({ vaultPath: vault }, logger)
@@ -1594,5 +1605,79 @@ describe("concurrent writes (exclusive lock)", () => {
     expect(
       parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content,
     ).toBe("second life\n")
+  })
+})
+
+describe("readAsset", () => {
+  it("reads a binary file whole with its byte count and lowercased extension", async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])
+    await writeFile(join(vault, "photo.PNG"), bytes)
+    const asset = await readAsset(
+      { vaultPath: vault, path: "photo.PNG", maxBytes: 1024 },
+      logger,
+    )
+    expect(asset.buffer.equals(bytes)).toBe(true)
+    expect(asset.bytes).toBe(6)
+    expect(asset.extension).toBe(".png")
+  })
+
+  it("rejects a .md path as not an asset", async () => {
+    await writeFile(join(vault, "note.md"), "# note", "utf8")
+    await expect(
+      readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('not an asset: "note.md" is a markdown note')
+  })
+
+  it("blocks path traversal out of the vault", async () => {
+    await expect(
+      readAsset(
+        { vaultPath: vault, path: "../outside.png", maxBytes: 1024 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'path traversal blocked: "../outside.png" escapes vault root',
+    )
+  })
+
+  it("rejects a missing file as asset not found", async () => {
+    await expect(
+      readAsset(
+        { vaultPath: vault, path: "ghost.png", maxBytes: 1024 },
+        logger,
+      ),
+    ).rejects.toThrow('asset not found: "ghost.png"')
+  })
+
+  it("rejects a file over the byte cap before reading it", async () => {
+    await writeFile(join(vault, "big.bin"), "12345678901", "utf8")
+    await expect(
+      readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
+    ).rejects.toThrow(
+      'asset too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_ASSET_BYTES to read larger files)',
+    )
+  })
+})
+
+describe("statAssets", () => {
+  it("returns each path's byte size in input order", async () => {
+    await writeFile(join(vault, "a.png"), "12345", "utf8")
+    await writeFile(join(vault, "b.canvas"), "12", "utf8")
+    const statted = await statAssets(
+      { vaultPath: vault, paths: ["a.png", "b.canvas"] },
+      logger,
+    )
+    expect(statted).toEqual([
+      { path: "a.png", bytes: 5 },
+      { path: "b.canvas", bytes: 2 },
+    ])
+  })
+
+  it("drops a path that vanished instead of throwing", async () => {
+    await writeFile(join(vault, "kept.png"), "1234", "utf8")
+    const statted = await statAssets(
+      { vaultPath: vault, paths: ["kept.png", "vanished.png"] },
+      logger,
+    )
+    expect(statted).toEqual([{ path: "kept.png", bytes: 4 }])
   })
 })
