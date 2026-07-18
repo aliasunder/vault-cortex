@@ -124,6 +124,32 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
           logger: sessionLogger,
           config,
         })
+        // TEMPORARY go/no-go gate probe (delete before merge): verifies the
+        // claude.ai remote connector passes MCP image content blocks through
+        // to the model. Registered here — not in a tool group — so the
+        // tool-definitions registration-count tests stay green.
+        server.registerTool(
+          "debug_image_probe",
+          {
+            title: "Debug image probe",
+            description:
+              "Temporary diagnostic: returns a small solid-magenta PNG as an MCP image content block. Call it and describe the image you see.",
+          },
+          async () => ({
+            content: [
+              {
+                type: "image" as const,
+                // 48x48 solid magenta (#ff00ff) PNG, 112 bytes
+                data: "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAN0lEQVR42u3OMQkAAAwDsPo33bkoOwIRkDR9JUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCOwez9+8Akl2IWgAAAABJRU5ErkJggg==",
+                mimeType: "image/png",
+              },
+              {
+                type: "text" as const,
+                text: "debug_image_probe: the image block above is a 48x48 solid magenta square (PNG, 112 bytes). If you can see and describe it, image passthrough works.",
+              },
+            ],
+          }),
+        )
 
         // @ts-expect-error — SDK type bug: StreamableHTTPServerTransport
         // declares onclose as optional, but Transport requires it. onclose
