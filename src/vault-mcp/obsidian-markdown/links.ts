@@ -99,10 +99,11 @@ type WikilinkParts = {
   alias: string
 }
 
-/** The structural parts of a markdown link [text](path.ext#heading). path is the
- *  DECODED target without its extension; extension keeps its leading dot ("" for
- *  an extensionless target); prefix/closeParen/heading are verbatim literals for
- *  lossless reconstruction. */
+/** The structural parts of a markdown link [text](path.ext#heading). path and
+ *  extension are both DECODED — path is the target without its extension;
+ *  extension keeps its leading dot ("" for an extensionless target);
+ *  prefix/closeParen/heading are verbatim literals for lossless
+ *  reconstruction. */
 type MarkdownLinkParts = {
   prefix: string
   path: string
@@ -158,16 +159,19 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
   return { embed, target, heading, alias }
 }
 
-/** Splits a matched markdown link into its parts (path decoded, extension
+/** Splits a matched markdown link into its parts (target decoded, extension
  *  captured separately), or null when the text is not a well-formed markdown
  *  link. Any vault target parses — notes, assets, and extensionless targets —
- *  so moveNote can rewrite all of them. */
+ *  so moveNote can rewrite all of them. The full target is decoded before the
+ *  path/extension split: percent-encoding can hide the dot (photo%2Epng) or
+ *  span the extension (photo.p%6Eg), so a split on the raw text would disagree
+ *  with how extraction and Obsidian read the same link. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
   if (!parts) return null
   const prefix = parts[1]
   const encodedPath = parts[2]
-  const extension = parts[3] ?? ""
+  const encodedExtension = parts[3] ?? ""
   const heading = parts[4] ?? ""
   const closeParen = parts[5]
   const hasRequiredGroups =
@@ -175,10 +179,14 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
     encodedPath !== undefined &&
     closeParen !== undefined
   if (!hasRequiredGroups) return null
+  const decodedTarget = safeDecodeURIComponent(
+    `${encodedPath}${encodedExtension}`,
+  )
+  const path = stripExtension(decodedTarget)
   return {
     prefix,
-    path: safeDecodeURIComponent(encodedPath),
-    extension,
+    path,
+    extension: decodedTarget.slice(path.length),
     heading,
     closeParen,
   }

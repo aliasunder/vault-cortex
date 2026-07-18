@@ -231,6 +231,28 @@ describe("splitMarkdownLink", () => {
         closeParen: ")",
       },
     },
+    {
+      name: "recognizes an extension hidden behind a percent-encoded dot",
+      input: "[alt](photo%2Epng)",
+      expected: {
+        prefix: "[alt](",
+        path: "photo",
+        extension: ".png",
+        heading: "",
+        closeParen: ")",
+      },
+    },
+    {
+      name: "decodes percent-encoding inside the extension",
+      input: "[alt](photo.p%6Eg)",
+      expected: {
+        prefix: "[alt](",
+        path: "photo",
+        extension: ".png",
+        heading: "",
+        closeParen: ")",
+      },
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
