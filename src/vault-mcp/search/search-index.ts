@@ -1409,10 +1409,7 @@ export const createSearchIndex = (
           return { relativePath: file.relativePath, bytes: fileStat.size }
         }),
       )
-    ).filter(
-      (entry): entry is { relativePath: string; bytes: number } =>
-        entry !== null,
-    )
+    ).filter((entry) => entry !== null)
 
     const noteContents = await Promise.all(
       markdownFiles.map(async (file) => {

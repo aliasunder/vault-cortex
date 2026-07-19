@@ -214,11 +214,9 @@ export const linearizeCanvas = (canvasJson: string): string => {
     isRecord(parsed) && Array.isArray(parsed.edges) ? parsed.edges : []
   const nodes = rawNodes
     .map(parseNode)
-    .filter((node): node is CanvasNode => node !== null)
+    .filter((node) => node !== null)
     .sort(byReadingOrder)
-  const edges = rawEdges
-    .map(parseEdge)
-    .filter((edge): edge is CanvasEdge => edge !== null)
+  const edges = rawEdges.map(parseEdge).filter((edge) => edge !== null)
 
   const groups = nodes.filter((node) => node.type === "group")
   const contentNodes = nodes.filter((node) => node.type !== "group")

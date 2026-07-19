@@ -609,9 +609,7 @@ const statAssets = async (
       return { path: assetPath, bytes: fileStats.size }
     },
   })
-  const existingEntries = stattedEntries.filter(
-    (entry): entry is { path: string; bytes: number } => entry !== null,
-  )
+  const existingEntries = stattedEntries.filter((entry) => entry !== null)
   logger.info("statted assets", { count: existingEntries.length })
   return existingEntries
 }
