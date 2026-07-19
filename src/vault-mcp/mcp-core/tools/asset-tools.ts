@@ -166,13 +166,14 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
             { vaultPath, path, maxBytes: config.maxAssetBytes },
             reqLogger,
           )
-          if (IMAGE_EXTENSIONS.has(asset.extension)) {
-            if (raw) {
-              throw new Error(
-                `raw source is not available for images: "${path}" is ` +
-                  `binary — its image block is the delivered form`,
-              )
-            }
+          const isImage = IMAGE_EXTENSIONS.has(asset.extension)
+          if (isImage && raw) {
+            throw new Error(
+              `raw source is not available for images: "${path}" is ` +
+                `binary — its image block is the delivered form`,
+            )
+          }
+          if (isImage) {
             const fitted = await fitImageToByteBudget({
               buffer: asset.buffer,
               budgetBytes: config.maxImageOutputBytes,

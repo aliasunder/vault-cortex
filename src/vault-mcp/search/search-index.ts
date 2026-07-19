@@ -2,6 +2,7 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
+import type { Dirent } from "node:fs"
 import { join, basename, posix, relative, resolve } from "node:path"
 import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
@@ -1366,34 +1367,34 @@ export const createSearchIndex = (
 
     // Filter directory entries to visible files of one kind (.md notes or
     // non-md assets) — shared by the notes pass and the non-md stat pass.
-    // filter → map → filter keeps each pass O(n); a spread-accumulating
-    // reduce here would re-copy the array per entry (O(n²) on large vaults).
+    // Named stages keep each pass O(n) (a spread-accumulating reduce would
+    // re-copy the array per entry) and let the chain read top-to-bottom.
     const visibleFilesOfKind = (
       fileKind: "note" | "asset",
-    ): { relativePath: string; absolutePath: string }[] =>
-      entries
-        .filter((directoryEntry) => {
-          if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
-            return false
-          const isNoteFile = directoryEntry.name.endsWith(".md")
-          return fileKind === "note" ? isNoteFile : !isNoteFile
-        })
-        .map((directoryEntry) => {
-          const absolutePath = join(
-            directoryEntry.parentPath,
-            directoryEntry.name,
-          )
-          return {
-            relativePath: relative(normalizedVault, absolutePath),
-            absolutePath,
-          }
-        })
-        .filter(
-          (file) =>
-            !file.relativePath
-              .split("/")
-              .some((segment) => segment.startsWith(".")),
+    ): { relativePath: string; absolutePath: string }[] => {
+      const matchesKind = (directoryEntry: Dirent): boolean => {
+        if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
+          return false
+        const isNoteFile = directoryEntry.name.endsWith(".md")
+        return fileKind === "note" ? isNoteFile : !isNoteFile
+      }
+      const toFilePaths = (
+        directoryEntry: Dirent,
+      ): { relativePath: string; absolutePath: string } => {
+        const absolutePath = join(
+          directoryEntry.parentPath,
+          directoryEntry.name,
         )
+        return {
+          relativePath: relative(normalizedVault, absolutePath),
+          absolutePath,
+        }
+      }
+      const isVisiblePath = (file: { relativePath: string }): boolean =>
+        !file.relativePath.split("/").some((segment) => segment.startsWith("."))
+
+      return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath)
+    }
 
     const markdownFiles = visibleFilesOfKind("note")
 
