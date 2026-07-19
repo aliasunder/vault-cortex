@@ -1059,6 +1059,56 @@ describe("asset tool handlers", () => {
     ])
   })
 
+  it("returns the exact canvas JSON source when raw is set", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const canvasSource = JSON.stringify({
+      nodes: [
+        {
+          id: "a",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          text: "hello",
+        },
+      ],
+      edges: [],
+    })
+    await writeFile(join(vault, "Board.canvas"), canvasSource, "utf8")
+    const result = await readAsset({ path: "Board.canvas", raw: true })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([{ type: "text", text: canvasSource }])
+  })
+
+  it("rejects raw for an image", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const png = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: { r: 255, g: 0, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer()
+    await writeFile(join(vault, "tiny.png"), png)
+    const result = await readAsset({ path: "tiny.png", raw: true })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: raw source is not available for images: "tiny.png" is binary — its image block is the delivered form',
+    )
+  })
+
+  it("returns a text format's source unchanged when raw is set", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
+    const result = await readAsset({ path: "data.json", raw: true })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([{ type: "text", text: '{"key": "value"}' }])
+  })
+
   it("rejects a .pdf with a not-yet-supported error carrying the file size", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     await writeFile(join(vault, "doc.pdf"), "0123456789", "utf8")

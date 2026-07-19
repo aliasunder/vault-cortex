@@ -108,11 +108,12 @@ export const registerAssetTools = ({
 
 Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image itself, downscaled to fit response limits
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
+Example: vault_read_asset({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
 
 What each type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — automatically downscaled and recompressed server-side to fit client response limits — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
-- Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
+- Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 - PDFs (.pdf): not yet readable — returns an error that confirms the file exists and its size; text extraction is planned.
 
@@ -125,6 +126,7 @@ Errors:
 - "text output too large" — a text asset renders past the output cap; only smaller files can be returned whole
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
+- "raw source is not available for images" — raw applies to text-representable files; an image's delivered form is its image block
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.
@@ -137,6 +139,12 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
           .describe(
             'Vault-relative path to the asset, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note.',
           ),
+        raw: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return the file's exact text source instead of any rendered form. For .canvas this is the JSON Canvas source (geometry, ids, colors); text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -145,12 +153,12 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
         openWorldHint: false,
       },
     },
-    async ({ path }, extra) => {
+    async ({ path, raw }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_ASSET,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, raw })
       return safeHandlerContent(
         reqLogger,
         async (): Promise<AssetReadResult> => {
@@ -159,6 +167,12 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
             reqLogger,
           )
           if (IMAGE_EXTENSIONS.has(asset.extension)) {
+            if (raw) {
+              throw new Error(
+                `raw source is not available for images: "${path}" is ` +
+                  `binary — its image block is the delivered form`,
+              )
+            }
             const fitted = await fitImageToByteBudget({
               buffer: asset.buffer,
               budgetBytes: config.maxImageOutputBytes,
@@ -166,11 +180,13 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
             return { kind: "image", fitted, originalBytes: asset.bytes, path }
           }
           if (asset.extension === ".canvas") {
-            const rendition = linearizeCanvas(
-              decodeUtf8Strict({ buffer: asset.buffer, path }),
-            )
-            assertTextWithinCap({ text: rendition, path })
-            return { kind: "text", text: rendition }
+            const canvasSource = decodeUtf8Strict({
+              buffer: asset.buffer,
+              path,
+            })
+            const text = raw ? canvasSource : linearizeCanvas(canvasSource)
+            assertTextWithinCap({ text, path })
+            return { kind: "text", text }
           }
           if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
             const text = decodeUtf8Strict({ buffer: asset.buffer, path })
