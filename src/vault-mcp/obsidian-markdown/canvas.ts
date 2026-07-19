@@ -1,11 +1,27 @@
 import { posix } from "node:path"
 
 /**
- * Linearizes an Obsidian .canvas file (JSON Canvas 1.0) into a readable
- * markdown rendition: node content in spatial reading order, grouped under
- * the group that visually contains it, followed by an edge list with node
- * ids resolved to display names. The rendition drops geometry (x/y/width/
- * height) — it is a reading surface, not a round-trippable format.
+ * Linearizes an Obsidian .canvas file (JSON Canvas 1.0 —
+ * https://jsoncanvas.org) into a readable markdown rendition.
+ *
+ * Why this exists: a canvas file is meaning buried in presentation. Its
+ * content (card text, file references) and relationships (grouping,
+ * labeled edges) are scattered through coordinate records and joined by
+ * opaque node ids — a reader consuming the raw JSON spends most of its
+ * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
+ * transform keeps exactly what carries meaning and re-expresses it as
+ * document structure: spatial grouping becomes heading nesting, canvas
+ * position becomes reading order (top-to-bottom, left-to-right), and
+ * edges become an `A → B (label)` list with ids resolved to display
+ * names. Geometry is dropped entirely — it is presentation, and the
+ * rendition is a reading surface, not a round-trippable format (callers
+ * wanting fidelity request the raw source instead).
+ *
+ * The canvas-to-document idea has community precedent — e.g. the
+ * Canvas2Document plugin (https://github.com/slnsys/obsidian-canvas2document)
+ * converts canvases to long-form documents for humans; this rendition is
+ * purpose-built for model reading, where token economy and explicit
+ * relationships matter more than layout.
  *
  * Lenient by design: real Obsidian canvases carry extra properties and
  * occasionally partial entries, so unknown props are ignored and entries
