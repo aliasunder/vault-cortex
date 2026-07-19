@@ -238,7 +238,7 @@ Errors:
 - A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
 
-Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). Listed assets are readable via vault_read_asset; vault_search covers markdown notes.`,
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_asset returns a downscaled copy that can be far smaller than the listed size, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Listed assets are readable via vault_read_asset; vault_search covers markdown notes.`,
       inputSchema: {
         folder: z
           .string()
