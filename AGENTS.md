@@ -100,7 +100,7 @@ src/
     file-write-lock.ts                 # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
-    fs.ts                              # readFileOrNull / readBinaryFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)

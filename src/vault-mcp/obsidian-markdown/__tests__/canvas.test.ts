@@ -247,6 +247,60 @@ describe("linearizeCanvas", () => {
     )
   })
 
+  it("renders the same ownership when the identical-rect groups are declared in reverse order", () => {
+    // Ownership must be a property of the canvas content (lower id wins
+    // equal-area ties), not of JSON array order.
+    const json = canvasJson([
+      {
+        id: "beta",
+        type: "group",
+        label: "Beta",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+      },
+      {
+        id: "alpha",
+        type: "group",
+        label: "Alpha",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+      },
+      textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
+    ])
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Beta",
+        "### Group: Alpha",
+        "[text]\ninside both",
+      ].join("\n\n"),
+    )
+  })
+
+  it("keeps an Obsidian tag's hash in edge display names", () => {
+    // Only ATX headings (hashes followed by whitespace) lose their hashes;
+    // "#project" is a tag, not a heading.
+    const json = canvasJson(
+      [
+        textNode({ id: "a", text: "#project tracking" }),
+        textNode({ id: "b", x: 300, text: "## Roadmap" }),
+      ],
+      [{ id: "e1", fromNode: "a", toNode: "b" }],
+    )
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        "[text]\n#project tracking",
+        "[text]\n## Roadmap",
+        "## Connections\n\n#project tracking → Roadmap",
+      ].join("\n\n"),
+    )
+  })
+
   it("renders an empty canvas as the overview line alone", () => {
     expect(linearizeCanvas("{}")).toBe("# Canvas: 0 nodes, 0 edges")
   })

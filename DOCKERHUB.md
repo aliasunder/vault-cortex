@@ -66,7 +66,7 @@ A vault isn't only markdown — it holds the diagrams your notes embed, the canv
 - **Images** — delivered as actual images, automatically downscaled and recompressed server-side to fit client response limits. A screenshot or architecture diagram embedded in a note becomes something the agent can look at, not just a filename
 - **Canvases** — `.canvas` boards arrive as a readable outline: groups, card content in reading order, and the connections between them
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return their content as-is
-- **Browse and size** — list any folder's assets with per-type counts and file sizes, and every asset a note links to carries its size in the link graph
+- **Browse and size** — list any folder's assets with per-extension counts and file sizes, and every asset a note links to carries its size in the link graph
 
 See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
 
@@ -102,7 +102,7 @@ See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
 | **Assets**      | `vault_read_asset`           | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
-|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-type counts                   |
+|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-extension counts                   |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
 ## Prompts

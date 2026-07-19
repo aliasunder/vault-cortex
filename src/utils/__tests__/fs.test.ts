@@ -2,13 +2,7 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import {
-  readFileOrNull,
-  readBinaryFileOrNull,
-  readdirOrNull,
-  fileExists,
-  statOrNull,
-} from "../fs.js"
+import { readFileOrNull, readdirOrNull, fileExists, statOrNull } from "../fs.js"
 
 const makeTempDir = async (): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "utils-fs-test-"))
@@ -55,37 +49,14 @@ describe("readdirOrNull", () => {
   })
 })
 
-describe("readBinaryFileOrNull", () => {
-  it("returns the file contents as a Buffer when the file exists", async () => {
-    const dir = await makeTempDir()
-    const path = join(dir, "image.png")
-    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47])
-    await writeFile(path, bytes)
-    const result = await readBinaryFileOrNull(path)
-    expect(result).not.toBeNull()
-    expect(result!.equals(bytes)).toBe(true)
-  })
-
-  it("returns null when the file does not exist", async () => {
-    const dir = await makeTempDir()
-    expect(await readBinaryFileOrNull(join(dir, "missing.bin"))).toBeNull()
-  })
-
-  it("rethrows a non-ENOENT error rather than swallowing it as missing", async () => {
-    const dir = await makeTempDir()
-    await expect(readBinaryFileOrNull(dir)).rejects.toThrow(/EISDIR/)
-  })
-})
-
 describe("statOrNull", () => {
   it("returns Stats when the path exists", async () => {
     const dir = await makeTempDir()
     const path = join(dir, "file.txt")
     await writeFile(path, "12345", "utf8")
     const stats = await statOrNull(path)
-    expect(stats).not.toBeNull()
-    expect(stats!.isFile()).toBe(true)
-    expect(stats!.size).toBe(5)
+    expect(stats?.isFile()).toBe(true)
+    expect(stats?.size).toBe(5)
   })
 
   it("returns null when the path does not exist", async () => {

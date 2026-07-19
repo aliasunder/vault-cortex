@@ -317,6 +317,12 @@ describe("loadConfig", () => {
         /MAX_ASSET_BYTES/,
       )
     })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ MAX_ASSET_BYTES: value })).toThrow(
+        /MAX_ASSET_BYTES/,
+      )
+    })
   })
 
   describe("MAX_IMAGE_OUTPUT_BYTES", () => {
@@ -332,6 +338,12 @@ describe("loadConfig", () => {
 
     it("rejects a non-integer value", () => {
       expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(
+        /MAX_IMAGE_OUTPUT_BYTES/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(
         /MAX_IMAGE_OUTPUT_BYTES/,
       )
     })

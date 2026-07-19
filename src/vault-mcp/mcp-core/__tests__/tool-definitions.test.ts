@@ -1142,18 +1142,21 @@ describe("asset tool handlers", () => {
     })
   })
 
-  it("filters by extension case-insensitively with or without the leading dot", async () => {
-    const { vault, listAssets } = await setupAssetHarness()
-    await writeFile(join(vault, "a.png"), "12345", "utf8")
-    await writeFile(join(vault, "b.jpg"), "12", "utf8")
-    const result = await listAssets({ extensions: ["PNG"] })
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
-      assets: [{ path: "a.png", extension: ".png", bytes: 5 }],
-      extension_counts: { ".png": 1 },
-      total: 1,
-      truncated: false,
-    })
-  })
+  it.each(["PNG", ".PNG"])(
+    "filters by extension case-insensitively for %s",
+    async (extensionSpelling) => {
+      const { vault, listAssets } = await setupAssetHarness()
+      await writeFile(join(vault, "a.png"), "12345", "utf8")
+      await writeFile(join(vault, "b.jpg"), "12", "utf8")
+      const result = await listAssets({ extensions: [extensionSpelling] })
+      expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+        assets: [{ path: "a.png", extension: ".png", bytes: 5 }],
+        extension_counts: { ".png": 1 },
+        total: 1,
+        truncated: false,
+      })
+    },
+  )
 
   it("pages with limit while counts and total cover the full filtered set", async () => {
     const { vault, listAssets } = await setupAssetHarness()

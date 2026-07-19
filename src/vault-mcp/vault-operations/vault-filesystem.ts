@@ -2,6 +2,7 @@ import {
   writeFile,
   readdir,
   mkdir,
+  open,
   unlink,
   rename,
   link,
@@ -16,10 +17,10 @@ import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import {
   fileExists,
   readFileOrNull,
-  readBinaryFileOrNull,
   readdirOrNull,
   statOrNull,
 } from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
@@ -520,9 +521,10 @@ const listAssets = async (
 
 /** Reads a non-.md vault file (an asset) as raw bytes, with a size cap.
  *  Markdown notes are rejected — .md reads go through readNote, which treats
- *  files as notes, not bytes. The stat-before-read cap guards memory: assets
- *  return through tool responses whole, so an unbounded read of a huge file
- *  would balloon the process. */
+ *  files as notes, not bytes. The stat-before-read cap guards memory, and the
+ *  read itself goes through a handle with a buffer bounded by that stat plus
+ *  one sentinel byte — a file that grows between stat and read (a sync race)
+ *  is rejected instead of ballooning memory or serving torn content. */
 const readAsset = async (
   params: { vaultPath: string; path: string; maxBytes: number },
   logger: Logger,
@@ -541,15 +543,51 @@ const readAsset = async (
         `(cap ${params.maxBytes} bytes — raise MAX_ASSET_BYTES to read larger files)`,
     )
   }
-  const buffer = await readBinaryFileOrNull(fullPath)
-  if (buffer === null) {
-    throw new Error(`asset not found: "${params.path}"`)
-  }
-  logger.info("read asset", { path: params.path, bytes: buffer.length })
-  return {
-    buffer,
-    bytes: buffer.length,
-    extension: links.getExtension(params.path).toLowerCase(),
+
+  const fileHandle = await (async () => {
+    try {
+      return await open(fullPath, "r")
+    } catch (error) {
+      if (isErrnoException(error, "ENOENT")) {
+        throw new Error(`asset not found: "${params.path}"`, { cause: error })
+      }
+      throw error
+    }
+  })()
+  try {
+    // One sentinel byte past the statted size: if the file grew after the
+    // stat, the sentinel fills and the read is rejected as unstable.
+    const readBuffer = Buffer.alloc(
+      Math.min(fileStats.size, params.maxBytes) + 1,
+    )
+    // Sequential fill loop — a single read() may return short on some
+    // platforms, so accumulate until EOF or the buffer is full.
+    let totalBytesRead = 0
+    while (totalBytesRead < readBuffer.length) {
+      const { bytesRead } = await fileHandle.read(
+        readBuffer,
+        totalBytesRead,
+        readBuffer.length - totalBytesRead,
+        totalBytesRead,
+      )
+      if (bytesRead === 0) break
+      totalBytesRead += bytesRead
+    }
+    if (totalBytesRead === readBuffer.length) {
+      throw new Error(
+        `asset changed while reading: "${params.path}" grew past its ` +
+          `measured size — retry the read`,
+      )
+    }
+    const buffer = readBuffer.subarray(0, totalBytesRead)
+    logger.info("read asset", { path: params.path, bytes: buffer.length })
+    return {
+      buffer,
+      bytes: buffer.length,
+      extension: links.getExtension(params.path).toLowerCase(),
+    }
+  } finally {
+    await fileHandle.close()
   }
 }
 

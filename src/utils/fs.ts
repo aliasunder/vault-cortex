@@ -13,19 +13,6 @@ export const readFileOrNull = async (path: string): Promise<string | null> => {
   }
 }
 
-/** Reads a file as raw bytes (no encoding), returning null instead of throwing
- *  when it does not exist (ENOENT). Any other error propagates. */
-export const readBinaryFileOrNull = async (
-  path: string,
-): Promise<Buffer | null> => {
-  try {
-    return await readFile(path)
-  } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
-    throw error
-  }
-}
-
 /** Stats a path, returning null instead of throwing when nothing exists there
  *  (ENOENT). Any other error propagates. */
 export const statOrNull = async (path: string): Promise<Stats | null> => {

@@ -104,11 +104,16 @@ const smallestContainingGroup = (
     return !mutuallyContained || group.id > node.id
   })
   if (containing.length === 0) return undefined
-  return containing.reduce((smallest, candidate) =>
-    candidate.width * candidate.height < smallest.width * smallest.height
-      ? candidate
-      : smallest,
-  )
+  // Equal-area ties break on the lower id so ownership is a property of the
+  // canvas content, not of JSON array order.
+  return containing.reduce((smallest, candidate) => {
+    const candidateArea = candidate.width * candidate.height
+    const smallestArea = smallest.width * smallest.height
+    if (candidateArea < smallestArea) return candidate
+    if (candidateArea === smallestArea && candidate.id < smallest.id)
+      return candidate
+    return smallest
+  })
 }
 
 /** Spatial reading order: top-to-bottom, then left-to-right. */
@@ -124,8 +129,9 @@ const displayName = (node: CanvasNode): string => {
       .map((line) => line.trim())
       .find((line) => line.length > 0)
     // Text nodes often open with a markdown heading — "# Title" reads as
-    // "Title" in an edge list.
-    return firstLine ? firstLine.replace(/^#+\s*/, "") : "(empty text node)"
+    // "Title" in an edge list. Only ATX headings (hashes + whitespace) are
+    // stripped; an Obsidian tag like "#project" keeps its hash.
+    return firstLine ? firstLine.replace(/^#+\s+/, "") : "(empty text node)"
   }
   if (node.type === "file") {
     return node.file ? posix.basename(node.file) : "(file node)"

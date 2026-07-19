@@ -140,11 +140,16 @@ export const fitImageToByteBudget = async (params: {
     }
     // Ladder floor still over budget — shrink dimensions. sqrt because encoded
     // size scales roughly with pixel area; the 0.7 clamp guarantees each step
-    // is a real reduction even when the overshoot is marginal.
+    // is a real reduction even when the overshoot is marginal. Descent clamps
+    // to the 64px floor and encodes there before giving up — breaking only
+    // when no further reduction is possible.
     qualityLadderIndex = QUALITY_LADDER.length
     const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes)
-    const nextLongEdgePx = Math.floor(longEdgePx * Math.min(areaScale, 0.7))
-    if (nextLongEdgePx < MIN_LONG_EDGE_PX) break
+    const nextLongEdgePx = Math.max(
+      MIN_LONG_EDGE_PX,
+      Math.floor(longEdgePx * Math.min(areaScale, 0.7)),
+    )
+    if (nextLongEdgePx >= longEdgePx) break
     longEdgePx = nextLongEdgePx
   }
 
