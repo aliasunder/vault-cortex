@@ -24,10 +24,27 @@ import type { OutputInfo } from "sharp"
  * decompression-bomb guard; `failOn: "none"` tolerates slightly-corrupt files.
  */
 
+/** Models downscale images beyond ~1568px on the long edge anyway, so pixels
+ *  past this are bytes spent on detail the model never sees. */
 const MAX_LONG_EDGE_PX = 1568
+
+/** Dimension floor for the descent — below this an image stops being legible,
+ *  so the fit gives up (throws) rather than delivering unreadable thumbnails. */
 const MIN_LONG_EDGE_PX = 64
+
+/** Fixed quality descent, tried in order at full dimensions: 75 is near
+ *  visually lossless, 30 the legibility floor. A fixed ladder (vs adaptive
+ *  search) keeps output deterministic for identical inputs. */
 const QUALITY_LADDER = [75, 60, 45, 30]
+
+/** Quality used once dimension-shrinking takes over from the ladder — the
+ *  ladder's midpoint, since dimensions are now doing the size work and the
+ *  floor qualities would degrade legibility for little gain. */
 const MID_LADDER_QUALITY = 45
+
+/** Hard bound on total encodes so termination is provable: the full ladder
+ *  plus a handful of dimension-shrink attempts, after which the image is
+ *  reported unfittable. */
 const MAX_ENCODE_ATTEMPTS = 8
 
 /** Formats the Claude API accepts as image input; anything else must be
