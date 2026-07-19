@@ -212,6 +212,11 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
               path,
               mimeType: result.fitted.mimeType,
               deliveredBytes: result.fitted.data.length,
+              originalBytes: result.originalBytes,
+              width: result.fitted.width,
+              height: result.fitted.height,
+              originalWidth: result.fitted.originalWidth,
+              originalHeight: result.fitted.originalHeight,
               recompressed: result.fitted.recompressed,
             })
             return [
