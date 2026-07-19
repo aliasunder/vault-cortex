@@ -257,20 +257,24 @@ goes in `obsidian-markdown/`, never `utils/`.
 
 **Export style** depends on what kind of module it is:
 
-- **Service / data-layer modules** — those that wrap a cohesive set of operations
-  over a resource (the vault, the index) — export a **single namespace object**
-  so call sites self-document which module an operation belongs to:
-  `vaultFs.readNote(…)`, `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`.
-  Stateful ones use a **factory-closure** returning that object
-  (`createSearchIndex`, `createMemoryStore`), so prepared statements / caches
-  live in the closure.
-- **Parser and small-helper modules** — the `obsidian-markdown/` parsers
-  (`frontmatter`, `headings`, `callouts`, `lines`), `utils/`, and `daily-notes` —
-  export **named functions**. The shape tracks whether a module is a _cohesive
-  service surface_ (→ namespace) or just a loose set of functions (→ named),
-  **not** whether it does I/O: the parsers are pure, while `daily-notes` does
-  light I/O (reads and caches daily-note config), yet both use named exports
-  because neither is a grouped service API.
+- **Operation / data-layer modules** — anything that performs vault or index
+  operations — export a **single namespace object** so call sites self-document
+  which module an operation belongs to: `vaultFs.readNote(…)`,
+  `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`,
+  `assetReader.readAssetContent(…)`, `assetListing.buildAssetListing(…)`.
+  **Function count is irrelevant** — `noteMover` and both asset use-cases are
+  essentially single-operation modules and still export namespaces; "it only
+  has one function" is not the named-export test. Stateful ones use a
+  **factory-closure** returning that object (`createSearchIndex`,
+  `createMemoryStore`), so prepared statements / caches live in the closure.
+- **Parser, small-helper, and config-reader modules** — the
+  `obsidian-markdown/` parsers (`frontmatter`, `headings`, `callouts`,
+  `lines`), `utils/`, and the config readers (`daily-notes`,
+  `task-format-config`) — export **named functions**. The shape tracks whether
+  a module _performs operations_ (→ namespace) or _parses/reads
+  configuration_ (→ named), **not** whether it does I/O: the parsers are pure,
+  while the config readers do light I/O, yet both use named exports because
+  neither is an operation surface.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
   exports a single `links` namespace, _not_ for the service-grouping reason above
   but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
