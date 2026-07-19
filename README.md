@@ -42,7 +42,7 @@
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Assets](#assets)** — read the vault's non-markdown files too: images arrive as actual images (downscaled to fit), canvases as readable outlines, data files as text
+- **[Assets](#assets)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), canvases as readable outlines, data files as text
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -217,7 +217,7 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing mod
 
 Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats assets as part of the vault rather than clutter around it: the link graph resolves every asset a note references — with its size — and the asset layer makes them readable, each in the form an agent can actually use:
 
-- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side to fit what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
+- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a `.canvas` board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. The exact JSON source is one flag away when full fidelity matters
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's assets with per-extension counts and file sizes

@@ -106,13 +106,13 @@ export const registerAssetTools = ({
       title: "Read Asset",
       description: `Read a non-markdown vault file (an asset) in its most useful form per type — the read-side companion to vault_read_note for everything that isn't a note.
 
-Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image itself, downscaled to fit response limits
+Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image itself, shrunk to fit response limits when needed
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
 
 What each type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — automatically downscaled and recompressed server-side to fit client response limits — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
+- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 - PDFs (.pdf): not yet readable — returns an error that confirms the file exists and its size; text extraction is planned.
@@ -259,7 +259,7 @@ Errors:
 - A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
 
-Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_asset returns a downscaled copy that can be far smaller than the listed size, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Assets of supported types are readable via vault_read_asset (unsupported types like .pdf return a descriptive error there); vault_search covers markdown notes.`,
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_asset returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Assets of supported types are readable via vault_read_asset (unsupported types like .pdf return a descriptive error there); vault_search covers markdown notes.`,
       inputSchema: {
         folder: z
           .string()

@@ -144,7 +144,7 @@
         },
         {
           "name": "MAX_IMAGE_OUTPUT_BYTES",
-          "description": "Byte budget for images returned by vault_read_asset, in binary bytes before base64 encoding. Images are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
+          "description": "Byte budget for images returned by vault_read_asset, in binary bytes before base64 encoding. Images exceeding the budget are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
           "default": "49152",
           "format": "number"
         }
