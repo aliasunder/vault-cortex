@@ -87,6 +87,11 @@
           "choices": ["blended", "none"]
         },
         {
+          "name": "WINDOWS_MODE",
+          "description": "Windows bind-mount mode: enables filesystem polling for the file watcher and rename-based moves across the Docker Desktop/WSL2 bridge. Set to true when the vault lives on a Windows drive.",
+          "default": "false"
+        },
+        {
           "name": "MEMORY_ENABLED",
           "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
           "default": "true"

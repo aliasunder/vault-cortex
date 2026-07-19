@@ -1366,29 +1366,34 @@ export const createSearchIndex = (
 
     // Filter directory entries to visible files of one kind (.md notes or
     // non-md assets) — shared by the notes pass and the non-md stat pass.
+    // filter → map → filter keeps each pass O(n); a spread-accumulating
+    // reduce here would re-copy the array per entry (O(n²) on large vaults).
     const visibleFilesOfKind = (
       fileKind: "note" | "asset",
     ): { relativePath: string; absolutePath: string }[] =>
-      entries.reduce<{ relativePath: string; absolutePath: string }[]>(
-        (filteredFiles, directoryEntry) => {
+      entries
+        .filter((directoryEntry) => {
           if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
-            return filteredFiles
+            return false
           const isNoteFile = directoryEntry.name.endsWith(".md")
-          const matchesKind = fileKind === "note" ? isNoteFile : !isNoteFile
-          if (!matchesKind) return filteredFiles
+          return fileKind === "note" ? isNoteFile : !isNoteFile
+        })
+        .map((directoryEntry) => {
           const absolutePath = join(
             directoryEntry.parentPath,
             directoryEntry.name,
           )
-          const relativePath = relative(normalizedVault, absolutePath)
-          if (
-            relativePath.split("/").some((segment) => segment.startsWith("."))
-          )
-            return filteredFiles
-          return [...filteredFiles, { relativePath, absolutePath }]
-        },
-        [],
-      )
+          return {
+            relativePath: relative(normalizedVault, absolutePath),
+            absolutePath,
+          }
+        })
+        .filter(
+          (file) =>
+            !file.relativePath
+              .split("/")
+              .some((segment) => segment.startsWith(".")),
+        )
 
     const markdownFiles = visibleFilesOfKind("note")
 

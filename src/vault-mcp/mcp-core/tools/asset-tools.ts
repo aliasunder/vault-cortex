@@ -73,6 +73,20 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
   )
 }
 
+/** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — the
+ *  tool promises text content verbatim, and the default decoder would
+ *  silently substitute U+FFFD for every undecodable byte instead. */
+const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
+  } catch (error) {
+    throw new Error(
+      `not valid UTF-8: "${params.path}" cannot be returned as text`,
+      { cause: error },
+    )
+  }
+}
+
 /** Normalizes a user-supplied extension filter entry: lowercased, leading dot
  *  ensured — so "PNG", "png", and ".png" all match ".png". */
 const normalizeExtension = (extension: string): string => {
@@ -109,12 +123,13 @@ Errors:
 - "asset not found" — nothing exists at that path; discover valid paths via vault_list_assets
 - "asset too large" — the file exceeds the server's read cap (MAX_ASSET_BYTES, default 50 MiB)
 - "text output too large" — a text asset renders past the output cap; only smaller files can be returned whole
+- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.
 
-Limitation: assets are readable and listable but not searchable — vault_search indexes markdown notes only.`,
+Search coverage: vault_search indexes markdown notes; find assets by browsing (vault_list_assets) or through a note's links (vault_get_outgoing_links).`,
       inputSchema: {
         path: z
           .string()
@@ -151,12 +166,14 @@ Limitation: assets are readable and listable but not searchable — vault_search
             return { kind: "image", fitted, originalBytes: asset.bytes, path }
           }
           if (asset.extension === ".canvas") {
-            const rendition = linearizeCanvas(asset.buffer.toString("utf8"))
+            const rendition = linearizeCanvas(
+              decodeUtf8Strict({ buffer: asset.buffer, path }),
+            )
             assertTextWithinCap({ text: rendition, path })
             return { kind: "text", text: rendition }
           }
           if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
-            const text = asset.buffer.toString("utf8")
+            const text = decodeUtf8Strict({ buffer: asset.buffer, path })
             assertTextWithinCap({ text, path })
             return { kind: "text", text }
           }
@@ -221,7 +238,7 @@ Errors:
 - A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
 
-Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). Listed assets are readable via vault_read_asset; their contents are not searchable — vault_search indexes markdown notes only.`,
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). Listed assets are readable via vault_read_asset; vault_search covers markdown notes.`,
       inputSchema: {
         folder: z
           .string()

@@ -91,9 +91,18 @@ const smallestContainingGroup = (
   node: CanvasNode,
   groups: readonly CanvasNode[],
 ): CanvasNode | undefined => {
-  const containing = groups.filter(
-    (group) => group.id !== node.id && isContainedIn(node, group),
-  )
+  const containing = groups.filter((group) => {
+    if (group.id === node.id || !isContainedIn(node, group)) return false
+    // Two groups with identical rectangles contain each other; without a
+    // tiebreak each would claim the other as parent, neither would be
+    // top-level, and both would drop out of the render entirely. Give the
+    // containment one deterministic direction (higher id contains lower)
+    // so one nests under the other. Content nodes are exempt — they never
+    // become parents, so mutual containment is harmless there.
+    const mutuallyContained =
+      node.type === "group" && isContainedIn(group, node)
+    return !mutuallyContained || group.id > node.id
+  })
   if (containing.length === 0) return undefined
   return containing.reduce((smallest, candidate) =>
     candidate.width * candidate.height < smallest.width * smallest.height

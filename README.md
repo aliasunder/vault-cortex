@@ -42,7 +42,7 @@
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Assets](#tools)** — read the vault's non-markdown files too: images arrive as actual images (downscaled to fit), canvases as readable outlines, data files as text. Assets are readable and browsable, not yet searchable
+- **[Assets](#assets)** — read the vault's non-markdown files too: images arrive as actual images (downscaled to fit), canvases as readable outlines, data files as text
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -212,6 +212,17 @@ The task layer handles this so agents don't have to:
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
+
+## Assets
+
+A vault isn't only markdown — it holds the diagrams your notes embed, the canvases that map your projects, the data files your workflows produce. The asset layer makes those readable too, each in the form an agent can actually use:
+
+- **Images** — delivered as actual images, automatically downscaled and recompressed server-side to fit client response limits. A screenshot or architecture diagram embedded in a note becomes something the agent can look at, not just a filename
+- **Canvases** — `.canvas` boards arrive as a readable outline: groups, card content in reading order, and the connections between them
+- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return their content as-is
+- **Browse and size** — list any folder's assets with per-type counts and file sizes, and every asset a note links to carries its size in the link graph
+
+See [ARCHITECTURE.md → Assets](./ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
 
 ## Tools
 

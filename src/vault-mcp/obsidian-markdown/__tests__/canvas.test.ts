@@ -212,6 +212,41 @@ describe("linearizeCanvas", () => {
     )
   })
 
+  it("renders both groups when two groups share an identical rectangle", () => {
+    // Identical rects contain each other; without a deterministic tiebreak
+    // each would claim the other as parent and both would vanish from the
+    // output (neither top-level). The higher id must contain the lower.
+    const json = canvasJson([
+      {
+        id: "alpha",
+        type: "group",
+        label: "Alpha",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+      },
+      {
+        id: "beta",
+        type: "group",
+        label: "Beta",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+      },
+      textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
+    ])
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Beta",
+        "### Group: Alpha",
+        "[text]\ninside both",
+      ].join("\n\n"),
+    )
+  })
+
   it("renders an empty canvas as the overview line alone", () => {
     expect(linearizeCanvas("{}")).toBe("# Canvas: 0 nodes, 0 edges")
   })

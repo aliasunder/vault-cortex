@@ -1098,6 +1098,18 @@ describe("asset tool handlers", () => {
     )
   })
 
+  it("rejects a non-UTF-8 text asset instead of corrupting it", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    // 0xFF is never valid in UTF-8 — the default decoder would silently
+    // substitute U+FFFD; the tool must refuse instead.
+    await writeFile(join(vault, "latin1.txt"), Buffer.from([0x68, 0x69, 0xff]))
+    const result = await readAsset({ path: "latin1.txt" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: not valid UTF-8: "latin1.txt" cannot be returned as text',
+    )
+  })
+
   it("rejects an oversized text asset instead of truncating it", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const oversized = "x".repeat(102_401)
