@@ -1,8 +1,8 @@
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
 import { z } from "zod"
-import { readAssetContent } from "../../vault-operations/asset-reader.js"
-import { buildAssetListing } from "../../vault-operations/asset-listing.js"
+import { assetReader } from "../../vault-operations/asset-reader.js"
+import { assetListing } from "../../vault-operations/asset-listing.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
@@ -96,7 +96,7 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
       return safeHandlerContent(
         reqLogger,
         () =>
-          readAssetContent(
+          assetReader.readAssetContent(
             {
               vaultPath,
               path,
@@ -197,7 +197,7 @@ Returns: JSON with assets (array of { path, extension, bytes }, sorted by path),
       return safeHandler(
         reqLogger,
         async () => {
-          const listing = await buildAssetListing(
+          const listing = await assetListing.buildAssetListing(
             { vaultPath, folder, extensions, limit: limit ?? 50 },
             reqLogger,
           )

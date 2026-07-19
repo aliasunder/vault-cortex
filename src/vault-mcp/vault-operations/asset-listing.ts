@@ -40,7 +40,7 @@ export type AssetListing = Readonly<{
  * byte sizes statted for the returned slice only — entries beyond the cap
  * are never statted.
  */
-export const buildAssetListing = async (
+const buildAssetListing = async (
   params: {
     vaultPath: string
     folder?: string | undefined
@@ -86,4 +86,11 @@ export const buildAssetListing = async (
     total: filteredPaths.length,
     truncated: filteredPaths.length > params.limit,
   }
+}
+
+/** The asset-listing use-case surface — namespace export so call sites read
+ *  `assetListing.buildAssetListing(...)`, matching the folder's operation
+ *  modules (noteMover, vaultPatcher, taskUpdater). */
+export const assetListing = {
+  buildAssetListing,
 }

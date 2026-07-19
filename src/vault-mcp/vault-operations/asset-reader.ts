@@ -75,7 +75,7 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
  * Throws structured errors for images with `raw`, PDFs, and unsupported
  * types — each stating the file's existence and size.
  */
-export const readAssetContent = async (
+const readAssetContent = async (
   params: {
     vaultPath: string
     path: string
@@ -127,4 +127,11 @@ export const readAssetContent = async (
       `(.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats ` +
       `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
   )
+}
+
+/** The asset-reading use-case surface — namespace export so call sites read
+ *  `assetReader.readAssetContent(...)`, matching the folder's operation
+ *  modules (noteMover, vaultPatcher, taskUpdater). */
+export const assetReader = {
+  readAssetContent,
 }
