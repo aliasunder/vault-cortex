@@ -229,6 +229,14 @@ Two rules keep this honest:
   `mcp-core/` and the top-level wiring depend on everything. A _search_ module
   importing a _parser_ should read as "uses the shared parser," never as reaching
   sideways into `vault-operations/`.
+- **Group operations by shared dependency layer, not by topic.** A domain's
+  operations live together only when they share a layer: asset read + browse
+  are both filesystem work, so `asset-operations.ts` holds both. Task list
+  (a SQL query — lives with the queries in `search/`) and task update (a file
+  mutation — `task-updater.ts`) stay apart, and so do note search and note
+  mutations. A topic-symmetric "one module per domain" grouping that crosses
+  layers is the smell, not the goal — each file answers for one layer's view
+  of its domain.
 - **Top level is wiring only.** Folders are domains; the only loose files at
   `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
 
