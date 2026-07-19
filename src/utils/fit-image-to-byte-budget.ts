@@ -127,15 +127,17 @@ export const fitImageToByteBudget = async (params: {
   let lastEncodedBytes = params.buffer.length
 
   while (attemptCount < MAX_ENCODE_ATTEMPTS) {
-    const quality =
+    // The quality this attempt encodes at: the next ladder rung while the
+    // ladder descends, mid-ladder once dimension-shrinking takes over.
+    const attemptQuality =
       qualityLadderIndex < QUALITY_LADDER.length
         ? QUALITY_LADDER[qualityLadderIndex]
         : MID_LADDER_QUALITY
-    if (!quality) break
+    if (!attemptQuality) break
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
       longEdgePx,
-      quality,
+      quality: attemptQuality,
       keepAlpha,
     })
     attemptCount += 1
