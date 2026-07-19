@@ -298,9 +298,9 @@ Link queries use a `links` table populated during indexing:
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation).
 4. **PDFs** return a structured not-yet-supported error carrying the file's existence and size (text extraction is a planned follow-up); unknown types return an error naming the readable set.
 
-Reads go through `vaultFs.readAsset`: the same `resolveSafePath` traversal guard as notes, a `.md` rejection (notes belong to `vault_read_note`), and a stat-before-read size cap (`MAX_ASSET_BYTES`, default 50 MiB).
+The dispatch lives in the `vault-operations/asset-reader.ts` use-case; reads go through `vaultFs.readAsset` beneath it: the same `resolveSafePath` traversal guard as notes, a `.md` rejection (notes belong to `vault_read_note`), and a stat-before-read size cap (`MAX_ASSET_BYTES`, default 50 MiB).
 
-`vault_list_assets` is the discovery surface: a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned page. Assets are readable and browsable but not yet searchable — content indexing is a possible future tier.
+`vault_list_assets` is the discovery surface (the `vault-operations/asset-listing.ts` use-case): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Assets are readable and browsable but not yet searchable — content indexing is a possible future tier.
 
 ### Tasks (R9)
 

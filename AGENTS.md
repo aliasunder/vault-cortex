@@ -127,6 +127,8 @@ src/
       daily-notes.ts                   # Daily note config reader + path resolver
       task-updater.ts                  # Task state mutations (status, priority, lane moves)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
+      asset-reader.ts                  # Asset read dispatch (image fit, canvas linearize/raw, text passthrough)
+      asset-listing.ts                 # Asset browsing (extension filter, counts, capped statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
@@ -197,12 +199,20 @@ on**, not just its topic:
   any file) isn't enough to demote something to `utils/` if it's load-bearing
   vault-I/O policy.
 - **`mcp-core/`** — the MCP protocol surface. `tool-definitions.ts` is the
-  orchestrator that composes `TOOL_NAMES` from four domain group modules under
-  `mcp-core/tools/` (vault-crud, search, memory, daily-note) and calls each
-  register function — conditionally skipping memory tools when `MEMORY_ENABLED`
-  is `false`. Each group module is self-contained: its own tool name constants,
-  register function, and data-layer imports. Shared helpers (`safeHandler`,
-  `formatNoteMetadata`, `ToolRegistrationContext` type) live in `tool-helpers.ts`.
+  orchestrator that composes `TOOL_NAMES` from the domain group modules under
+  `mcp-core/tools/` (vault-crud, search, memory, daily-note, task, asset) and
+  calls each register function — conditionally skipping memory tools when
+  `MEMORY_ENABLED` is `false`. Each group module is self-contained: its own tool
+  name constants, register function, and data-layer imports. Shared helpers
+  (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
+  `tool-helpers.ts`.
+  **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
+  one data-layer call, and content-block/JSON formatting. Multi-step
+  composition — filtering, counting, pagination, dispatching across parsers
+  and I/O — is a _use-case_ and belongs in `vault-operations/`
+  (`asset-reader.ts` and `asset-listing.ts` are the worked examples). The
+  smell: a handler importing a parser to orchestrate between two data-layer
+  calls; the fix is a use-case module, not a bigger handler.
   `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from
   three group modules under `mcp-core/prompts/` (vault-orientation, memory-review,
   daily-review) — mirroring the `tools/` pattern. Shared helpers

@@ -1,10 +1,8 @@
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
 import { z } from "zod"
-import { vaultFs } from "../../vault-operations/vault-filesystem.js"
-import { linearizeCanvas } from "../../obsidian-markdown/canvas.js"
-import { links } from "../../obsidian-markdown/links.js"
-import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
+import { readAssetContent } from "../../vault-operations/asset-reader.js"
+import { buildAssetListing } from "../../vault-operations/asset-listing.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
@@ -15,38 +13,6 @@ const TOOL_NAMES = {
 } as const
 
 export { TOOL_NAMES as ASSET_TOOL_NAMES }
-
-/** Extensions dispatched to the image pipeline (model-visible image blocks). */
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
-
-/** Extensions returned verbatim as text — plain-text formats an agent can
- *  read directly. .svg is XML source; .base is Obsidian Bases YAML. */
-const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
-  ".svg",
-  ".json",
-  ".txt",
-  ".csv",
-  ".xml",
-  ".log",
-  ".base",
-])
-
-/** Fixed cap on text output (passthrough files and canvas renditions) so a
- *  huge text asset can't blow a client's response limit. Deliberately not an
- *  env var — the image budget is the tunable surface; text past this size
- *  needs paging, not a bigger blob. */
-const MAX_TEXT_OUTPUT_BYTES = 102_400
-
-/** The computed result of one vault_read_asset call, before content-block
- *  formatting: an image (fitted to the byte budget) or a text rendition. */
-type AssetReadResult =
-  | Readonly<{
-      kind: "image"
-      fitted: FittedImage
-      originalBytes: number
-      path: string
-    }>
-  | Readonly<{ kind: "text"; text: string }>
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -60,38 +26,6 @@ const describeDeliveredImage = (result: {
   if (!fitted.recompressed)
     return `${delivered} (original file, not recompressed)`
   return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
-}
-
-/** Rejects text output past the fixed cap — an explicit error beats silent
- *  truncation, and states the actual size so the caller knows what exists. */
-const assertTextWithinCap = (params: { text: string; path: string }): void => {
-  const textBytes = Buffer.byteLength(params.text, "utf8")
-  if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
-  throw new Error(
-    `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
-      `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
-  )
-}
-
-/** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — the
- *  tool promises text content verbatim, and the default decoder would
- *  silently substitute U+FFFD for every undecodable byte instead. */
-const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
-  } catch (error) {
-    throw new Error(
-      `not valid UTF-8: "${params.path}" cannot be returned as text`,
-      { cause: error },
-    )
-  }
-}
-
-/** Normalizes a user-supplied extension filter entry: lowercased, leading dot
- *  ensured — so "PNG", "png", and ".png" all match ".png". */
-const normalizeExtension = (extension: string): string => {
-  const lowered = extension.toLowerCase()
-  return lowered.startsWith(".") ? lowered : `.${lowered}`
 }
 
 export const registerAssetTools = ({
@@ -161,52 +95,17 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
       reqLogger.info("tool_call", { path, raw })
       return safeHandlerContent(
         reqLogger,
-        async (): Promise<AssetReadResult> => {
-          const asset = await vaultFs.readAsset(
-            { vaultPath, path, maxBytes: config.maxAssetBytes },
-            reqLogger,
-          )
-          const isImage = IMAGE_EXTENSIONS.has(asset.extension)
-          if (isImage && raw) {
-            throw new Error(
-              `raw source is not available for images: "${path}" is ` +
-                `binary — its image block is the delivered form`,
-            )
-          }
-          if (isImage) {
-            const fitted = await fitImageToByteBudget({
-              buffer: asset.buffer,
-              budgetBytes: config.maxImageOutputBytes,
-            })
-            return { kind: "image", fitted, originalBytes: asset.bytes, path }
-          }
-          if (asset.extension === ".canvas") {
-            const canvasSource = decodeUtf8Strict({
-              buffer: asset.buffer,
+        () =>
+          readAssetContent(
+            {
+              vaultPath,
               path,
-            })
-            const text = raw ? canvasSource : linearizeCanvas(canvasSource)
-            assertTextWithinCap({ text, path })
-            return { kind: "text", text }
-          }
-          if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
-            const text = decodeUtf8Strict({ buffer: asset.buffer, path })
-            assertTextWithinCap({ text, path })
-            return { kind: "text", text }
-          }
-          if (asset.extension === ".pdf") {
-            throw new Error(
-              `PDF reading is not yet supported: "${path}" exists ` +
-                `(${asset.bytes} bytes) but text extraction is not available yet`,
-            )
-          }
-          throw new Error(
-            `unsupported asset type "${asset.extension}": "${path}" exists ` +
-              `(${asset.bytes} bytes). Readable types: images ` +
-              `(.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats ` +
-              `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
-          )
-        },
+              raw,
+              maxAssetBytes: config.maxAssetBytes,
+              maxImageOutputBytes: config.maxImageOutputBytes,
+            },
+            reqLogger,
+          ),
         (result) => {
           if (result.kind === "image") {
             reqLogger.info("tool_result", {
@@ -298,46 +197,15 @@ Returns: JSON with assets (array of { path, extension, bytes }, sorted by path),
       return safeHandler(
         reqLogger,
         async () => {
-          const assetPaths = await vaultFs.listAssets(
-            { vaultPath, folder },
-            reqLogger,
-          )
-          const extensionFilter = extensions?.map(normalizeExtension)
-          const filteredPaths = extensionFilter
-            ? assetPaths.filter((assetPath) =>
-                extensionFilter.includes(
-                  links.getExtension(assetPath).toLowerCase(),
-                ),
-              )
-            : assetPaths
-
-          const extensionOf = (assetPath: string): string =>
-            links.getExtension(assetPath).toLowerCase() || "(none)"
-          // Mutable accumulator: building frequency counts is the textbook
-          // case for a plain loop — no step depends on the prior step's shape.
-          const extensionCounts: Record<string, number> = {}
-          for (const assetPath of filteredPaths) {
-            const ext = extensionOf(assetPath)
-            extensionCounts[ext] = (extensionCounts[ext] ?? 0) + 1
-          }
-
-          const pageLimit = limit ?? 50
-          const pagePaths = filteredPaths.slice(0, pageLimit)
-          // Stat only the returned page — counts and total come from the path
-          // list, so unpaged files are never statted.
-          const stattedPage = await vaultFs.statAssets(
-            { vaultPath, paths: pagePaths },
+          const listing = await buildAssetListing(
+            { vaultPath, folder, extensions, limit: limit ?? 50 },
             reqLogger,
           )
           return {
-            assets: stattedPage.map((entry) => ({
-              path: entry.path,
-              extension: extensionOf(entry.path),
-              bytes: entry.bytes,
-            })),
-            extension_counts: extensionCounts,
-            total: filteredPaths.length,
-            truncated: filteredPaths.length > pageLimit,
+            assets: listing.assets,
+            extension_counts: listing.extensionCounts,
+            total: listing.total,
+            truncated: listing.truncated,
           }
         },
         (result) => {
