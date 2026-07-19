@@ -1,16 +1,28 @@
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
+import { links } from "../obsidian-markdown/links.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import type { Logger } from "../../logger.js"
 
 /**
- * Asset reading use-case — dispatches a non-markdown vault file to its most
- * useful representation: images fitted to a byte budget, canvases linearized
- * (or their raw JSON source), text formats decoded verbatim, and structured
- * errors for everything else. Composes vaultFs.readAsset with the parsers and
- * the image pipeline; the tool layer maps the result to MCP content blocks.
+ * Asset operations use-case — the grouped read/browse surface over the
+ * vault's non-markdown files, composing vaultFs primitives with the parsers
+ * and the image pipeline. Two operations share the domain:
+ *
+ * - `readAssetContent` dispatches one file to its most useful representation:
+ *   images fitted to a byte budget, canvases linearized (or their raw JSON
+ *   source), text formats decoded verbatim, structured errors for the rest.
+ * - `buildAssetListing` browses many: extension-filtered, counted per
+ *   extension over the full filtered set, and capped to a statted slice.
+ *   There is no pagination — `limit` caps the returned entries, and
+ *   counts/total over the full set tell the caller to narrow with
+ *   folder/extensions when the cap is hit.
+ *
+ * The tool layer maps results to MCP content blocks / wire JSON.
  */
+
+// ── Reading ─────────────────────────────────────────────────────
 
 /** Extensions dispatched to the image pipeline (model-visible image blocks). */
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
@@ -129,9 +141,89 @@ const readAssetContent = async (
   )
 }
 
-/** The asset-reading use-case surface — namespace export so call sites read
- *  `assetReader.readAssetContent(...)`, matching the folder's operation
- *  modules (noteMover, vaultPatcher, taskUpdater). */
-export const assetReader = {
+// ── Browsing ────────────────────────────────────────────────────
+
+/** Display extension for listings: lowercased with its dot, or "(none)" for
+ *  extensionless files. */
+const extensionOf = (assetPath: string): string =>
+  links.getExtension(assetPath).toLowerCase() || "(none)"
+
+/** Normalizes a caller-supplied extension filter entry: lowercased, leading
+ *  dot ensured — so "PNG", "png", and ".png" all match ".png". */
+const normalizeExtension = (extension: string): string => {
+  const lowered = extension.toLowerCase()
+  return lowered.startsWith(".") ? lowered : `.${lowered}`
+}
+
+export type AssetListing = Readonly<{
+  assets: readonly Readonly<{
+    path: string
+    extension: string
+    bytes: number
+  }>[]
+  extensionCounts: Readonly<Record<string, number>>
+  total: number
+  truncated: boolean
+}>
+
+/**
+ * Lists a folder's (or the vault's) assets: extension-filtered, counted per
+ * extension over the full filtered set, and capped to `limit` entries with
+ * byte sizes statted for the returned slice only — entries beyond the cap
+ * are never statted.
+ */
+const buildAssetListing = async (
+  params: {
+    vaultPath: string
+    folder?: string | undefined
+    extensions?: readonly string[] | undefined
+    limit: number
+  },
+  logger: Logger,
+): Promise<AssetListing> => {
+  const assetPaths = await vaultFs.listAssets(
+    { vaultPath: params.vaultPath, folder: params.folder },
+    logger,
+  )
+  const extensionFilter = params.extensions
+    ? new Set(params.extensions.map(normalizeExtension))
+    : undefined
+  const filteredPaths = extensionFilter
+    ? assetPaths.filter((assetPath) =>
+        extensionFilter.has(links.getExtension(assetPath).toLowerCase()),
+      )
+    : assetPaths
+
+  const filteredExtensions = filteredPaths.map(extensionOf)
+  const extensionCounts = filteredExtensions.reduce<Record<string, number>>(
+    (counts, extension) => ({
+      ...counts,
+      [extension]: (counts[extension] ?? 0) + 1,
+    }),
+    {},
+  )
+
+  const returnedPaths = filteredPaths.slice(0, params.limit)
+  const stattedAssets = await vaultFs.statAssets(
+    { vaultPath: params.vaultPath, paths: returnedPaths },
+    logger,
+  )
+  return {
+    assets: stattedAssets.map((entry) => ({
+      path: entry.path,
+      extension: extensionOf(entry.path),
+      bytes: entry.bytes,
+    })),
+    extensionCounts,
+    total: filteredPaths.length,
+    truncated: filteredPaths.length > params.limit,
+  }
+}
+
+/** The asset operations surface — one namespace for the grouped read/browse
+ *  functionality, matching the folder's operation modules (noteMover,
+ *  vaultPatcher, taskUpdater). */
+export const assetOperations = {
   readAssetContent,
+  buildAssetListing,
 }

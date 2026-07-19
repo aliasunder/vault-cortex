@@ -127,8 +127,7 @@ src/
       daily-notes.ts                   # Daily note config reader + path resolver
       task-updater.ts                  # Task state mutations (status, priority, lane moves)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
-      asset-reader.ts                  # Asset read dispatch (image fit, canvas linearize/raw, text passthrough)
-      asset-listing.ts                 # Asset browsing (extension filter, counts, capped statted slice)
+      asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
@@ -261,10 +260,10 @@ goes in `obsidian-markdown/`, never `utils/`.
   operations — export a **single namespace object** so call sites self-document
   which module an operation belongs to: `vaultFs.readNote(…)`,
   `vaultPatcher.patchNote(…)`, `noteMover.moveNote(…)`,
-  `assetReader.readAssetContent(…)`, `assetListing.buildAssetListing(…)`.
-  **Function count is irrelevant** — `noteMover` and both asset use-cases are
-  essentially single-operation modules and still export namespaces; "it only
-  has one function" is not the named-export test. Stateful ones use a
+  `assetOperations.readAssetContent(…)`.
+  **Function count is irrelevant** — `noteMover` is essentially a
+  single-operation module and still exports a namespace; "it only has one
+  function" is not the named-export test. Stateful ones use a
   **factory-closure** returning that object (`createSearchIndex`,
   `createMemoryStore`), so prepared statements / caches live in the closure.
 - **Parser, small-helper, and config-reader modules** — the
