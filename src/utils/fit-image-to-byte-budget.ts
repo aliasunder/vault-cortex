@@ -118,7 +118,7 @@ export const fitImageToByteBudget = async (params: {
     }
   }
 
-  const keepAlpha = metadata.hasAlpha === true
+  const keepAlpha = Boolean(metadata.hasAlpha)
   // Mutable descent state: each attempt either succeeds (returns) or tightens
   // quality/dimensions for the next — inherently sequential.
   let longEdgePx = Math.min(longEdge, MAX_LONG_EDGE_PX)
@@ -131,7 +131,7 @@ export const fitImageToByteBudget = async (params: {
       qualityLadderIndex < QUALITY_LADDER.length
         ? QUALITY_LADDER[qualityLadderIndex]
         : MID_LADDER_QUALITY
-    if (quality === undefined) break
+    if (!quality) break
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
       longEdgePx,
