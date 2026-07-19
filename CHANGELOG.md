@@ -47,6 +47,26 @@
 
 
 
+
+## [0.30.0] — 2026-07-19
+
+### Features
+
+- **assets:** Vault_read_asset + vault_list_assets — read and browse non-markdown vault files (#351)
+
+### Bug Fixes
+
+- **deps:** Override adm-zip to 0.6.0 for CVE-2026-39244 (#350)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.29.7
+
+### Maintenance
+
+- **lint:** Enforce AGENTS.md code-style rules via eslint (#349)
+- **lint:** Enforce module layering boundaries via no-restricted-imports (#348)
+
 ## [0.29.7] — 2026-07-18
 
 ### Bug Fixes
