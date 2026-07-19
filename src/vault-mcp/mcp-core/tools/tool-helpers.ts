@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
@@ -62,20 +63,20 @@ export const dateFilterSchema = z
   })
   .optional()
 
-/** Wraps a handler with try/catch, returning isError on failure. */
-export const safeHandler = async <T>(
+/** Wraps a handler with try/catch, returning isError on failure. The format
+ *  callback produces the full content-block array — text, image, or mixed
+ *  (the SDK union) — for tools whose results aren't a single text block. */
+export const safeHandlerContent = async <T>(
   logger: Logger,
   fn: () => Promise<T>,
-  format: (result: T) => string,
+  format: (result: T) => CallToolResult["content"],
 ): Promise<{
-  content: Array<{ type: "text"; text: string }>
+  content: CallToolResult["content"]
   isError?: true
 }> => {
   try {
     const result = await fn()
-    return {
-      content: [{ type: "text" as const, text: format(result) }],
-    }
+    return { content: format(result) }
   } catch (err) {
     const message = describeError(err)
     logger.warn("tool_error", { error: message })
@@ -85,3 +86,18 @@ export const safeHandler = async <T>(
     }
   }
 }
+
+/** Wraps a handler with try/catch, returning isError on failure — the common
+ *  single-text-block case. Delegates to safeHandlerContent so the error
+ *  contract (describeError, tool_error log, isError) has exactly one home. */
+export const safeHandler = <T>(
+  logger: Logger,
+  fn: () => Promise<T>,
+  format: (result: T) => string,
+): Promise<{
+  content: CallToolResult["content"]
+  isError?: true
+}> =>
+  safeHandlerContent(logger, fn, (result) => [
+    { type: "text" as const, text: format(result) },
+  ])

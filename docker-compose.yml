@@ -45,6 +45,8 @@ services:
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
+      MAX_ASSET_BYTES: ${MAX_ASSET_BYTES:-52428800}
+      MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):

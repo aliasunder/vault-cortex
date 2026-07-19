@@ -57,6 +57,14 @@ export type VaultConfig = Readonly<{
    *  rename-based exclusive write for moves (hard links aren't supported there).
    *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
   windowsBindMount: boolean
+  /** Per-read byte cap for vault_read_asset — files larger than this are
+   *  rejected before reading (memory guard). Set via MAX_ASSET_BYTES. */
+  maxAssetBytes: number
+  /** Byte budget for image output after downscale/recompress, in binary bytes
+   *  BEFORE base64 encoding. The default fits Claude Code's MCP output token
+   *  cap (base64 expands ~4/3, then tokenizes at roughly 3 chars/token).
+   *  Set via MAX_IMAGE_OUTPUT_BYTES; raise for clients with looser caps. */
+  maxImageOutputBytes: number
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -111,6 +119,32 @@ export const loadConfig = (
     .default("false")
     .asBool()
 
+  // env-var's asIntPositive admits 0, but a zero byte cap would make every
+  // asset read fail at runtime — reject it at startup instead.
+  const requireNonZeroBytes = (name: string, value: number): number => {
+    if (value === 0) {
+      throw new Error(`env-var: "${name}" must be greater than 0`)
+    }
+    return value
+  }
+
+  // 50 MiB — matches the most permissive prior art for MCP attachment reads.
+  const maxAssetBytes = requireNonZeroBytes(
+    "MAX_ASSET_BYTES",
+    envVar.from(env).get("MAX_ASSET_BYTES").default("52428800").asIntPositive(),
+  )
+
+  // 48 KiB binary ≈ 64 KiB base64 ≈ ~21k tokens — under Claude Code's 25k-token
+  // MCP output cap with headroom for the metadata text block.
+  const maxImageOutputBytes = requireNonZeroBytes(
+    "MAX_IMAGE_OUTPUT_BYTES",
+    envVar
+      .from(env)
+      .get("MAX_IMAGE_OUTPUT_BYTES")
+      .default("49152")
+      .asIntPositive(),
+  )
+
   return Object.freeze({
     memoryEnabled,
     memoryDir,
@@ -120,5 +154,7 @@ export const loadConfig = (
     embeddingEnabled,
     rerankMode,
     windowsBindMount,
+    maxAssetBytes,
+    maxImageOutputBytes,
   })
 }

@@ -677,6 +677,34 @@ describe("stripExtension", () => {
   })
 })
 
+// ── getExtension ────────────────────────────────────────────────
+
+describe("getExtension", () => {
+  it("returns the extension including the dot for a normal filename", () => {
+    expect(links.getExtension("boards/Trip Route.canvas")).toBe(".canvas")
+  })
+
+  it("returns the last extension of a multi-dot filename", () => {
+    expect(links.getExtension("assets/photo.png.canvas")).toBe(".canvas")
+  })
+
+  it("returns empty string when the filename has no dot", () => {
+    expect(links.getExtension("assets/LICENSE")).toBe("")
+  })
+
+  it("treats a leading-dot file as having no extension", () => {
+    expect(links.getExtension("config/.hidden")).toBe("")
+  })
+
+  it("ignores dots in folder names", () => {
+    expect(links.getExtension("v1.2/note")).toBe("")
+  })
+
+  it("returns .png for a typical image path", () => {
+    expect(links.getExtension("attachments/photo.png")).toBe(".png")
+  })
+})
+
 // ── resolveAsset ─────────────────────────────────────────────────
 
 describe("resolveAsset", () => {

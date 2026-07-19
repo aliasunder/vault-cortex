@@ -300,4 +300,52 @@ describe("loadConfig", () => {
       expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
     })
   })
+
+  describe("MAX_ASSET_BYTES", () => {
+    it("defaults to 50 MiB (52428800) when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.maxAssetBytes).toBe(52_428_800)
+    })
+
+    it("accepts a custom positive integer", () => {
+      const config = loadConfig({ MAX_ASSET_BYTES: "10485760" })
+      expect(config.maxAssetBytes).toBe(10_485_760)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ MAX_ASSET_BYTES: "abc" })).toThrow(
+        /MAX_ASSET_BYTES/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ MAX_ASSET_BYTES: value })).toThrow(
+        /MAX_ASSET_BYTES/,
+      )
+    })
+  })
+
+  describe("MAX_IMAGE_OUTPUT_BYTES", () => {
+    it("defaults to 48 KiB (49152) when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.maxImageOutputBytes).toBe(49_152)
+    })
+
+    it("accepts a custom positive integer", () => {
+      const config = loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "65536" })
+      expect(config.maxImageOutputBytes).toBe(65_536)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(
+        /MAX_IMAGE_OUTPUT_BYTES/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(
+        /MAX_IMAGE_OUTPUT_BYTES/,
+      )
+    })
+  })
 })

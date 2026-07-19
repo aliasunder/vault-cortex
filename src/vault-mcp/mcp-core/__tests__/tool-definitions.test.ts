@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
+import sharp from "sharp"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -31,6 +32,8 @@ const READ_ONLY_TOOLS = [
   TOOL_NAMES.VAULT_GET_BACKLINKS,
   TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
   TOOL_NAMES.VAULT_FIND_ORPHANS,
+  TOOL_NAMES.VAULT_READ_ASSET,
+  TOOL_NAMES.VAULT_LIST_ASSETS,
 ] as const
 
 const DESTRUCTIVE_TOOLS = [
@@ -262,6 +265,28 @@ describe("registerTools", () => {
   it("vault_search_by_folder description cross-references graph tools", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_SEARCH_BY_FOLDER)
     expect(config.description).toContain("vault_get_backlinks")
+  })
+
+  it("vault_read_asset description cross-references discovery and note tools", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_ASSET)
+    expect(config.description).toContain("vault_list_assets")
+    expect(config.description).toContain("vault_get_outgoing_links")
+    expect(config.description).toContain("vault_read_note")
+  })
+
+  it("vault_list_assets description cross-references vault_read_asset", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_ASSETS)
+    expect(config.description).toContain("vault_read_asset")
+  })
+
+  it("vault_read_note description routes non-md paths to vault_read_asset", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
+    expect(config.description).toContain("vault_read_asset")
+  })
+
+  it("vault_get_outgoing_links description cross-references vault_read_asset", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_GET_OUTGOING_LINKS)
+    expect(config.description).toContain("vault_read_asset")
   })
 
   it("every tool has all 4 annotation hints", () => {
@@ -913,6 +938,287 @@ describe("vault_list_tasks handler", () => {
     expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
       total: 0,
       tasks: [],
+    })
+  })
+})
+
+describe("asset tool handlers", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  type HandlerResult = {
+    content: Array<{
+      type: string
+      text?: string
+      data?: string
+      mimeType?: string
+    }>
+    isError?: boolean
+  }
+
+  /** Registers against a real temp vault and returns the two asset handlers —
+   *  the global harness registers against a nonexistent path. */
+  const setupAssetHarness = async (): Promise<{
+    vault: string
+    readAsset: (args: unknown) => Promise<HandlerResult>
+    listAssets: (args: unknown) => Promise<HandlerResult>
+  }> => {
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-assets-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const handlerFor = (
+      name: string,
+    ): ((args: unknown) => Promise<HandlerResult>) => {
+      const call = registeredCalls.find(([toolName]) => toolName === name)
+      if (!call) throw new Error(`tool not registered: ${name}`)
+      const [, , handler] = call
+      return async (args: unknown) =>
+        (await handler(args, mockExtra)) as HandlerResult
+    }
+    return {
+      vault: tempVault,
+      readAsset: handlerFor(TOOL_NAMES.VAULT_READ_ASSET),
+      listAssets: handlerFor(TOOL_NAMES.VAULT_LIST_ASSETS),
+    }
+  }
+
+  it("returns a .canvas file as its linearized rendition", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(
+      join(vault, "Board.canvas"),
+      JSON.stringify({
+        nodes: [
+          {
+            id: "a",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "hello",
+          },
+        ],
+        edges: [],
+      }),
+      "utf8",
+    )
+    const result = await readAsset({ path: "Board.canvas" })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([
+      { type: "text", text: "# Canvas: 1 node, 0 edges\n\n[text]\nhello" },
+    ])
+  })
+
+  it.each([
+    { extension: "json", content: '{"key": "value"}' },
+    { extension: "svg", content: '<svg xmlns="http://www.w3.org/2000/svg"/>' },
+    { extension: "csv", content: "a,b\n1,2\n" },
+    { extension: "txt", content: "plain text\n" },
+    { extension: "xml", content: "<root/>" },
+    { extension: "log", content: "line one\nline two\n" },
+    { extension: "base", content: "views:\n  - type: table\n" },
+  ])(
+    "returns a .$extension file verbatim as text",
+    async ({ extension, content }) => {
+      const { vault, readAsset } = await setupAssetHarness()
+      await writeFile(join(vault, `file.${extension}`), content, "utf8")
+      const result = await readAsset({ path: `file.${extension}` })
+      expect(result.isError).toBeUndefined()
+      expect(result.content).toEqual([{ type: "text", text: content }])
+    },
+  )
+
+  it("returns a small PNG as an image block with a metadata text line", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const png = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: { r: 255, g: 0, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer()
+    await writeFile(join(vault, "tiny.png"), png)
+    const result = await readAsset({ path: "tiny.png" })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([
+      { type: "image", data: png.toString("base64"), mimeType: "image/png" },
+      {
+        type: "text",
+        text: `tiny.png — image/png, 4×4, ${png.length} bytes (original file, not recompressed)`,
+      },
+    ])
+  })
+
+  it("returns the exact canvas JSON source when raw is set", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const canvasSource = JSON.stringify({
+      nodes: [
+        {
+          id: "a",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          text: "hello",
+        },
+      ],
+      edges: [],
+    })
+    await writeFile(join(vault, "Board.canvas"), canvasSource, "utf8")
+    const result = await readAsset({ path: "Board.canvas", raw: true })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([{ type: "text", text: canvasSource }])
+  })
+
+  it("rejects raw for an image", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const png = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: { r: 255, g: 0, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer()
+    await writeFile(join(vault, "tiny.png"), png)
+    const result = await readAsset({ path: "tiny.png", raw: true })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: raw source is not available for images: "tiny.png" is binary — its image block is the delivered form',
+    )
+  })
+
+  it("returns a text format's source unchanged when raw is set", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
+    const result = await readAsset({ path: "data.json", raw: true })
+    expect(result.isError).toBeUndefined()
+    expect(result.content).toEqual([{ type: "text", text: '{"key": "value"}' }])
+  })
+
+  it("rejects a .pdf with a not-yet-supported error carrying the file size", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "doc.pdf"), "0123456789", "utf8")
+    const result = await readAsset({ path: "doc.pdf" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: PDF reading is not yet supported: "doc.pdf" exists (10 bytes) but text extraction is not available yet',
+    )
+  })
+
+  it("rejects an unsupported extension naming the readable types", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "song.mp3"), "xxxx", "utf8")
+    const result = await readAsset({ path: "song.mp3" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
+    )
+  })
+
+  it("rejects a .md path without touching the note", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "note.md"), "# A note\n", "utf8")
+    const result = await readAsset({ path: "note.md" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: not an asset: "note.md" is a markdown note',
+    )
+  })
+
+  it("rejects a missing asset with asset not found", async () => {
+    const { readAsset } = await setupAssetHarness()
+    const result = await readAsset({ path: "ghost.png" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: asset not found: "ghost.png"',
+    )
+  })
+
+  it("rejects a non-UTF-8 text asset instead of corrupting it", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    // 0xFF is never valid in UTF-8 — the default decoder would silently
+    // substitute U+FFFD; the tool must refuse instead.
+    await writeFile(join(vault, "latin1.txt"), Buffer.from([0x68, 0x69, 0xff]))
+    const result = await readAsset({ path: "latin1.txt" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: not valid UTF-8: "latin1.txt" cannot be returned as text',
+    )
+  })
+
+  it("rejects an oversized text asset instead of truncating it", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const oversized = "x".repeat(102_401)
+    await writeFile(join(vault, "big.txt"), oversized, "utf8")
+    const result = await readAsset({ path: "big.txt" })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      '[Error]: text output too large: "big.txt" renders to 102401 bytes (cap 102400 bytes)',
+    )
+  })
+
+  it("lists a folder's assets with bytes and counts, excluding other folders and notes", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await mkdir(join(vault, "media"), { recursive: true })
+    await mkdir(join(vault, "elsewhere"), { recursive: true })
+    await writeFile(join(vault, "media/a.png"), "12345", "utf8")
+    await writeFile(join(vault, "media/b.canvas"), "{}", "utf8")
+    await writeFile(join(vault, "media/note.md"), "# not an asset", "utf8")
+    await writeFile(join(vault, "elsewhere/c.png"), "999", "utf8")
+    const result = await listAssets({ folder: "media" })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+      assets: [
+        { path: "media/a.png", extension: ".png", bytes: 5 },
+        { path: "media/b.canvas", extension: ".canvas", bytes: 2 },
+      ],
+      extension_counts: { ".png": 1, ".canvas": 1 },
+      total: 2,
+      truncated: false,
+    })
+  })
+
+  it.each(["PNG", ".PNG"])(
+    "filters by extension case-insensitively for %s",
+    async (extensionSpelling) => {
+      const { vault, listAssets } = await setupAssetHarness()
+      await writeFile(join(vault, "a.png"), "12345", "utf8")
+      await writeFile(join(vault, "b.jpg"), "12", "utf8")
+      const result = await listAssets({ extensions: [extensionSpelling] })
+      expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+        assets: [{ path: "a.png", extension: ".png", bytes: 5 }],
+        extension_counts: { ".png": 1 },
+        total: 1,
+        truncated: false,
+      })
+    },
+  )
+
+  it("pages with limit while counts and total cover the full filtered set", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "a.png"), "1", "utf8")
+    await writeFile(join(vault, "b.png"), "22", "utf8")
+    await writeFile(join(vault, "c.jpg"), "333", "utf8")
+    const result = await listAssets({ limit: 1 })
+    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+      assets: [{ path: "a.png", extension: ".png", bytes: 1 }],
+      extension_counts: { ".png": 2, ".jpg": 1 },
+      total: 3,
+      truncated: true,
     })
   })
 })

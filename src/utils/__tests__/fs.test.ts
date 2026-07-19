@@ -2,7 +2,7 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { readFileOrNull, readdirOrNull, fileExists } from "../fs.js"
+import { readFileOrNull, readdirOrNull, fileExists, statOrNull } from "../fs.js"
 
 const makeTempDir = async (): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "utils-fs-test-"))
@@ -46,6 +46,30 @@ describe("readdirOrNull", () => {
   it("returns null when the directory does not exist", async () => {
     const dir = await makeTempDir()
     expect(await readdirOrNull(join(dir, "nope"))).toBeNull()
+  })
+})
+
+describe("statOrNull", () => {
+  it("returns Stats when the path exists", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "file.txt")
+    await writeFile(path, "12345", "utf8")
+    const stats = await statOrNull(path)
+    expect(stats?.isFile()).toBe(true)
+    expect(stats?.size).toBe(5)
+  })
+
+  it("returns null when the path does not exist", async () => {
+    const dir = await makeTempDir()
+    expect(await statOrNull(join(dir, "ghost.txt"))).toBeNull()
+  })
+
+  it("rethrows a non-ENOENT error rather than swallowing it", async () => {
+    // ENOTDIR: stat a path through a file as if it were a directory
+    const dir = await makeTempDir()
+    const filePath = join(dir, "file.txt")
+    await writeFile(filePath, "x", "utf8")
+    await expect(statOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
   })
 })
 

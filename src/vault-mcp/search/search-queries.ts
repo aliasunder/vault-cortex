@@ -1567,7 +1567,7 @@ export const getOutgoingLinks = (
            CASE WHEN n.path IS NOT NULL THEN 'note'
                 WHEN f.path IS NOT NULL THEN 'asset'
                 ELSE 'note' END as kind,
-           n.bytes
+           COALESCE(n.bytes, f.bytes) as bytes
     FROM links l
     LEFT JOIN notes n ON n.path = l.target
     LEFT JOIN non_md_files f ON f.path = l.target

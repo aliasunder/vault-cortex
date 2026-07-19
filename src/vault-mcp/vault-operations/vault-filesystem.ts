@@ -2,6 +2,7 @@ import {
   writeFile,
   readdir,
   mkdir,
+  open,
   unlink,
   rename,
   link,
@@ -13,8 +14,16 @@ import { join, dirname, relative, resolve, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import { fileExists, readFileOrNull, readdirOrNull } from "../../utils/fs.js"
+import {
+  fileExists,
+  readFileOrNull,
+  readdirOrNull,
+  statOrNull,
+} from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
+import { links } from "../obsidian-markdown/links.js"
 import {
   parseNote,
   stringifyNote,
@@ -491,22 +500,118 @@ const listNotes = async (
   return result
 }
 
-/** Lists non-.md files (attachments — images, canvases, PDFs, …) under the
- *  vault root. Same walk and filters as listNotes; moveNote resolves asset
- *  links inside a moved note against the result. */
+/** Lists non-.md files (assets — images, canvases, PDFs, …) under a folder
+ *  (or the vault root). Same walk and filters as listNotes; moveNote resolves
+ *  asset links inside a moved note against the vault-wide result. */
 const listAssets = async (
-  params: { vaultPath: string },
+  params: { vaultPath: string; folder?: string | undefined },
   logger: Logger,
 ): Promise<string[]> => {
   const paths = await listVaultFilePaths(
     {
       vaultPath: params.vaultPath,
+      folder: params.folder,
       fileKind: "asset",
     },
     logger,
   )
-  logger.info("listed assets", { count: paths.length })
+  logger.info("listed assets", { folder: params.folder, count: paths.length })
   return paths
+}
+
+/** Reads a non-.md vault file (an asset) as raw bytes, with a size cap.
+ *  Markdown notes are rejected — .md reads go through readNote, which treats
+ *  files as notes, not bytes. The stat-before-read cap guards memory, and the
+ *  read itself goes through a handle with a buffer bounded by that stat plus
+ *  one sentinel byte — a file that grows between stat and read (a sync race)
+ *  is rejected instead of ballooning memory or serving torn content. */
+const readAsset = async (
+  params: { vaultPath: string; path: string; maxBytes: number },
+  logger: Logger,
+): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
+  if (params.path.endsWith(".md")) {
+    throw new Error(`not an asset: "${params.path}" is a markdown note`)
+  }
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  const fileStats = await statOrNull(fullPath)
+  if (!fileStats || !fileStats.isFile()) {
+    throw new Error(`asset not found: "${params.path}"`)
+  }
+  if (fileStats.size > params.maxBytes) {
+    throw new Error(
+      `asset too large: "${params.path}" is ${fileStats.size} bytes ` +
+        `(cap ${params.maxBytes} bytes — raise MAX_ASSET_BYTES to read larger files)`,
+    )
+  }
+
+  const fileHandle = await (async () => {
+    try {
+      return await open(fullPath, "r")
+    } catch (error) {
+      if (isErrnoException(error, "ENOENT")) {
+        throw new Error(`asset not found: "${params.path}"`, { cause: error })
+      }
+      throw error
+    }
+  })()
+  try {
+    // One sentinel byte past the statted size: if the file grew after the
+    // stat, the sentinel fills and the read is rejected as unstable.
+    const readBuffer = Buffer.alloc(
+      Math.min(fileStats.size, params.maxBytes) + 1,
+    )
+    // Sequential fill loop — a single read() may return short on some
+    // platforms, so accumulate until EOF or the buffer is full.
+    let totalBytesRead = 0
+    while (totalBytesRead < readBuffer.length) {
+      const { bytesRead } = await fileHandle.read(
+        readBuffer,
+        totalBytesRead,
+        readBuffer.length - totalBytesRead,
+        totalBytesRead,
+      )
+      if (bytesRead === 0) break
+      totalBytesRead += bytesRead
+    }
+    if (totalBytesRead === readBuffer.length) {
+      throw new Error(
+        `asset changed while reading: "${params.path}" grew past its ` +
+          `measured size — retry the read`,
+      )
+    }
+    const buffer = readBuffer.subarray(0, totalBytesRead)
+    logger.info("read asset", { path: params.path, bytes: buffer.length })
+    return {
+      buffer,
+      bytes: buffer.length,
+      extension: links.getExtension(params.path).toLowerCase(),
+    }
+  } finally {
+    await fileHandle.close()
+  }
+}
+
+/** Stats a page of asset paths, returning each existing file's byte size.
+ *  Assets that vanished between listing and stat (a sync race) are dropped
+ *  rather than thrown — the listing is a snapshot, not a lock. */
+const statAssets = async (
+  params: { vaultPath: string; paths: readonly string[] },
+  logger: Logger,
+): Promise<{ path: string; bytes: number }[]> => {
+  const stattedEntries = await mapWithConcurrency({
+    items: params.paths,
+    concurrency: 16,
+    mapper: async (assetPath) => {
+      const fileStats = await statOrNull(
+        resolveSafePath(params.vaultPath, assetPath),
+      )
+      if (!fileStats) return null
+      return { path: assetPath, bytes: fileStats.size }
+    },
+  })
+  const existingEntries = stattedEntries.filter((entry) => entry !== null)
+  logger.info("statted assets", { count: existingEntries.length })
+  return existingEntries
 }
 
 export const vaultFs = {
@@ -519,4 +624,6 @@ export const vaultFs = {
   deleteNote,
   listNotes,
   listAssets,
+  readAsset,
+  statAssets,
 }

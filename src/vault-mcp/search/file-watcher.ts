@@ -9,7 +9,7 @@ import { join, relative, resolve as resolvePath } from "node:path"
 import type { SearchIndex } from "./search-index.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
-import { readdirOrNull } from "../../utils/fs.js"
+import { readdirOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
@@ -77,7 +77,11 @@ export const startFileWatcher = (
     const relativePath = relative(vaultPath, filePath)
 
     if (!filePath.endsWith(".md")) {
-      search.upsertNonMdFile(relativePath)
+      const fileStat = await statOrNull(filePath)
+      // Vanished between the watcher event and the stat — the unlink event
+      // that follows will remove any existing row.
+      if (!fileStat) return
+      search.upsertNonMdFile(relativePath, fileStat.size)
       logger.debug("indexed non-md file", { path: relativePath })
       return
     }

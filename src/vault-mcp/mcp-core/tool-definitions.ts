@@ -15,6 +15,7 @@ import {
   registerDailyNoteTools,
 } from "./tools/daily-note-tools.js"
 import { TASK_TOOL_NAMES, registerTaskTools } from "./tools/task-tools.js"
+import { ASSET_TOOL_NAMES, registerAssetTools } from "./tools/asset-tools.js"
 
 export const TOOL_NAMES = {
   ...VAULT_CRUD_TOOL_NAMES,
@@ -22,6 +23,7 @@ export const TOOL_NAMES = {
   ...MEMORY_TOOL_NAMES,
   ...DAILY_NOTE_TOOL_NAMES,
   ...TASK_TOOL_NAMES,
+  ...ASSET_TOOL_NAMES,
 } as const
 
 export const registerTools = (params: {
@@ -38,12 +40,14 @@ export const registerTools = (params: {
   }
   registerDailyNoteTools(params)
   registerTaskTools(params)
+  registerAssetTools(params)
 
   const registeredCount =
     Object.keys(VAULT_CRUD_TOOL_NAMES).length +
     Object.keys(SEARCH_TOOL_NAMES).length +
     (params.config.memoryEnabled ? Object.keys(MEMORY_TOOL_NAMES).length : 0) +
     Object.keys(DAILY_NOTE_TOOL_NAMES).length +
-    Object.keys(TASK_TOOL_NAMES).length
+    Object.keys(TASK_TOOL_NAMES).length +
+    Object.keys(ASSET_TOOL_NAMES).length
   params.logger.info("registered tools", { count: registeredCount })
 }

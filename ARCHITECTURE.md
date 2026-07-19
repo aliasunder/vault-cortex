@@ -281,8 +281,26 @@ Link queries use a `links` table populated during indexing:
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown assets:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown assets resolve as `kind: "asset"` instead of being counted as broken.
-- **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) so clients can distinguish retrievable notes from non-retrievable asset references.
+- **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"asset"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for assets), so clients can route notes to `vault_read_note` and assets to `vault_read_asset` with size awareness.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
+
+### Assets
+
+| Tool                | Input                          | Annotation   |
+| ------------------- | ------------------------------ | ------------ |
+| `vault_read_asset`  | `path`                         | readOnlyHint |
+| `vault_list_assets` | `folder?, extensions?, limit?` | readOnlyHint |
+
+`vault_read_asset` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
+
+1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity.
+3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation).
+4. **PDFs** return a structured not-yet-supported error carrying the file's existence and size (text extraction is a planned follow-up); unknown types return an error naming the readable set.
+
+The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal guard as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_ASSET_BYTES`, default 50 MiB).
+
+`vault_list_assets` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Assets are readable and browsable but not yet searchable — content indexing is a possible future tier.
 
 ### Tasks (R9)
 

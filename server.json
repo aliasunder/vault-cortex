@@ -87,6 +87,11 @@
           "choices": ["blended", "none"]
         },
         {
+          "name": "WINDOWS_MODE",
+          "description": "Windows bind-mount mode: enables filesystem polling for the file watcher and rename-based moves across the Docker Desktop/WSL2 bridge. Set to true when the vault lives on a Windows drive.",
+          "default": "false"
+        },
+        {
           "name": "MEMORY_ENABLED",
           "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
           "default": "true"
@@ -130,6 +135,18 @@
           "name": "SERVICE_DOCUMENTATION_URL",
           "description": "Override the OAuth service documentation URL exposed via discovery metadata.",
           "default": "https://github.com/aliasunder/vault-cortex"
+        },
+        {
+          "name": "MAX_ASSET_BYTES",
+          "description": "Largest asset file vault_read_asset will read, in bytes. Reading a larger file returns an error instead of content.",
+          "default": "52428800",
+          "format": "number"
+        },
+        {
+          "name": "MAX_IMAGE_OUTPUT_BYTES",
+          "description": "Byte budget for images returned by vault_read_asset, in binary bytes before base64 encoding. Images exceeding the budget are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
+          "default": "49152",
+          "format": "number"
         }
       ]
     }

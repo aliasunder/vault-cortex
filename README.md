@@ -17,7 +17,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Assets](#assets) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -42,6 +42,7 @@
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Assets](#assets)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), canvases as readable outlines, data files as text
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -212,6 +213,17 @@ The task layer handles this so agents don't have to:
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
 
+## Assets
+
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats assets as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
+
+- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
+- **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. The exact JSON source is one flag away when full fidelity matters
+- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
+- **Browse** — list any folder's assets with per-extension counts and file sizes; assets a note links to report their size in the link graph too
+
+See [ARCHITECTURE.md → Assets](./ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
+
 ## Tools
 
 | Category        | Tool                         | Description                                                                            |
@@ -243,6 +255,8 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing mod
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                          |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
+| **Assets**      | `vault_read_asset`           | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
+|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-extension counts              |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
 ## Prompts

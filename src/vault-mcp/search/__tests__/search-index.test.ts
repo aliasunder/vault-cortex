@@ -181,6 +181,43 @@ describe("leading callout", () => {
     expect(results[0]?.leading_callout?.title).toBe("Scope of this file")
     expect(results[0]?.bytes).toBe(100)
   })
+
+  it("adds the bytes column to a pre-existing non_md_files table (warm-DB migration)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
+    const dbPath = join(dir, "search.db")
+    // Simulate a database file created before the non_md_files bytes column.
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE TABLE non_md_files (
+        path TEXT PRIMARY KEY, base_path TEXT NOT NULL, basename TEXT NOT NULL
+      );
+    `)
+    legacyDb.close()
+
+    // Opening through the factory must add the missing column — the 4-column
+    // upsert would throw against the legacy 3-column table otherwise.
+    const warmIndex = createSearchIndex(dbPath)
+    expect(() => warmIndex.upsertNonMdFile("photo.png", 77)).not.toThrow()
+    warmIndex.upsertNote(
+      {
+        filePath: "source.md",
+        rawContent: "![[photo.png]]",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    expect(warmIndex.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "photo.png",
+        title: null,
+        exists: true,
+        kind: "asset",
+        bytes: 77,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
 })
 
 describe("bytes", () => {
@@ -1514,7 +1551,7 @@ describe("rebuildFromVault", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 9,
         daily_note_forward_ref: false,
       },
     ])
@@ -2378,8 +2415,8 @@ describe("brokenLinkCount", () => {
   })
 
   it("does not count wikilinks to non-note assets as broken when files are registered", () => {
-    index.upsertNonMdFile("photo.png")
-    index.upsertNonMdFile("report.pdf")
+    index.upsertNonMdFile("photo.png", 100)
+    index.upsertNonMdFile("report.pdf", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2404,7 +2441,7 @@ describe("brokenLinkCount", () => {
   })
 
   it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
-    index.upsertNonMdFile("Trip Route.canvas")
+    index.upsertNonMdFile("Trip Route.canvas", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2435,7 +2472,7 @@ describe("brokenLinkCount", () => {
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
 
-    index.upsertNonMdFile("Route.canvas")
+    index.upsertNonMdFile("Route.canvas", 100)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -2445,7 +2482,7 @@ describe("brokenLinkCount", () => {
   })
 
   it("removeNonMdFile makes previously resolved asset links broken again", () => {
-    index.upsertNonMdFile("Route.canvas")
+    index.upsertNonMdFile("Route.canvas", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2539,7 +2576,7 @@ describe("brokenLinkCount", () => {
 
 describe("markdown-style links to non-md targets", () => {
   it("resolves a markdown image embed as an asset", () => {
-    index.upsertNonMdFile("pics/photo.png")
+    index.upsertNonMdFile("pics/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2566,7 +2603,7 @@ describe("markdown-style links to non-md targets", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2574,7 +2611,7 @@ describe("markdown-style links to non-md targets", () => {
   })
 
   it("resolves a markdown link to a PDF as an asset", () => {
-    index.upsertNonMdFile("papers/report.pdf")
+    index.upsertNonMdFile("papers/report.pdf", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2589,14 +2626,14 @@ describe("markdown-style links to non-md targets", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
   })
 
   it("percent-decodes a markdown asset path with folders and spaces", () => {
-    index.upsertNonMdFile("Trip Photos/pic 1.png")
+    index.upsertNonMdFile("Trip Photos/pic 1.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2611,7 +2648,7 @@ describe("markdown-style links to non-md targets", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2755,7 +2792,7 @@ describe("markdown-style links to non-md targets", () => {
 
 describe("asset targets written with extensions", () => {
   it("resolves a wikilink embed by basename when the asset lives in a subfolder", () => {
-    index.upsertNonMdFile("attachments/photo.png")
+    index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2770,7 +2807,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2778,7 +2815,7 @@ describe("asset targets written with extensions", () => {
   })
 
   it("resolves a markdown embed by basename when the asset lives in a subfolder", () => {
-    index.upsertNonMdFile("attachments/photo.png")
+    index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2793,7 +2830,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2801,7 +2838,7 @@ describe("asset targets written with extensions", () => {
   })
 
   it("resolves a relative asset link against the source note's folder", () => {
-    index.upsertNonMdFile("assets/photo.png")
+    index.upsertNonMdFile("assets/photo.png", 100)
     index.upsertNote(
       {
         filePath: "A/note.md",
@@ -2816,7 +2853,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2824,7 +2861,7 @@ describe("asset targets written with extensions", () => {
   })
 
   it("resolves a folder-qualified target with extension by path suffix", () => {
-    index.upsertNonMdFile("deep/sub/photo.png")
+    index.upsertNonMdFile("deep/sub/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2839,7 +2876,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2847,8 +2884,8 @@ describe("asset targets written with extensions", () => {
   })
 
   it("resolves a shared basename deterministically to the shortest path", () => {
-    index.upsertNonMdFile("bb/photo.png")
-    index.upsertNonMdFile("a/photo.png")
+    index.upsertNonMdFile("bb/photo.png", 100)
+    index.upsertNonMdFile("a/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2863,7 +2900,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2873,8 +2910,8 @@ describe("asset targets written with extensions", () => {
     // "photo.png.canvas" strips to base_path "photo.png" — the same text as
     // the target — so the stem tiers would hit it. The full-filename family
     // must win: the target names an actual .png that exists elsewhere.
-    index.upsertNonMdFile("photo.png.canvas")
-    index.upsertNonMdFile("a/photo.png")
+    index.upsertNonMdFile("photo.png.canvas", 100)
+    index.upsertNonMdFile("a/photo.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2889,7 +2926,7 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2899,7 +2936,7 @@ describe("asset targets written with extensions", () => {
     // With only photo.png.canvas in the vault, [[photo.png]] still resolves
     // via its stem — the same matching that gives [[Trip Route]] →
     // Trip Route.canvas. The stem tiers are a fallback, not dead code.
-    index.upsertNonMdFile("photo.png.canvas")
+    index.upsertNonMdFile("photo.png.canvas", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2914,14 +2951,14 @@ describe("asset targets written with extensions", () => {
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
   })
 
   it("does not resolve a basename whose extension differs from the file's", () => {
-    index.upsertNonMdFile("attachments/photo.jpg")
+    index.upsertNonMdFile("attachments/photo.jpg", 100)
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2956,14 +2993,14 @@ describe("asset targets written with extensions", () => {
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
 
-    index.upsertNonMdFile("attachments/photo.png")
+    index.upsertNonMdFile("attachments/photo.png", 100)
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
       {
         path: "attachments/photo.png",
         title: null,
         exists: true,
         kind: "asset",
-        bytes: null,
+        bytes: 100,
         daily_note_forward_ref: false,
       },
     ])
@@ -2973,7 +3010,7 @@ describe("asset targets written with extensions", () => {
   it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
     // Only photo1final.png exists — if the _ in the target were treated as a
     // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
-    index.upsertNonMdFile("img/photo1final.png")
+    index.upsertNonMdFile("img/photo1final.png", 100)
     index.upsertNote(
       {
         filePath: "source.md",
