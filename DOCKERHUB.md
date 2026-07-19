@@ -61,12 +61,12 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 
 ## Assets
 
-A vault isn't only markdown — it holds the diagrams your notes embed, the canvases that map your projects, the data files your workflows produce. The asset layer makes those readable too, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is an inert filename. It can see the asset exists, follow the link, even learn its size, and still has no way to look at it. The asset layer closes that gap, returning each file in the form an agent can actually use:
 
-- **Images** — delivered as actual images, automatically downscaled and recompressed server-side to fit client response limits. A screenshot or architecture diagram embedded in a note becomes something the agent can look at, not just a filename
-- **Canvases** — `.canvas` boards arrive as a readable outline: groups, card content in reading order, and the connections between them
-- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return their content as-is
-- **Browse and size** — list any folder's assets with per-extension counts and file sizes, and every asset a note links to carries its size in the link graph
+- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side to fit what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
+- **Canvases** — a `.canvas` board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them
+- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
+- **Browse** — list any folder's assets with per-extension counts and file sizes, and every asset a note links to carries its size in the link graph
 
 See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
 
@@ -102,7 +102,7 @@ See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
 | **Assets**      | `vault_read_asset`           | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
-|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-extension counts                   |
+|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-extension counts              |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
 ## Prompts

@@ -17,7 +17,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Assets](#assets) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -215,12 +215,12 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing mod
 
 ## Assets
 
-A vault isn't only markdown — it holds the diagrams your notes embed, the canvases that map your projects, the data files your workflows produce. The asset layer makes those readable too, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is an inert filename. It can see the asset exists, follow the link, even learn its size, and still has no way to look at it. The asset layer closes that gap, returning each file in the form an agent can actually use:
 
-- **Images** — delivered as actual images, automatically downscaled and recompressed server-side to fit client response limits. A screenshot or architecture diagram embedded in a note becomes something the agent can look at, not just a filename
-- **Canvases** — `.canvas` boards arrive as a readable outline: groups, card content in reading order, and the connections between them
-- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return their content as-is
-- **Browse and size** — list any folder's assets with per-extension counts and file sizes, and every asset a note links to carries its size in the link graph
+- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side to fit what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
+- **Canvases** — a `.canvas` board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them
+- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
+- **Browse** — list any folder's assets with per-extension counts and file sizes, and every asset a note links to carries its size in the link graph
 
 See [ARCHITECTURE.md → Assets](./ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
 
