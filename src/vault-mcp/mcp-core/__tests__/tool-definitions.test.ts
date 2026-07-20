@@ -1114,10 +1114,9 @@ describe("asset tool handlers", () => {
     const { buildMinimalPdf } = await import("./pdf-fixture.js")
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
-    expect(result.isError).toBeUndefined()
-    expect(result.content).toHaveLength(1)
-    expect(result.content[0]?.type).toBe("text")
-    expect(result.content[0]?.text).toContain("Hello PDF")
+    expect(result).toEqual({
+      content: [{ type: "text", text: expect.stringContaining("Hello PDF") }],
+    })
   })
 
   it("rejects an unsupported extension naming the readable types", async () => {
