@@ -109,8 +109,10 @@ const groupIntoLines = (
     const prevItem = nonEmpty[i - 1]
     const currItem = nonEmpty[i]
     if (!prevItem || !currItem) continue
+
     const currentLine = lines[lines.length - 1]
     if (!currentLine) continue
+
     if (Math.abs(currItem.y - prevItem.y) < threshold) {
       currentLine.push(currItem)
     } else {
