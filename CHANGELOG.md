@@ -48,6 +48,18 @@
 
 
 
+
+## [0.30.1] — 2026-07-20
+
+### Features
+
+- **assets:** PDF text extraction via unpdf (#352)
+
+### Documentation
+
+- **agents:** Sync code standards from vault Reference notes (#353)
+- Update CHANGELOG.md for v0.30.0
+
 ## [0.30.0] — 2026-07-19
 
 ### Features
