@@ -1109,14 +1109,14 @@ describe("asset tool handlers", () => {
     expect(result.content).toEqual([{ type: "text", text: '{"key": "value"}' }])
   })
 
-  it("rejects a .pdf with a not-yet-supported error carrying the file size", async () => {
+  it("returns extracted text from a valid PDF", async () => {
     const { vault, readAsset } = await setupAssetHarness()
-    await writeFile(join(vault, "doc.pdf"), "0123456789", "utf8")
+    const { buildMinimalPdf } = await import("./pdf-fixture.js")
+    await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: PDF reading is not yet supported: "doc.pdf" exists (10 bytes) but text extraction is not available yet',
-    )
+    expect(result.isError).toBeUndefined()
+    expect(result.content[0]?.type).toBe("text")
+    expect(result.content[0]?.text).toContain("Hello PDF")
   })
 
   it("rejects an unsupported extension naming the readable types", async () => {
@@ -1125,7 +1125,7 @@ describe("asset tool handlers", () => {
     const result = await readAsset({ path: "song.mp3" })
     expect(result.isError).toBe(true)
     expect(result.content[0]?.text).toBe(
-      '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
+      '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
     )
   })
 

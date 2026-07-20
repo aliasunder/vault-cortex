@@ -1,3 +1,4 @@
+import { extractText } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
@@ -84,8 +85,8 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type; `raw` skips the canvas rendition for the exact JSON source.
- * Throws structured errors for images with `raw`, PDFs, and unsupported
- * types — each stating the file's existence and size.
+ * Throws structured errors for images with `raw` and unsupported types —
+ * each stating the file's existence and size.
  */
 const readAssetContent = async (
   params: {
@@ -128,15 +129,28 @@ const readAssetContent = async (
     return { kind: "text", text }
   }
   if (asset.extension === ".pdf") {
-    throw new Error(
-      `PDF reading is not yet supported: "${path}" exists ` +
-        `(${asset.bytes} bytes) but text extraction is not available yet`,
+    const pdfData = new Uint8Array(
+      asset.buffer.buffer,
+      asset.buffer.byteOffset,
+      asset.buffer.byteLength,
     )
+    const extracted = await extractText(pdfData, { mergePages: true })
+    const text = typeof extracted.text === "string" ? extracted.text : ""
+    if (!text.trim()) {
+      throw new Error(
+        `PDF has no extractable text: "${path}" exists ` +
+          `(${asset.bytes} bytes, ${extracted.totalPages} pages) but ` +
+          `contains no text content — it may be a scanned document or ` +
+          `image-only PDF`,
+      )
+    }
+    assertTextWithinCap({ text, path })
+    return { kind: "text", text }
   }
   throw new Error(
     `unsupported asset type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
-      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats ` +
+      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
       `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
   )
 }

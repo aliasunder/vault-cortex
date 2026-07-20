@@ -128,7 +128,7 @@ export const loadConfig = (
     return value
   }
 
-  // 50 MiB — matches the most permissive prior art for MCP attachment reads.
+  // 50 MiB — matches the most permissive prior art for MCP asset reads.
   const maxAssetBytes = requireNonZeroBytes(
     "MAX_ASSET_BYTES",
     envVar.from(env).get("MAX_ASSET_BYTES").default("52428800").asIntPositive(),

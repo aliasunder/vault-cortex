@@ -43,21 +43,23 @@ Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image its
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
+Example: vault_read_asset({ path: "papers/research.pdf" }) — the extracted text content
 
 What each type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
+- PDFs (.pdf): the extracted text content. Text is extracted from the PDF's content streams — layout order follows the stream, not visual position, so columns or complex layouts may interleave. Scanned or image-only PDFs with no embedded text return an error stating the page count.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
-- PDFs (.pdf): not yet readable — returns an error that confirms the file exists and its size; text extraction is planned.
 
-When to use: whenever a note references an asset you need to actually see or read — an embedded diagram, a linked canvas or data file. Find the assets a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's assets via vault_list_assets. For .md notes use vault_read_note — this tool rejects them.
+When to use: whenever a note references an asset you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the assets a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's assets via vault_list_assets. For .md notes use vault_read_note — this tool rejects them.
 
 Errors:
 - "not an asset" — the path ends in .md; read notes with vault_read_note
 - "asset not found" — nothing exists at that path; discover valid paths via vault_list_assets
 - "asset too large" — the file exceeds the server's read cap (MAX_ASSET_BYTES, default 50 MiB)
-- "text output too large" — a text asset renders past the output cap; only smaller files can be returned whole
+- "text output too large" — a text asset or PDF renders past the output cap; only smaller files can be returned whole
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
+- "PDF has no extractable text" — the PDF exists but contains no text content (scanned or image-only); states the page count
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
 - "raw source is not available for images" — raw applies to text-representable files; an image's delivered form is its image block
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
@@ -158,7 +160,7 @@ Errors:
 - A folder containing no assets — or a folder that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
 
-Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_asset returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Assets of supported types are readable via vault_read_asset (unsupported types like .pdf return a descriptive error there); vault_search covers markdown notes.`,
+Returns: JSON with assets (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_asset returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Assets of supported types are readable via vault_read_asset; vault_search covers markdown notes.`,
       inputSchema: {
         folder: z
           .string()
