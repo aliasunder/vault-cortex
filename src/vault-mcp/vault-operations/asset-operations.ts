@@ -96,7 +96,10 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 const roundFontSize = (size: number): number => Math.round(size * 10) / 10
 
 /** Groups text items into lines by y-coordinate proximity — items within
- *  `threshold` pixels of the previous item's y are on the same line. */
+ *  `threshold` pixels of the previous item's y are on the same line.
+ *  Default 2px absorbs sub-pixel jitter from font metrics and inline
+ *  elements while staying well below the smallest real line gap (~12px
+ *  for body text at typical PDF sizes). */
 const groupIntoLines = (
   pageItems: readonly StructuredTextItem[],
   threshold = 2,
