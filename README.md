@@ -219,6 +219,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. The exact JSON source is one flag away when full fidelity matters
+- **PDFs** — text is extracted from the document's content streams; scanned or image-only PDFs return an error stating the page count
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's assets with per-extension counts and file sizes; assets a note links to report their size in the link graph too
 
