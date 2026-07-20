@@ -73,7 +73,8 @@ describe("readAssetContent — PDF extraction", () => {
       ),
     ).rejects.toThrow(
       'PDF has no extractable text: "scans/receipt.pdf" exists ' +
-        "(5000000 bytes, 12 pages)",
+        "(5000000 bytes, 12 pages) but contains no text content " +
+        "— it may be a scanned document or image-only PDF",
     )
   })
 
@@ -93,7 +94,11 @@ describe("readAssetContent — PDF extraction", () => {
         { ...defaultParams, path: "empty.pdf" },
         logger,
       ),
-    ).rejects.toThrow("PDF has no extractable text")
+    ).rejects.toThrow(
+      'PDF has no extractable text: "empty.pdf" exists ' +
+        "(1000 bytes, 1 pages) but contains no text content " +
+        "— it may be a scanned document or image-only PDF",
+    )
   })
 
   it("rejects PDF text exceeding the output cap", async () => {
@@ -113,7 +118,10 @@ describe("readAssetContent — PDF extraction", () => {
         { ...defaultParams, path: "huge.pdf" },
         logger,
       ),
-    ).rejects.toThrow("text output too large")
+    ).rejects.toThrow(
+      'text output too large: "huge.pdf" renders to 200000 bytes ' +
+        "(cap 102400 bytes)",
+    )
   })
 
   it("includes .pdf in the unsupported-type error's readable types list", async () => {
@@ -128,6 +136,27 @@ describe("readAssetContent — PDF extraction", () => {
         { ...defaultParams, path: "audio/song.mp3" },
         logger,
       ),
-    ).rejects.toThrow(".pdf")
+    ).rejects.toThrow(
+      'unsupported asset type ".mp3": "audio/song.mp3" exists ' +
+        "(10000 bytes). Readable types: images " +
+        "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
+        "(.svg/.json/.txt/.csv/.xml/.log/.base)",
+    )
+  })
+
+  it("propagates extractText errors for corrupt PDFs", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("not-a-real-pdf"),
+      bytes: 14,
+      extension: ".pdf",
+    })
+    mockedExtractText.mockRejectedValue(new Error("Invalid PDF structure"))
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "corrupt.pdf" },
+        logger,
+      ),
+    ).rejects.toThrow("Invalid PDF structure")
   })
 })

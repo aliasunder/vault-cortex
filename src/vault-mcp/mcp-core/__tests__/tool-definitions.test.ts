@@ -1115,6 +1115,7 @@ describe("asset tool handlers", () => {
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
     expect(result.isError).toBeUndefined()
+    expect(result.content).toHaveLength(1)
     expect(result.content[0]?.type).toBe("text")
     expect(result.content[0]?.text).toContain("Hello PDF")
   })
