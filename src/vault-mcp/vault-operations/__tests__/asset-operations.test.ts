@@ -329,7 +329,10 @@ describe("readAssetContent — PDF extraction", () => {
         { ...defaultParams, path: "huge.pdf" },
         logger,
       ),
-    ).rejects.toThrow("text output too large")
+    ).rejects.toThrow(
+      'text output too large: "huge.pdf" renders to 200024 bytes ' +
+        "(cap 102400 bytes)",
+    )
   })
 
   it("includes .pdf in the unsupported-type error's readable types list", async () => {
@@ -415,6 +418,52 @@ describe("readAssetContent — PDF extraction", () => {
     ).rejects.toThrow("PDF has no extractable text")
 
     expect(mockCleanup).toHaveBeenCalledOnce()
+  })
+
+  it("closes a code fence at end of page when no sans-serif transition follows", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 4_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Trailing Code" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          ...buildPageItems(["Preamble"], { fontSize: 10.5 }),
+          ...buildPageItems(["func main() {"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 750 })),
+          ...buildPageItems(["  fmt.Println()"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 735 })),
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "code.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: [
+        "Title: Trailing Code | Pages: 1",
+        "",
+        "Preamble",
+        "```",
+        "func main() {",
+        "fmt.Println()",
+        "```",
+      ].join("\n"),
+    })
   })
 
   it("skips heading detection when all items share one font size", async () => {
