@@ -129,11 +129,13 @@ const groupIntoLines = (
 const buildHeadingLevels = (
   allItems: readonly StructuredTextItem[],
 ): ReadonlyMap<number, number> => {
+  // Distinct sizes sorted largest-first — the visual hierarchy of the PDF.
   const sortedSizes = [
     ...new Set(allItems.map((item) => roundFontSize(item.fontSize))),
   ].sort((a, b) => b - a)
   if (sortedSizes.length <= 1) return new Map()
 
+  // Drop the smallest (body text) and cap at 3 heading levels.
   const headingSizes = sortedSizes.slice(0, -1).slice(0, 3)
   return new Map(headingSizes.map((size, index) => [size, index + 1]))
 }
@@ -184,11 +186,13 @@ const reconstructPdfMarkdown = (params: {
         .trim()
       if (!lineText) continue
 
+      // Classify the line: monospace font → code, large font → heading
       const isMonospace = line.some((item) => item.fontFamily === "monospace")
       const lineFontSizes = line.map((item) => item.fontSize)
       const maxFontSize = roundFontSize(Math.max(...lineFontSizes))
       const headingLevel = headingLevels.get(maxFontSize) ?? 0
 
+      // Toggle code fences on monospace ↔ sans-serif transitions
       if (isMonospace && !inCodeBlock) {
         outputLines.push("```")
         inCodeBlock = true
@@ -205,6 +209,7 @@ const reconstructPdfMarkdown = (params: {
         outputLines.push(lineText)
       }
     }
+    // Close any code fence left open at end of page
     if (inCodeBlock) {
       outputLines.push("```")
     }
@@ -273,10 +278,13 @@ const readAssetContent = async (
     )
     const proxy = await getDocumentProxy(pdfData)
     try {
+      // Sequential — the unpdf worker can't handle concurrent calls
+      // on the same proxy (structuredClone error on Node 24).
       const meta = await getMeta(proxy)
       const { totalPages, items } = await extractTextItems(proxy)
       const linkResult = await extractLinks(proxy)
 
+      // Scanned/image-only PDFs produce items with no text content
       const hasContent = items.flat().some((item) => item.str.trim().length > 0)
       if (!hasContent) {
         throw new Error(
