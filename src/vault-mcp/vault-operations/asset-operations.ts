@@ -129,13 +129,15 @@ const readAssetContent = async (
     return { kind: "text", text }
   }
   if (asset.extension === ".pdf") {
+    // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
+    // so byteOffset/byteLength carve out this buffer's portion.
     const pdfData = new Uint8Array(
       asset.buffer.buffer,
       asset.buffer.byteOffset,
       asset.buffer.byteLength,
     )
     const extracted = await extractText(pdfData, { mergePages: true })
-    const text = typeof extracted.text === "string" ? extracted.text : ""
+    const text = extracted.text
     if (!text.trim()) {
       throw new Error(
         `PDF has no extractable text: "${path}" exists ` +
