@@ -132,11 +132,13 @@ const buildHeadingLevels = (
   const uniqueSizes = [...new Set(fontSizesRounded)]
   const roundedSizes = uniqueSizes.sort((a, b) => b - a)
   if (roundedSizes.length <= 1) return new Map()
+
   const headingSizes = roundedSizes.slice(0, -1)
   const levels = new Map<number, number>()
   for (let i = 0; i < Math.min(3, headingSizes.length); i++) {
     const size = headingSizes[i]
     if (size === undefined) continue
+
     levels.set(size, i + 1)
   }
   return levels
@@ -170,8 +172,10 @@ const reconstructPdfMarkdown = (params: {
   for (let pageIndex = 0; pageIndex < items.length; pageIndex++) {
     const pageItems = items[pageIndex]
     if (!pageItems) continue
+
     const lines = groupIntoLines(pageItems)
     if (lines.length === 0) continue
+
     if (pageIndex > 0) {
       outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
