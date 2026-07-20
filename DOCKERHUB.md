@@ -65,6 +65,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. The exact JSON source is one flag away when full fidelity matters
+- **PDFs** — text is extracted from the document's content streams; scanned or image-only PDFs return an error stating the page count
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's assets with per-extension counts and file sizes; assets a note links to report their size in the link graph too
 
@@ -152,6 +153,8 @@ All settings are environment variables with sensible defaults.
 | `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                             |
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
+| `MAX_ASSET_BYTES`           | —           | `52428800` (50 MiB)                  | Maximum file size `vault_read_asset` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                   |
+| `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                     | Byte budget for images delivered by `vault_read_asset`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 
 ## Deployment Options
 

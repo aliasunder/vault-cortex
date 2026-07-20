@@ -1,3 +1,10 @@
+import {
+  getDocumentProxy,
+  getMeta,
+  extractTextItems,
+  extractLinks,
+} from "unpdf"
+import type { StructuredTextItem } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
@@ -81,11 +88,148 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   }
 }
 
+// ── PDF reconstruction ─────────────────────────────────────────
+
+/** Rounds a font size to one decimal place — used as the bucketing key for
+ *  heading-level detection. Both the map builder (`buildHeadingLevels`) and
+ *  the per-line lookup (`reconstructPdfMarkdown`) must agree on rounding. */
+const roundFontSize = (size: number): number => Math.round(size * 10) / 10
+
+/** Groups text items into lines by y-coordinate proximity — items within
+ *  `threshold` pixels of the previous item's y are on the same line.
+ *  Default 2px absorbs sub-pixel jitter from font metrics and inline
+ *  elements while staying well below the smallest real line gap (~12px
+ *  for body text at typical PDF sizes). */
+const groupIntoLines = (
+  pageItems: readonly StructuredTextItem[],
+  threshold = 2,
+): StructuredTextItem[][] => {
+  const nonEmpty = pageItems.filter((item) => item.str.trim().length > 0)
+  if (nonEmpty.length === 0) return []
+
+  // PDF text items arrive in content-stream order with y-coordinates
+  // descending down the page. Items on the same visual line share a y
+  // (within `threshold` px); a jump in y starts a new line.
+  const lines: StructuredTextItem[][] = []
+  let lastY = -Infinity
+  for (const item of nonEmpty) {
+    const currentLine = lines[lines.length - 1]
+    if (currentLine && Math.abs(item.y - lastY) < threshold) {
+      // Same visual line — append to the current group
+      currentLine.push(item)
+    } else {
+      // Y jumped — start a new line group
+      lines.push([item])
+    }
+    lastY = item.y
+  }
+  return lines
+}
+
+/** Builds a heading-level map from the distinct font sizes in the document.
+ *  Up to three sizes larger than the smallest get H1–H3; the smallest is
+ *  always body text. Returns an empty map when only one font size exists. */
+const buildHeadingLevels = (
+  allItems: readonly StructuredTextItem[],
+): ReadonlyMap<number, number> => {
+  // Distinct sizes sorted largest-first — the visual hierarchy of the PDF.
+  const sortedSizes = [
+    ...new Set(allItems.map((item) => roundFontSize(item.fontSize))),
+  ].sort((a, b) => b - a)
+  if (sortedSizes.length <= 1) return new Map()
+
+  // Drop the smallest (body text) and cap at 3 heading levels.
+  const headingSizes = sortedSizes.slice(0, -1).slice(0, 3)
+  return new Map(headingSizes.map((size, index) => [size, index + 1]))
+}
+
+/** Reconstructs a markdown-formatted text rendition from structured PDF items,
+ *  metadata, and links — heading hierarchy from relative font sizes, fenced
+ *  code blocks from monospace fontFamily detection, page separators, and a
+ *  deduplicated links footer. */
+const reconstructPdfMarkdown = (params: {
+  title: string | undefined
+  totalPages: number
+  items: readonly (readonly StructuredTextItem[])[]
+  pdfLinks: readonly string[]
+}): string => {
+  const { title, totalPages, items, pdfLinks } = params
+  const allNonEmpty = items.flat().filter((item) => item.str.trim().length > 0)
+  const headingLevels = buildHeadingLevels(allNonEmpty)
+  const uniqueLinks = [...new Set(pdfLinks)]
+
+  const headerParts = [
+    `Title: ${title ?? "(untitled)"}`,
+    `Pages: ${totalPages}`,
+  ]
+  if (uniqueLinks.length > 0) {
+    headerParts.push(`Links: ${uniqueLinks.length}`)
+  }
+
+  const outputLines: string[] = [headerParts.join(" | "), ""]
+
+  for (let pageIndex = 0; pageIndex < items.length; pageIndex++) {
+    const pageItems = items[pageIndex]
+    if (!pageItems) continue
+
+    const lines = groupIntoLines(pageItems)
+    if (lines.length === 0) continue
+
+    if (pageIndex > 0) {
+      outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
+    }
+
+    // Fence state machine — tracks whether we're inside a code block
+    // so monospace→sans-serif transitions emit closing fences.
+    let inCodeBlock = false
+    for (const line of lines) {
+      const lineText = line
+        .map((item) => item.str)
+        .join(" ")
+        .trim()
+      if (!lineText) continue
+
+      // Classify the line: monospace font → code, large font → heading
+      const isMonospace = line.some((item) => item.fontFamily === "monospace")
+      const lineFontSizes = line.map((item) => item.fontSize)
+      const maxFontSize = roundFontSize(Math.max(...lineFontSizes))
+      const headingLevel = headingLevels.get(maxFontSize) ?? 0
+
+      // Toggle code fences on monospace ↔ sans-serif transitions
+      if (isMonospace && !inCodeBlock) {
+        outputLines.push("```")
+        inCodeBlock = true
+      } else if (!isMonospace && inCodeBlock) {
+        outputLines.push("```")
+        inCodeBlock = false
+      }
+
+      if (inCodeBlock) {
+        outputLines.push(lineText)
+      } else if (headingLevel > 0) {
+        outputLines.push(`${"#".repeat(headingLevel)} ${lineText}`)
+      } else {
+        outputLines.push(lineText)
+      }
+    }
+    // Close any code fence left open at end of page
+    if (inCodeBlock) {
+      outputLines.push("```")
+    }
+  }
+
+  if (uniqueLinks.length > 0) {
+    outputLines.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
+  }
+
+  return outputLines.join("\n")
+}
+
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type; `raw` skips the canvas rendition for the exact JSON source.
- * Throws structured errors for images with `raw`, PDFs, and unsupported
- * types — each stating the file's existence and size.
+ * Throws structured errors for images with `raw` and unsupported types —
+ * each stating the file's existence and size.
  */
 const readAssetContent = async (
   params: {
@@ -128,15 +272,49 @@ const readAssetContent = async (
     return { kind: "text", text }
   }
   if (asset.extension === ".pdf") {
-    throw new Error(
-      `PDF reading is not yet supported: "${path}" exists ` +
-        `(${asset.bytes} bytes) but text extraction is not available yet`,
+    // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
+    // so byteOffset/byteLength carve out this buffer's portion.
+    const pdfData = new Uint8Array(
+      asset.buffer.buffer,
+      asset.buffer.byteOffset,
+      asset.buffer.byteLength,
     )
+    const proxy = await getDocumentProxy(pdfData)
+    try {
+      // Sequential — the unpdf worker can't handle concurrent calls
+      // on the same proxy (structuredClone error on Node 24).
+      const meta = await getMeta(proxy)
+      const { totalPages, items } = await extractTextItems(proxy)
+      const linkResult = await extractLinks(proxy)
+
+      // Scanned/image-only PDFs produce items with no text content
+      const hasContent = items.flat().some((item) => item.str.trim().length > 0)
+      if (!hasContent) {
+        throw new Error(
+          `PDF has no extractable text: "${path}" exists ` +
+            `(${asset.bytes} bytes, ${totalPages} pages) but ` +
+            `contains no text content — it may be a scanned document or ` +
+            `image-only PDF`,
+        )
+      }
+
+      // Title can be null in PDF metadata — normalize to undefined
+      const text = reconstructPdfMarkdown({
+        title: meta.info?.Title ?? undefined,
+        totalPages,
+        items,
+        pdfLinks: linkResult.links ?? [],
+      })
+      assertTextWithinCap({ text, path })
+      return { kind: "text", text }
+    } finally {
+      proxy.cleanup()
+    }
   }
   throw new Error(
     `unsupported asset type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
-      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, and text formats ` +
+      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
       `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
   )
 }
