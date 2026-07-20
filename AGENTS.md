@@ -371,6 +371,22 @@ watcher or during bulk indexing, with no user-initiated action. If the
 log would produce N lines during a vault rebuild (one per note), it's
 `debug`; if it produces one summary line, it's `info`.
 
+**Log content and security:**
+
+- Never log PII, credentials, tokens, or secrets — not in messages,
+  not in structured fields, not in tests (fake fixtures only). Log
+  identifiers (`userId`), never identity payloads.
+- Redact via destructuring: `const { password, token, ...safe } = payload`
+  — no `any`, no `delete` on copies.
+- Every catch logs or re-throws — `.catch(() => {})` and empty catch
+  blocks are banned; a swallowed error is worse than an uncaught one.
+- Layer-appropriate messages: internal/data-layer functions describe
+  what went wrong in their own domain and never name API surfaces
+  (tool names, routes) or prescribe caller-level remediation.
+- Log full detail internally, return generic messages externally —
+  error responses to clients never include paths, stack traces, or
+  implementation state.
+
 ## Platform
 
 The server runs in Linux Docker — even on Windows and macOS, Docker
@@ -383,6 +399,8 @@ Docker) is not a supported deployment and would break path handling
 throughout the codebase.
 
 ## Code style
+
+<!-- distilled from vault Reference/code-standards-* on 2026-07-20; refresh: run the sync-code-standards skill -->
 
 Several rules below are lint-enforced in `eslint.config.ts` (arrow functions,
 `type` over `interface`, no `else` after return, single-char identifier ban,
@@ -420,6 +438,14 @@ undefined) return`) or schema validation to narrow types instead.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
+- Per-operation try/catch — each catch encloses one operation with
+  one failure meaning. Broad catch-alls are banned; bare `try/finally`
+  for resource scoping is fine.
+- Every catch logs or re-throws — `.catch(() => {})` and empty catch
+  blocks are banned; a swallowed error hides the failure.
+- Explicit rejection over silent normalization at destructive
+  boundaries — when auto-correcting input could silently write or
+  delete the wrong thing, reject loudly instead.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and
@@ -471,6 +497,18 @@ undefined) return`) or schema validation to narrow types instead.
   `const deduplicated = [...new Set(withExpansions)]` so each line reads
   top-to-bottom. The threshold is ~2 nesting levels; a single
   `items.map(f)` or `[...new Set(items)]` is fine inline.
+- Extract multi-step callbacks into named functions when a
+  `.map()`/`.reduce()` callback builds multiple intermediates or nests
+  chains — the parent becomes `items.map(formatItem).join("\n")`.
+- A boolean mode param means the function does two things — split it;
+  the caller owns the gating.
+- Block bodies `{}` for any multiline function response (guards,
+  multi-clause booleans, multiline returns); expression bodies only
+  for trivial one-liners.
+- Named params object at >2 args, or adjacent same-typed args that
+  could transpose silently. Below that, positional is fine.
+- Scope constants to where they're used — module level overstates
+  visibility.
 - Function and helper names state what they _do_, specifically — a reader
   should know what a function does without reading its body
   (`collectWikilinksFrom` not `collect`,
@@ -483,6 +521,13 @@ undefined) return`) or schema validation to narrow types instead.
   should not need to pause to understand what the code does. SQL
   with branching logic (CASE, EXISTS subqueries) needs a comment
   explaining the overall strategy before the query.
+- Every exported function gets hover-visible JSDoc (`/** */`) carrying
+  the _why_, never restating the signature.
+- Durable rationale only in comments, never transition history
+  ("renamed from X") — state the forward-looking constraint; migration
+  context goes in the PR description.
+- When code moves into a helper, inline why-comments stay beside the
+  call they explain; the helper's docstring states the outward contract.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
@@ -513,6 +558,9 @@ continue }` over `if/else if` chains — each branch is
   `if (heading) { heading.text } else { "(none)" }`. Only use
   explicit comparisons when the falsy set is wrong (e.g. `0` or
   `false` are valid values).
+- TS ≥5.5 infers `.filter()` predicate types from bare comparisons —
+  `xs.filter((x) => x !== null)` narrows without `(x): x is T`.
+  `filter(Boolean)` still does not narrow. `Boolean(x)` over `!!x`.
 - Don't use a thunk or callback when a plain value suffices. A
   function accepting `() => T` where `T` would do adds indirection
   without benefit — the caller has to reason about evaluation timing,
@@ -523,6 +571,9 @@ continue }` over `if/else if` chains — each branch is
   silently caps its return to N characters loses information the
   caller may need; if truncation is wanted, apply it at the call
   site. Extraction and presentation are separate concerns.
+- Don't return observability data computed only for logging — the
+  function has the logger; log at the site.
+- Prepared statements at factory scope — compile SQL once, not per call.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
@@ -641,6 +692,12 @@ createTestIndex()` at the top of each test. `beforeEach` is only
     When in doubt, mutate the code (break the specific behavior) and
     confirm the test fails for _that_ reason — not a compile error or
     an unrelated assertion.
+  - **Wrong-item pass.** Seeding multiple items, querying one, then
+    asserting only "something came back" — assert the specific
+    expected item (path/id/content).
+  - **Coincidental-equality hazard.** When production and test read
+    the same source (e.g. `err.stack`), both being `undefined` passes
+    trivially — set a predictable value and assert it exactly.
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.
@@ -651,12 +708,34 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   accidental duplication. Reserve `contains` for when only a
   fragment is genuinely under test (one branch among many, or an
   excerpt of large output).
+- Never decompose: `toHaveLength(1)` + index property checks is
+  weaker than `expect(results.map(r => r.path)).toEqual(["foo"])` —
+  the decomposed form misses extra items, ordering, and unexpected
+  properties.
+- Deterministic error messages get exact assertions — if the message
+  is a hardcoded literal in production code, no `stringContaining`.
 - Explicit callback parameter names — `orphan` not `o`, `entry`
   not `e`, `link` not `l`. Same naming rules as production code.
 - Test names match what they assert. If the test asserts 1 result,
   don't name it "returns multiple results."
 - Use vitest helpers (`onTestFinished`, `vi.mocked`, `vi.each`)
   before hand-rolling test plumbing.
+- No cleanup after assertions — trailing `rm`/`close()` at the end
+  of a test body is skipped when an assertion throws; register
+  cleanup in `afterEach`/`onTestFinished` at creation time.
+- Every test file maps to a real source module — don't spawn a
+  standalone test file just to mock differently; use
+  `vi.mock(path, { spy: true })` to keep the real implementation.
+- Separate `it()` blocks over callback-pattern `it.each` when
+  assertions are structurally different — `it.each` is for genuinely
+  identical assertion shapes (input → expected).
+- Error paths and boundaries are covered, not just the happy path.
+  Zero/one/empty inputs expose the special-case bugs.
+- Never mock time/scheduling internals to make retry logic "testable"
+  — wrap the retrying operation behind a named function and mock the
+  wrapper to call through with controlled outcomes.
+- Production type rules apply in tests: no `!` (guard or restructure
+  instead) — but `?.` and `?? fallback` are legitimate narrowing.
 
 ## SST conventions
 
@@ -693,6 +772,27 @@ terms the end user thinks in — "complete a task," "move between lanes,"
 ARCHITECTURE.md, code comments) use precise engineering language. The
 test: would an Obsidian user with no programming background understand
 the sentence? If not, rewrite it.
+
+**Doc quality rules:**
+
+- Before calling a doc done, pick each supported reader persona and
+  walk the entire document start to finish — line-level fact-checking
+  cannot validate a doc; each sentence can be true while the doc
+  as a whole misleads.
+- When a doc offers multiple paths (install methods, tools, runtimes),
+  every operational section (update, restart, verify, troubleshoot)
+  serves every offered path — or explicitly scopes itself.
+- Structural self-references ("shown below", "the section above") are
+  claims about the document — they must resolve against the current
+  document after any restructuring.
+- Sibling docs (local/remote guides, per-OS variants) are authored as
+  a set — same lead method and section skeleton, diverging only where
+  the variant genuinely differs.
+- Factual claims match the implementation — capability lists and
+  data-flow descriptions are verified against the code; conditional
+  capabilities are stated conditionally.
+- Mechanism language is earned — "caches", "batches", "switches
+  automatically" only when the code implements that mechanism.
 
 Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
