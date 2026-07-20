@@ -153,6 +153,8 @@ All settings are environment variables with sensible defaults.
 | `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                             |
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                        |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
+| `MAX_ASSET_BYTES`           | —           | `52428800` (50 MiB)                  | Maximum file size `vault_read_asset` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                   |
+| `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                     | Byte budget for images delivered by `vault_read_asset`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 
 ## Deployment Options
 
