@@ -709,7 +709,7 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   fragment is genuinely under test (one branch among many, or an
   excerpt of large output).
 - Never decompose: `toHaveLength(1)` + index property checks is
-  weaker than `expect(results.map(r => r.path)).toEqual(["foo"])` —
+  weaker than `expect(results.map(result => result.path)).toEqual(["foo"])` —
   the decomposed form misses extra items, ordering, and unexpected
   properties.
 - Deterministic error messages get exact assertions — if the message

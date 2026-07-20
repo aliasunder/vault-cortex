@@ -90,6 +90,11 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 
 // ── PDF reconstruction ─────────────────────────────────────────
 
+/** Rounds a font size to one decimal place — used as the bucketing key for
+ *  heading-level detection. Both the map builder (`buildHeadingLevels`) and
+ *  the per-line lookup (`reconstructPdfMarkdown`) must agree on rounding. */
+const roundFontSize = (size: number): number => Math.round(size * 10) / 10
+
 /** Groups text items into lines by y-coordinate proximity — items within
  *  `threshold` pixels of the previous item's y are on the same line. */
 const groupIntoLines = (
@@ -121,9 +126,9 @@ const groupIntoLines = (
 const buildHeadingLevels = (
   allItems: readonly StructuredTextItem[],
 ): ReadonlyMap<number, number> => {
-  const roundedSizes = [
-    ...new Set(allItems.map((item) => Math.round(item.fontSize * 10) / 10)),
-  ].sort((a, b) => b - a)
+  const fontSizesRounded = allItems.map((item) => roundFontSize(item.fontSize))
+  const uniqueSizes = [...new Set(fontSizesRounded)]
+  const roundedSizes = uniqueSizes.sort((a, b) => b - a)
   if (roundedSizes.length <= 1) return new Map()
   const headingSizes = roundedSizes.slice(0, -1)
   const levels = new Map<number, number>()
@@ -158,7 +163,7 @@ const reconstructPdfMarkdown = (params: {
     headerParts.push(`Links: ${uniqueLinks.length}`)
   }
 
-  const sections: string[] = [headerParts.join(" | "), ""]
+  const outputLines: string[] = [headerParts.join(" | "), ""]
 
   for (let pageIndex = 0; pageIndex < items.length; pageIndex++) {
     const pageItems = items[pageIndex]
@@ -166,7 +171,7 @@ const reconstructPdfMarkdown = (params: {
     const lines = groupIntoLines(pageItems)
     if (lines.length === 0) continue
     if (pageIndex > 0) {
-      sections.push("", `--- Page ${pageIndex + 1} ---`, "")
+      outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
 
     // Fence state machine — tracks whether we're inside a code block
@@ -180,36 +185,36 @@ const reconstructPdfMarkdown = (params: {
       if (!lineText) continue
 
       const isMonospace = line.some((item) => item.fontFamily === "monospace")
-      const maxFontSize =
-        Math.round(Math.max(...line.map((item) => item.fontSize)) * 10) / 10
+      const lineFontSizes = line.map((item) => item.fontSize)
+      const maxFontSize = roundFontSize(Math.max(...lineFontSizes))
       const headingLevel = headingLevels.get(maxFontSize) ?? 0
 
       if (isMonospace && !inCodeBlock) {
-        sections.push("```")
+        outputLines.push("```")
         inCodeBlock = true
       } else if (!isMonospace && inCodeBlock) {
-        sections.push("```")
+        outputLines.push("```")
         inCodeBlock = false
       }
 
       if (inCodeBlock) {
-        sections.push(lineText)
+        outputLines.push(lineText)
       } else if (headingLevel > 0) {
-        sections.push(`${"#".repeat(headingLevel)} ${lineText}`)
+        outputLines.push(`${"#".repeat(headingLevel)} ${lineText}`)
       } else {
-        sections.push(lineText)
+        outputLines.push(lineText)
       }
     }
     if (inCodeBlock) {
-      sections.push("```")
+      outputLines.push("```")
     }
   }
 
   if (uniqueLinks.length > 0) {
-    sections.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
+    outputLines.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
   }
 
-  return sections.join("\n")
+  return outputLines.join("\n")
 }
 
 /**
