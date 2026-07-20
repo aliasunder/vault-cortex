@@ -1,4 +1,10 @@
-import { extractText } from "unpdf"
+import {
+  getDocumentProxy,
+  getMeta,
+  extractTextItems,
+  extractLinks,
+} from "unpdf"
+import type { StructuredTextItem } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
@@ -82,6 +88,128 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   }
 }
 
+// ── PDF reconstruction ─────────────────────────────────────────
+
+/** Groups text items into lines by y-coordinate proximity — items within
+ *  `threshold` pixels of the previous item's y are on the same line. */
+const groupIntoLines = (
+  pageItems: readonly StructuredTextItem[],
+  threshold = 2,
+): StructuredTextItem[][] => {
+  const nonEmpty = pageItems.filter((item) => item.str.trim().length > 0)
+  const firstItem = nonEmpty[0]
+  if (!firstItem) return []
+  const lines: StructuredTextItem[][] = [[firstItem]]
+  for (let i = 1; i < nonEmpty.length; i++) {
+    const prevItem = nonEmpty[i - 1]
+    const currItem = nonEmpty[i]
+    if (!prevItem || !currItem) continue
+    const currentLine = lines[lines.length - 1]
+    if (!currentLine) continue
+    if (Math.abs(currItem.y - prevItem.y) < threshold) {
+      currentLine.push(currItem)
+    } else {
+      lines.push([currItem])
+    }
+  }
+  return lines
+}
+
+/** Builds a heading-level map from the distinct font sizes in the document.
+ *  Up to three sizes larger than the smallest get H1–H3; the smallest is
+ *  always body text. Returns an empty map when only one font size exists. */
+const buildHeadingLevels = (
+  allItems: readonly StructuredTextItem[],
+): ReadonlyMap<number, number> => {
+  const roundedSizes = [
+    ...new Set(allItems.map((item) => Math.round(item.fontSize * 10) / 10)),
+  ].sort((a, b) => b - a)
+  if (roundedSizes.length <= 1) return new Map()
+  const headingSizes = roundedSizes.slice(0, -1)
+  const levels = new Map<number, number>()
+  for (let i = 0; i < Math.min(3, headingSizes.length); i++) {
+    const size = headingSizes[i]
+    if (size === undefined) continue
+    levels.set(size, i + 1)
+  }
+  return levels
+}
+
+/** Reconstructs a markdown-formatted text rendition from structured PDF items,
+ *  metadata, and links — heading hierarchy from relative font sizes, fenced
+ *  code blocks from monospace fontFamily detection, page separators, and a
+ *  deduplicated links footer. */
+const reconstructPdfMarkdown = (params: {
+  title: string | undefined
+  totalPages: number
+  items: readonly (readonly StructuredTextItem[])[]
+  pdfLinks: readonly string[]
+}): string => {
+  const { title, totalPages, items, pdfLinks } = params
+  const allNonEmpty = items.flat().filter((item) => item.str.trim().length > 0)
+  const headingLevels = buildHeadingLevels(allNonEmpty)
+  const uniqueLinks = [...new Set(pdfLinks)]
+
+  const headerParts = [
+    `Title: ${title ?? "(untitled)"}`,
+    `Pages: ${totalPages}`,
+  ]
+  if (uniqueLinks.length > 0) {
+    headerParts.push(`Links: ${uniqueLinks.length}`)
+  }
+
+  const sections: string[] = [headerParts.join(" | "), ""]
+
+  for (let pageIndex = 0; pageIndex < items.length; pageIndex++) {
+    const pageItems = items[pageIndex]
+    if (!pageItems) continue
+    const lines = groupIntoLines(pageItems)
+    if (lines.length === 0) continue
+    if (pageIndex > 0) {
+      sections.push("", `--- Page ${pageIndex + 1} ---`, "")
+    }
+
+    let inCodeBlock = false
+    for (const line of lines) {
+      const lineText = line
+        .map((item) => item.str)
+        .join(" ")
+        .trim()
+      if (!lineText) continue
+
+      const isMonospace = line.some((item) => item.fontFamily === "monospace")
+      const maxFontSize =
+        Math.round(Math.max(...line.map((item) => item.fontSize)) * 10) / 10
+      const headingLevel = headingLevels.get(maxFontSize) ?? 0
+
+      if (isMonospace && !inCodeBlock) {
+        sections.push("```")
+        inCodeBlock = true
+      } else if (!isMonospace && inCodeBlock) {
+        sections.push("```")
+        inCodeBlock = false
+      }
+
+      if (inCodeBlock) {
+        sections.push(lineText)
+      } else if (headingLevel > 0) {
+        sections.push(`${"#".repeat(headingLevel)} ${lineText}`)
+      } else {
+        sections.push(lineText)
+      }
+    }
+    if (inCodeBlock) {
+      sections.push("```")
+    }
+  }
+
+  if (uniqueLinks.length > 0) {
+    sections.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
+  }
+
+  return sections.join("\n")
+}
+
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type; `raw` skips the canvas rendition for the exact JSON source.
@@ -136,18 +264,33 @@ const readAssetContent = async (
       asset.buffer.byteOffset,
       asset.buffer.byteLength,
     )
-    const extracted = await extractText(pdfData, { mergePages: true })
-    const text = extracted.text
-    if (!text.trim()) {
-      throw new Error(
-        `PDF has no extractable text: "${path}" exists ` +
-          `(${asset.bytes} bytes, ${extracted.totalPages} pages) but ` +
-          `contains no text content — it may be a scanned document or ` +
-          `image-only PDF`,
-      )
+    const proxy = await getDocumentProxy(pdfData)
+    try {
+      const meta = await getMeta(proxy)
+      const { totalPages, items } = await extractTextItems(proxy)
+      const linkResult = await extractLinks(proxy)
+
+      const hasContent = items.flat().some((item) => item.str.trim().length > 0)
+      if (!hasContent) {
+        throw new Error(
+          `PDF has no extractable text: "${path}" exists ` +
+            `(${asset.bytes} bytes, ${totalPages} pages) but ` +
+            `contains no text content — it may be a scanned document or ` +
+            `image-only PDF`,
+        )
+      }
+
+      const text = reconstructPdfMarkdown({
+        title: meta.info?.Title ?? undefined,
+        totalPages,
+        items,
+        pdfLinks: linkResult.links ?? [],
+      })
+      assertTextWithinCap({ text, path })
+      return { kind: "text", text }
+    } finally {
+      proxy.cleanup()
     }
-    assertTextWithinCap({ text, path })
-    return { kind: "text", text }
   }
   throw new Error(
     `unsupported asset type "${asset.extension}": "${path}" exists ` +

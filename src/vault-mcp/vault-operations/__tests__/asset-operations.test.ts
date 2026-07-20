@@ -8,8 +8,28 @@ vi.mock("../vault-filesystem.js", () => ({
   },
 }))
 
+const {
+  mockCleanup,
+  mockGetDocumentProxy,
+  mockGetMeta,
+  mockExtractTextItems,
+  mockExtractLinks,
+} = vi.hoisted(() => {
+  const mockCleanup = vi.fn()
+  return {
+    mockCleanup,
+    mockGetDocumentProxy: vi.fn(() => ({ cleanup: mockCleanup })),
+    mockGetMeta: vi.fn(),
+    mockExtractTextItems: vi.fn(),
+    mockExtractLinks: vi.fn(),
+  }
+})
+
 vi.mock("unpdf", () => ({
-  extractText: vi.fn(),
+  getDocumentProxy: mockGetDocumentProxy,
+  getMeta: mockGetMeta,
+  extractTextItems: mockExtractTextItems,
+  extractLinks: mockExtractLinks,
 }))
 
 vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
@@ -17,10 +37,8 @@ vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
 }))
 
 import { vaultFs } from "../vault-filesystem.js"
-import { extractText } from "unpdf"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
-const mockedExtractText = vi.mocked(extractText)
 
 const defaultParams = {
   vaultPath: "/vault",
@@ -28,17 +46,49 @@ const defaultParams = {
   maxImageOutputBytes: 49_152,
 }
 
+/** Builds a single-page StructuredTextItem array from lines of text. Items
+ *  are positioned vertically (descending y, like a real PDF) with the given
+ *  fontSize and fontFamily. */
+const buildPageItems = (
+  lines: string[],
+  options?: { fontSize?: number; fontFamily?: string },
+) =>
+  lines.map((str, index) => ({
+    str,
+    x: 42,
+    y: 780 - index * 15,
+    width: str.length * 7,
+    height: options?.fontSize ?? 10.5,
+    fontSize: options?.fontSize ?? 10.5,
+    fontFamily: options?.fontFamily ?? "sans-serif",
+    dir: "ltr" as const,
+    hasEOL: true,
+  }))
+
 describe("readAssetContent — PDF extraction", () => {
-  it("extracts text from a PDF and returns it as a text result", async () => {
-    const pdfBuffer = Buffer.from("fake-pdf-bytes")
+  it("returns structured markdown with title, headings, and text", async () => {
     mockedReadAsset.mockResolvedValue({
-      buffer: pdfBuffer,
+      buffer: Buffer.from("fake-pdf-bytes"),
       bytes: 12_345,
       extension: ".pdf",
     })
-    mockedExtractText.mockResolvedValue({
-      totalPages: 3,
-      text: "Page one content.\nPage two content.\nPage three content.",
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Research Paper" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          ...buildPageItems(["Introduction"], { fontSize: 18 }),
+          ...buildPageItems(["This is the body text of the paper."], {
+            fontSize: 10.5,
+          }).map((item) => ({ ...item, y: 750 })),
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({
+      links: ["https://example.com"],
+      totalPages: 1,
     })
 
     const result = await assetOperations.readAssetContent(
@@ -48,10 +98,167 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
-      text: "Page one content.\nPage two content.\nPage three content.",
+      text: [
+        "Title: Research Paper | Pages: 1 | Links: 1",
+        "",
+        "# Introduction",
+        "This is the body text of the paper.",
+        "",
+        "Links:",
+        "- https://example.com",
+      ].join("\n"),
     })
-    expect(mockedExtractText).toHaveBeenCalledWith(expect.any(Uint8Array), {
-      mergePages: true,
+  })
+
+  it("detects monospace font as fenced code blocks", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Code Doc" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          ...buildPageItems(["Example:"], { fontSize: 10.5 }),
+          ...buildPageItems(["const x = 42"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 750 })),
+          ...buildPageItems(["return x"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 735 })),
+          ...buildPageItems(["End of example."], { fontSize: 10.5 }).map(
+            (item) => ({ ...item, y: 720 }),
+          ),
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "doc.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: [
+        "Title: Code Doc | Pages: 1",
+        "",
+        "Example:",
+        "```",
+        "const x = 42",
+        "return x",
+        "```",
+        "End of example.",
+      ].join("\n"),
+    })
+  })
+
+  it("deduplicates links in the footer", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 3_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Links Doc" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[...buildPageItems(["Some text"])]],
+    })
+    mockExtractLinks.mockResolvedValue({
+      links: [
+        "https://example.com",
+        "https://other.com",
+        "https://example.com",
+      ],
+      totalPages: 1,
+    })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "doc.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: [
+        "Title: Links Doc | Pages: 1 | Links: 2",
+        "",
+        "Some text",
+        "",
+        "Links:",
+        "- https://example.com",
+        "- https://other.com",
+      ].join("\n"),
+    })
+  })
+
+  it("shows (untitled) when the PDF has no title metadata", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 2_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: {} })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[...buildPageItems(["Hello"])]],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "untitled.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: ["Title: (untitled) | Pages: 1", "", "Hello"].join("\n"),
+    })
+  })
+
+  it("adds page separators for multi-page documents", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Multi-page" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 2,
+      items: [
+        [...buildPageItems(["Page one content"])],
+        [...buildPageItems(["Page two content"])],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 2 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "multi.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: [
+        "Title: Multi-page | Pages: 2",
+        "",
+        "Page one content",
+        "",
+        "--- Page 2 ---",
+        "",
+        "Page two content",
+      ].join("\n"),
     })
   })
 
@@ -61,9 +268,9 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 5_000_000,
       extension: ".pdf",
     })
-    mockedExtractText.mockResolvedValue({
+    mockExtractTextItems.mockResolvedValue({
       totalPages: 12,
-      text: "",
+      items: Array.from({ length: 12 }, () => []),
     })
 
     await expect(
@@ -84,9 +291,9 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 1_000,
       extension: ".pdf",
     })
-    mockedExtractText.mockResolvedValue({
+    mockExtractTextItems.mockResolvedValue({
       totalPages: 1,
-      text: "   \n\t  \n  ",
+      items: [[...buildPageItems(["   ", "\t", "  \n  "])]],
     })
 
     await expect(
@@ -108,20 +315,21 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 500_000,
       extension: ".pdf",
     })
-    mockedExtractText.mockResolvedValue({
-      totalPages: 50,
-      text: largeText,
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Huge" },
     })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[...buildPageItems([largeText])]],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent(
         { ...defaultParams, path: "huge.pdf" },
         logger,
       ),
-    ).rejects.toThrow(
-      'text output too large: "huge.pdf" renders to 200000 bytes ' +
-        "(cap 102400 bytes)",
-    )
+    ).rejects.toThrow("text output too large")
   })
 
   it("includes .pdf in the unsupported-type error's readable types list", async () => {
@@ -144,13 +352,13 @@ describe("readAssetContent — PDF extraction", () => {
     )
   })
 
-  it("propagates extractText errors for corrupt PDFs", async () => {
+  it("propagates getDocumentProxy errors for corrupt PDFs", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("not-a-real-pdf"),
       bytes: 14,
       extension: ".pdf",
     })
-    mockedExtractText.mockRejectedValue(new Error("Invalid PDF structure"))
+    mockGetDocumentProxy.mockRejectedValue(new Error("Invalid PDF structure"))
 
     await expect(
       assetOperations.readAssetContent(
@@ -158,5 +366,91 @@ describe("readAssetContent — PDF extraction", () => {
         logger,
       ),
     ).rejects.toThrow("Invalid PDF structure")
+
+    // Restore the default mock for other tests
+    mockGetDocumentProxy.mockResolvedValue({ cleanup: mockCleanup })
+  })
+
+  it("cleans up the document proxy after successful extraction", async () => {
+    mockCleanup.mockClear()
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 1_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Cleanup Test" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[...buildPageItems(["Content"])]],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    await assetOperations.readAssetContent(
+      { ...defaultParams, path: "test.pdf" },
+      logger,
+    )
+
+    expect(mockCleanup).toHaveBeenCalledOnce()
+  })
+
+  it("cleans up the document proxy even when extraction throws", async () => {
+    mockCleanup.mockClear()
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 1_000,
+      extension: ".pdf",
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[]],
+    })
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "scanned.pdf" },
+        logger,
+      ),
+    ).rejects.toThrow("PDF has no extractable text")
+
+    expect(mockCleanup).toHaveBeenCalledOnce()
+  })
+
+  it("skips heading detection when all items share one font size", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 3_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Flat Doc" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          ...buildPageItems(["Title Line", "Body text here"], {
+            fontSize: 11,
+          }),
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "flat.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: [
+        "Title: Flat Doc | Pages: 1",
+        "",
+        "Title Line",
+        "Body text here",
+      ].join("\n"),
+    })
   })
 })

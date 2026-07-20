@@ -1109,14 +1109,22 @@ describe("asset tool handlers", () => {
     expect(result.content).toEqual([{ type: "text", text: '{"key": "value"}' }])
   })
 
-  it("returns extracted text from a valid PDF", async () => {
+  it("returns structured markdown from a valid PDF", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const { buildMinimalPdf } = await import("./pdf-fixture.js")
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
     expect(result).toEqual({
-      content: [{ type: "text", text: expect.stringContaining("Hello PDF") }],
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("Hello PDF"),
+        },
+      ],
     })
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain("Title:")
+    expect(text).toContain("Pages: 1")
   })
 
   it("rejects an unsupported extension naming the readable types", async () => {
