@@ -102,22 +102,19 @@ const groupIntoLines = (
   threshold = 2,
 ): StructuredTextItem[][] => {
   const nonEmpty = pageItems.filter((item) => item.str.trim().length > 0)
-  const firstItem = nonEmpty[0]
-  if (!firstItem) return []
-  const lines: StructuredTextItem[][] = [[firstItem]]
-  for (let i = 1; i < nonEmpty.length; i++) {
-    const prevItem = nonEmpty[i - 1]
-    const currItem = nonEmpty[i]
-    if (!prevItem || !currItem) continue
+  if (nonEmpty.length === 0) return []
 
+  // Sequential state: track the previous item's y to detect line breaks.
+  const lines: StructuredTextItem[][] = []
+  let lastY = -Infinity
+  for (const item of nonEmpty) {
     const currentLine = lines[lines.length - 1]
-    if (!currentLine) continue
-
-    if (Math.abs(currItem.y - prevItem.y) < threshold) {
-      currentLine.push(currItem)
+    if (currentLine && Math.abs(item.y - lastY) < threshold) {
+      currentLine.push(item)
     } else {
-      lines.push([currItem])
+      lines.push([item])
     }
+    lastY = item.y
   }
   return lines
 }
@@ -128,20 +125,13 @@ const groupIntoLines = (
 const buildHeadingLevels = (
   allItems: readonly StructuredTextItem[],
 ): ReadonlyMap<number, number> => {
-  const fontSizesRounded = allItems.map((item) => roundFontSize(item.fontSize))
-  const uniqueSizes = [...new Set(fontSizesRounded)]
-  const roundedSizes = uniqueSizes.sort((a, b) => b - a)
-  if (roundedSizes.length <= 1) return new Map()
+  const sortedSizes = [
+    ...new Set(allItems.map((item) => roundFontSize(item.fontSize))),
+  ].sort((a, b) => b - a)
+  if (sortedSizes.length <= 1) return new Map()
 
-  const headingSizes = roundedSizes.slice(0, -1)
-  const levels = new Map<number, number>()
-  for (let i = 0; i < Math.min(3, headingSizes.length); i++) {
-    const size = headingSizes[i]
-    if (size === undefined) continue
-
-    levels.set(size, i + 1)
-  }
-  return levels
+  const headingSizes = sortedSizes.slice(0, -1).slice(0, 3)
+  return new Map(headingSizes.map((size, index) => [size, index + 1]))
 }
 
 /** Reconstructs a markdown-formatted text rendition from structured PDF items,
