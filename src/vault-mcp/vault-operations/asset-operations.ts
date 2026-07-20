@@ -104,14 +104,18 @@ const groupIntoLines = (
   const nonEmpty = pageItems.filter((item) => item.str.trim().length > 0)
   if (nonEmpty.length === 0) return []
 
-  // Sequential state: track the previous item's y to detect line breaks.
+  // PDF text items arrive in content-stream order with y-coordinates
+  // descending down the page. Items on the same visual line share a y
+  // (within `threshold` px); a jump in y starts a new line.
   const lines: StructuredTextItem[][] = []
   let lastY = -Infinity
   for (const item of nonEmpty) {
     const currentLine = lines[lines.length - 1]
     if (currentLine && Math.abs(item.y - lastY) < threshold) {
+      // Same visual line — append to the current group
       currentLine.push(item)
     } else {
+      // Y jumped — start a new line group
       lines.push([item])
     }
     lastY = item.y
