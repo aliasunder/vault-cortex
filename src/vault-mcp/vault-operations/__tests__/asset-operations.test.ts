@@ -50,10 +50,9 @@ describe("readAssetContent — PDF extraction", () => {
       kind: "text",
       text: "Page one content.\nPage two content.\nPage three content.",
     })
-    expect(mockedExtractText).toHaveBeenCalledWith(
-      expect.any(Uint8Array),
-      { mergePages: true },
-    )
+    expect(mockedExtractText).toHaveBeenCalledWith(expect.any(Uint8Array), {
+      mergePages: true,
+    })
   })
 
   it("throws a descriptive error for scanned PDFs with no extractable text", async () => {
