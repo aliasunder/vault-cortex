@@ -288,7 +288,7 @@ Link queries use a `links` table populated during indexing:
 
 | Tool                | Input                          | Annotation   |
 | ------------------- | ------------------------------ | ------------ |
-| `vault_read_asset`  | `path`                         | readOnlyHint |
+| `vault_read_asset`  | `path, raw?`                   | readOnlyHint |
 | `vault_list_assets` | `folder?, extensions?, limit?` | readOnlyHint |
 
 `vault_read_asset` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
