@@ -43,7 +43,7 @@ Example: vault_read_asset({ path: "attachments/diagram.png" }) — the image its
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
-Example: vault_read_asset({ path: "papers/research.pdf" }) — the extracted text content
+Example: vault_read_asset({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
 What each type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.

@@ -169,6 +169,8 @@ const reconstructPdfMarkdown = (params: {
       sections.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
 
+    // Fence state machine — tracks whether we're inside a code block
+    // so monospace→sans-serif transitions emit closing fences.
     let inCodeBlock = false
     for (const line of lines) {
       const lineText = line
@@ -280,6 +282,7 @@ const readAssetContent = async (
         )
       }
 
+      // Title can be null in PDF metadata — normalize to undefined
       const text = reconstructPdfMarkdown({
         title: meta.info?.Title ?? undefined,
         totalPages,
