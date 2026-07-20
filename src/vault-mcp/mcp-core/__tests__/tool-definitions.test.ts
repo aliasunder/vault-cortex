@@ -1049,14 +1049,15 @@ describe("asset tool handlers", () => {
       .toBuffer()
     await writeFile(join(vault, "tiny.png"), png)
     const result = await readAsset({ path: "tiny.png" })
-    expect(result.isError).toBeUndefined()
-    expect(result.content).toEqual([
-      { type: "image", data: png.toString("base64"), mimeType: "image/png" },
-      {
-        type: "text",
-        text: `tiny.png — image/png, 4×4, ${png.length} bytes (original file, not recompressed)`,
-      },
-    ])
+    expect(result).toEqual({
+      content: [
+        { type: "image", data: png.toString("base64"), mimeType: "image/png" },
+        {
+          type: "text",
+          text: `tiny.png — image/png, 4×4, ${png.length} bytes (original file, not recompressed)`,
+        },
+      ],
+    })
   })
 
   it("returns the exact canvas JSON source when raw is set", async () => {
@@ -1077,8 +1078,9 @@ describe("asset tool handlers", () => {
     })
     await writeFile(join(vault, "Board.canvas"), canvasSource, "utf8")
     const result = await readAsset({ path: "Board.canvas", raw: true })
-    expect(result.isError).toBeUndefined()
-    expect(result.content).toEqual([{ type: "text", text: canvasSource }])
+    expect(result).toEqual({
+      content: [{ type: "text", text: canvasSource }],
+    })
   })
 
   it("rejects raw for an image", async () => {
@@ -1095,18 +1097,24 @@ describe("asset tool handlers", () => {
       .toBuffer()
     await writeFile(join(vault, "tiny.png"), png)
     const result = await readAsset({ path: "tiny.png", raw: true })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: raw source is not available for images: "tiny.png" is binary — its image block is the delivered form',
-    )
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: raw source is not available for images: "tiny.png" is binary — its image block is the delivered form',
+        },
+      ],
+    })
   })
 
   it("returns a text format's source unchanged when raw is set", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
     const result = await readAsset({ path: "data.json", raw: true })
-    expect(result.isError).toBeUndefined()
-    expect(result.content).toEqual([{ type: "text", text: '{"key": "value"}' }])
+    expect(result).toEqual({
+      content: [{ type: "text", text: '{"key": "value"}' }],
+    })
   })
 
   it("returns structured markdown from a valid PDF", async () => {
@@ -1118,42 +1126,56 @@ describe("asset tool handlers", () => {
       content: [
         {
           type: "text",
-          text: expect.stringContaining("Hello PDF"),
+          text: expect.stringMatching(
+            /^Title: \(untitled\) \| Pages: 1\n\n[\s\S]*Hello PDF/,
+          ),
         },
       ],
     })
-    const text = (result.content[0] as { text: string }).text
-    expect(text).toContain("Title:")
-    expect(text).toContain("Pages: 1")
   })
 
   it("rejects an unsupported extension naming the readable types", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     await writeFile(join(vault, "song.mp3"), "xxxx", "utf8")
     const result = await readAsset({ path: "song.mp3" })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
-    )
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
+        },
+      ],
+    })
   })
 
   it("rejects a .md path without touching the note", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     await writeFile(join(vault, "note.md"), "# A note\n", "utf8")
     const result = await readAsset({ path: "note.md" })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: not an asset: "note.md" is a markdown note',
-    )
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: not an asset: "note.md" is a markdown note',
+        },
+      ],
+    })
   })
 
   it("rejects a missing asset with asset not found", async () => {
     const { readAsset } = await setupAssetHarness()
     const result = await readAsset({ path: "ghost.png" })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: asset not found: "ghost.png"',
-    )
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: asset not found: "ghost.png"',
+        },
+      ],
+    })
   })
 
   it("rejects a non-UTF-8 text asset instead of corrupting it", async () => {
@@ -1162,10 +1184,15 @@ describe("asset tool handlers", () => {
     // substitute U+FFFD; the tool must refuse instead.
     await writeFile(join(vault, "latin1.txt"), Buffer.from([0x68, 0x69, 0xff]))
     const result = await readAsset({ path: "latin1.txt" })
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe(
-      '[Error]: not valid UTF-8: "latin1.txt" cannot be returned as text',
-    )
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: not valid UTF-8: "latin1.txt" cannot be returned as text',
+        },
+      ],
+    })
   })
 
   it("rejects an oversized text asset instead of truncating it", async () => {
