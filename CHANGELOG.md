@@ -51,6 +51,18 @@
 
 
 
+
+## [0.31.2] — 2026-07-21
+
+### Bug Fixes
+
+- **deps:** Bump hono and fast-uri to resolve transitive CVEs (#359)
+
+### Documentation
+
+- Add @latest to all npx vault-cortex commands (#358)
+- Update CHANGELOG.md for v0.31.1
+
 ## [0.31.1] — 2026-07-21
 
 ### Documentation
