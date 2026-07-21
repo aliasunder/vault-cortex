@@ -858,7 +858,7 @@ pattern:
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
    — maintainer/contributor surfaces (if applicable)
 
-CI drift tests in `templates.test.ts` catch omissions across steps 2–4,
+CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.
 
 **Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
