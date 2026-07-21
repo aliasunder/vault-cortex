@@ -71,7 +71,7 @@ If you have Node.js >= 20.12 on this machine, the CLI runs the login and
 captures the token for you:
 
 ```bash
-npx vault-cortex get-sync-token
+npx vault-cortex@latest get-sync-token
 ```
 
 Otherwise, run the Docker image directly:
@@ -287,7 +287,7 @@ independently.
 **Set up with the CLI?**
 
 ```bash
-npx vault-cortex upgrade
+npx vault-cortex@latest upgrade
 ```
 
 Run it from the same directory where you ran `init` — it pulls the new image
@@ -328,7 +328,7 @@ docker restart vault-cortex
 ```
 
 > **Changed `.env`?** A restart does **not** re-read `.env` — the container
-> has to be re-created. Set up with the CLI? Run `npx vault-cortex upgrade`
+> has to be re-created. Set up with the CLI? Run `npx vault-cortex@latest upgrade`
 > (re-creates the container and also pulls the latest image). Using Compose?
 > Run `docker compose up -d` — it re-creates services whose configuration
 > changed.
@@ -410,7 +410,7 @@ one makes a meaningful difference.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
-(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+(`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
 `docker rm -f vault-cortex`, then retry with your preferred method.
 

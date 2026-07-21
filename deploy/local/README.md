@@ -31,7 +31,7 @@ What happens on first start:
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
 > at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
-> generated `.env` after `init` and apply with `npx vault-cortex upgrade`. See
+> generated `.env` after `init` and apply with `npx vault-cortex@latest upgrade`. See
 > [Windows (Docker Desktop)](#windows-docker-desktop) below.
 
 <details>
@@ -155,7 +155,7 @@ container independently.
 **Set up with the CLI?**
 
 ```bash
-npx vault-cortex upgrade
+npx vault-cortex@latest upgrade
 ```
 
 Run it from the same directory where you ran `init` — it pulls the new image
@@ -260,7 +260,7 @@ usual cause.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
-(`npx vault-cortex upgrade`) and Docker Compose (`docker compose up -d`)
+(`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
 `docker rm -f vault-cortex`, then retry with your preferred method.
 
