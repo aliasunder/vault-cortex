@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GHSA-frvp-7c67-39w9"
+reason = "@hono/node-server Windows serve-static path traversal — vault-cortex runs in Linux Docker, does not use serve-static. Transitive via @modelcontextprotocol/sdk which pins ^1.19.9; fix requires SDK release (modelcontextprotocol/typescript-sdk#2036)."
