@@ -20,8 +20,10 @@
     "obsidian-vault",
     "hybrid-search",
     "semantic-search",
-    "sqlite-vec",
     "ai-memory",
+    "attachments",
+    "pdf",
+    "claude",
     "docker"
   ],
   "type": "module",
