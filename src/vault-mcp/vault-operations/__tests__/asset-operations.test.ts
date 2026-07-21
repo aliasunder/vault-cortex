@@ -19,7 +19,7 @@ const {
   const mockCleanup = vi.fn()
   return {
     mockCleanup,
-    mockGetDocumentProxy: vi.fn(() => ({ cleanup: mockCleanup })),
+    mockGetDocumentProxy: vi.fn(() => ({ cleanup: mockCleanup, numPages: 1 })),
     mockGetMeta: vi.fn(),
     mockExtractTextItems: vi.fn(),
     mockExtractLinks: vi.fn(),
@@ -377,7 +377,10 @@ describe("readAssetContent — PDF extraction", () => {
     ).rejects.toThrow("Invalid PDF structure")
 
     // Restore the default mock for other tests
-    mockGetDocumentProxy.mockResolvedValue({ cleanup: mockCleanup })
+    mockGetDocumentProxy.mockResolvedValue({
+      cleanup: mockCleanup,
+      numPages: 1,
+    })
   })
 
   it("cleans up the document proxy after successful extraction", async () => {
@@ -528,13 +531,17 @@ const buildFittedImage = (overrides?: {
 })
 
 /** Standard PDF mock setup: readAsset returns a .pdf buffer, getMeta
- *  returns the given title, and extractTextItems returns the given
- *  page count (with empty items — raw mode doesn't use the items). */
+ *  returns the given title, the proxy reports numPages, and
+ *  extractTextItems is pre-configured (only called in non-raw mode). */
 const setupPdfMocks = (params: { numPages: number; title?: string }) => {
   mockedReadAsset.mockResolvedValue({
     buffer: Buffer.from("fake-pdf-bytes"),
     bytes: 50_000,
     extension: ".pdf",
+  })
+  mockGetDocumentProxy.mockResolvedValue({
+    cleanup: mockCleanup,
+    numPages: params.numPages,
   })
   mockGetMeta.mockResolvedValue({
     info: params.title ? { Title: params.title } : {},
@@ -551,7 +558,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     mockedFitImage.mockReset()
     mockCleanup.mockClear()
     mockGetDocumentProxy.mockReset()
-    mockGetDocumentProxy.mockResolvedValue({ cleanup: mockCleanup })
+    mockGetDocumentProxy.mockResolvedValue({
+      cleanup: mockCleanup,
+      numPages: 1,
+    })
     mockGetMeta.mockReset()
     mockExtractTextItems.mockReset()
   })

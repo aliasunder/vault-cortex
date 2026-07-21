@@ -356,10 +356,11 @@ const readAssetContent = async (
       // on the same proxy (structuredClone error on Node 24).
       const meta = await getMeta(proxy)
 
-      const { totalPages, items } = await extractTextItems(proxy)
-
       if (raw) {
-        // Page rendering mode — render each page as an image
+        // Page rendering mode — proxy.numPages is a direct getter on
+        // PDFDocumentProxy; avoids extractTextItems which walks every
+        // page to extract text we don't need in raw mode.
+        const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
         const perPageBudget = Math.floor(
           params.maxImageOutputBytes / pagesToRender,
@@ -390,6 +391,7 @@ const readAssetContent = async (
         }
       }
 
+      const { totalPages, items } = await extractTextItems(proxy)
       const linkResult = await extractLinks(proxy)
 
       // Scanned/image-only PDFs produce items with no text content
