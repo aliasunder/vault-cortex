@@ -173,7 +173,7 @@ jobs:
           # Mirror the remote-stage Dockerfile LABEL description.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
-            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, structured memory, OAuth 2.1.
+            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, notes & files, structured memory, OAuth 2.1.
             index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
             index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha
@@ -200,7 +200,7 @@ jobs:
           # page). Mirror the server.json / Dockerfile description here.
           annotations: |
             index:org.opencontainers.image.title=vault-cortex
-            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults — hybrid search, notes, memory, tasks, OAuth 2.1.
+            index:org.opencontainers.image.description=Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1.
             index:org.opencontainers.image.source=https://github.com/aliasunder/vault-cortex
             index:org.opencontainers.image.licenses=MIT
           cache-from: type=gha

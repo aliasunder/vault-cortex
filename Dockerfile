@@ -62,7 +62,7 @@ ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/
 # set in deploy.yml — keep that description and the one here in sync.
 LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex" \
       org.opencontainers.image.title="vault-cortex" \
-      org.opencontainers.image.description="Standalone MCP server for Obsidian vaults — hybrid search, notes, memory, tasks, OAuth 2.1." \
+      org.opencontainers.image.description="Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1." \
       org.opencontainers.image.source="https://github.com/aliasunder/vault-cortex" \
       org.opencontainers.image.licenses="MIT"
 COPY --from=deps  /app/node_modules ./node_modules
@@ -147,7 +147,7 @@ RUN chmod +x /usr/local/bin/get-sync-token \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-obsidian-sync/run \
        /etc/s6-overlay/s6-rc.d/svc-vault-mcp/run
 
-LABEL org.opencontainers.image.description="Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, structured memory, OAuth 2.1."
+LABEL org.opencontainers.image.description="Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, notes & files, structured memory, OAuth 2.1."
 
 # Health reflects the MCP server only. obsidian-sync is supervised by s6 —
 # tying container health to a sync crash-loop (e.g. a bad auth token) would

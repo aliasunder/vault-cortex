@@ -38,8 +38,9 @@
     "hybrid-search",
     "task-management",
     "semantic-search",
-    "cross-encoder",
-    "reranking",
+    "attachments",
+    "pdf",
+    "claude",
     "cli"
   ],
   "dependencies": {
