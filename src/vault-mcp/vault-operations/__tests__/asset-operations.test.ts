@@ -730,7 +730,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
     expect(mockRenderPageAsImage).toHaveBeenCalledOnce()
     expect(mockRenderPageAsImage).toHaveBeenCalledWith(
-      expect.anything(),
+      expect.any(Uint8Array),
       1,
       expect.objectContaining({
         canvasImport: expect.any(Function),

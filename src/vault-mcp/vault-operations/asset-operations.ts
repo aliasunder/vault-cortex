@@ -107,10 +107,6 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 
 // ── PDF page rendering ────────────────────────────────────────
 
-/** The resolved type of `getDocumentProxy` — unpdf uses it in function
- *  signatures but does not re-export the type from its public API. */
-type PdfProxy = Awaited<ReturnType<typeof getDocumentProxy>>
-
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
  *  (close to MAX_LONG_EDGE_PX 1568), giving sharp text after JPEG compression
  *  without wasting pixels that fitImageToByteBudget would discard anyway. */
@@ -119,10 +115,14 @@ const PDF_RENDER_SCALE = 2.0
 /** Renders `pagesToRender` pages of a PDF as fitted images, sequentially.
  *  Individual page failures are logged and skipped — the caller checks whether
  *  any pages succeeded. Sequential because the unpdf worker can't handle
- *  concurrent calls on the same proxy (structuredClone error on Node 24). */
+ *  concurrent calls on the same proxy (structuredClone error on Node 24).
+ *  Takes raw PDF bytes, not a proxy — renderPageAsImage must create its own
+ *  proxy so pdfjs-dist's internal CanvasFactory is wired to @napi-rs/canvas
+ *  (a proxy created without CanvasFactory falls back to a stub that throws
+ *  on pages needing intermediate canvases for transparency/patterns/masks). */
 const renderPdfPages = async (
   params: {
-    proxy: PdfProxy
+    pdfData: Uint8Array
     pagesToRender: number
     perPageBudget: number
   },
@@ -138,10 +138,14 @@ const renderPdfPages = async (
 
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
-      const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
-        canvasImport: () => import("@napi-rs/canvas"),
-        scale: PDF_RENDER_SCALE,
-      })
+      const pngArrayBuffer = await renderPageAsImage(
+        params.pdfData,
+        pageNumber,
+        {
+          canvasImport: () => import("@napi-rs/canvas"),
+          scale: PDF_RENDER_SCALE,
+        },
+      )
       const pngBuffer = Buffer.from(pngArrayBuffer)
       const fitted = await fitImageToByteBudget({
         buffer: pngBuffer,
@@ -372,7 +376,7 @@ const readAssetContent = async (
           params.maxImageOutputBytes / pagesToRender,
         )
         const pages = await renderPdfPages(
-          { proxy, pagesToRender, perPageBudget },
+          { pdfData, pagesToRender, perPageBudget },
           logger,
         )
         if (pages.length === 0) {
