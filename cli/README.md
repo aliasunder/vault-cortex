@@ -68,7 +68,7 @@ npx vault-cortex@latest init --yes --vault-path /path/to/YourVault
 Pull the latest image, re-create the container, and verify health:
 
 ```bash
-npx vault-cortex upgrade
+npx vault-cortex@latest upgrade
 ```
 
 Run it from the same directory where you ran `init` — it looks for your
@@ -94,7 +94,7 @@ Generate an [Obsidian Sync](https://obsidian.md/sync) auth token — needed for
 remote setups — without leaving the CLI:
 
 ```bash
-npx vault-cortex get-sync-token
+npx vault-cortex@latest get-sync-token
 ```
 
 The command opens the Obsidian login inside Docker. Once you've signed in, it
@@ -103,7 +103,7 @@ Use `--dir <path>` to write the token straight into an existing `.env`
 instead:
 
 ```bash
-npx vault-cortex get-sync-token --dir ./vault-cortex
+npx vault-cortex@latest get-sync-token --dir ./vault-cortex
 ```
 
 During `init --mode remote`, this flow is offered automatically when Docker
