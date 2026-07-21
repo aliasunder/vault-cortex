@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { assetOperations } from "../asset-operations.js"
 import { logger } from "../../../logger.js"
 
@@ -14,6 +14,7 @@ const {
   mockGetMeta,
   mockExtractTextItems,
   mockExtractLinks,
+  mockRenderPageAsImage,
 } = vi.hoisted(() => {
   const mockCleanup = vi.fn()
   return {
@@ -22,6 +23,7 @@ const {
     mockGetMeta: vi.fn(),
     mockExtractTextItems: vi.fn(),
     mockExtractLinks: vi.fn(),
+    mockRenderPageAsImage: vi.fn(),
   }
 })
 
@@ -30,6 +32,7 @@ vi.mock("unpdf", () => ({
   getMeta: mockGetMeta,
   extractTextItems: mockExtractTextItems,
   extractLinks: mockExtractLinks,
+  renderPageAsImage: mockRenderPageAsImage,
 }))
 
 vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
@@ -37,13 +40,16 @@ vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
 }))
 
 import { vaultFs } from "../vault-filesystem.js"
+import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
+const mockedFitImage = vi.mocked(fitImageToByteBudget)
 
 const defaultParams = {
   vaultPath: "/vault",
   maxAssetBytes: 52_428_800,
   maxImageOutputBytes: 49_152,
+  maxPdfRenderPages: 5,
 }
 
 /** Builds a single-page StructuredTextItem array from lines of text. Items
@@ -501,5 +507,236 @@ describe("readAssetContent — PDF extraction", () => {
         "Body text here",
       ].join("\n"),
     })
+  })
+})
+
+// ── PDF page rendering (raw: true) ────────────────────────────
+
+/** Builds a fake FittedImage result for page rendering tests. */
+const buildFittedImage = (overrides?: {
+  width?: number
+  height?: number
+  dataLength?: number
+}) => ({
+  data: Buffer.alloc(overrides?.dataLength ?? 9_600),
+  mimeType: "image/jpeg",
+  width: overrides?.width ?? 800,
+  height: overrides?.height ?? 1036,
+  originalWidth: 1224,
+  originalHeight: 1584,
+  recompressed: true,
+})
+
+/** Standard PDF mock setup: readAsset returns a .pdf buffer, getMeta
+ *  returns the given title, and extractTextItems returns the given
+ *  page count (with empty items — raw mode doesn't use the items). */
+const setupPdfMocks = (params: { numPages: number; title?: string }) => {
+  mockedReadAsset.mockResolvedValue({
+    buffer: Buffer.from("fake-pdf-bytes"),
+    bytes: 50_000,
+    extension: ".pdf",
+  })
+  mockGetMeta.mockResolvedValue({
+    info: params.title ? { Title: params.title } : {},
+  })
+  mockExtractTextItems.mockResolvedValue({
+    totalPages: params.numPages,
+    items: Array.from({ length: params.numPages }, () => []),
+  })
+}
+
+describe("readAssetContent — PDF page rendering (raw: true)", () => {
+  beforeEach(() => {
+    mockRenderPageAsImage.mockReset()
+    mockedFitImage.mockReset()
+    mockCleanup.mockClear()
+    mockGetDocumentProxy.mockReset()
+    mockGetDocumentProxy.mockResolvedValue({ cleanup: mockCleanup })
+    mockGetMeta.mockReset()
+    mockExtractTextItems.mockReset()
+  })
+
+  it("returns kind pages with rendered images", async () => {
+    setupPdfMocks({ numPages: 2, title: "Visual Doc" })
+    const fakePng = new ArrayBuffer(10_000)
+    mockRenderPageAsImage.mockResolvedValue(fakePng)
+    const fittedResult = buildFittedImage()
+    mockedFitImage.mockResolvedValue(fittedResult)
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "doc.pdf", raw: true },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "pages",
+      pages: [
+        { pageNumber: 1, fitted: fittedResult, originalBytes: 10_000 },
+        { pageNumber: 2, fitted: fittedResult, originalBytes: 10_000 },
+      ],
+      title: "Visual Doc",
+      totalPages: 2,
+      pagesRendered: 2,
+      path: "doc.pdf",
+    })
+  })
+
+  it("respects maxPdfRenderPages cap", async () => {
+    setupPdfMocks({ numPages: 10, title: "Long PDF" })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "long.pdf", raw: true, maxPdfRenderPages: 3 },
+      logger,
+    )
+
+    expect(result.kind).toBe("pages")
+    if (result.kind !== "pages") throw new Error("unreachable")
+    expect(result.pagesRendered).toBe(3)
+    expect(result.totalPages).toBe(10)
+    expect(mockRenderPageAsImage).toHaveBeenCalledTimes(3)
+  })
+
+  it("divides per-page budget evenly across rendered pages", async () => {
+    setupPdfMocks({ numPages: 4 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    await assetOperations.readAssetContent(
+      {
+        ...defaultParams,
+        path: "budget.pdf",
+        raw: true,
+        maxPdfRenderPages: 4,
+        maxImageOutputBytes: 40_000,
+      },
+      logger,
+    )
+
+    // 40,000 / 4 pages = 10,000 per page
+    for (const call of mockedFitImage.mock.calls) {
+      expect(call[0].budgetBytes).toBe(10_000)
+    }
+  })
+
+  it("skips failed pages and returns the rest", async () => {
+    setupPdfMocks({ numPages: 3, title: "Partial" })
+    mockRenderPageAsImage
+      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+      .mockRejectedValueOnce(new Error("render failed"))
+      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    const result = await assetOperations.readAssetContent(
+      {
+        ...defaultParams,
+        path: "partial.pdf",
+        raw: true,
+        maxPdfRenderPages: 3,
+      },
+      logger,
+    )
+
+    expect(result.kind).toBe("pages")
+    if (result.kind !== "pages") throw new Error("unreachable")
+    expect(result.pages.map((page) => page.pageNumber)).toEqual([1, 3])
+    expect(result.pagesRendered).toBe(2)
+  })
+
+  it("throws when all pages fail to render", async () => {
+    setupPdfMocks({ numPages: 2 })
+    mockRenderPageAsImage.mockRejectedValue(new Error("render failed"))
+
+    await expect(
+      assetOperations.readAssetContent(
+        {
+          ...defaultParams,
+          path: "broken.pdf",
+          raw: true,
+          maxPdfRenderPages: 2,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'PDF page rendering failed: "broken.pdf" exists ' +
+        "(50000 bytes, 2 pages) but no pages could be rendered",
+    )
+  })
+
+  it("cleans up the proxy after successful page rendering", async () => {
+    setupPdfMocks({ numPages: 1 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    await assetOperations.readAssetContent(
+      { ...defaultParams, path: "cleanup.pdf", raw: true },
+      logger,
+    )
+
+    expect(mockCleanup).toHaveBeenCalledOnce()
+  })
+
+  it("cleans up the proxy even when all pages fail", async () => {
+    setupPdfMocks({ numPages: 1 })
+    mockRenderPageAsImage.mockRejectedValue(new Error("render failed"))
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "fail.pdf", raw: true, maxPdfRenderPages: 1 },
+        logger,
+      ),
+    ).rejects.toThrow("PDF page rendering failed")
+
+    expect(mockCleanup).toHaveBeenCalledOnce()
+  })
+
+  it("passes canvasImport and scale to renderPageAsImage", async () => {
+    setupPdfMocks({ numPages: 1 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    await assetOperations.readAssetContent(
+      { ...defaultParams, path: "opts.pdf", raw: true },
+      logger,
+    )
+
+    expect(mockRenderPageAsImage).toHaveBeenCalledOnce()
+    const [, pageNumber, options] = mockRenderPageAsImage.mock.calls[0] ?? []
+    expect(pageNumber).toBe(1)
+    expect(options).toHaveProperty("canvasImport")
+    expect(options).toHaveProperty("scale", 2.0)
+  })
+
+  it("does not change text extraction when raw is false", async () => {
+    setupPdfMocks({ numPages: 1, title: "Text Mode" })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [[...buildPageItems(["Body text"])]],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "text.pdf", raw: false },
+      logger,
+    )
+
+    expect(result.kind).toBe("text")
+    expect(mockRenderPageAsImage).not.toHaveBeenCalled()
+  })
+
+  it("shows (untitled) in pages result when title is absent", async () => {
+    setupPdfMocks({ numPages: 1 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "notitle.pdf", raw: true },
+      logger,
+    )
+
+    expect(result.kind).toBe("pages")
+    if (result.kind !== "pages") throw new Error("unreachable")
+    expect(result.title).toBeUndefined()
   })
 })
