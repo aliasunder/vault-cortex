@@ -49,6 +49,25 @@
 
 
 
+
+## [0.31.0] — 2026-07-21
+
+### Features
+
+- **assets:** PDF page rendering via raw: true (#356)
+
+### Bug Fixes
+
+- **deps:** Bump js-yaml override to 4.3.0 (CVE-2026-59869) (#355)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.30.1
+
+### Maintenance
+
+- **deps-dev:** Bump brace-expansion from 5.0.6 to 5.0.7 (#354)
+
 ## [0.30.1] — 2026-07-20
 
 ### Features
