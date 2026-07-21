@@ -50,6 +50,14 @@
 
 
 
+
+## [0.31.1] — 2026-07-21
+
+### Documentation
+
+- Surface asset capability across all short-form descriptions (#357)
+- Update CHANGELOG.md for v0.31.0
+
 ## [0.31.0] — 2026-07-21
 
 ### Features
