@@ -147,6 +147,12 @@
           "description": "Byte budget for images returned by vault_read_asset, in binary bytes before base64 encoding. Images exceeding the budget are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
           "default": "49152",
           "format": "number"
+        },
+        {
+          "name": "MAX_PDF_RENDER_PAGES",
+          "description": "Maximum PDF pages to render as images when raw: true is set on vault_read_asset. The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES divided evenly across the rendered pages.",
+          "default": "5",
+          "format": "number"
         }
       ]
     }
