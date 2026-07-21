@@ -3,6 +3,7 @@ import {
   getMeta,
   extractTextItems,
   extractLinks,
+  renderPageAsImage,
 } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
@@ -53,7 +54,8 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
 const MAX_TEXT_OUTPUT_BYTES = 102_400
 
 /** The computed result of one asset read, before content-block formatting:
- *  an image (fitted to the byte budget) or a text rendition. */
+ *  an image (fitted to the byte budget), a text rendition, or multiple
+ *  sequential page images (e.g. rendered PDF pages). */
 export type AssetReadResult =
   | Readonly<{
       kind: "image"
@@ -62,6 +64,21 @@ export type AssetReadResult =
       path: string
     }>
   | Readonly<{ kind: "text"; text: string }>
+  /** Multiple sequential page images — e.g. rendered PDF pages. */
+  | Readonly<{
+      kind: "pages"
+      pages: ReadonlyArray<
+        Readonly<{
+          fitted: FittedImage
+          pageNumber: number
+          originalBytes: number
+        }>
+      >
+      title: string | undefined
+      totalPages: number
+      pagesRendered: number
+      path: string
+    }>
 
 /** Rejects text output past the fixed cap — an explicit error beats silent
  *  truncation, and states the actual size so the caller knows what exists. */
@@ -86,6 +103,63 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
       { cause: error },
     )
   }
+}
+
+// ── PDF page rendering ────────────────────────────────────────
+
+/** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
+ *  (close to MAX_LONG_EDGE_PX 1568), giving sharp text after JPEG compression
+ *  without wasting pixels that fitImageToByteBudget would discard anyway. */
+const PDF_RENDER_SCALE = 2.0
+
+/** Renders `pagesToRender` pages of a PDF as fitted images, sequentially.
+ *  Individual page failures are logged and skipped — the caller checks whether
+ *  any pages succeeded. Sequential because the unpdf worker can't handle
+ *  concurrent calls on the same proxy (structuredClone error on Node 24).
+ *  Takes raw PDF bytes, not a proxy — renderPageAsImage must create its own
+ *  proxy so pdfjs-dist's internal CanvasFactory is wired to @napi-rs/canvas
+ *  (a proxy created without CanvasFactory falls back to a stub that throws
+ *  on pages needing intermediate canvases for transparency/patterns/masks). */
+const renderPdfPages = async (
+  params: {
+    pdfData: Uint8Array
+    pagesToRender: number
+    perPageBudget: number
+  },
+  logger: Logger,
+): Promise<
+  Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>
+> => {
+  const results: Array<{
+    pageNumber: number
+    fitted: FittedImage
+    originalBytes: number
+  }> = []
+
+  for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
+    try {
+      const pngArrayBuffer = await renderPageAsImage(
+        params.pdfData,
+        pageNumber,
+        {
+          canvasImport: () => import("@napi-rs/canvas"),
+          scale: PDF_RENDER_SCALE,
+        },
+      )
+      const pngBuffer = Buffer.from(pngArrayBuffer)
+      const fitted = await fitImageToByteBudget({
+        buffer: pngBuffer,
+        budgetBytes: params.perPageBudget,
+      })
+      results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
+    } catch (error) {
+      logger.warn("pdf_page_render_failed", {
+        page: pageNumber,
+        error: String(error),
+      })
+    }
+  }
+  return results
 }
 
 // ── PDF reconstruction ─────────────────────────────────────────
@@ -238,6 +312,7 @@ const readAssetContent = async (
     raw?: boolean | undefined
     maxAssetBytes: number
     maxImageOutputBytes: number
+    maxPdfRenderPages: number
   },
   logger: Logger,
 ): Promise<AssetReadResult> => {
@@ -284,6 +359,43 @@ const readAssetContent = async (
       // Sequential — the unpdf worker can't handle concurrent calls
       // on the same proxy (structuredClone error on Node 24).
       const meta = await getMeta(proxy)
+
+      if (raw) {
+        // Page rendering mode — proxy.numPages is a direct getter on
+        // PDFDocumentProxy; avoids extractTextItems which walks every
+        // page to extract text we don't need in raw mode.
+        const totalPages = proxy.numPages
+        const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
+        if (pagesToRender === 0) {
+          throw new Error(
+            `PDF page rendering failed: "${path}" exists ` +
+              `(${asset.bytes} bytes) but has 0 pages`,
+          )
+        }
+        const perPageBudget = Math.floor(
+          params.maxImageOutputBytes / pagesToRender,
+        )
+        const pages = await renderPdfPages(
+          { pdfData, pagesToRender, perPageBudget },
+          logger,
+        )
+        if (pages.length === 0) {
+          throw new Error(
+            `PDF page rendering failed: "${path}" exists ` +
+              `(${asset.bytes} bytes, ${totalPages} pages) but no ` +
+              `pages could be rendered`,
+          )
+        }
+        return {
+          kind: "pages",
+          pages,
+          title: meta.info?.Title ?? undefined,
+          totalPages,
+          pagesRendered: pages.length,
+          path,
+        }
+      }
+
       const { totalPages, items } = await extractTextItems(proxy)
       const linkResult = await extractLinks(proxy)
 

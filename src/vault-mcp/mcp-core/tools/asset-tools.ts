@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
+import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
@@ -12,6 +13,10 @@ const TOOL_NAMES = {
 } as const
 
 export { TOOL_NAMES as ASSET_TOOL_NAMES }
+
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -25,6 +30,45 @@ const describeDeliveredImage = (result: {
   if (!fitted.recompressed)
     return `${delivered} (original file, not recompressed)`
   return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
+}
+
+/** Formats an asset read result into MCP content blocks — the image, pages,
+ *  or text representation the model sees. */
+const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
+  if (result.kind === "image") {
+    return [
+      {
+        type: "image",
+        data: result.fitted.data.toString("base64"),
+        mimeType: result.fitted.mimeType,
+      },
+      { type: "text", text: describeDeliveredImage(result) },
+    ]
+  }
+  if (result.kind === "pages") {
+    const titleSegment = result.title ? `, "${result.title}"` : ""
+    const metadataLine =
+      `${result.path} — PDF, ${result.totalPages} pages` +
+      titleSegment +
+      ` — rendered ${result.pagesRendered} ` +
+      `page${result.pagesRendered === 1 ? "" : "s"} as images`
+    const pageBlocks = result.pages.flatMap((page) => [
+      {
+        type: "image" as const,
+        data: page.fitted.data.toString("base64"),
+        mimeType: page.fitted.mimeType,
+      },
+      {
+        type: "text" as const,
+        text:
+          `Page ${page.pageNumber} — ${page.fitted.mimeType}, ` +
+          `${page.fitted.width}×${page.fitted.height}, ` +
+          `${page.fitted.data.length} bytes`,
+      },
+    ])
+    return [{ type: "text", text: metadataLine }, ...pageBlocks]
+  }
+  return [{ type: "text", text: result.text }]
 }
 
 export const registerAssetTools = ({
@@ -44,11 +88,12 @@ Example: vault_read_asset({ path: "Boards/Roadmap.canvas" }) — a readable outl
 Example: vault_read_asset({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_asset({ path: "exports/data.json" }) — the file content as text
 Example: vault_read_asset({ path: "papers/research.pdf" }) — structured text with title, headings, and links
+Example: vault_read_asset({ path: "papers/research.pdf", raw: true }) — each page rendered as an image block
 
 What each type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes), fenced code blocks (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Scanned or image-only PDFs with no embedded text return an error stating the page count.
+- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes), fenced code blocks (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to ${config.maxPdfRenderPages} pages are rendered.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 
 When to use: whenever a note references an asset you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the assets a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's assets via vault_list_assets. For .md notes use vault_read_note — this tool rejects them.
@@ -59,12 +104,13 @@ Errors:
 - "asset too large" — the file exceeds the server's read cap (MAX_ASSET_BYTES, default 50 MiB)
 - "text output too large" — a text asset or PDF renders past the output cap; only smaller files can be returned whole
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
-- "PDF has no extractable text" — the PDF exists but contains no text content (scanned or image-only); states the page count
+- "PDF has no extractable text" — the PDF exists but contains no text content (scanned or image-only); states the page count. Set raw: true to render pages as images instead
+- "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
 - "raw source is not available for images" — raw applies to text-representable files; an image's delivered form is its image block
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for every other supported type, a single text content block.
+Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block.
 
 Search coverage: vault_search indexes markdown notes; find assets by browsing (vault_list_assets) or through a note's links (vault_get_outgoing_links).`,
       inputSchema: {
@@ -78,7 +124,7 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
           .boolean()
           .optional()
           .describe(
-            "Return the file's exact text source instead of any rendered form. For .canvas this is the JSON Canvas source (geometry, ids, colors); text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
+            "Return an alternative representation of the file. For .canvas this is the JSON Canvas source (geometry, ids, colors); for .pdf this renders pages as images instead of extracting text — useful for scanned documents, diagrams, and layout-sensitive content. Text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
           ),
       },
       annotations: {
@@ -104,6 +150,7 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
               raw,
               maxAssetBytes: config.maxAssetBytes,
               maxImageOutputBytes: config.maxImageOutputBytes,
+              maxPdfRenderPages: config.maxPdfRenderPages,
             },
             reqLogger,
           ),
@@ -120,20 +167,19 @@ Search coverage: vault_search indexes markdown notes; find assets by browsing (v
               originalHeight: result.fitted.originalHeight,
               recompressed: result.fitted.recompressed,
             })
-            return [
-              {
-                type: "image" as const,
-                data: result.fitted.data.toString("base64"),
-                mimeType: result.fitted.mimeType,
-              },
-              { type: "text" as const, text: describeDeliveredImage(result) },
-            ]
+          } else if (result.kind === "pages") {
+            reqLogger.info("tool_result", {
+              path,
+              totalPages: result.totalPages,
+              pagesRendered: result.pagesRendered,
+            })
+          } else {
+            reqLogger.info("tool_result", {
+              path,
+              textBytes: Buffer.byteLength(result.text, "utf8"),
+            })
           }
-          reqLogger.info("tool_result", {
-            path,
-            textBytes: Buffer.byteLength(result.text, "utf8"),
-          })
-          return [{ type: "text" as const, text: result.text }]
+          return formatAssetReadResult(result)
         },
       )
     },

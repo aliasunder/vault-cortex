@@ -73,6 +73,7 @@
     "picomatch": "4.0.5",
     "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",
+    "@napi-rs/canvas": "0.1.100",
     "unpdf": "1.6.2",
     "yaml": "2.9.0",
     "zod": "4.4.3"

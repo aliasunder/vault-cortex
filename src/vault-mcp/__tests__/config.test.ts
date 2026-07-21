@@ -348,4 +348,28 @@ describe("loadConfig", () => {
       )
     })
   })
+
+  describe("MAX_PDF_RENDER_PAGES", () => {
+    it("defaults to 5 when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.maxPdfRenderPages).toBe(5)
+    })
+
+    it("accepts a custom positive integer", () => {
+      const config = loadConfig({ MAX_PDF_RENDER_PAGES: "10" })
+      expect(config.maxPdfRenderPages).toBe(10)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: "abc" })).toThrow(
+        /MAX_PDF_RENDER_PAGES/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(
+        /MAX_PDF_RENDER_PAGES/,
+      )
+    })
+  })
 })

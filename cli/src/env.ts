@@ -44,6 +44,11 @@ MAX_ASSET_BYTES=52428800
 # that accept larger tool responses.
 MAX_IMAGE_OUTPUT_BYTES=49152
 
+# Maximum number of PDF pages to render as images when raw: true is set on
+# vault_read_asset (default: 5). The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES
+# divided evenly across the rendered pages. Fewer pages = higher quality each.
+MAX_PDF_RENDER_PAGES=5
+
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
@@ -147,6 +152,11 @@ MAX_ASSET_BYTES=52428800
 # Images exceeding the budget are downscaled/recompressed to fit. Raise it for clients
 # that accept larger tool responses.
 MAX_IMAGE_OUTPUT_BYTES=49152
+
+# Maximum number of PDF pages to render as images when raw: true is set on
+# vault_read_asset (default: 5). The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES
+# divided evenly across the rendered pages. Fewer pages = higher quality each.
+MAX_PDF_RENDER_PAGES=5
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.

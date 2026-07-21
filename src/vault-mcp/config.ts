@@ -65,6 +65,10 @@ export type VaultConfig = Readonly<{
    *  cap (base64 expands ~4/3, then tokenizes at roughly 3 chars/token).
    *  Set via MAX_IMAGE_OUTPUT_BYTES; raise for clients with looser caps. */
   maxImageOutputBytes: number
+  /** Maximum number of PDF pages to render as images when raw: true is set on
+   *  vault_read_asset. The per-page byte budget is maxImageOutputBytes divided
+   *  evenly across the rendered pages. Set via MAX_PDF_RENDER_PAGES. */
+  maxPdfRenderPages: number
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -121,7 +125,7 @@ export const loadConfig = (
 
   // env-var's asIntPositive admits 0, but a zero byte cap would make every
   // asset read fail at runtime — reject it at startup instead.
-  const requireNonZeroBytes = (name: string, value: number): number => {
+  const requireNonZero = (name: string, value: number): number => {
     if (value === 0) {
       throw new Error(`env-var: "${name}" must be greater than 0`)
     }
@@ -129,20 +133,25 @@ export const loadConfig = (
   }
 
   // 50 MiB — matches the most permissive prior art for MCP asset reads.
-  const maxAssetBytes = requireNonZeroBytes(
+  const maxAssetBytes = requireNonZero(
     "MAX_ASSET_BYTES",
     envVar.from(env).get("MAX_ASSET_BYTES").default("52428800").asIntPositive(),
   )
 
   // 48 KiB binary ≈ 64 KiB base64 ≈ ~21k tokens — under Claude Code's 25k-token
   // MCP output cap with headroom for the metadata text block.
-  const maxImageOutputBytes = requireNonZeroBytes(
+  const maxImageOutputBytes = requireNonZero(
     "MAX_IMAGE_OUTPUT_BYTES",
     envVar
       .from(env)
       .get("MAX_IMAGE_OUTPUT_BYTES")
       .default("49152")
       .asIntPositive(),
+  )
+
+  const maxPdfRenderPages = requireNonZero(
+    "MAX_PDF_RENDER_PAGES",
+    envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
   return Object.freeze({
@@ -156,5 +165,6 @@ export const loadConfig = (
     windowsBindMount,
     maxAssetBytes,
     maxImageOutputBytes,
+    maxPdfRenderPages,
   })
 }
