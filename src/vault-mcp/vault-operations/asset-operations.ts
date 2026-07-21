@@ -116,29 +116,27 @@ type PdfProxy = Awaited<ReturnType<typeof getDocumentProxy>>
  *  without wasting pixels that fitImageToByteBudget would discard anyway. */
 const PDF_RENDER_SCALE = 2.0
 
-/** Renders up to `maxPages` pages of a PDF as fitted images, sequentially.
+/** Renders `pagesToRender` pages of a PDF as fitted images, sequentially.
  *  Individual page failures are logged and skipped — the caller checks whether
  *  any pages succeeded. Sequential because the unpdf worker can't handle
  *  concurrent calls on the same proxy (structuredClone error on Node 24). */
 const renderPdfPages = async (
   params: {
     proxy: PdfProxy
-    totalPages: number
-    maxPages: number
+    pagesToRender: number
     perPageBudget: number
   },
   logger: Logger,
 ): Promise<
   Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>
 > => {
-  const pagesToRender = Math.min(params.totalPages, params.maxPages)
   const results: Array<{
     pageNumber: number
     fitted: FittedImage
     originalBytes: number
   }> = []
 
-  for (let pageNumber = 1; pageNumber <= pagesToRender; pageNumber++) {
+  for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
       const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
         canvasImport: () => import("@napi-rs/canvas"),
@@ -364,16 +362,17 @@ const readAssetContent = async (
         // page to extract text we don't need in raw mode.
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
+        if (pagesToRender === 0) {
+          throw new Error(
+            `PDF page rendering failed: "${path}" exists ` +
+              `(${asset.bytes} bytes) but has 0 pages`,
+          )
+        }
         const perPageBudget = Math.floor(
           params.maxImageOutputBytes / pagesToRender,
         )
         const pages = await renderPdfPages(
-          {
-            proxy,
-            totalPages,
-            maxPages: params.maxPdfRenderPages,
-            perPageBudget,
-          },
+          { proxy, pagesToRender, perPageBudget },
           logger,
         )
         if (pages.length === 0) {
