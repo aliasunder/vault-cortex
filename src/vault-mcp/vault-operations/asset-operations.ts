@@ -107,6 +107,10 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 
 // ── PDF page rendering ────────────────────────────────────────
 
+/** The resolved type of `getDocumentProxy` — unpdf uses it in function
+ *  signatures but does not re-export the type from its public API. */
+type PdfProxy = Awaited<ReturnType<typeof getDocumentProxy>>
+
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
  *  (close to MAX_LONG_EDGE_PX 1568), giving sharp text after JPEG compression
  *  without wasting pixels that fitImageToByteBudget would discard anyway. */
@@ -118,9 +122,7 @@ const PDF_RENDER_SCALE = 2.0
  *  concurrent calls on the same proxy (structuredClone error on Node 24). */
 const renderPdfPages = async (
   params: {
-    proxy: ReturnType<typeof getDocumentProxy> extends Promise<infer P>
-      ? P
-      : never
+    proxy: PdfProxy
     totalPages: number
     maxPages: number
     perPageBudget: number
