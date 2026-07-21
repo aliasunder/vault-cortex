@@ -193,7 +193,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results.sarif
-          category: trivy-published-image
+          category: trivy-pr-image
 
       # hashFiles guard: the remote SARIF doesn't exist when the local scan
       # gates the job first (exit-code 1) or the remote build fails.
@@ -202,4 +202,4 @@ jobs:
         uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-results-remote.sarif
-          category: trivy-published-image-remote
+          category: trivy-pr-image-remote
