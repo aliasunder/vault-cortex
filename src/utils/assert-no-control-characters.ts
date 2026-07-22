@@ -17,11 +17,18 @@ export const assertNoControlCharacters = (
   const match = CONTROL_CHARACTER_PATTERN.exec(value)
   if (!match) return
 
-  const charCode = match[0].codePointAt(0)
-  if (charCode === undefined) return
-  const codePoint = charCode.toString(16).toUpperCase().padStart(4, "0")
+  const codePointValue = match[0].codePointAt(0)
+  if (codePointValue === undefined) {
+    throw new Error(
+      `${paramName} contains a control character at position ${match.index} — control characters other than tab, LF, and CR are not allowed`,
+    )
+  }
+  const codePointHex = codePointValue
+    .toString(16)
+    .toUpperCase()
+    .padStart(4, "0")
 
   throw new Error(
-    `${paramName} contains a control character (U+${codePoint} at position ${match.index}) — control characters other than tab, LF, and CR are not allowed in note content`,
+    `${paramName} contains a control character (U+${codePointHex} at position ${match.index}) — control characters other than tab, LF, and CR are not allowed`,
   )
 }

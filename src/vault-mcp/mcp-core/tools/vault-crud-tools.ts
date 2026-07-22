@@ -215,7 +215,7 @@ Limitation: Writes the entire body. Do not use for surgical edits to large files
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "body contains a control character" — body includes a non-printable control byte (U+0000–001F except tab/LF/CR, or U+007F–009F); remove it before writing
+- "body contains a control character" — body includes a non-printable control byte; remove it before writing
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
