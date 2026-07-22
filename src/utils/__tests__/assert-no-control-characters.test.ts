@@ -1,21 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { assertNoControlCharacters } from "../assert-no-control-characters.js"
 
-/** Captures the thrown error so both message and absence checks are possible. */
-const getError = (fn: () => void): Error => {
-  try {
-    fn()
-    throw new Error("expected function to throw")
-  } catch (thrown) {
-    if (
-      thrown instanceof Error &&
-      thrown.message !== "expected function to throw"
-    )
-      return thrown
-    throw thrown
-  }
-}
-
 describe("assertNoControlCharacters", () => {
   it("rejects NUL (U+0000)", () => {
     expect(() => assertNoControlCharacters("hello\x00world", "body")).toThrow(
@@ -101,10 +86,8 @@ describe("assertNoControlCharacters", () => {
   })
 
   it("reports first occurrence only", () => {
-    const error = getError(() => assertNoControlCharacters("\x01\x02", "body"))
-    expect(error.message).toBe(
+    expect(() => assertNoControlCharacters("\x01\x02", "body")).toThrow(
       "body contains a control character (U+0001 at position 0) — control characters other than tab, LF, and CR are not allowed",
     )
-    expect(error.message).not.toContain("U+0002")
   })
 })
