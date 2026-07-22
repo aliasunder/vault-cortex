@@ -148,7 +148,7 @@ Search coverage: vault_search indexes markdown notes; find files by browsing (va
               vaultPath,
               path,
               raw,
-              maxAssetBytes: config.maxAssetBytes,
+              maxFileBytes: config.maxFileBytes,
               maxImageOutputBytes: config.maxImageOutputBytes,
               maxPdfRenderPages: config.maxPdfRenderPages,
             },
