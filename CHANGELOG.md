@@ -52,6 +52,29 @@
 
 
 
+
+## [0.32.0] — 2026-07-22
+
+### ⚠ BREAKING CHANGES
+
+- `vault_read_asset` renamed to `vault_read_file`, `vault_list_assets` renamed to `vault_list_files`, `MAX_ASSET_BYTES` renamed to `MAX_FILE_BYTES`, outgoing_links `kind` value changed from `"asset"` to `"file"`, and `vault_list_files` response key changed from `assets` to `files`.
+
+### Bug Fixes
+
+- Reject control characters in write tool content params (#361)
+
+### Refactoring
+
+- Rename asset → file in MCP tool names, env var, and docs (#362)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.31.2
+
+### Maintenance
+
+- **deps:** Ignore @hono/node-server GHSA-frvp in OSV scanner (#360)
+
 ## [0.31.2] — 2026-07-21
 
 ### Bug Fixes
