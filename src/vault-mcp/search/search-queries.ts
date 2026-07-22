@@ -1546,9 +1546,9 @@ export const getBacklinks = (
   return results
 }
 
-/** Returns notes and assets that the given path links TO (outgoing links).
+/** Returns notes and files that the given path links TO (outgoing links).
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
- *  "asset" for resolved non-markdown files (.canvas, .base, images, etc.),
+ *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
@@ -1557,7 +1557,7 @@ export const getOutgoingLinks = (
 ): OutgoingLinkEntry[] => {
   assertPathHasExtension(params.path, ".md")
   // Left-join against both notes and non_md_files to classify each link target:
-  // notes → kind "note", non_md_files → kind "asset", neither → broken (defaults to "note").
+  // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `
     SELECT l.target as path,
            n.title,
@@ -1565,7 +1565,7 @@ export const getOutgoingLinks = (
                 WHEN f.path IS NOT NULL THEN 1
                 ELSE 0 END as exists_flag,
            CASE WHEN n.path IS NOT NULL THEN 'note'
-                WHEN f.path IS NOT NULL THEN 'asset'
+                WHEN f.path IS NOT NULL THEN 'file'
                 ELSE 'note' END as kind,
            COALESCE(n.bytes, f.bytes) as bytes
     FROM links l
@@ -1581,7 +1581,7 @@ export const getOutgoingLinks = (
         path: string
         title: string | null
         exists_flag: number
-        kind: "note" | "asset"
+        kind: "note" | "file"
         bytes: number | null
       }
     >(sql)

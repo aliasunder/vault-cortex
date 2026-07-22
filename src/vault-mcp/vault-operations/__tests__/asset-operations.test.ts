@@ -47,7 +47,7 @@ const mockedFitImage = vi.mocked(fitImageToByteBudget)
 
 const defaultParams = {
   vaultPath: "/vault",
-  maxAssetBytes: 52_428_800,
+  maxFileBytes: 52_428_800,
   maxImageOutputBytes: 49_152,
   maxPdfRenderPages: 5,
 }
@@ -354,7 +354,7 @@ describe("readAssetContent — PDF extraction", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'unsupported asset type ".mp3": "audio/song.mp3" exists ' +
+      'unsupported file type ".mp3": "audio/song.mp3" exists ' +
         "(10000 bytes). Readable types: images " +
         "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
         "(.svg/.json/.txt/.csv/.xml/.log/.base)",

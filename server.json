@@ -137,20 +137,20 @@
           "default": "https://github.com/aliasunder/vault-cortex"
         },
         {
-          "name": "MAX_ASSET_BYTES",
-          "description": "Largest asset file vault_read_asset will read, in bytes. Reading a larger file returns an error instead of content.",
+          "name": "MAX_FILE_BYTES",
+          "description": "Largest file vault_read_file will read, in bytes. Reading a larger file returns an error instead of content.",
           "default": "52428800",
           "format": "number"
         },
         {
           "name": "MAX_IMAGE_OUTPUT_BYTES",
-          "description": "Byte budget for images returned by vault_read_asset, in binary bytes before base64 encoding. Images exceeding the budget are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
+          "description": "Byte budget for images returned by vault_read_file, in binary bytes before base64 encoding. Images exceeding the budget are downscaled/recompressed server-side to fit; raise for clients that accept larger tool responses.",
           "default": "49152",
           "format": "number"
         },
         {
           "name": "MAX_PDF_RENDER_PAGES",
-          "description": "Maximum PDF pages to render as images when raw: true is set on vault_read_asset. The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES divided evenly across the rendered pages.",
+          "description": "Maximum PDF pages to render as images when raw: true is set on vault_read_file. The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES divided evenly across the rendered pages.",
           "default": "5",
           "format": "number"
         }

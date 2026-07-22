@@ -310,7 +310,7 @@ const readAssetContent = async (
     vaultPath: string
     path: string
     raw?: boolean | undefined
-    maxAssetBytes: number
+    maxFileBytes: number
     maxImageOutputBytes: number
     maxPdfRenderPages: number
   },
@@ -318,7 +318,7 @@ const readAssetContent = async (
 ): Promise<AssetReadResult> => {
   const { path, raw } = params
   const asset = await vaultFs.readAsset(
-    { vaultPath: params.vaultPath, path, maxBytes: params.maxAssetBytes },
+    { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
   )
   const isImage = IMAGE_EXTENSIONS.has(asset.extension)
@@ -424,7 +424,7 @@ const readAssetContent = async (
     }
   }
   throw new Error(
-    `unsupported asset type "${asset.extension}": "${path}" exists ` +
+    `unsupported file type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
       `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
       `(.svg/.json/.txt/.csv/.xml/.log/.base)`,

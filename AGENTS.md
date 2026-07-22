@@ -140,7 +140,7 @@ src/
         task-tools.ts                  # 2 tools: list-tasks, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
-        asset-tools.ts                 # 2 tools: read-asset, list-assets
+        asset-tools.ts                 # 2 tools: read-file, list-files
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
         vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey
@@ -210,7 +210,7 @@ on**, not just its topic:
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
   and I/O — is a _use-case_ and belongs in `vault-operations/`
-  (`asset-reader.ts` and `asset-listing.ts` are the worked examples). The
+  (`asset-operations.ts` is the worked example). The
   smell: a handler importing a parser to orchestrate between two data-layer
   calls; the fix is a use-case module, not a bigger handler.
   `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from
@@ -644,10 +644,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
   memory-file (`file`) inputs are exempt.
-- **`vault_read_asset` is the deliberate inverse.** Its `path` names any
+- **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
   rejects notes so the `.md` boundary stays a single rule with two sides
-  (notes → `vault_read_note`, everything else → `vault_read_asset`). Error
+  (notes → `vault_read_note`, everything else → `vault_read_file`). Error
   messages never name tools; the routing guidance lives in each tool's
   description.
 

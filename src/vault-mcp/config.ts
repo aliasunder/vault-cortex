@@ -57,16 +57,16 @@ export type VaultConfig = Readonly<{
    *  rename-based exclusive write for moves (hard links aren't supported there).
    *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
   windowsBindMount: boolean
-  /** Per-read byte cap for vault_read_asset — files larger than this are
-   *  rejected before reading (memory guard). Set via MAX_ASSET_BYTES. */
-  maxAssetBytes: number
+  /** Per-read byte cap for vault_read_file — files larger than this are
+   *  rejected before reading (memory guard). Set via MAX_FILE_BYTES. */
+  maxFileBytes: number
   /** Byte budget for image output after downscale/recompress, in binary bytes
    *  BEFORE base64 encoding. The default fits Claude Code's MCP output token
    *  cap (base64 expands ~4/3, then tokenizes at roughly 3 chars/token).
    *  Set via MAX_IMAGE_OUTPUT_BYTES; raise for clients with looser caps. */
   maxImageOutputBytes: number
   /** Maximum number of PDF pages to render as images when raw: true is set on
-   *  vault_read_asset. The per-page byte budget is maxImageOutputBytes divided
+   *  vault_read_file. The per-page byte budget is maxImageOutputBytes divided
    *  evenly across the rendered pages. Set via MAX_PDF_RENDER_PAGES. */
   maxPdfRenderPages: number
 }>
@@ -124,7 +124,7 @@ export const loadConfig = (
     .asBool()
 
   // env-var's asIntPositive admits 0, but a zero byte cap would make every
-  // asset read fail at runtime — reject it at startup instead.
+  // file read fail at runtime — reject it at startup instead.
   const requireNonZero = (name: string, value: number): number => {
     if (value === 0) {
       throw new Error(`env-var: "${name}" must be greater than 0`)
@@ -132,10 +132,10 @@ export const loadConfig = (
     return value
   }
 
-  // 50 MiB — matches the most permissive prior art for MCP asset reads.
-  const maxAssetBytes = requireNonZero(
-    "MAX_ASSET_BYTES",
-    envVar.from(env).get("MAX_ASSET_BYTES").default("52428800").asIntPositive(),
+  // 50 MiB — matches the most permissive prior art for MCP file reads.
+  const maxFileBytes = requireNonZero(
+    "MAX_FILE_BYTES",
+    envVar.from(env).get("MAX_FILE_BYTES").default("52428800").asIntPositive(),
   )
 
   // 48 KiB binary ≈ 64 KiB base64 ≈ ~21k tokens — under Claude Code's 25k-token
@@ -163,7 +163,7 @@ export const loadConfig = (
     embeddingEnabled,
     rerankMode,
     windowsBindMount,
-    maxAssetBytes,
+    maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
   })

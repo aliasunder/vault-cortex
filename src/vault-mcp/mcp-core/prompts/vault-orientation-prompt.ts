@@ -247,7 +247,7 @@ export const registerVaultOrientationPrompt = ({
           orphanTools,
           memoryTools,
           "- `vault_read_note` — read any note's full content",
-          "- `vault_list_assets` — browse non-markdown files (images, canvases, data files)",
+          "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
         ]
           .filter(Boolean)
           .join("\n")
