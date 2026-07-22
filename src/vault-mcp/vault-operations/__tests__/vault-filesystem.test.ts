@@ -1621,7 +1621,7 @@ describe("readAsset", () => {
     expect(asset.extension).toBe(".png")
   })
 
-  it("rejects a .md path as not an asset", async () => {
+  it("rejects a .md path as not a file", async () => {
     await writeFile(join(vault, "note.md"), "# note", "utf8")
     await expect(
       readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
@@ -1639,7 +1639,7 @@ describe("readAsset", () => {
     )
   })
 
-  it("rejects a missing file as asset not found", async () => {
+  it("rejects a missing file as file not found", async () => {
     await expect(
       readAsset(
         { vaultPath: vault, path: "ghost.png", maxBytes: 1024 },

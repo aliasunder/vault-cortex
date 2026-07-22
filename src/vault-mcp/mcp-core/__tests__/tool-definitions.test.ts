@@ -942,7 +942,7 @@ describe("vault_list_tasks handler", () => {
   })
 })
 
-describe("asset tool handlers", () => {
+describe("file tool handlers", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
   type HandlerResult = {
@@ -1164,7 +1164,7 @@ describe("asset tool handlers", () => {
     })
   })
 
-  it("rejects a missing asset with asset not found", async () => {
+  it("rejects a missing file with file not found", async () => {
     const { readAsset } = await setupAssetHarness()
     const result = await readAsset({ path: "ghost.png" })
     expect(result).toEqual({
@@ -1178,7 +1178,7 @@ describe("asset tool handlers", () => {
     })
   })
 
-  it("rejects a non-UTF-8 text asset instead of corrupting it", async () => {
+  it("rejects a non-UTF-8 text file instead of corrupting it", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     // 0xFF is never valid in UTF-8 — the default decoder would silently
     // substitute U+FFFD; the tool must refuse instead.
@@ -1195,7 +1195,7 @@ describe("asset tool handlers", () => {
     })
   })
 
-  it("rejects an oversized text asset instead of truncating it", async () => {
+  it("rejects an oversized text file instead of truncating it", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const oversized = "x".repeat(102_401)
     await writeFile(join(vault, "big.txt"), oversized, "utf8")
@@ -1206,7 +1206,7 @@ describe("asset tool handlers", () => {
     )
   })
 
-  it("lists a folder's assets with bytes and counts, excluding other folders and notes", async () => {
+  it("lists a folder's files with bytes and counts, excluding other folders and notes", async () => {
     const { vault, listAssets } = await setupAssetHarness()
     await mkdir(join(vault, "media"), { recursive: true })
     await mkdir(join(vault, "elsewhere"), { recursive: true })

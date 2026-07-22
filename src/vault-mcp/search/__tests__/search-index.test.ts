@@ -1527,7 +1527,7 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
-  it("resolves markdown-style asset embeds through the two-pass rebuild", async () => {
+  it("resolves markdown-style file embeds through the two-pass rebuild", async () => {
     await writeFile(
       join(vaultDir, "source.md"),
       "# Source\n\n![p](photo.png) and [[genuinely-missing]].\n",
@@ -2414,7 +2414,7 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
-  it("does not count wikilinks to non-note assets as broken when files are registered", () => {
+  it("does not count wikilinks to non-note files as broken when files are registered", () => {
     index.upsertNonMdFile("photo.png", 100)
     index.upsertNonMdFile("report.pdf", 100)
     index.upsertNote(
@@ -2481,7 +2481,7 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]!.kind).toBe("file")
   })
 
-  it("removeNonMdFile makes previously resolved asset links broken again", () => {
+  it("removeNonMdFile makes previously resolved file links broken again", () => {
     index.upsertNonMdFile("Route.canvas", 100)
     index.upsertNote(
       {
@@ -2575,7 +2575,7 @@ describe("brokenLinkCount", () => {
 // ── modifiedOnDate ──────────────────────────────────────────────
 
 describe("markdown-style links to non-md targets", () => {
-  it("resolves a markdown image embed as an asset", () => {
+  it("resolves a markdown image embed as a file", () => {
     index.upsertNonMdFile("pics/photo.png", 100)
     index.upsertNote(
       {
@@ -2610,7 +2610,7 @@ describe("markdown-style links to non-md targets", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
-  it("resolves a markdown link to a PDF as an asset", () => {
+  it("resolves a markdown link to a PDF as a file", () => {
     index.upsertNonMdFile("papers/report.pdf", 100)
     index.upsertNote(
       {
@@ -2632,7 +2632,7 @@ describe("markdown-style links to non-md targets", () => {
     ])
   })
 
-  it("percent-decodes a markdown asset path with folders and spaces", () => {
+  it("percent-decodes a markdown file path with folders and spaces", () => {
     index.upsertNonMdFile("Trip Photos/pic 1.png", 100)
     index.upsertNote(
       {
@@ -2742,7 +2742,7 @@ describe("markdown-style links to non-md targets", () => {
     ])
   })
 
-  it("counts a markdown link to a missing asset as broken with the target as written", () => {
+  it("counts a markdown link to a missing file as broken with the target as written", () => {
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2790,8 +2790,8 @@ describe("markdown-style links to non-md targets", () => {
   })
 })
 
-describe("asset targets written with extensions", () => {
-  it("resolves a wikilink embed by basename when the asset lives in a subfolder", () => {
+describe("file targets written with extensions", () => {
+  it("resolves a wikilink embed by basename when the file lives in a subfolder", () => {
     index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
       {
@@ -2814,7 +2814,7 @@ describe("asset targets written with extensions", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
-  it("resolves a markdown embed by basename when the asset lives in a subfolder", () => {
+  it("resolves a markdown embed by basename when the file lives in a subfolder", () => {
     index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
       {
@@ -2837,7 +2837,7 @@ describe("asset targets written with extensions", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
-  it("resolves a relative asset link against the source note's folder", () => {
+  it("resolves a relative file link against the source note's folder", () => {
     index.upsertNonMdFile("assets/photo.png", 100)
     index.upsertNote(
       {
