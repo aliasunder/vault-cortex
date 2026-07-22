@@ -7,7 +7,10 @@ const getError = (fn: () => void): Error => {
     fn()
     throw new Error("expected function to throw")
   } catch (thrown) {
-    if (thrown instanceof Error && thrown.message !== "expected function to throw")
+    if (
+      thrown instanceof Error &&
+      thrown.message !== "expected function to throw"
+    )
       return thrown
     throw thrown
   }
@@ -57,9 +60,7 @@ describe("assertNoControlCharacters", () => {
   })
 
   it("allows tab (U+0009)", () => {
-    expect(() =>
-      assertNoControlCharacters("col1\tcol2", "body"),
-    ).not.toThrow()
+    expect(() => assertNoControlCharacters("col1\tcol2", "body")).not.toThrow()
   })
 
   it("allows LF (U+000A)", () => {
