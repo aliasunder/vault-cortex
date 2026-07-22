@@ -25,7 +25,7 @@ API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 
 The server provides three capability layers, each additive:
 
-- **Vault CRUD + memory + assets** — read/write notes, heading-targeted patching, note moving with link rewriting, read non-markdown files (images, canvases, PDFs, data files) each in the form most useful to an agent, and an About Me/ memory layer for AI personalization. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
+- **Vault CRUD + memory + files** — read/write notes, heading-targeted patching, note moving with link rewriting, read non-markdown files (images, canvases, PDFs, data files) each in the form most useful to an agent, and an About Me/ memory layer for AI personalization. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
 - **Hybrid search** — FTS5 keyword matching + sqlite-vec vector similarity, fused via RRF. Embeddings generated locally by a small ONNX model — no external API. The Docker image uses Debian slim (`node:24-slim`) because `onnxruntime-node` requires glibc.
 - **Cross-encoder reranking** — position-aware score blending after RRF fusion, rescuing intent-heavy queries where keywords and vectors both miss.
 
@@ -284,7 +284,7 @@ Link queries use a `links` table populated during indexing:
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
 - **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
 
-### Assets
+### Files
 
 | Tool               | Input                          | Annotation   |
 | ------------------ | ------------------------------ | ------------ |

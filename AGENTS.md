@@ -139,7 +139,7 @@ src/
         task-tools.ts                  # 2 tools: list-tasks, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
-        asset-tools.ts                 # 2 tools: read-asset, list-assets
+        asset-tools.ts                 # 2 tools: read-file, list-files
       prompts/                         # Prompt group modules (one per prompt)
         prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
         vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey

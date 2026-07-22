@@ -608,7 +608,7 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and assets a given note links to via outgoing [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and files a given note links to via outgoing [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; self-links are included.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 

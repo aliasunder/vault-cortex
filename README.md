@@ -223,7 +223,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 
-See [ARCHITECTURE.md → Assets](./ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
+See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline and dispatch model.
 
 ## Tools
 
