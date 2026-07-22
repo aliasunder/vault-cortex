@@ -577,7 +577,7 @@ const readAsset = async (
     }
     if (totalBytesRead === readBuffer.length) {
       throw new Error(
-        `asset changed while reading: "${params.path}" grew past its ` +
+        `file changed while reading: "${params.path}" grew past its ` +
           `measured size — retry the read`,
       )
     }

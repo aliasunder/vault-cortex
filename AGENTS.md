@@ -210,7 +210,7 @@ on**, not just its topic:
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
   and I/O — is a _use-case_ and belongs in `vault-operations/`
-  (`asset-reader.ts` and `asset-listing.ts` are the worked examples). The
+  (`asset-operations.ts` is the worked example). The
   smell: a handler importing a parser to orchestrate between two data-layer
   calls; the fix is a use-case module, not a bigger handler.
   `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from

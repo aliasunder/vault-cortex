@@ -304,12 +304,12 @@ describe("loadConfig", () => {
   describe("MAX_FILE_BYTES", () => {
     it("defaults to 50 MiB (52428800) when unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.maxAssetBytes).toBe(52_428_800)
+      expect(config.maxFileBytes).toBe(52_428_800)
     })
 
     it("accepts a custom positive integer", () => {
       const config = loadConfig({ MAX_FILE_BYTES: "10485760" })
-      expect(config.maxAssetBytes).toBe(10_485_760)
+      expect(config.maxFileBytes).toBe(10_485_760)
     })
 
     it("rejects a non-integer value", () => {

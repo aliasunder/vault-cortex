@@ -955,7 +955,7 @@ describe("file tool handlers", () => {
     isError?: boolean
   }
 
-  /** Registers against a real temp vault and returns the two asset handlers —
+  /** Registers against a real temp vault and returns the two file handlers —
    *  the global harness registers against a nonexistent path. */
   const setupAssetHarness = async (): Promise<{
     vault: string
@@ -1143,7 +1143,7 @@ describe("file tool handlers", () => {
       content: [
         {
           type: "text",
-          text: '[Error]: unsupported asset type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
+          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
         },
       ],
     })
