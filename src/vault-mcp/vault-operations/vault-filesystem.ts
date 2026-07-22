@@ -33,6 +33,7 @@ import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import type { Logger } from "../../logger.js"
 
@@ -332,6 +333,7 @@ const writeNote = async (
   logger: Logger,
 ): Promise<void> => {
   assertPathHasExtension(params.path, ".md")
+  assertNoControlCharacters(params.body, "body")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   return withExclusiveFileLock(fullPath, async () => {
     await mkdir(dirname(fullPath), { recursive: true })

@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
@@ -163,6 +164,7 @@ const patchNote = async (
   logger: Logger,
 ): Promise<string> => {
   const { path, operation, content, heading, headingLevel } = params
+  assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
@@ -251,6 +253,7 @@ const replaceInNote = async (
   if (oldText.length === 0) {
     throw new Error("old_text cannot be empty")
   }
+  assertNoControlCharacters(newText, "new_text")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {

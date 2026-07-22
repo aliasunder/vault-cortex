@@ -7,6 +7,7 @@ import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -504,6 +505,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         "section must be a single line: section names become H2 headings — remove line breaks",
       )
     }
+    assertNoControlCharacters(params.entry, "entry")
+    assertNoControlCharacters(params.section, "section")
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
     return withFileLock(

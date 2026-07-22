@@ -433,6 +433,17 @@ describe("writeNote", () => {
     const content = await readFile(join(vault, "fresh-overwrite.md"), "utf8")
     expect(content).toBe("created\n")
   })
+
+  it("rejects body containing a control character", async () => {
+    await expect(
+      writeNote(
+        { vaultPath: vault, path: "bad.md", body: "hello\x00world" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+    )
+  })
 })
 
 const DEFAULT_PROTECTED = ["About Me", "Daily Notes"]

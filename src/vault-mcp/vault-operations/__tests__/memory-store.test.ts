@@ -571,6 +571,40 @@ describe("updateMemory idempotency", () => {
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
+  it("rejects an entry containing a control character", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics (newest first)",
+          entry: "likes\x00nulls",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "entry contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+    )
+  })
+
+  it("rejects a section name containing a control character", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Bad\x07Section",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "section contains a control character (U+0007 at position 3) — control characters other than tab, LF, and CR are not allowed",
+    )
+  })
+
   // A memory file is a bare name, never a path — a separator would let
   // "../.." escape the memory directory (and the vault) entirely.
   it.each([
