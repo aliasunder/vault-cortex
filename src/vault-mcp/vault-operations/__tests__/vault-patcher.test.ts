@@ -1644,7 +1644,7 @@ describe("patchNote errors", () => {
         logger,
       ),
     ).rejects.toThrow(
-      "content contains a control character (U+0000 at position 3)",
+      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
     )
   })
 })
@@ -1951,7 +1951,7 @@ apple and apple and apple.
         logger,
       ),
     ).rejects.toThrow(
-      "new_text contains a control character (U+0000 at position 4)",
+      "new_text contains a control character (U+0000 at position 4) — control characters other than tab, LF, and CR are not allowed",
     )
   })
 

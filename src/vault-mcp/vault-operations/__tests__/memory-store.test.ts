@@ -584,7 +584,7 @@ describe("updateMemory idempotency", () => {
         logger,
       ),
     ).rejects.toThrow(
-      "entry contains a control character (U+0000 at position 5)",
+      "entry contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
     )
   })
 
@@ -601,7 +601,7 @@ describe("updateMemory idempotency", () => {
         logger,
       ),
     ).rejects.toThrow(
-      "section contains a control character (U+0007 at position 3)",
+      "section contains a control character (U+0007 at position 3) — control characters other than tab, LF, and CR are not allowed",
     )
   })
 

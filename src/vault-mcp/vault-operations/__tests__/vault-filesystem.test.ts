@@ -441,7 +441,7 @@ describe("writeNote", () => {
         logger,
       ),
     ).rejects.toThrow(
-      "body contains a control character (U+0000 at position 5)",
+      "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
     )
   })
 })
