@@ -643,10 +643,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
   memory-file (`file`) inputs are exempt.
-- **`vault_read_asset` is the deliberate inverse.** Its `path` names any
+- **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
   rejects notes so the `.md` boundary stays a single rule with two sides
-  (notes → `vault_read_note`, everything else → `vault_read_asset`). Error
+  (notes → `vault_read_note`, everything else → `vault_read_file`). Error
   messages never name tools; the routing guidance lives in each tool's
   description.
 

@@ -433,14 +433,14 @@ const deleteNote = async (
 
 /** Walks the vault (or a folder within it) and returns the sorted
  *  vault-relative paths of every file of the requested kind — "note"
- *  (.md files) or "asset" (everything else). The .md extension is the
+ *  (.md files) or "file" (everything else). The .md extension is the
  *  single definition of that boundary. Follows valid symlinks; hidden
  *  segments (any path part starting with ".") are skipped. */
 const listVaultFilePaths = async (
   params: {
     vaultPath: string
     folder?: string | undefined
-    fileKind: "note" | "asset"
+    fileKind: "note" | "file"
   },
   logger: Logger,
 ): Promise<string[]> => {
@@ -511,7 +511,7 @@ const listAssets = async (
     {
       vaultPath: params.vaultPath,
       folder: params.folder,
-      fileKind: "asset",
+      fileKind: "file",
     },
     logger,
   )
@@ -540,7 +540,7 @@ const readAsset = async (
   if (fileStats.size > params.maxBytes) {
     throw new Error(
       `asset too large: "${params.path}" is ${fileStats.size} bytes ` +
-        `(cap ${params.maxBytes} bytes — raise MAX_ASSET_BYTES to read larger files)`,
+        `(cap ${params.maxBytes} bytes — raise MAX_FILE_BYTES to read larger files)`,
     )
   }
 

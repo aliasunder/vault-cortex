@@ -22,7 +22,7 @@
 > This is an abbreviated version for Docker Hub. See the full README for quick-start guides, authentication details, and development instructions.
 
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, notes & files, structured memory, and task management** in your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
 
 ## What you get
@@ -48,7 +48,7 @@
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Assets](https://github.com/aliasunder/vault-cortex#assets)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), canvases as readable outlines, data files as text
+- **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), canvases as readable outlines, data files as text
 - **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](https://github.com/aliasunder/vault-cortex#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -59,15 +59,15 @@
 
 See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quick-start) for local setup (2 minutes with Docker), remote deployment with Obsidian Sync, and MCP client configuration.
 
-## Assets
+## Files
 
-Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats assets as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. The exact JSON source is one flag away when full fidelity matters
 - **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
-- **Browse** — list any folder's assets with per-extension counts and file sizes; assets a note links to report their size in the link graph too
+- **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 
 See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#assets) for the image pipeline and dispatch model.
 
@@ -102,8 +102,8 @@ See [ARCHITECTURE.md → Assets](https://github.com/aliasunder/vault-cortex/blob
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                          |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
-| **Assets**      | `vault_read_asset`           | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
-|                 | `vault_list_assets`          | Browse the vault's non-markdown files with sizes and per-extension counts              |
+| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
+|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts              |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
 ## Prompts
@@ -153,9 +153,9 @@ All settings are environment variables with sensible defaults.
 | `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                                                           |
 | `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                                                      |
 | `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2.                               |
-| `MAX_ASSET_BYTES`           | —           | `52428800` (50 MiB)                  | Maximum file size `vault_read_asset` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                                                 |
-| `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                     | Byte budget for images delivered by `vault_read_asset`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
-| `MAX_PDF_RENDER_PAGES`      | —           | `5`                                  | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_asset`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each.                                     |
+| `MAX_FILE_BYTES`            | —           | `52428800` (50 MiB)                  | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                                                  |
+| `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                     | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses.  |
+| `MAX_PDF_RENDER_PAGES`      | —           | `5`                                  | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each.                                      |
 
 ## Deployment Options
 

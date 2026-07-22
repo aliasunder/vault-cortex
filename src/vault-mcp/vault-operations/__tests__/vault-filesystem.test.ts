@@ -1653,7 +1653,7 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
     ).rejects.toThrow(
-      'asset too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_ASSET_BYTES to read larger files)',
+      'asset too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
     )
   })
 })

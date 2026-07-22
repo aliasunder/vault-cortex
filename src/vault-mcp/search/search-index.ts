@@ -246,9 +246,9 @@ export type OutgoingLinkEntry = {
   path: string
   title: string | null
   exists: boolean
-  /** "note" for .md targets, "asset" for resolved non-markdown files
+  /** "note" for .md targets, "file" for resolved non-markdown files
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
-  kind: "note" | "asset"
+  kind: "note" | "file"
   bytes: number | null
   /** True when the target is under the daily notes folder and the note
    *  does not exist yet — a forward-reference ("create on click"
@@ -1370,7 +1370,7 @@ export const createSearchIndex = (
     // Named stages keep each pass O(n) (a spread-accumulating reduce would
     // re-copy the array per entry) and let the chain read top-to-bottom.
     const visibleFilesOfKind = (
-      fileKind: "note" | "asset",
+      fileKind: "note" | "file",
     ): { relativePath: string; absolutePath: string }[] => {
       const matchesKind = (directoryEntry: Dirent): boolean => {
         if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
@@ -1403,7 +1403,7 @@ export const createSearchIndex = (
     // and re-indexed by its own watcher event.
     const nonMarkdownFileSizes = (
       await Promise.all(
-        visibleFilesOfKind("asset").map(async (file) => {
+        visibleFilesOfKind("file").map(async (file) => {
           const fileStat = await statOrNull(file.absolutePath)
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }

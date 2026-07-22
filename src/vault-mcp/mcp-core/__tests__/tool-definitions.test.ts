@@ -32,8 +32,8 @@ const READ_ONLY_TOOLS = [
   TOOL_NAMES.VAULT_GET_BACKLINKS,
   TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
   TOOL_NAMES.VAULT_FIND_ORPHANS,
-  TOOL_NAMES.VAULT_READ_ASSET,
-  TOOL_NAMES.VAULT_LIST_ASSETS,
+  TOOL_NAMES.VAULT_READ_FILE,
+  TOOL_NAMES.VAULT_LIST_FILES,
 ] as const
 
 const DESTRUCTIVE_TOOLS = [
@@ -267,26 +267,26 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_get_backlinks")
   })
 
-  it("vault_read_asset description cross-references discovery and note tools", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_ASSET)
-    expect(config.description).toContain("vault_list_assets")
+  it("vault_read_file description cross-references discovery and note tools", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_FILE)
+    expect(config.description).toContain("vault_list_files")
     expect(config.description).toContain("vault_get_outgoing_links")
     expect(config.description).toContain("vault_read_note")
   })
 
-  it("vault_list_assets description cross-references vault_read_asset", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_ASSETS)
-    expect(config.description).toContain("vault_read_asset")
+  it("vault_list_files description cross-references vault_read_file", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_FILES)
+    expect(config.description).toContain("vault_read_file")
   })
 
-  it("vault_read_note description routes non-md paths to vault_read_asset", () => {
+  it("vault_read_note description routes non-md paths to vault_read_file", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    expect(config.description).toContain("vault_read_asset")
+    expect(config.description).toContain("vault_read_file")
   })
 
-  it("vault_get_outgoing_links description cross-references vault_read_asset", () => {
+  it("vault_get_outgoing_links description cross-references vault_read_file", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_GET_OUTGOING_LINKS)
-    expect(config.description).toContain("vault_read_asset")
+    expect(config.description).toContain("vault_read_file")
   })
 
   it("every tool has all 4 annotation hints", () => {
@@ -984,8 +984,8 @@ describe("asset tool handlers", () => {
     }
     return {
       vault: tempVault,
-      readAsset: handlerFor(TOOL_NAMES.VAULT_READ_ASSET),
-      listAssets: handlerFor(TOOL_NAMES.VAULT_LIST_ASSETS),
+      readAsset: handlerFor(TOOL_NAMES.VAULT_READ_FILE),
+      listAssets: handlerFor(TOOL_NAMES.VAULT_LIST_FILES),
     }
   }
 
@@ -1217,7 +1217,7 @@ describe("asset tool handlers", () => {
     const result = await listAssets({ folder: "media" })
     expect(result.isError).toBeUndefined()
     expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
-      assets: [
+      files: [
         { path: "media/a.png", extension: ".png", bytes: 5 },
         { path: "media/b.canvas", extension: ".canvas", bytes: 2 },
       ],
@@ -1235,7 +1235,7 @@ describe("asset tool handlers", () => {
       await writeFile(join(vault, "b.jpg"), "12", "utf8")
       const result = await listAssets({ extensions: [extensionSpelling] })
       expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
-        assets: [{ path: "a.png", extension: ".png", bytes: 5 }],
+        files: [{ path: "a.png", extension: ".png", bytes: 5 }],
         extension_counts: { ".png": 1 },
         total: 1,
         truncated: false,
@@ -1250,7 +1250,7 @@ describe("asset tool handlers", () => {
     await writeFile(join(vault, "c.jpg"), "333", "utf8")
     const result = await listAssets({ limit: 1 })
     expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
-      assets: [{ path: "a.png", extension: ".png", bytes: 1 }],
+      files: [{ path: "a.png", extension: ".png", bytes: 1 }],
       extension_counts: { ".png": 2, ".jpg": 1 },
       total: 3,
       truncated: true,

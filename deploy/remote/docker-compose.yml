@@ -47,7 +47,7 @@ services:
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
       TZ: ${TZ:-UTC}
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
-      MAX_ASSET_BYTES: ${MAX_ASSET_BYTES:-52428800}
+      MAX_FILE_BYTES: ${MAX_FILE_BYTES:-52428800}
       MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
       # Optional overrides. When unset, the server applies smart defaults

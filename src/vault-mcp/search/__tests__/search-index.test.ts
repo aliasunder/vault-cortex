@@ -212,7 +212,7 @@ describe("leading callout", () => {
         path: "photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 77,
         daily_note_forward_ref: false,
       },
@@ -1520,7 +1520,7 @@ describe("rebuildFromVault", () => {
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing-note")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -1550,7 +1550,7 @@ describe("rebuildFromVault", () => {
         path: "photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 9,
         daily_note_forward_ref: false,
       },
@@ -1574,7 +1574,7 @@ describe("rebuildFromVault", () => {
       (link) => link.path === "canvases/Dashboard.canvas",
     )
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -1599,7 +1599,7 @@ describe("rebuildFromVault", () => {
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "views/Inventory.base")
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -1649,7 +1649,7 @@ describe("rebuildFromVault", () => {
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Route.canvas")
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -1681,7 +1681,7 @@ describe("rebuildFromVault", () => {
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "photo.png")
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken!.exists).toBe(false)
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
@@ -1750,7 +1750,7 @@ describe("rebuildFromVault", () => {
       expect.objectContaining({
         path: "Board.canvas",
         exists: true,
-        kind: "asset",
+        kind: "file",
       }),
     ])
   })
@@ -2430,10 +2430,10 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(3)
     const photo = outgoing.find((link) => link.path === "photo.png")
     expect(photo!.exists).toBe(true)
-    expect(photo!.kind).toBe("asset")
+    expect(photo!.kind).toBe("file")
     const pdf = outgoing.find((link) => link.path === "report.pdf")
     expect(pdf!.exists).toBe(true)
-    expect(pdf!.kind).toBe("asset")
+    expect(pdf!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "real-note")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -2454,7 +2454,7 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
     expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("asset")
+    expect(asset!.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing")
     expect(broken!.exists).toBe(false)
     expect(broken!.kind).toBe("note")
@@ -2478,7 +2478,7 @@ describe("brokenLinkCount", () => {
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]!.path).toBe("Route.canvas")
     expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("asset")
+    expect(outgoing[0]!.kind).toBe("file")
   })
 
   it("removeNonMdFile makes previously resolved asset links broken again", () => {
@@ -2602,7 +2602,7 @@ describe("markdown-style links to non-md targets", () => {
         path: "pics/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2625,7 +2625,7 @@ describe("markdown-style links to non-md targets", () => {
         path: "papers/report.pdf",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2647,7 +2647,7 @@ describe("markdown-style links to non-md targets", () => {
         path: "Trip Photos/pic 1.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2806,7 +2806,7 @@ describe("asset targets written with extensions", () => {
         path: "attachments/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2829,7 +2829,7 @@ describe("asset targets written with extensions", () => {
         path: "attachments/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2852,7 +2852,7 @@ describe("asset targets written with extensions", () => {
         path: "assets/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2875,7 +2875,7 @@ describe("asset targets written with extensions", () => {
         path: "deep/sub/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2899,7 +2899,7 @@ describe("asset targets written with extensions", () => {
         path: "a/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2925,7 +2925,7 @@ describe("asset targets written with extensions", () => {
         path: "a/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2950,7 +2950,7 @@ describe("asset targets written with extensions", () => {
         path: "photo.png.canvas",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
@@ -2999,7 +2999,7 @@ describe("asset targets written with extensions", () => {
         path: "attachments/photo.png",
         title: null,
         exists: true,
-        kind: "asset",
+        kind: "file",
         bytes: 100,
         daily_note_forward_ref: false,
       },
