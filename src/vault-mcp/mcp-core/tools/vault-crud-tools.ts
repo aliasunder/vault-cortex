@@ -215,6 +215,7 @@ Limitation: Writes the entire body. Do not use for surgical edits to large files
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+- "body contains a control character" — body includes a non-printable control byte; remove it before writing
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
@@ -312,6 +313,7 @@ Errors:
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+- "content contains a control character" — content includes a non-printable control byte; remove it before writing
 
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
 Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
@@ -408,6 +410,7 @@ Errors:
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "old_text cannot be empty" — old_text must be at least one character
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+- "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
 
 Obsidian syntax: new_text is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in replacement text.
 

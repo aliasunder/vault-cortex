@@ -114,6 +114,7 @@ Errors:
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
+- "entry/section contains a control character" — entry or section includes a non-printable control byte; remove it before writing.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {

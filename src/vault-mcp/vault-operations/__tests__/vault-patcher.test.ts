@@ -1630,6 +1630,23 @@ describe("patchNote errors", () => {
       ),
     ).rejects.toThrow("path traversal blocked")
   })
+
+  it("rejects content containing a control character", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "append",
+          content: "new\x00content",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+    )
+  })
 })
 
 describe("patchNote — duplicate-heading guard", () => {
@@ -1919,6 +1936,23 @@ apple and apple and apple.
         logger,
       ),
     ).rejects.toThrow("old_text cannot be empty")
+  })
+
+  it("rejects new_text containing a control character", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await expect(
+      replaceInNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          oldText: "Task A",
+          newText: "Task\x00A",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "new_text contains a control character (U+0000 at position 4) — control characters other than tab, LF, and CR are not allowed",
+    )
   })
 
   it("errors when old_text not found", async () => {
