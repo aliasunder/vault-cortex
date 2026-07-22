@@ -202,7 +202,8 @@ on**, not just its topic:
   orchestrator that composes `TOOL_NAMES` from the domain group modules under
   `mcp-core/tools/` (vault-crud, search, memory, daily-note, task, asset) and
   calls each register function — conditionally skipping memory tools when
-  `MEMORY_ENABLED` is `false`. Each group module is self-contained: its own tool
+  `MEMORY_ENABLED` is `false` and file tools when `FILE_TOOLS_ENABLED` is
+  `false`. Each group module is self-contained: its own tool
   name constants, register function, and data-layer imports. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
   `tool-helpers.ts`.

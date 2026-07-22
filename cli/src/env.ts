@@ -70,6 +70,9 @@ RERANK_MODE=blended
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 MEMORY_ENABLED=true
+# Enable or disable file tools — vault_read_file and vault_list_files (default: true).
+# Set to false when Obsidian Sync has asset syncing disabled.
+FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
@@ -161,6 +164,9 @@ MAX_PDF_RENDER_PAGES=5
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
 MEMORY_ENABLED=true
+# Enable or disable file tools — vault_read_file and vault_list_files (default: true).
+# Set to false when Obsidian Sync has asset syncing disabled.
+FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 

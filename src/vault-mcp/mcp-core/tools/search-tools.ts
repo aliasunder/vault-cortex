@@ -618,7 +618,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Parameters:
 - path is matched against the search index, so the note must be indexed (file watcher processes new/moved files within seconds). A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF) readable via vault_read_file; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links) — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read.`,
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${config.fileToolsEnabled ? " readable via vault_read_file" : ""}; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links)${config.fileToolsEnabled ? " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read" : ""}.`,
       inputSchema: {
         path: z
           .string()

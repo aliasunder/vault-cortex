@@ -285,6 +285,42 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(options.instructions).not.toContain("About Me/")
     })
 
+    it("instructions omit vault_read_file when FILE_TOOLS_ENABLED is false", async () => {
+      const disabledConfig = loadConfig({ FILE_TOOLS_ENABLED: "false" })
+      const harness = await setupHarness({ config: disabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const options = vi.mocked(McpServer).mock.calls[0]![1] as {
+        instructions?: string
+      }
+      expect(options.instructions).not.toContain("vault_read_file")
+      expect(options.instructions).toContain("vault_search")
+    })
+
+    it("instructions omit both vault_read_file and vault_get_memory when both disabled", async () => {
+      const bothDisabledConfig = loadConfig({
+        MEMORY_ENABLED: "false",
+        FILE_TOOLS_ENABLED: "false",
+      })
+      const harness = await setupHarness({ config: bothDisabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const options = vi.mocked(McpServer).mock.calls[0]![1] as {
+        instructions?: string
+      }
+      expect(options.instructions).not.toContain("vault_read_file")
+      expect(options.instructions).not.toContain("vault_get_memory")
+      expect(options.instructions).toContain("vault_write_note")
+    })
+
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
       expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(

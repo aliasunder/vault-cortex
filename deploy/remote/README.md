@@ -366,18 +366,25 @@ starter template files on first startup, and agents grow it from there. See
 [Memory](../../README.md#memory) in the main README for how the layer works,
 and [templates/memory](../../templates/memory/README.md) for the file format.
 
+## File Tools
+
+File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
+`FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
+Sync has asset syncing disabled and no files exist on disk.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting             | Default   | What it does                                                                                          |
-| ------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `TZ`                | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
-| `VAULT_PASSWORD`    | —         | Set this if your vault has end-to-end encryption enabled                                              |
-| `EMBEDDING_ENABLED` | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
-| `RERANK_MODE`       | `blended` | Set `none` to skip reranking for lower latency                                                        |
-| `MEMORY_ENABLED`    | `true`    | Set `false` to disable the structured memory layer                                                    |
+| Setting              | Default   | What it does                                                                                          |
+| -------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
+| `TZ`                 | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
+| `VAULT_PASSWORD`     | —         | Set this if your vault has end-to-end encryption enabled                                              |
+| `EMBEDDING_ENABLED`  | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
+| `RERANK_MODE`        | `blended` | Set `none` to skip reranking for lower latency                                                        |
+| `MEMORY_ENABLED`     | `true`    | Set `false` to disable the structured memory layer                                                    |
+| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has asset syncing disabled                          |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

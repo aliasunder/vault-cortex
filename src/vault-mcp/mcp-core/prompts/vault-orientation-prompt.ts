@@ -240,6 +240,9 @@ export const registerVaultOrientationPrompt = ({
         const memoryTools = config.memoryEnabled
           ? "- `vault_get_memory` — read memory files in detail"
           : ""
+        const fileTools = config.fileToolsEnabled
+          ? "- `vault_list_files` — browse non-markdown files (images, canvases, data files)"
+          : ""
         const goDeeper = [
           `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
           "- `vault_search_by_tag` — explore notes by tag",
@@ -247,7 +250,7 @@ export const registerVaultOrientationPrompt = ({
           orphanTools,
           memoryTools,
           "- `vault_read_note` — read any note's full content",
-          "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
+          fileTools,
         ]
           .filter(Boolean)
           .join("\n")

@@ -40,7 +40,9 @@ export const registerTools = (params: {
   }
   registerDailyNoteTools(params)
   registerTaskTools(params)
-  registerAssetTools(params)
+  if (params.config.fileToolsEnabled) {
+    registerAssetTools(params)
+  }
 
   const registeredCount =
     Object.keys(VAULT_CRUD_TOOL_NAMES).length +
@@ -48,6 +50,6 @@ export const registerTools = (params: {
     (params.config.memoryEnabled ? Object.keys(MEMORY_TOOL_NAMES).length : 0) +
     Object.keys(DAILY_NOTE_TOOL_NAMES).length +
     Object.keys(TASK_TOOL_NAMES).length +
-    Object.keys(FILE_TOOL_NAMES).length
+    (params.config.fileToolsEnabled ? Object.keys(FILE_TOOL_NAMES).length : 0)
   params.logger.info("registered tools", { count: registeredCount })
 }
