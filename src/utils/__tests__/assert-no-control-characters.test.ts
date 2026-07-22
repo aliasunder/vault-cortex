@@ -1,0 +1,89 @@
+import { describe, it, expect } from "vitest"
+import { assertNoControlCharacters } from "../assert-no-control-characters.js"
+
+describe("assertNoControlCharacters", () => {
+  it("rejects NUL (U+0000)", () => {
+    expect(() => assertNoControlCharacters("hello\x00world", "body")).toThrow(
+      "body contains a control character (U+0000 at position 5)",
+    )
+  })
+
+  it("rejects BEL (U+0007)", () => {
+    expect(() => assertNoControlCharacters("\x07beep", "body")).toThrow(
+      "body contains a control character (U+0007 at position 0)",
+    )
+  })
+
+  it("rejects VT (U+000B)", () => {
+    expect(() => assertNoControlCharacters("line\x0Bbreak", "body")).toThrow(
+      "body contains a control character (U+000B at position 4)",
+    )
+  })
+
+  it("rejects FF (U+000C)", () => {
+    expect(() => assertNoControlCharacters("page\x0Cfeed", "body")).toThrow(
+      "body contains a control character (U+000C at position 4)",
+    )
+  })
+
+  it("rejects DEL (U+007F)", () => {
+    expect(() => assertNoControlCharacters("del\x7F", "body")).toThrow(
+      "body contains a control character (U+007F at position 3)",
+    )
+  })
+
+  it("rejects C1 NEL (U+0085)", () => {
+    expect(() => assertNoControlCharacters("next\x85line", "body")).toThrow(
+      "body contains a control character (U+0085 at position 4)",
+    )
+  })
+
+  it("rejects C1 upper bound (U+009F)", () => {
+    expect(() => assertNoControlCharacters("end\x9F", "body")).toThrow(
+      "body contains a control character (U+009F at position 3)",
+    )
+  })
+
+  it("allows tab (U+0009)", () => {
+    expect(() =>
+      assertNoControlCharacters("col1\tcol2", "body"),
+    ).not.toThrow()
+  })
+
+  it("allows LF (U+000A)", () => {
+    expect(() =>
+      assertNoControlCharacters("line1\nline2", "body"),
+    ).not.toThrow()
+  })
+
+  it("allows CRLF", () => {
+    expect(() =>
+      assertNoControlCharacters("line1\r\nline2", "body"),
+    ).not.toThrow()
+  })
+
+  it("allows empty string", () => {
+    expect(() => assertNoControlCharacters("", "body")).not.toThrow()
+  })
+
+  it("allows normal markdown content", () => {
+    expect(() =>
+      assertNoControlCharacters(
+        "## Heading\n\nBody with [[links]] and #tags",
+        "body",
+      ),
+    ).not.toThrow()
+  })
+
+  it("includes the param name in the error message", () => {
+    expect(() => assertNoControlCharacters("bad\x00", "entry")).toThrow(
+      "entry contains a control character",
+    )
+  })
+
+  it("reports first occurrence only", () => {
+    expect(() => assertNoControlCharacters("\x01\x02", "body")).toThrow(
+      "U+0001 at position 0",
+    )
+  })
+})
