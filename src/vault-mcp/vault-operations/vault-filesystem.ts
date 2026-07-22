@@ -530,16 +530,16 @@ const readAsset = async (
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
   if (params.path.endsWith(".md")) {
-    throw new Error(`not an asset: "${params.path}" is a markdown note`)
+    throw new Error(`not a file: "${params.path}" is a markdown note`)
   }
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const fileStats = await statOrNull(fullPath)
   if (!fileStats || !fileStats.isFile()) {
-    throw new Error(`asset not found: "${params.path}"`)
+    throw new Error(`file not found: "${params.path}"`)
   }
   if (fileStats.size > params.maxBytes) {
     throw new Error(
-      `asset too large: "${params.path}" is ${fileStats.size} bytes ` +
+      `file too large: "${params.path}" is ${fileStats.size} bytes ` +
         `(cap ${params.maxBytes} bytes — raise MAX_FILE_BYTES to read larger files)`,
     )
   }
@@ -549,7 +549,7 @@ const readAsset = async (
       return await open(fullPath, "r")
     } catch (error) {
       if (isErrnoException(error, "ENOENT")) {
-        throw new Error(`asset not found: "${params.path}"`, { cause: error })
+        throw new Error(`file not found: "${params.path}"`, { cause: error })
       }
       throw error
     }

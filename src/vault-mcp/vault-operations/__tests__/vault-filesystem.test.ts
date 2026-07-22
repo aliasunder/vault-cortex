@@ -1625,7 +1625,7 @@ describe("readAsset", () => {
     await writeFile(join(vault, "note.md"), "# note", "utf8")
     await expect(
       readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('not an asset: "note.md" is a markdown note')
+    ).rejects.toThrow('not a file: "note.md" is a markdown note')
   })
 
   it("blocks path traversal out of the vault", async () => {
@@ -1645,7 +1645,7 @@ describe("readAsset", () => {
         { vaultPath: vault, path: "ghost.png", maxBytes: 1024 },
         logger,
       ),
-    ).rejects.toThrow('asset not found: "ghost.png"')
+    ).rejects.toThrow('file not found: "ghost.png"')
   })
 
   it("rejects a file over the byte cap before reading it", async () => {
@@ -1653,7 +1653,7 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
     ).rejects.toThrow(
-      'asset too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
+      'file too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
     )
   })
 })

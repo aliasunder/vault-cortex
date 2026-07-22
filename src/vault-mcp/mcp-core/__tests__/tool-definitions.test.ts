@@ -1158,7 +1158,7 @@ describe("asset tool handlers", () => {
       content: [
         {
           type: "text",
-          text: '[Error]: not an asset: "note.md" is a markdown note',
+          text: '[Error]: not a file: "note.md" is a markdown note',
         },
       ],
     })
@@ -1172,7 +1172,7 @@ describe("asset tool handlers", () => {
       content: [
         {
           type: "text",
-          text: '[Error]: asset not found: "ghost.png"',
+          text: '[Error]: file not found: "ghost.png"',
         },
       ],
     })
