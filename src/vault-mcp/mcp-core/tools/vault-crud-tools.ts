@@ -52,7 +52,7 @@ Errors:
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
-- 'path must end in ".md"' — the path names a non-markdown file; read files (images, .canvas, data files) with vault_read_file instead
+- 'path must end in ".md"' — the path names a non-markdown file${config.fileToolsEnabled ? "; read files (images, .canvas, data files) with vault_read_file instead" : ""}
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading).
 

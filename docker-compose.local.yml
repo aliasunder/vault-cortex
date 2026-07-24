@@ -27,6 +27,7 @@ services:
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
+      FILE_TOOLS_ENABLED: ${FILE_TOOLS_ENABLED:-true}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true when developing against a vault on a C: drive

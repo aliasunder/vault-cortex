@@ -97,6 +97,11 @@
           "default": "true"
         },
         {
+          "name": "FILE_TOOLS_ENABLED",
+          "description": "Enable or disable file tools (vault_read_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
+          "default": "true"
+        },
+        {
           "name": "MEMORY_DIR",
           "description": "Vault folder for structured memory files (About Me-style notes). Memory tools are hidden when MEMORY_ENABLED is false, but this value still feeds the defaults for PROTECTED_PATHS and ORPHAN_EXCLUDE_FOLDERS.",
           "default": "About Me"

@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -231,11 +231,17 @@ starter template files on first startup, and agents grow it from there. See
 [Memory](../../README.md#memory) in the main README for how the layer works,
 and [templates/memory](../../templates/memory/README.md) for the file format.
 
+## File Tools
+
+File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
+`FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
+Sync has asset syncing disabled and no files exist on disk.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, timezone), see the
-[Configuration](../../README.md#configuration) section in the main README.
+(memory folder, protected paths, orphan exclusions, file tools, timezone), see
+the [Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting
 
