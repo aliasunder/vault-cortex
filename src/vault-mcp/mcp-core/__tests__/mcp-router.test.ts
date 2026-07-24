@@ -294,11 +294,12 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const options = vi.mocked(McpServer).mock.calls[0]![1] as {
-        instructions?: string
-      }
-      expect(options.instructions).not.toContain("vault_read_file")
-      expect(options.instructions).toContain("vault_search")
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).not.toContain("vault_read_file")
+      expect(options?.instructions).toContain("vault_search")
     })
 
     it("instructions omit both vault_read_file and vault_get_memory when both disabled", async () => {
@@ -313,12 +314,13 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const options = vi.mocked(McpServer).mock.calls[0]![1] as {
-        instructions?: string
-      }
-      expect(options.instructions).not.toContain("vault_read_file")
-      expect(options.instructions).not.toContain("vault_get_memory")
-      expect(options.instructions).toContain("vault_write_note")
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).not.toContain("vault_read_file")
+      expect(options?.instructions).not.toContain("vault_get_memory")
+      expect(options?.instructions).toContain("vault_write_note")
     })
 
     it("connects the new server to the new transport", async () => {

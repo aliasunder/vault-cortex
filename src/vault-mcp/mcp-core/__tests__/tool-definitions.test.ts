@@ -730,7 +730,10 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     TOOL_NAMES.VAULT_LIST_FILES,
   ] as const
 
-  const NON_FILE_TOOL_COUNT = ALL_TOOL_NAMES.length - FILE_TOOLS.length
+  const FILE_TOOL_SET = new Set<string>(FILE_TOOLS)
+  const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter(
+    (toolName) => !FILE_TOOL_SET.has(toolName),
+  )
 
   const registerWithDisabledFileTools = (): RegisterToolCall[] => {
     const server = { registerTool: vi.fn() }
@@ -752,17 +755,19 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     }
   })
 
-  it(`registers all ${NON_FILE_TOOL_COUNT} non-file tools`, () => {
+  it("registers exactly the non-file tools", () => {
     const disabledCalls = registerWithDisabledFileTools()
-    expect(disabledCalls).toHaveLength(NON_FILE_TOOL_COUNT)
+    const registeredNames = disabledCalls.map(([toolName]) => toolName)
+    expect(new Set(registeredNames)).toEqual(new Set(EXPECTED_NON_FILE_TOOLS))
+    expect(registeredNames).toHaveLength(EXPECTED_NON_FILE_TOOLS.length)
   })
 
   it("non-file tool descriptions do not reference file tools", () => {
     const disabledCalls = registerWithDisabledFileTools()
     for (const [, toolConfig] of disabledCalls) {
-      const description = toolConfig.description!
+      expect(toolConfig.description).toBeDefined()
       for (const fileToolName of FILE_TOOLS) {
-        expect(description).not.toContain(fileToolName)
+        expect(toolConfig.description).not.toContain(fileToolName)
       }
     }
   })
