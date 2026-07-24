@@ -1226,10 +1226,179 @@ describe("readNoteOutline", () => {
     })
   })
 
-  it("returns an empty headings array for a note with no headings", async () => {
+  it("returns the whole body as leading_content for a note with no headings", async () => {
     await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
     expect(
       await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger),
+    ).toEqual({ leading_content: "just prose, no headings", headings: [] })
+  })
+
+  it("returns prose above the first heading as leading_content", async () => {
+    const body = "Intro prose.\nSecond line.\n\n## Section\n\nbody\n"
+    await writeFile(join(vault, "intro.md"), body, "utf8")
+
+    expect(
+      await readNoteOutline({ vaultPath: vault, path: "intro.md" }, logger),
+    ).toEqual({
+      leading_content: "Intro prose.\nSecond line.",
+      headings: [
+        {
+          level: 2,
+          text: "Section",
+          bytes: Buffer.byteLength("## Section\n\nbody\n", "utf8"),
+        },
+      ],
+    })
+  })
+
+  it("excludes the leading callout's own lines from leading_content", async () => {
+    const body =
+      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n"
+    await writeFile(join(vault, "both.md"), body, "utf8")
+
+    // Whole-object equality is what proves the two fields are disjoint — a
+    // not.toContain check would pass trivially on an empty leading_content.
+    expect(
+      await readNoteOutline({ vaultPath: vault, path: "both.md" }, logger),
+    ).toEqual({
+      leading_callout: {
+        type: "info",
+        title: "Scope",
+        body: "the callout body",
+      },
+      leading_content: "Prose after the callout.",
+      headings: [
+        {
+          level: 2,
+          text: "Section",
+          bytes: Buffer.byteLength("## Section\n", "utf8"),
+        },
+      ],
+    })
+  })
+
+  it("omits leading_content when the leading callout is the entire region", async () => {
+    const body = "> [!info] Scope\n> only this\n\n## Section\n"
+    await writeFile(join(vault, "calloutonly.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "calloutonly.md" },
+      logger,
+    )
+    expect(outline).toEqual({
+      leading_callout: { type: "info", title: "Scope", body: "only this" },
+      headings: [
+        {
+          level: 2,
+          text: "Section",
+          bytes: Buffer.byteLength("## Section\n", "utf8"),
+        },
+      ],
+    })
+    expect("leading_content" in outline).toBe(false)
+  })
+
+  it("keeps trailing blank blockquote lines out of leading_content", async () => {
+    // The rendered callout body drops these lines, but they are still callout
+    // lines on disk — if the span excluded them they would surface as raw "> ".
+    const body = "> [!info] Scope\n> content\n>\n>  \n\nProse.\n\n## S\n"
+    await writeFile(join(vault, "blankquote.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "blankquote.md" },
+      logger,
+    )
+    expect(outline.leading_content).toBe("Prose.")
+  })
+
+  it("surfaces the second of two stacked callouts as leading_content", async () => {
+    // parseLeadingCallout claims only the first callout, so the second is
+    // ordinary leading content — intended, and the shape a no-heading prepend
+    // of a callout produces.
+    const body = "> [!info] First\n> a\n\n> [!warning] Second\n> b\n\n## S\n"
+    await writeFile(join(vault, "stacked.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "stacked.md" },
+      logger,
+    )
+    expect(outline.leading_content).toBe("> [!warning] Second\n> b")
+  })
+
+  it("omits leading_content when the region is blank only", async () => {
+    await writeFile(join(vault, "blank.md"), "\n\n## Section\n", "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "blank.md" },
+      logger,
+    )
+    expect(outline).toEqual({
+      headings: [
+        {
+          level: 2,
+          text: "Section",
+          bytes: Buffer.byteLength("## Section\n", "utf8"),
+        },
+      ],
+    })
+    expect("leading_content" in outline).toBe(false)
+  })
+
+  it("keeps a fenced pseudo-heading inside leading_content", async () => {
+    // A naive first-heading scan would cut the region mid-fence and emit an
+    // unterminated code block; deriving the boundary from parseHeadings doesn't.
+    const body = "```md\n## Example\n```\n\nProse.\n\n## Real\n"
+    await writeFile(join(vault, "fenced.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "fenced.md" },
+      logger,
+    )
+    expect(outline.leading_content).toBe("```md\n## Example\n```\n\nProse.")
+  })
+
+  it("omits leading_content for a Kanban board whose only body is its settings block", async () => {
+    // An empty board is all trailing `%%` comment — reporting it as leading
+    // content would surface unrendered settings JSON as note text.
+    const body = "\n%% kanban:settings\n```json\n{}\n```\n%%\n"
+    await writeFile(join(vault, "board.md"), body, "utf8")
+
+    expect(
+      await readNoteOutline({ vaultPath: vault, path: "board.md" }, logger),
+    ).toEqual({ headings: [] })
+  })
+
+  it("keeps a board's leading note out of its trailing settings block", async () => {
+    const body =
+      "Board notes.\n\n## Backlog\n\n- card\n\n%% kanban:settings\n```json\n{}\n```\n%%\n"
+    await writeFile(join(vault, "lanes.md"), body, "utf8")
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "lanes.md" },
+      logger,
+    )
+    expect(outline.leading_content).toBe("Board notes.")
+  })
+
+  it("normalizes CRLF line endings in leading_content", async () => {
+    await writeFile(
+      join(vault, "crlf.md"),
+      "Intro line.\r\nSecond.\r\n\r\n## S\r\n",
+      "utf8",
+    )
+
+    const outline = await readNoteOutline(
+      { vaultPath: vault, path: "crlf.md" },
+      logger,
+    )
+    expect(outline.leading_content).toBe("Intro line.\nSecond.")
+  })
+
+  it("omits leading_content for a note with only frontmatter", async () => {
+    await writeFile(join(vault, "fmonly.md"), "---\ntitle: A\n---\n", "utf8")
+
+    expect(
+      await readNoteOutline({ vaultPath: vault, path: "fmonly.md" }, logger),
     ).toEqual({ headings: [] })
   })
 
@@ -1243,15 +1412,24 @@ describe("readNoteOutline", () => {
       logger,
     )
 
-    expect(outline.leading_callout).toEqual({
-      type: "info",
-      title: "Scope of this file",
-      body: "**Contains:** identity facts.\n**Convention:** append newest first.",
+    // Whole-object equality, so a spurious leading_content fails here too: when
+    // the callout sits below an H1 that H1 is the first heading, leaving the
+    // region above it empty.
+    expect(outline).toEqual({
+      leading_callout: {
+        type: "info",
+        title: "Scope of this file",
+        body: "**Contains:** identity facts.\n**Convention:** append newest first.",
+      },
+      headings: [
+        { level: 1, text: "Me", bytes: Buffer.byteLength(body, "utf8") },
+        {
+          level: 2,
+          text: "Identity",
+          bytes: Buffer.byteLength("## Identity\n\n- a\n", "utf8"),
+        },
+      ],
     })
-    expect(outline.headings.map((heading) => heading.text)).toEqual([
-      "Me",
-      "Identity",
-    ])
   })
 
   it("omits callout when the first body content is not a callout", async () => {
@@ -1261,8 +1439,20 @@ describe("readNoteOutline", () => {
       { vaultPath: vault, path: "nocallout.md" },
       logger,
     )
-    expect(outline.leading_callout).toBeUndefined()
+    // The H1 is the first heading, so the intro prose lives inside its section
+    // rather than above it — neither leading key applies.
+    expect(outline).toEqual({
+      headings: [
+        { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
+        {
+          level: 2,
+          text: "Section",
+          bytes: Buffer.byteLength("## Section\n", "utf8"),
+        },
+      ],
+    })
     expect("leading_callout" in outline).toBe(false)
+    expect("leading_content" in outline).toBe(false)
   })
 
   it("excludes frontmatter from section line ranges", async () => {

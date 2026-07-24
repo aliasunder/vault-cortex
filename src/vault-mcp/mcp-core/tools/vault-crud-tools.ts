@@ -7,6 +7,7 @@ import {
 } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
+import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
 
@@ -23,6 +24,22 @@ const TOOL_NAMES = {
 } as const
 
 export { TOOL_NAMES as VAULT_CRUD_TOOL_NAMES }
+
+/** Advisory sentence for a no-heading prepend that nested pre-existing content
+ *  inside the heading it inserted. Names the remedy as a vault_patch_note
+ *  operation — routing guidance is the tool layer's job, so the data layer
+ *  returns the facts and this composes them. The heading is named by its bare
+ *  text, which is what the `heading` param matches; the level rides along so an
+ *  ambiguous-heading retry has what it needs. */
+const describeDisplacedLeadingContent = ({
+  bytes,
+  firstHeading,
+}: DisplacedLeadingContent): string => {
+  if (!firstHeading) {
+    return `The inserted heading now contains the note's entire body (${bytes} bytes) — the note had no headings of its own. To place a section below that content instead, use operation "append".`
+  }
+  return `The inserted heading now contains ${bytes} bytes of content that already sat above the note's first heading. To place a section above that content instead, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
+}
 
 export const registerVaultCrudTools = ({
   server,
@@ -43,7 +60,7 @@ Example: vault_read_note({ path: "TASKS.md", outline: true })
 Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 
-When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
+When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.
 Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading.
@@ -56,7 +73,7 @@ Errors:
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading).
 
-Outline shape: { leading_callout?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout, when present.`,
+Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none.`,
       inputSchema: {
         path: z
           .string()
@@ -74,7 +91,7 @@ Outline shape: { leading_callout?, headings } — headings is [{ level, text, by
           .boolean()
           .optional()
           .describe(
-            "If true, returns { leading_callout?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout.",
+            "If true, returns { leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
           ),
         heading: z
           .string()
@@ -296,11 +313,13 @@ Prefer vault_write_note for creating new notes, or full rewrites (with overwrite
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
-- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout)
+- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
 - replace: replace section body (heading preserved; requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
 Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).
+
+Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, that content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
 
@@ -318,7 +337,7 @@ Errors:
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
 Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
 
-Returns: Confirmation message.`,
+Returns: Confirmation message. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content's size and the call that would have avoided it.`,
       inputSchema: {
         path: z
           .string()
@@ -381,9 +400,13 @@ Returns: Confirmation message.`,
             },
             reqLogger,
           ),
-        (msg) => {
-          reqLogger.info("tool_result", { outcome: "patched" })
-          return msg
+        (result) => {
+          reqLogger.info("tool_result", {
+            outcome: "patched",
+            displaced: result.displacedLeadingContent !== null,
+          })
+          if (!result.displacedLeadingContent) return result.message
+          return `${result.message}. ${describeDisplacedLeadingContent(result.displacedLeadingContent)}`
         },
       )
     },

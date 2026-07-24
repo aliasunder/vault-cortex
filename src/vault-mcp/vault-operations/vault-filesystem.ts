@@ -29,10 +29,17 @@ import {
   stringifyNote,
   mergeFrontmatter,
 } from "../obsidian-markdown/frontmatter.js"
-import { parseHeadings, findHeading } from "../obsidian-markdown/headings.js"
-import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
+import {
+  parseHeadings,
+  findHeading,
+  linesBeforeFirstHeading,
+} from "../obsidian-markdown/headings.js"
+import { parseLeadingCalloutSpan } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  trimBlankEdgeLines,
+} from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import type { Logger } from "../../logger.js"
@@ -222,10 +229,13 @@ type HeadingOutline = Readonly<{
 }>
 
 /** A note's outline: its optional leading callout (a top-of-file `> [!type]`
- *  block — info, warning, etc.) plus the heading tree. `leading_callout` is
- *  omitted when the note has none. */
+ *  block — info, warning, etc.), any other body text above the first heading,
+ *  and the heading tree. `leading_callout` and `leading_content` are each
+ *  omitted when absent, and never overlap — together they cover the whole
+ *  region above the first heading. */
 type NoteOutline = Readonly<{
   leading_callout?: LeadingCallout
+  leading_content?: string
   headings: HeadingOutline[]
 }>
 
@@ -237,6 +247,11 @@ type NoteOutline = Readonly<{
  * Frontmatter is excluded (line
  * ranges are body-relative, matching vault_patch_note). A note with no headings
  * returns an empty headings array.
+ *
+ * Any remaining body text above the first heading comes back as
+ * `leading_content`, with the callout's own lines excluded so the two never
+ * repeat the same text. Without it that region is invisible to every structured
+ * read, which is how a displaced intro block can go unnoticed.
  */
 const readNoteOutline = async (
   params: { vaultPath: string; path: string },
@@ -249,8 +264,23 @@ const readNoteOutline = async (
     throw new Error(`note not found: "${params.path}"`)
   }
   const lines = splitIntoLines(parseNote(content).content)
-  const leadingCallout = parseLeadingCallout(lines)
   const headings = parseHeadings(lines)
+  const calloutSpan = parseLeadingCalloutSpan(lines)
+
+  // Everything above the first heading that the callout doesn't already cover,
+  // so the two fields describe the region without repeating bytes. Filtering by
+  // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
+  // case safe: that span sits outside the region entirely, so no index matches
+  // and nothing is removed — no negative slice is possible.
+  const regionLines = linesBeforeFirstHeading(lines, headings)
+  const regionOutsideCallout = regionLines.filter(
+    (_line, index) =>
+      calloutSpan === null ||
+      index < calloutSpan.startLine ||
+      index >= calloutSpan.endLine,
+  )
+  const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
+
   const outline = headings.map((heading) => {
     // Section span = heading line through bodyEndLine (the same span a section
     // read returns), so the size hint matches what reading it would cost.
@@ -267,13 +297,16 @@ const readNoteOutline = async (
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
-    hasCallout: leadingCallout !== null,
+    hasCallout: calloutSpan !== null,
+    hasLeadingContent: leadingContent !== "",
     totalBytes,
   })
-  // Omit `leading_callout` when absent, rather than emitting `leading_callout: null`.
-  return leadingCallout
-    ? { leading_callout: leadingCallout, headings: outline }
-    : { headings: outline }
+  // Omit either key when absent, rather than emitting an explicit null.
+  return {
+    ...(calloutSpan ? { leading_callout: calloutSpan.callout } : {}),
+    ...(leadingContent ? { leading_content: leadingContent } : {}),
+    headings: outline,
+  }
 }
 
 /**

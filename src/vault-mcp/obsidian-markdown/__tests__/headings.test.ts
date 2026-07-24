@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest"
-import { parseHeadings, findHeading } from "../headings.js"
+import {
+  parseHeadings,
+  findHeading,
+  linesBeforeFirstHeading,
+} from "../headings.js"
 
 describe("parseHeadings", () => {
   it("parses H1–H6 with each section spanning to the next same-or-higher heading", () => {
@@ -183,6 +187,82 @@ describe("parseHeadings", () => {
     expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
       "Real",
     ])
+  })
+})
+
+describe("linesBeforeFirstHeading", () => {
+  const regionOf = (lines: readonly string[]): readonly string[] =>
+    linesBeforeFirstHeading(lines, parseHeadings(lines))
+
+  it("returns the lines above the first heading", () => {
+    expect(regionOf(["Intro.", "", "## Section", "body"])).toEqual([
+      "Intro.",
+      "",
+    ])
+  })
+
+  it("returns nothing when the first line is a heading", () => {
+    expect(regionOf(["# Title", "", "body"])).toEqual([])
+  })
+
+  it("returns the whole body when the note has no headings", () => {
+    expect(regionOf(["Just prose.", "", "more"])).toEqual([
+      "Just prose.",
+      "",
+      "more",
+    ])
+  })
+
+  it("stops at the first heading whatever its level", () => {
+    // A deeper heading first, then a shallower one — so "first of any level"
+    // is really under test, not "first H1" or "first H2".
+    expect(regionOf(["intro", "###### Deep", "# Later"])).toEqual(["intro"])
+  })
+
+  it("keeps a heading inside a fenced code block in the region", () => {
+    const lines = ["```md", "## Example", "```", "", "Prose", "", "## Real"]
+    expect(regionOf(lines)).toEqual([
+      "```md",
+      "## Example",
+      "```",
+      "",
+      "Prose",
+      "",
+    ])
+  })
+
+  it("keeps a heading inside a comment block in the region", () => {
+    const lines = ["%%", "# Draft", "%%", "", "Prose", "## Real"]
+    expect(regionOf(lines)).toEqual(["%%", "# Draft", "%%", "", "Prose"])
+  })
+
+  it("stops before a trailing comment block when the note has no headings", () => {
+    // An empty Kanban board: no lanes yet, just its settings block. Running to
+    // EOF here would report the settings JSON as body content.
+    const lines = ["", "%% kanban:settings", "```json", "{}", "```", "%%", ""]
+    expect(regionOf(lines)).toEqual([])
+  })
+
+  it("keeps a non-trailing comment block in the region", () => {
+    const lines = ["%% note %%", "", "Prose", "", "## S"]
+    expect(regionOf(lines)).toEqual(["%% note %%", "", "Prose", ""])
+  })
+
+  it("returns nothing for an empty line array", () => {
+    expect(regionOf([])).toEqual([])
+  })
+
+  it("does not trim a blank-only region", () => {
+    // Blank-suppression is the consumer's call, not this parser's.
+    expect(regionOf(["", "   ", "\t"])).toEqual(["", "   ", "\t"])
+  })
+
+  it("finds no heading boundary in raw CRLF lines", () => {
+    // Documents the contract: callers normalize with splitIntoLines first.
+    // HEADING_REGEX ends in `(.+)$` and `.` excludes CR, so "## S\r" is not a
+    // heading and the whole body reads as leading content.
+    const lines = "intro\r\n## S\r\n".split("\n")
+    expect(regionOf(lines)).toEqual(["intro\r", "## S\r", ""])
   })
 })
 

@@ -1,11 +1,39 @@
 import { describe, it, expect } from "vitest"
 import {
   splitIntoLines,
+  trimBlankEdgeLines,
   advanceFence,
   advanceComment,
   classifyLines,
   type OpenFence,
 } from "../lines.js"
+
+// ── trimBlankEdgeLines ───────────────────────────────────────────
+
+describe("trimBlankEdgeLines", () => {
+  it("drops blank lines from both ends", () => {
+    expect(trimBlankEdgeLines(["", "  ", "a", "b", "", "\t"])).toEqual([
+      "a",
+      "b",
+    ])
+  })
+
+  it("keeps interior blank lines", () => {
+    expect(trimBlankEdgeLines(["a", "", "b"])).toEqual(["a", "", "b"])
+  })
+
+  it("returns an empty array when every line is blank", () => {
+    expect(trimBlankEdgeLines(["", "   ", "\t"])).toEqual([])
+  })
+
+  it("returns an empty array for no lines", () => {
+    expect(trimBlankEdgeLines([])).toEqual([])
+  })
+
+  it("leaves an already-trimmed array unchanged", () => {
+    expect(trimBlankEdgeLines(["a", "b"])).toEqual(["a", "b"])
+  })
+})
 
 // ── splitIntoLines ───────────────────────────────────────────────
 

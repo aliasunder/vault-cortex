@@ -18,6 +18,16 @@ export type LeadingCallout = Readonly<{
   body: string
 }>
 
+/** A leading callout plus the body-line span it occupies — `startLine` is its
+ *  opener, `endLine` is one past its last `>` line. The span lets a caller
+ *  describe the rest of the region the callout sits in (an outline's
+ *  `leading_content`) without double-counting the callout's own lines. */
+export type LeadingCalloutSpan = Readonly<{
+  callout: LeadingCallout
+  startLine: number
+  endLine: number
+}>
+
 // ── Internal regexes ────────────────────────────────────────────
 
 /** Matches a callout opener line `> [!type] Title`: captures the type, an
@@ -55,16 +65,22 @@ const firstBodyLineIndex = (
 // ── Exported parser ─────────────────────────────────────────────
 
 /**
- * Returns the note's leading callout, or null when the first body content is
- * not a callout. Walks from the top, skipping blank lines and at most one H1
- * title line; the next non-blank line must be a callout opener (so a leading
- * code fence or prose yields null). The body is the run of following `>` lines,
- * stopping at the next callout opener (a stacked sibling callout), the first
- * non-blockquote line, or EOF.
+ * Returns the note's leading callout together with the body lines it occupies,
+ * or null when the first body content is not a callout. Walks from the top,
+ * skipping blank lines and at most one H1 title line; the next non-blank line
+ * must be a callout opener (so a leading code fence or prose yields null). The
+ * body is the run of following `>` lines, stopping at the next callout opener
+ * (a stacked sibling callout), the first non-blockquote line, or EOF.
+ *
+ * Indices are positions in the array passed in — the CRLF normalization below
+ * is a 1:1 map, so a span stays valid against the caller's own lines. `endLine`
+ * covers the whole `>` run, including trailing blank `>` lines that the rendered
+ * `body` string drops: those are still callout lines on disk and must not leak
+ * into a caller's view of what sits beside the callout.
  */
-export const parseLeadingCallout = (
+export const parseLeadingCalloutSpan = (
   lines: readonly string[],
-): LeadingCallout | null => {
+): LeadingCalloutSpan | null => {
   // Callers split on "\n", so a CRLF (Windows-authored) file leaves a trailing
   // "\r" on each line. `.` never matches "\r" and a non-multiline `$` only
   // anchors at end-of-input, so a stray "\r" would defeat the regexes below
@@ -103,5 +119,19 @@ export const parseLeadingCallout = (
   const lastContentIndex = bodyLines.findLastIndex((line) => line.trim() !== "")
   const body = bodyLines.slice(0, lastContentIndex + 1).join("\n")
 
-  return { type, title, body }
+  return {
+    callout: { type, title, body },
+    startLine: cursor,
+    // bodyRange, not the blank-trimmed bodyLines — trailing blank `>` lines are
+    // still callout lines, so the span must cover them (see docstring).
+    endLine: cursor + 1 + bodyRange.length,
+  }
 }
+
+/** Returns the note's leading callout, or null when the first body content is
+ *  not a callout — the span-free view every wire consumer takes (outline,
+ *  search results, memory-file listings). Delegates the walk to
+ *  parseLeadingCalloutSpan so there is one implementation of it. */
+export const parseLeadingCallout = (
+  lines: readonly string[],
+): LeadingCallout | null => parseLeadingCalloutSpan(lines)?.callout ?? null

@@ -11,16 +11,90 @@ import {
   parseHeadings,
   findHeading,
   findTrailingCommentBlockStart,
+  linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  trimBlankEdgeLines,
+} from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
 type Operation = "append" | "prepend" | "replace" | "insert_before"
 
+/** The note's first heading before a patch — enough for a caller to name it as
+ *  a placement target. */
+export type PatchedNoteFirstHeading = Readonly<{
+  text: string
+  level: number
+}>
+
+/** Facts about a no-heading `prepend` that inserted a heading above content
+ *  already sitting at the top of the body — that content is now the new
+ *  section's body. `firstHeading` is the heading a section could be placed
+ *  above instead, or null when the note had none (its whole body was pulled in).
+ *  The write still happened; this is advisory, not a rejection. */
+export type DisplacedLeadingContent = Readonly<{
+  bytes: number
+  firstHeading: PatchedNoteFirstHeading | null
+}>
+
+/** A completed patch: the confirmation line, plus displacement facts when the
+ *  write nested pre-existing content inside a newly inserted heading. */
+export type PatchNoteResult = Readonly<{
+  message: string
+  displacedLeadingContent: DisplacedLeadingContent | null
+}>
+
 // ── Internal helpers ────────────────────────────────────────────
+
+/** The heading a content block begins with — the heading on its first non-blank
+ *  line — or null when it starts with anything else. parseHeadings makes this
+ *  fence-aware, so a `## foo` inside an opening code fence is not a heading.
+ *
+ *  Strips a trailing CR before parsing: HEADING_REGEX ends in `(.+)$` and `.`
+ *  excludes CR, so a CRLF-authored `## New\r` would otherwise match nothing and
+ *  silently read as ordinary text. Detection only — callers insert the caller's
+ *  own lines verbatim, line endings untouched. */
+const leadingHeadingOfContent = (
+  contentLines: readonly string[],
+): HeadingInfo | null => {
+  const normalizedLines = contentLines.map((line) =>
+    line.endsWith("\r") ? line.slice(0, -1) : line,
+  )
+  const firstContentLineIndex = normalizedLines.findIndex(
+    (line) => line.trim() !== "",
+  )
+  return (
+    parseHeadings(normalizedLines).find(
+      (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+    ) ?? null
+  )
+}
+
+/** What a heading-led, no-heading prepend would swallow: the body above the
+ *  note's first heading, which the inserted heading now owns. Null when nothing
+ *  sits there (the common, safe case) — including when the note's very first
+ *  line is a heading, where a prepended heading of any level terminates at it
+ *  and displaces nothing. */
+const findDisplacedLeadingContent = (
+  lines: readonly string[],
+): DisplacedLeadingContent | null => {
+  const headings = parseHeadings(lines)
+  const regionLines = trimBlankEdgeLines(
+    linesBeforeFirstHeading(lines, headings),
+  )
+  if (regionLines.length === 0) return null
+  const firstHeading = headings[0]
+  return {
+    bytes: Buffer.byteLength(regionLines.join("\n"), "utf8"),
+    firstHeading: firstHeading
+      ? { text: firstHeading.text, level: firstHeading.level }
+      : null,
+  }
+}
 
 /** Splices new content into a line array at the position determined by operation and target. */
 const applySectionOperation = (
@@ -162,7 +236,7 @@ const patchNote = async (
     headingLevel?: number | undefined
   },
   logger: Logger,
-): Promise<string> => {
+): Promise<PatchNoteResult> => {
   const { path, operation, content, heading, headingLevel } = params
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
@@ -178,6 +252,21 @@ const patchNote = async (
       if (operation === "replace" || operation === "insert_before") {
         throw new Error(`operation "${operation}" requires a heading target`)
       }
+
+      // A no-heading prepend inserts at body line 0. When the inserted block
+      // starts with a heading and the note already has content above its first
+      // heading, that content silently becomes the new section's body. The write
+      // is what was asked for, so report it rather than reject it. Guards run
+      // cheapest-first: only a heading-led prepend pays for the body parse.
+      // Detection runs on the pre-patch lines — afterwards the note's first
+      // heading is the inserted one.
+      const insertsLeadingHeading =
+        operation === "prepend" &&
+        leadingHeadingOfContent(contentLines) !== null
+      const displacedLeadingContent = insertsLeadingHeading
+        ? findDisplacedLeadingContent(lines)
+        : null
+
       const updatedLines =
         operation === "append"
           ? [...lines, ...contentLines]
@@ -189,8 +278,12 @@ const patchNote = async (
         target: "file body",
         beforeBytes,
         afterBytes,
+        displacedBytes: displacedLeadingContent?.bytes,
       })
-      return `Applied ${operation} to ${path} → file body`
+      return {
+        message: `Applied ${operation} to ${path} → file body`,
+        displacedLeadingContent,
+      }
     }
 
     // Section-level operation
@@ -201,14 +294,9 @@ const patchNote = async (
     // Heading-targeted ops keep the matched heading, so a content that begins
     // with that same heading would duplicate it. Reject with remediation rather
     // than silently doubling it.
-    const firstContentLineIndex = contentLines.findIndex(
-      (line) => line.trim() !== "",
-    )
-    const leadingContentHeading = parseHeadings(contentLines).find(
-      (contentHeading) => contentHeading.startLine === firstContentLineIndex,
-    )
+    const leadingContentHeading = leadingHeadingOfContent(contentLines)
     const contentRepeatsTargetHeading =
-      leadingContentHeading !== undefined &&
+      leadingContentHeading !== null &&
       leadingContentHeading.level === target.level &&
       leadingContentHeading.text === target.text
     if (contentRepeatsTargetHeading) {
@@ -233,7 +321,10 @@ const patchNote = async (
       beforeBytes,
       afterBytes,
     })
-    return `Applied ${operation} to ${path} → ${targetDesc}`
+    return {
+      message: `Applied ${operation} to ${path} → ${targetDesc}`,
+      displacedLeadingContent: null,
+    }
   })
 }
 

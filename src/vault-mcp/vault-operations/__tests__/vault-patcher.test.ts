@@ -765,6 +765,285 @@ describe("patchNote — file-level operations", () => {
   })
 })
 
+describe("patchNote — leading-content advisory", () => {
+  // A note whose intro sits above its first heading — the shape a file-level
+  // prepend can restructure.
+  const NOTE_WITH_INTRO = "Intro prose.\n\n## Section\n\nbody\n"
+
+  it("reports the displaced region and still writes when a heading is prepended above it", async () => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        content: "## New Section\n- entry",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to intro.md → file body",
+      displacedLeadingContent: {
+        bytes: Buffer.byteLength("Intro prose.", "utf8"),
+        firstHeading: { text: "Section", level: 2 },
+      },
+    })
+    // The write is what was asked for — assert it happened, and that the intro
+    // really did end up inside the new section.
+    expect(await readTestNote("intro.md")).toBe(
+      "## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n",
+    )
+  })
+
+  it("names the note's first heading rather than a later one", async () => {
+    await writeTestNote("two.md", "Intro.\n\n## First\n\n## Second\n")
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "two.md",
+        operation: "prepend",
+        content: "## New",
+      },
+      logger,
+    )
+
+    expect(result.displacedLeadingContent?.firstHeading).toEqual({
+      text: "First",
+      level: 2,
+    })
+  })
+
+  it("reports a null first heading when the note has none of its own", async () => {
+    await writeTestNote("flat.md", "Just prose.\n")
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "flat.md",
+        operation: "prepend",
+        content: "## New Section",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to flat.md → file body",
+      displacedLeadingContent: {
+        bytes: Buffer.byteLength("Just prose.", "utf8"),
+        firstHeading: null,
+      },
+    })
+    expect(await readTestNote("flat.md")).toBe("## New Section\nJust prose.\n")
+  })
+
+  it("reports the region when blank lines precede the content's heading", async () => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        content: "\n\n## New Section",
+      },
+      logger,
+    )
+
+    expect(result.displacedLeadingContent).toEqual({
+      bytes: Buffer.byteLength("Intro prose.", "utf8"),
+      firstHeading: { text: "Section", level: 2 },
+    })
+  })
+
+  it("reports nothing when a callout is prepended above the intro", async () => {
+    // The documented leading-callout workflow — it adds a block, it doesn't
+    // restructure sections, so it must stay advisory-free.
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        content: "> [!note] Important\n> Read this first.",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to intro.md → file body",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("intro.md")).toBe(
+      "> [!note] Important\n> Read this first.\nIntro prose.\n\n## Section\n\nbody\n",
+    )
+  })
+
+  it("reports nothing when the note opens with a heading", async () => {
+    // The new H2 terminates at the existing H1, so nothing is captured.
+    await writeTestNote("titled.md", "# Title\n\nIntro.\n\n## Section\n")
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "titled.md",
+        operation: "prepend",
+        content: "## New Section",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to titled.md → file body",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("titled.md")).toBe(
+      "## New Section\n# Title\n\nIntro.\n\n## Section\n",
+    )
+  })
+
+  it("reports nothing when the region above the first heading is blank", async () => {
+    await writeTestNote("blank.md", "\n\n## Section\n\nbody\n")
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "blank.md",
+        operation: "prepend",
+        content: "## New Section",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to blank.md → file body",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("blank.md")).toBe(
+      "## New Section\n\n\n## Section\n\nbody\n",
+    )
+  })
+
+  it("reports nothing when the only content above the first lane is a settings block", async () => {
+    await writeTestNote(
+      "board.md",
+      "\n%% kanban:settings\n```json\n{}\n```\n%%\n",
+    )
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        operation: "prepend",
+        content: "## Backlog",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to board.md → file body",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("board.md")).toBe(
+      "## Backlog\n\n%% kanban:settings\n```json\n{}\n```\n%%\n",
+    )
+  })
+
+  it("reports nothing for an append operation", async () => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "append",
+        content: "## New Section",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied append to intro.md → file body",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("intro.md")).toBe(
+      "Intro prose.\n\n## Section\n\nbody\n\n## New Section\n",
+    )
+  })
+
+  it("reports nothing when a heading target is given", async () => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        heading: "Section",
+        content: "## New Sub",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      message: "Applied prepend to intro.md → ## Section",
+      displacedLeadingContent: null,
+    })
+    expect(await readTestNote("intro.md")).toBe(
+      "Intro prose.\n\n## Section\n## New Sub\n\nbody\n",
+    )
+  })
+
+  it("detects a CRLF-authored heading in the prepended content", async () => {
+    // HEADING_REGEX's `(.+)$` excludes CR, so without normalization a
+    // CRLF-authored heading would read as ordinary text and report nothing.
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        content: "## New Section\r\n- entry",
+      },
+      logger,
+    )
+
+    expect(result.displacedLeadingContent).toEqual({
+      bytes: Buffer.byteLength("Intro prose.", "utf8"),
+      firstHeading: { text: "Section", level: 2 },
+    })
+  })
+
+  it.each([
+    ["a tag line", "#project note"],
+    ["a bare tag", "#project"],
+    ["seven hashes", "####### Seven"],
+    ["hashes with no text", "#####"],
+    ["a fenced heading", "```md\n## Example\n```"],
+    ["a callout", "> [!note] Hi"],
+    ["plain prose", "Just a line."],
+  ])(
+    "reports nothing when the content starts with %s",
+    async (_label, content) => {
+      await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+      const result = await patchNote(
+        { vaultPath: vault, path: "intro.md", operation: "prepend", content },
+        logger,
+      )
+
+      expect(result.displacedLeadingContent).toBeNull()
+      expect(await readTestNote("intro.md")).toBe(
+        `${content}\nIntro prose.\n\n## Section\n\nbody\n`,
+      )
+    },
+  )
+})
+
 describe("patchNote — section-level append", () => {
   it("appends to end of section body", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)

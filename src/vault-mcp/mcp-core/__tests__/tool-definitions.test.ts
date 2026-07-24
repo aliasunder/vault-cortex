@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { z } from "zod"
@@ -153,6 +153,34 @@ describe("registerTools", () => {
   it("vault_patch_note description includes cross-section move guidance", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
     expect(config.description).toContain("Cross-section move")
+  })
+
+  it("vault_read_note description documents the outline's leading_content field", () => {
+    // The only guard against this drifting from the actual response shape.
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
+    expect(config.description).toContain(
+      "Outline shape: { leading_callout?, leading_content?, headings }",
+    )
+  })
+
+  it("vault_patch_note description routes a section-above-first-heading insert to insert_before", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
+    expect(config.description).toContain(
+      "To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.",
+    )
+  })
+
+  it("vault_patch_note description does not list the displacement advisory as an error", () => {
+    // Agents treat Errors: as failure modes — a successful write described
+    // there would prompt a needless retry or abort.
+    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
+    const description = config.description ?? ""
+    const errorsSection = description.slice(
+      description.indexOf("Errors:"),
+      description.indexOf("Obsidian syntax:"),
+    )
+    expect(errorsSection).not.toContain("becomes the new section's body")
+    expect(description).toContain("becomes the new section's body")
   })
 
   it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
@@ -572,6 +600,145 @@ describe("vault_update_memory handler", () => {
     expect(retryResult.isError).toBeUndefined()
     expect(retryResult.content[0]?.text).toBe(
       "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
+    )
+  })
+})
+
+describe("vault_patch_note handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  /** A real temp vault seeded with one note, plus the registered patch handler —
+   *  the global harness registers against a nonexistent path. */
+  const setupPatchHandler = async (
+    noteName: string,
+    body: string,
+  ): Promise<{
+    handler: RegisterToolCall[2]
+    readNote: () => Promise<string>
+  }> => {
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-patch-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    await writeFile(join(tempVault, noteName), body, "utf8")
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const patchCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_PATCH_NOTE,
+    )
+    if (!patchCall) throw new Error("vault_patch_note not registered")
+    return {
+      handler: patchCall[2],
+      readNote: () => readFile(join(tempVault, noteName), "utf8"),
+    }
+  }
+
+  it("appends an advisory naming the first heading and still writes the note", async () => {
+    const { handler, readNote } = await setupPatchHandler(
+      "intro.md",
+      "Intro prose.\n\n## Section\n\nbody\n",
+    )
+
+    const result = (await handler(
+      {
+        path: "intro.md",
+        operation: "prepend",
+        content: "## New Section\n- entry",
+      },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBeUndefined()
+    // The heading is named by its bare text — that is what the `heading` param
+    // matches, so a "## Section" form here would send the agent into
+    // "heading not found".
+    expect(result.content[0]?.text).toBe(
+      'Applied prepend to intro.md → file body. The inserted heading now contains 12 bytes of content that already sat above the note\'s first heading. To place a section above that content instead, use operation "insert_before" with heading "Section" (H2).',
+    )
+    expect(await readNote()).toBe(
+      "## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n",
+    )
+  })
+
+  it("recommends append when the note had no heading to insert before", async () => {
+    const { handler, readNote } = await setupPatchHandler(
+      "flat.md",
+      "Just prose.\n",
+    )
+
+    const result = (await handler(
+      { path: "flat.md", operation: "prepend", content: "## New Section" },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBeUndefined()
+    expect(result.content[0]?.text).toBe(
+      'Applied prepend to flat.md → file body. The inserted heading now contains the note\'s entire body (11 bytes) — the note had no headings of its own. To place a section below that content instead, use operation "append".',
+    )
+    expect(await readNote()).toBe("## New Section\nJust prose.\n")
+  })
+
+  it("returns the plain confirmation when nothing is displaced", async () => {
+    // Without this, a handler that always appends the advisory would pass.
+    const { handler, readNote } = await setupPatchHandler(
+      "titled.md",
+      "# Title\n\nIntro.\n\n## Section\n",
+    )
+
+    const result = (await handler(
+      { path: "titled.md", operation: "prepend", content: "## New Section" },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBeUndefined()
+    expect(result.content[0]?.text).toBe(
+      "Applied prepend to titled.md → file body",
+    )
+    expect(await readNote()).toBe(
+      "## New Section\n# Title\n\nIntro.\n\n## Section\n",
+    )
+  })
+})
+
+describe("vault_read_note outline mode", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  it("serializes leading_callout, leading_content, and headings in that order", async () => {
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-outline-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    await writeFile(
+      join(tempVault, "both.md"),
+      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n",
+      "utf8",
+    )
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const readCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    if (!readCall) throw new Error("vault_read_note not registered")
+
+    const result = (await readCall[2](
+      { path: "both.md", outline: true },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBeUndefined()
+    // Exact JSON pins key order, which the conditional spreads determine.
+    expect(result.content[0]?.text).toBe(
+      '{"leading_callout":{"type":"info","title":"Scope","body":"the callout body"},"leading_content":"Prose after the callout.","headings":[{"level":2,"text":"Section","bytes":11}]}',
     )
   })
 })
