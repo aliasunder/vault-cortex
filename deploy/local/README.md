@@ -235,7 +235,7 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
-Sync has asset syncing disabled and no files exist on disk.
+Sync has attachment syncing disabled and no files exist on disk.
 
 ## Configuration
 

@@ -370,7 +370,7 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
-Sync has asset syncing disabled and no files exist on disk.
+Sync has attachment syncing disabled and no files exist on disk.
 
 ## Configuration
 
@@ -384,7 +384,7 @@ required. These optional settings are worth knowing about:
 | `EMBEDDING_ENABLED`  | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
 | `RERANK_MODE`        | `blended` | Set `none` to skip reranking for lower latency                                                        |
 | `MEMORY_ENABLED`     | `true`    | Set `false` to disable the structured memory layer                                                    |
-| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has asset syncing disabled                          |
+| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.
