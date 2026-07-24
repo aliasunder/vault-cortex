@@ -41,7 +41,7 @@ jobs:
       contents: read
       security-events: write # SARIF upload to the Security tab
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -84,7 +84,7 @@ jobs:
       # missing-file error on top of the real outcome.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != ''
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-published-image-remote
@@ -117,7 +117,7 @@ jobs:
       contents: read
       security-events: write # SARIF upload to the Security tab
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -190,7 +190,7 @@ jobs:
       # hashFiles guard: no SARIF exists if the build failed before the scan.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
@@ -199,7 +199,7 @@ jobs:
       # gates the job first (exit-code 1) or the remote build fails.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-published-image-remote
