@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
