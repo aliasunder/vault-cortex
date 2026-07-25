@@ -46,6 +46,7 @@ sst.config.ts                          # SST v4 IaC (fully implemented)
 package.json                           # single package, all deps
 tsconfig.json                          # single config
 server.json                            # MCP server registry manifest
+lhm.plugin.json                        # LobeHub Marketplace manifest (generated — see scripts/)
 Dockerfile                             # Two-target build: local (default) + remote
 Brewfile                               # Homebrew dev dependencies (optipng)
 obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
@@ -74,6 +75,8 @@ assets/                                # Static assets (not shipped in Docker)
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
   sync-cli-env-blocks.ts                # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
+  lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
+  sync-lobehub-manifest.ts             # Writes lhm.plugin.json (npm run sync:lobehub-manifest)
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
   render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
@@ -836,6 +839,7 @@ changed:
 | `DEPLOY.md`                                   | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                   |
 | `DOCKERHUB.md`                                | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                            |
 | `.github/workflows/dockerhub-description.yml` | Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 characters.                                                                                                                                                     |
+| `lhm.plugin.json`                             | Auto-generated — regenerate via `npm run sync:lobehub-manifest` when tools, prompts, or the `server.json` description change. A drift test fails CI if it goes stale. Do not edit manually; publish with `npm run publish:lobehub`.                         |
 
 **Env var update checklist** — when adding, removing, or changing an
 env var that the server reads (defined in `config.ts`, `server.ts`, or

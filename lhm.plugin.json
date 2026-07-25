@@ -1,0 +1,1168 @@
+{
+  "author": "aliasunder",
+  "authorUrl": "https://github.com/aliasunder",
+  "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1.",
+  "identifier": "aliasunder-vault-cortex",
+  "name": "Vault Cortex",
+  "prompts": [
+    {
+      "name": "vault-orientation",
+      "description": "Survey this vault's structure and health — stats, folders, tags, properties (with adoption rates), orphans, recent notes, and the About Me/ memory layer."
+    },
+    {
+      "name": "memory-review",
+      "description": "Reflect on the About Me/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living."
+    },
+    {
+      "name": "daily-review",
+      "description": "Reconcile a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, and links — surface what happened, what's open, and durable facts worth saving to About Me/ memory."
+    }
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "obsidian",
+    "obsidian-vault",
+    "hybrid-search",
+    "semantic-search",
+    "ai-memory",
+    "attachments",
+    "pdf",
+    "claude",
+    "docker"
+  ],
+  "tools": [
+    {
+      "name": "vault_read_note",
+      "description": "Read a markdown note by its vault-relative path. By default returns the full raw content including properties; optional modes return just the properties, just the heading outline, or just one section — so large notes don't blow the token budget.\n\nExample: vault_read_note({ path: \"Projects/vault-cortex.md\" })\nExample: vault_read_note({ path: \"Projects/vault-cortex.md\", properties_only: true })\nExample: vault_read_note({ path: \"TASKS.md\", outline: true })\nExample: vault_read_note({ path: \"TASKS.md\", heading: \"Active\" })\nExample: vault_read_note({ path: \"TASKS.md\", heading: \"Done\", heading_level: 2 }) // disambiguate when several \"Done\" headings exist\n\nWhen to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings, then heading: \"...\" to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties.\nPrefer vault_search when you don't know the path. Prefer vault_get_memory for About Me/ files (returns content without properties). To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.\n\nSection boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading.\n\nErrors:\n- \"heading not found\" — no heading matches the text; error lists available headings\n- \"ambiguous heading\" — multiple headings match; use heading_level to disambiguate\n- \"outline, heading, and properties_only are mutually exclusive\" — only one mode per call\n- 'path must end in \".md\"' — the path names a non-markdown file; read files (images, .canvas, data files) with vault_read_file instead\n\nReturns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading).\n\nOutline shape: { leading_callout?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout, when present.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\")"
+          },
+          "properties_only": {
+            "description": "If true, returns parsed properties as JSON instead of full note content",
+            "type": "boolean"
+          },
+          "outline": {
+            "description": "If true, returns { leading_callout?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout.",
+            "type": "boolean"
+          },
+          "heading": {
+            "description": "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
+            "type": "string",
+            "minLength": 1
+          },
+          "heading_level": {
+            "description": "Heading level (1-6) for disambiguation when multiple headings share the same text; only applies with heading",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_write_note",
+      "description": "Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content — this is a full write, not a partial edit. Properties are passed separately and merged with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved).\n\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"# Notes\\n\\nProject notes here.\", properties: { tags: [\"project\"], type: \"project\" } })\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"Updated content.\", overwrite: true })\n\nWhen to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.\nPrefer vault_update_properties for property-only edits (no body round-trip).\nPrefer vault_update_memory for appending dated entries to About Me/ memory files.\n\nLimitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.\n\nErrors:\n- \"note already exists\" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits\n- \"concurrent write in progress\" — another write to this note is in flight; re-read the note and retry\n- \"body contains a control character\" — body includes a non-printable control byte; remove it before writing\n\nObsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values (\"[[Note]]\"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).\n\nReturns: Confirmation message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path including the \".md\" extension (e.g. \"Projects/notes.md\"). Parent folders are created as needed."
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown body content — do not include frontmatter fences (---); use the properties parameter instead."
+          },
+          "properties": {
+            "description": "Optional properties to merge. New keys are added; existing keys with matching names are overwritten; a null value deletes that key; unmentioned keys are preserved from the existing file.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {}
+          },
+          "overwrite": {
+            "description": "Allow overwriting an existing note (default: false — errors if file exists).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "body"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_patch_note",
+      "description": "Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.\n\nExample: vault_patch_note({ path: \"TASKS.md\", operation: \"append\", heading: \"Active\", content: \"- [ ] New task\" })\n\nCross-section move (e.g. completing a task on a board):\n1. vault_read_note to get current content and verify exact text\n2. vault_patch_note({ path, operation: \"append\", heading: \"Done\", content: \"- [x] Task text\" }) to add at target\n3. vault_replace_in_note({ path, old_text: \"- [ ] Task text\", new_text: \"\" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone\nAdd at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.\n\nWhen to use: Modifying part of an existing note without overwriting the entire body.\nPrefer vault_write_note for creating new notes, or full rewrites (with overwrite: true). Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.\n\nOperations:\n- append: add content at end of section (or end of file if no heading)\n- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout)\n- replace: replace section body (heading preserved; requires heading)\n- insert_before: insert content above the heading line (requires heading)\n\nHeading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).\n\nSection boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.\n\nEditing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).\n\nErrors:\n- \"note not found\" — path does not exist; check vault_list_notes for valid paths\n- \"heading not found\" — no heading matches the text; error lists available headings\n- \"ambiguous heading\" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level\n- \"operation … requires a heading target\" — replace and insert_before need a heading\n- \"content begins with the heading … which would duplicate it\" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)\n- \"concurrent write in progress\" — another write to this note is in flight; re-read the note and retry\n- \"content contains a control character\" — content includes a non-printable control byte; remove it before writing\n\nObsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.\nTable rows: send only the data row (\"| cell1 | cell2 |\"), not the header or separator — duplicating them splits the table.\n\nReturns: Confirmation message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"TASKS.md\", \"Projects/plan.md\")"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "append",
+              "prepend",
+              "replace",
+              "insert_before"
+            ],
+            "description": "append | prepend | replace | insert_before. replace and insert_before require a heading; append and prepend work with or without one."
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Markdown content to insert. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically)."
+          },
+          "heading": {
+            "description": "Target heading text (case-sensitive exact match). Required for replace and insert_before. Optional for append/prepend (omit for file-level operation).",
+            "type": "string",
+            "minLength": 1
+          },
+          "heading_level": {
+            "description": "Heading level (1-6) for disambiguation when multiple headings share the same text",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "path",
+          "operation",
+          "content"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_replace_in_note",
+      "description": "Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.\n\nExample: vault_replace_in_note({ path: \"Projects/plan.md\", old_text: \"TODO: write summary\", new_text: \"Summary complete.\" })\n\nWhen to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=\"\"). Replaces text in place; does not move content across sections.\nTo delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text). To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text=\"\") — add-before-delete, so a failure duplicates the block instead of losing it.\n\nParameters:\n- old_text is matched in the body only — frontmatter properties are never searched. Include enough surrounding context to ensure uniqueness when the target text appears in multiple places.\n- old_text + new_text together determine the operation: a non-empty new_text is an edit; an empty new_text (\"\") is a deletion. No regex — exact text only.\n- replace_all_occurrences (default false) replaces only the first match — a safety default when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.\n\nErrors:\n- \"note not found\" — path does not exist; check vault_list_notes for valid paths\n- \"text not found\" — old_text does not appear in the note body; verify exact text with vault_read_note\n- \"old_text cannot be empty\" — old_text must be at least one character\n- \"concurrent write in progress\" — another write to this note is in flight; re-read the note and retry\n- \"new_text contains a control character\" — new_text includes a non-printable control byte; remove it before writing\n\nObsidian syntax: new_text is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in replacement text.\n\nReturns: Confirmation message with replacement count (number of occurrences replaced).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\")"
+          },
+          "old_text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact text to find (case-sensitive). Matches in the body only — text inside frontmatter properties is not searched."
+          },
+          "new_text": {
+            "type": "string",
+            "description": "Replacement text. Empty string (\"\") deletes the matched text."
+          },
+          "replace_all_occurrences": {
+            "description": "Replace all occurrences (default: false — replaces first occurrence only)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "old_text",
+          "new_text"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_delete_span",
+      "description": "Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Case-sensitive matching. Properties are preserved; operates on the body only.\n\nExample: vault_delete_span({ path: \"Tracker.md\", start_anchor: \"| 2024-03-02 | Acme\" }) — deletes the one table row whose line contains that fragment.\nExample: vault_delete_span({ path: \"Notes/Plan.md\", start_anchor: \"> [!warning] Stale\", end_anchor: \"remove after launch\" }) — deletes from the start anchor line through the end anchor line.\n\nWhen to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.\nPrefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, delete it here, then vault_patch_note to add the new content.\n\nParameters:\n- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.\n- end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.\n- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring. Blank-line runs left by the deletion are collapsed automatically.\n\nErrors:\n- \"note not found\" — verify path with vault_list_notes\n- \"anchor not found\" — fragment not on any line; verify with vault_read_note\n- \"ambiguous start anchor …\" / \"ambiguous end anchor …\" — the anchor matches multiple lines; use a longer fragment or set first_match: true\n- \"concurrent write in progress\" — another write to this note is in flight; re-read the note and retry\n\nReturns: Confirmation with lines removed and a truncated preview of the deleted text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Tracker.md\", \"Notes/Plan.md\")"
+          },
+          "start_anchor": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Short, unique substring on the first line of the block to delete (case-sensitive). Pick a brief fragment — do not paste the whole block."
+          },
+          "end_anchor": {
+            "description": "Short, unique substring on the LAST line of the block, searched at or after the start_anchor line. Omit to delete just the single line containing start_anchor.",
+            "type": "string",
+            "minLength": 1
+          },
+          "first_match": {
+            "description": "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "start_anchor"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_notes",
+      "description": "List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.\n\nExample: vault_list_notes({ folder: \"Projects\" })\nExample: vault_list_notes({ glob: \"**/*session-log*.md\" })\n\nWhen to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.\nPrefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.\n\nParameters:\n- folder scopes the listing to a path prefix (\"Projects\" includes \"Projects/Archive\"). When combined with glob, the glob pattern is applied within the folder's scope.\n- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.\n\nErrors:\n- A nonexistent folder or no glob matches returns an empty array, not an error.\n\nReturns: JSON array of vault-relative path strings (e.g. [\"Projects/plan.md\", \"Notes/idea.md\"]).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Folder path prefix (e.g. \"About Me\", \"Projects\"). Includes all subfolders.",
+            "type": "string"
+          },
+          "glob": {
+            "description": "Glob pattern for path filtering (e.g. \"**/*session-log*.md\"). Supports * and ** wildcards. Combined with folder when both are set.",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_delete_note",
+      "description": "Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (About Me/, Daily Notes/) are refused.\n\nExample: vault_delete_note({ path: \"Scratch/temp.md\" })\nExample: vault_delete_note({ path: \"Archive/2024/old.md\", prune_empty_folders: true }) — also remove \"Archive/2024\" (and \"Archive\") if deleting the note empties them.\n\nWhen to use: Removing a note you no longer need.\nPrefer vault_delete_memory for removing individual dated entries from About Me/ memory files.\n\nBehavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.\n\nErrors:\n- \"cannot delete protected path\" — the path sits under a protected folder; use vault_delete_memory for memory entries\n- \"path traversal blocked\" — path escapes the vault root; use a vault-relative path\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"note not found: …\" — the note does not exist; verify the path with vault_list_notes before deleting\n\nReturns: Confirmation message, noting how many empty folders were pruned when any were.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path of the note to delete, including the \".md\" extension"
+          },
+          "prune_empty_folders": {
+            "default": false,
+            "description": "When true, remove the note's parent folder(s) if deleting it leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — a folder still holding any file, including a hidden one like .DS_Store, is left alone.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_move_note",
+      "description": "Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.\n\nExample: vault_move_note({ old_path: \"Inbox/Draft.md\", new_path: \"Inbox/Spec.md\" }) — pure rename.\nExample: vault_move_note({ old_path: \"Inbox/Spec.md\", new_path: \"Projects/Spec.md\" }) — move to another folder, updating links and the note's own relative links.\nExample: vault_move_note({ old_path: \"Inbox/Spec.md\", new_path: \"Projects/Spec.md\", prune_empty_folders: true }) — also remove \"Inbox\" if the move empties it.\n\nWhen to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.\nPrefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (About Me/, Daily Notes/) cannot be moved.\n\nErrors:\n- \"destination exists: …\" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.\n- \"note not found: …\" — old_path does not exist; verify it with vault_list_notes.\n- \"cannot move protected path …\" / \"cannot move into protected path …\" — old_path or new_path sits under a protected folder.\n- \"path must end in …\" — old_path or new_path is missing the .md extension; both paths must end in .md.\n- \"path traversal blocked\" — a path escapes the vault root; use vault-relative paths.\n- \"concurrent write in progress\" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.\n- Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is deleted only after the destination and all backlinks are written, so a failure never loses data. The error message names what failed and the resulting state: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish).\n\nObsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.\n\nReturns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of source folders removed — 0 unless prune_empty_folders was set).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "old_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Current vault-relative path of the note to move (e.g. \"Inbox/Draft.md\"). Must end in .md."
+          },
+          "new_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination vault-relative path (e.g. \"Projects/Spec.md\"). Must end in .md and must not already exist; parent folders are created as needed."
+          },
+          "prune_empty_folders": {
+            "default": false,
+            "description": "When true, remove the source folder(s) if the move leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "old_path",
+          "new_path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_update_properties",
+      "description": "Update a note's frontmatter properties via shallow merge — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Body is never modified.\n\nExample: vault_update_properties({ path: \"Projects/todo.md\", properties: { status: \"active\", draft: null } })\n\nWhen to use: Changing tags, status, type, or any property without reading/rewriting the full note body.\nPrefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.\n\nErrors:\n- \"note not found\" — path does not exist; create the note first with vault_write_note\n- \"path traversal blocked\" — path escapes vault root\n- \"concurrent write in progress\" — another write to this note is in flight; re-read the note and retry\n\nObsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks (\"[[Note]]\"), keep types consistent (mismatches cause silent query failures).\n\nReturns: Confirmation message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension"
+          },
+          "properties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {},
+            "description": "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved."
+          }
+        },
+        "required": [
+          "path",
+          "properties"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_search",
+      "description": "Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — \"career aspirations\" finds notes about \"goals\" and \"targets\". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the \"narrow by metadata, search by text\" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.\n\nFilters — all conditions AND-combine with each other and the text query:\n- folder: path prefix (e.g. \"Projects\")\n- tags: require all listed tags (AND)\n- type: exact match on frontmatter type (e.g. \"person\", \"session-log\")\n- related: require all listed related links (AND)\n- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: \"active\" })\n- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match\n- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day\n\nExample: vault_search({ query: \"kubernetes networking\", filters: { tags: [\"reference\"] } })\nExample: vault_search({ query: \"meeting notes\", filters: { type: \"meeting\", folder: \"Work\" } })\nExample: vault_search({ query: \"decision\", filters: { modified: { after: \"2026-06-30\" } } }) — matching notes touched in July or later\nExample: vault_search({ query: \"how the server watches for file changes\" }) — semantic: finds notes about chokidar and file watchers even without those exact terms\n\nWhen to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.\nPrefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.\n\nErrors:\n- No matches returns { results: [], total: 0 }, not an error\n- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error\n- A malformed or calendar-invalid created/modified date filter throws with remediation text (\"Use YYYY-MM-DD\")\n\nReturns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode (\"hybrid\" or \"fts\"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — \"hybrid\" when vector embeddings contributed, \"fts\" when only keyword matching was available. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Search query text — unquoted terms use implicit AND with stemming; wrap in double quotes for exact phrases"
+          },
+          "filters": {
+            "description": "Optional structured filters — all conditions AND-combine with each other and with the text query",
+            "type": "object",
+            "properties": {
+              "folder": {
+                "description": "Restrict to a folder path prefix (e.g. \"Projects\")",
+                "type": "string",
+                "minLength": 1
+              },
+              "tags": {
+                "description": "Require all listed tags (AND — every tag must be present)",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "related": {
+                "description": "Require all listed related links",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "type": {
+                "description": "Match the frontmatter type field (exact match, e.g. \"person\", \"meeting\")",
+                "type": "string",
+                "minLength": 1
+              },
+              "properties": {
+                "description": "Match arbitrary frontmatter properties by key-value (e.g. { status: \"active\", priority: 1 })",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                }
+              },
+              "created": {
+                "description": "Created date bounds (YYYY-MM-DD) on the frontmatter \"created\" property — notes without a parseable value never match",
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "on": {
+                    "description": "Exact date match (YYYY-MM-DD)",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "modified": {
+                "description": "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "on": {
+                    "description": "Exact date match (YYYY-MM-DD)",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "limit": {
+                "description": "Max results (default 20)",
+                "type": "number"
+              },
+              "snippet_tokens": {
+                "description": "Snippet length in tokens (default 30)",
+                "type": "number"
+              },
+              "include_leading_callout": {
+                "description": "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_search_by_tag",
+      "description": "Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. \"project\" matches \"project/vault-cortex\", \"project/blog\"). Set exact=true for exact match only.\n\nExample: vault_search_by_tag({ tag: \"project\" }) returns all notes tagged project or project/*.\n\nWhen to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.\nPrefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.\n\nParameters:\n- tag is the bare tag name without a leading \"#\" (\"project\", not \"#project\"). Hierarchical tags use \"/\" separators (\"project/vault-cortex\").\n- tag + exact interact: with exact=false (default), \"project\" matches \"project\", \"project/vault-cortex\", \"project/blog\" — the match is prefix-based on the \"/\" separator, so \"project\" does NOT match \"my-project\" or \"projects\". Set exact=true to match only the literal tag, excluding children.\n\nErrors:\n- An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.\n\nReturns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tag name without \"#\" prefix (e.g. \"project\", \"session-log\"). Hierarchical tags use \"/\" separators (e.g. \"project/vault-cortex\")."
+          },
+          "exact": {
+            "description": "Exact match only (default: false, prefix match)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_tags",
+      "description": "List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. \"project/vault-cortex\") appears as one full entry, not split into segments. Count is unique notes, not occurrences. A vault with no tagged notes returns an empty array.\n\nExample: vault_list_tags() returns [{ tag: \"session-log\", count: 42 }, { tag: \"project/vault-cortex\", count: 8 }, ...]\n\nWhen to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.\nPrefer vault_search_by_tag once you know which tag to query — it supports hierarchical prefix matching (\"project\" matches \"project/*\").\n\nReturns: JSON array of { tag, count } sorted by count descending. tag omits the \"#\" prefix; count is unique notes with this tag.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_recent_notes",
+      "description": "List recently modified or created notes, sorted by timestamp — a time-ordered window into the vault, not a date-range filter.\n\nExample: vault_recent_notes({ sort_by: \"modified\", limit: 10 })\nExample: vault_recent_notes({ sort_by: \"created\", limit: 5 })\n\nWhen to use: Catching up on vault changes, finding recent work, or orienting after a break.\nPrefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.\n\nParameters:\n- sort_by + limit interact: \"modified\" (default) uses filesystem mtime, so every note has a value and limit works predictably. \"created\" uses the frontmatter created property — notes without it sort last (not excluded), so a small limit may return only notes that have the property; increase limit or use \"modified\" for broader coverage.\n- \"modified\" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.\n\nErrors:\n- An empty vault returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sort_by": {
+            "description": "Sort order (default \"modified\")",
+            "type": "string",
+            "enum": [
+              "created",
+              "modified"
+            ]
+          },
+          "limit": {
+            "description": "Max results (default 20, no upper cap)",
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_search_by_folder",
+      "description": "Browse notes in a folder with full metadata (tags, type, related, created, modified) — unlike vault_list_notes, which returns paths only.\n\nExample: vault_search_by_folder({ folder: \"Projects\" }) or vault_search_by_folder({ folder: \"About Me\", recursive: false })\n\nWhen to use: Exploring a folder's contents with full context for vault orientation.\nPrefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query. Use vault_get_backlinks or vault_get_outgoing_links to explore how notes in a folder connect to the rest of the vault.\n\nParameters:\n- folder is matched as a path prefix; pass it without a trailing slash (\"Projects\").\n- recursive (default true) includes all nested subfolders; set false to list only the folder's top level.\n- limit (default 20) caps results.\n\nErrors:\n- An empty or nonexistent folder returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Folder path (e.g. \"Projects\", \"About Me\")"
+          },
+          "recursive": {
+            "description": "Include subfolders (default: true)",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max results (default 20)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_property_keys",
+      "description": "Discover all property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.\n\nExample: vault_list_property_keys() returns [{ key: \"tags\", count: 342, sample_values: [\"session-log\", \"project\"] }, ...]\n\nWhen to use: Discovering what properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.\nPrefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.\n\nParameters:\n- folder is matched as a path prefix and recurses into subfolders (\"Projects\" also covers \"Projects/Archive\"); omit it to scan the entire vault.\n\nReturns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values per key for quick orientation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Restrict to a folder (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_property_values",
+      "description": "List distinct values for a specific property key with note counts. Useful for discovering the range of values a property takes before searching.\n\nExample: vault_list_property_values({ key: \"status\" }) returns [{ value: \"active\", count: 47 }, { value: \"done\", count: 211 }, ...]\n\nWhen to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: \"active\") and array properties (tags: [\"a\", \"b\"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.\n\nParameters:\n- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Values are always strings — numeric and boolean properties are stringified for counting.\n- folder + key interact: folder restricts counting to a subtree, so the same key can return different value distributions depending on folder scope.\n- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Increase for high-cardinality keys like \"title\" or \"created\".\n\nReturns: JSON array of { value, count } sorted by count descending.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Property key name — use vault_list_property_keys to discover valid keys (e.g. \"status\", \"type\", \"tags\")."
+          },
+          "folder": {
+            "description": "Restrict to a folder prefix (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Max values to return (default 50). Increase for high-cardinality properties.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_search_by_property",
+      "description": "Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: \"active\") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.\n\nExample: vault_search_by_property({ key: \"status\", value: \"in-progress\" })\nExample: vault_search_by_property({ key: \"type\", value: \"session-log\", folder: \"Code Projects\" })\n\nWhen to use: Finding notes by metadata when you don't have a text query.\nPrefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.\n\nParameters:\n- key + value are both exact and case-sensitive — no partial matching or globbing. All property values are compared as strings, so numeric or boolean properties must be passed as their string representation.\n- For array properties (tags, related), value is tested against each element individually (contains check) — \"blog\" matches a note with tags: [\"blog\", \"draft\"] but not tags: [\"my-blog\"].\n- folder narrows results to a subtree; omit for vault-wide search. Combined with key+value, this lets you check how a property is used within a specific area.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Property key name (e.g. \"status\", \"type\", \"tags\"). Use vault_list_property_keys to discover valid keys."
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Value to match (exact, case-sensitive, e.g. \"active\", \"session-log\"). Use vault_list_property_values to discover valid values for a key."
+          },
+          "folder": {
+            "description": "Restrict to a folder prefix (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Max results (default 20). Increase for broad metadata queries.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_get_backlinks",
+      "description": "Find all notes that link to a given note — captures [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.\n\nExample: vault_get_backlinks({ path: \"Projects/vault-cortex.md\" })\n\nWhen to use: Understanding what references a note, assessing its connectivity before editing or deleting, or finding related notes via the graph.\nFor outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.\n\nParameters:\n- path: exact vault-relative path including .md extension, case-sensitive. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.\n\nReturns: JSON with path (the queried note), backlinks (array of { path, title, bytes } sorted by title), and count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact vault-relative path including .md extension (e.g. \"Projects/vault-cortex.md\"). Case-sensitive."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_get_outgoing_links",
+      "description": "Find all notes and files a given note links to via outgoing [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; self-links are included.\n\nExample: vault_get_outgoing_links({ path: \"Projects/vault-cortex.md\" })\n\nWhen to use: Navigating the graph forward, auditing broken links in one note, or checking dependencies before editing.\nFor incoming links (what links TO a note), use vault_get_backlinks.\n\nParameters:\n- path is matched against the search index, so the note must be indexed (file watcher processes new/moved files within seconds). A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.\n\nReturns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind (\"note\"|\"file\"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF) readable via vault_read_file; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links) — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact vault-relative path including .md extension (e.g. \"Projects/vault-cortex.md\"). Case-sensitive."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_find_orphans",
+      "description": "Find notes with no incoming links from other notes — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).\n\nExample: vault_find_orphans({ exclude_folders: [\"Daily Notes\",\"Templates\",\"About Me\"] })\n\nWhen to use: Vault maintenance — surfacing notes to integrate into the graph. Link an orphan by mentioning it from a relevant note with vault_patch_note.\nPrefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.\n\nParameters:\n- exclude_folders replaces the defaults ([\"Daily Notes\",\"Templates\",\"About Me\"]), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders (\"Projects\" also excludes \"Projects/Archive\").\n- limit (default 50) caps results after sorting by most-recently-modified.\n\nErrors:\n- An empty array means no orphans were found (after exclusions), not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "exclude_folders": {
+            "description": "Folders to exclude — replaces the defaults ([\"Daily Notes\",\"Templates\",\"About Me\"]), not merged",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "limit": {
+            "description": "Max results (default 50)",
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_get_memory",
+      "description": "Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.\n\nExample: vault_get_memory({ file: \"Principles\", section: \"Decision heuristics (newest first)\" })\n\nWhen to use: Reading user preferences, principles, opinions, or other persistent context stored in About Me/ files. Call vault_list_memory_files first to discover valid file and section names.\nPrefer vault_read_note for reading non-memory notes.\n\nErrors:\n- \"section requires a file\" — section was provided without file; pass both or just file\n- \"memory file not found\" — file does not exist in About Me/; call vault_list_memory_files to discover valid names\n\nReturns: Raw markdown text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "section": {
+            "description": "H2 section heading (e.g. \"Decision heuristics (newest first)\"). Matched case-insensitively, with or without the \"(newest first)\" suffix. Call vault_list_memory_files first to discover valid names.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_update_memory",
+      "description": "Append a dated entry to a section of a About Me/ memory file. The server prefixes the date automatically (\"- **YYYY-MM-DD**: entry text\") and inserts newest-first by default. Idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in frontmatter (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries is expected maintenance rather than a violation.\n\nExample: vault_update_memory({ file: \"Opinions\", section: \"Code patterns (newest first)\", entry: \"Prefer immutable data structures\" })\n\nWhen to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.\nPrefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get \"(newest first)\" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note).\n\nParameters:\n- options.date — ISO YYYY-MM-DD, defaults to today (server timezone).\n- options.position — \"top\" (default, newest-first) inserts above existing entries; \"bottom\" appends below them.\n\nObsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.\n\nErrors:\n- \"refusing memory write: … would shrink content\" — safety guard for diverged on-disk content. Re-read with vault_get_memory before retrying.\n- \"entry must be a single line\" — memory entries are single dated bullets; collapse newlines or append multiple entries.\n- \"section must be a single line\" — section names become H2 headings; remove line breaks.\n- \"date must be a real ISO calendar date\" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. \"2026-07-02\"), not a timestamp.\n- \"entry/section contains a control character\" — entry or section includes a non-printable control byte; remove it before writing.\n\nReturns: Confirmation message (notes when an identical entry already existed and nothing was written).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Memory file name without .md (e.g. \"Principles\")"
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "description": "H2 section heading (e.g. \"Decision heuristics (newest first)\"). Matched case-insensitively, with or without the \"(newest first)\" suffix."
+          },
+          "entry": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Raw entry text — a single line (newlines are rejected); the server prepends \"- **YYYY-MM-DD**: \" automatically. Do not include the date or bullet prefix."
+          },
+          "options": {
+            "description": "Optional date and position overrides",
+            "type": "object",
+            "properties": {
+              "date": {
+                "description": "ISO YYYY-MM-DD date (defaults to today)",
+                "type": "string",
+                "minLength": 1
+              },
+              "position": {
+                "description": "Insert position (default \"top\" = newest first)",
+                "type": "string",
+                "enum": [
+                  "top",
+                  "bottom"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "file",
+          "section",
+          "entry"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_memory_files",
+      "description": "Discovery tool — lists About Me/ memory files with their H1/H2 heading structure, per-section entry counts, entry policy, and each file's leading callout (by convention a \"Scope of this file\" block describing what belongs in it). Does NOT return actual entries.\n\nExample: vault_list_memory_files() returns file outlines with headings like \"Decision heuristics (newest first)\", entry counts, each file's entry policy, and its scope callout.\n\nWhen to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names, and to check a file's entry policy before pruning entries.\n\nErrors:\n- An empty or nonexistent memory folder returns an empty array, not an error.\n\nReturns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — bytes is the on-disk file size; entry_policy is \"append-only\" (the default — entries are never edited or deleted) or \"living\" (a current-state file whose expired entries may be pruned; declared via `entry-policy` frontmatter); leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a \"Scope of this file\" block, or null.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_delete_memory",
+      "description": "Delete a single dated entry from a About Me/ memory file. Both date and entry text are required for exact matching — ensures only the intended entry is removed.\n\nExample: vault_delete_memory({ file: \"Opinions\", section: \"AI tooling & memory (newest first)\", date: \"2026-05-01\", entry: \"Prefer X over Y\" })\n\nWhen to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory files are append-only by default, so do NOT delete to reflect a change: when a preference or fact has since evolved, append the new state via vault_update_memory (newest-first naturally supersedes). The exception is a file whose frontmatter declares `entry-policy: living` (check via vault_list_memory_files) — a current-state file where deleting an expired entry is the intended maintenance. Call vault_get_memory(file, section) first to see exact entry text for matching.\nPrefer vault_update_memory to supersede a changed entry; prefer vault_delete_note for deleting entire non-protected notes.\n\nParameters:\n- date + entry together uniquely identify the bullet line within the given section. If multiple entries share the same date and text, deletion fails as ambiguous.\n- section scopes the match — an identical entry under a different heading is not found. Section matching is case-insensitive, with or without the \"(newest first)\" suffix.\n\nErrors:\n- \"date must be a real ISO calendar date\" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with vault_delete_span or a manual edit.\n- \"no entry matching …\" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).\n- \"ambiguous: N entries match …\" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.\n- \"refusing memory write: … would shrink content\" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.\n\nReturns: Confirmation message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Memory file name without .md (e.g. \"Principles\")"
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "description": "H2 section heading containing the entry. Matched case-insensitively, with or without the \"(newest first)\" suffix."
+          },
+          "date": {
+            "type": "string",
+            "minLength": 1,
+            "description": "ISO YYYY-MM-DD date of the entry (e.g. \"2026-05-01\"). Must match the date shown by vault_get_memory."
+          },
+          "entry": {
+            "type": "string",
+            "description": "Exact entry text as shown by vault_get_memory — without the \"- **YYYY-MM-DD**: \" prefix or bullet. Both date and entry must match for deletion."
+          }
+        },
+        "required": [
+          "file",
+          "section",
+          "date",
+          "entry"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_memory_recall",
+      "description": "Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries (\"testing philosophy\", \"sustainable pacing\") rank best; a meta-framed query (\"opinions on testing\") whose relevance cut would come back empty degrades to relaxed any-term keyword matching instead of returning nothing.\n\nExample: vault_memory_recall({ query: \"working hours and pacing\" })\nExample: vault_memory_recall({ query: \"opinions on testing\", file: \"Opinions\" })\n\nWhen to use: Answering \"what does my memory say about X?\" or \"how has my view on Y evolved?\" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.\n\nErrors:\n- No matching entries returns { entries: [], total: 0 }, not an error\n- An unknown file returns empty results — call vault_list_memory_files to discover valid names\n\nReturns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is \"hybrid\" when vector matching contributed, \"fts\" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months); content words about the topic rank better than meta framing (\"testing philosophy\" over \"opinions on testing\")"
+          },
+          "file": {
+            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"). Omit for cross-file recall — the default and usual choice.",
+            "type": "string",
+            "minLength": 1
+          },
+          "max_results": {
+            "description": "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_get_daily_note",
+      "description": "Read a daily note by date, using the vault's configured Daily Notes folder and date format (from .obsidian/daily-notes.json). Defaults to today if no date is provided.\n\nExample: vault_get_daily_note({ date: \"2026-05-13\" })\nExample: vault_get_daily_note({}) — returns today's daily note\n\nWhen to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. To append content to a daily note section, use the returned path with vault_patch_note. Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).\n\nParameters:\n- date is ISO YYYY-MM-DD (e.g. \"2026-05-13\"). Defaults to today in the server's local timezone. Past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet. The path is derived from the vault's Daily Notes plugin config (folder + date format), so callers never need to construct daily note paths manually.\n\nErrors:\n- \"invalid date\" — use YYYY-MM-DD format (e.g. \"2026-05-13\", not \"May 13\")\n\nReturns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). When exists is false, create the note with vault_write_note using the returned path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "description": "YYYY-MM-DD (e.g. \"2026-05-13\", \"2025-12-31\"). Defaults to today in the server's timezone. Invalid formats like \"May 13\" return an error.",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_tasks",
+      "description": "List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its full attribution — note path, folder, nearest heading (the lane on a Kanban board), and line number — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks and %% %% comment blocks are not indexed.\n\nExample: vault_list_tasks({ due: { before: \"2026-07-04\" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the \"what's overdue?\" call\nExample: vault_list_tasks({ path: \"Code Projects/vault-cortex/TASKS.md\", heading: [\"Active\", \"Up Next\", \"Waiting On\"], sort_by: \"position\" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)\nExample: vault_list_tasks({ folder: \"Code Projects/vault-cortex\" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder is a recursive prefix match\nExample: vault_list_tasks({ status: \"done\", done: { after: \"2026-06-26\" } }) — what got completed this week\nExample: vault_list_tasks({ status: [\"todo\", \"in_progress\"] }) — explicit equivalent of \"not_done\"\nExample: vault_list_tasks({ priority: [\"highest\", \"high\"], sort_by: \"priority\" }) — most urgent open work first\n\nWhen to use: Any vault-wide task triage question — \"what's overdue?\", \"what's open per project?\", \"what did I finish this week?\" — in one call instead of per-board reads.\nPrefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.\n\nParameters:\n- status: a single value or an array of values, OR-combined (default \"not_done\"). Values: \"not_done\" (todo + in_progress, excludes done AND cancelled), \"todo\", \"in_progress\", \"done\", \"cancelled\", \"all\". Virtual values expand in arrays: [\"not_done\", \"done\"] matches todo + in_progress + done. Checkbox chars map to statuses the way the Tasks plugin maps them: \" \" todo, \"/\" in_progress, \"x\"/\"X\" done, \"-\" cancelled, any other char todo.\n- due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.\n- priority: array of \"highest\" | \"high\" | \"medium\" | \"low\" | \"lowest\" | \"none\", OR-combined (\"none\" = tasks with no priority signifier).\n- folder: recursive note-path prefix — includes all notes under the folder and its subdirectories (e.g. \"Code Projects/vault-cortex\" matches TASKS.md and task-notes/*.md). Use path for a single board file. tag: bare inline-task-tag name; a parent tag matches children (\"errand\" matches \"errand/groceries\"). heading: exact heading text or array of headings, case-sensitive, OR-combined (e.g. [\"Active\", \"Up Next\"] returns tasks under either heading — useful for querying multiple Kanban lanes at once). path: one note, must end in \".md\".\n- sort_by: \"due\" (default) | \"scheduled\" | \"start\" | \"created\" | \"done\" | \"priority\" | \"note_mtime\" | \"position\". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created; scheduled, start, and created cascade similarly through the remaining date fields. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. \"done\" does not cascade — it sorts by done date alone, with a modified-time tiebreaker for undated tasks. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. \"position\" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.\n- limit: max results (default 50). The total field always reports the full match count, so \"50 of 338\" is distinguishable from \"all 50\".\n\nErrors:\n- A malformed or calendar-invalid date filter throws with remediation text (\"Use YYYY-MM-DD\")\n- path without the \".md\" extension is rejected\n- No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check\n\nReturns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards; use to determine the done lane for vault_update_task), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move via vault_update_task, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "Status filter, OR-combined (default \"not_done\" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: \"not_done\" adds todo + in_progress, \"all\" includes every status.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_done",
+                  "todo",
+                  "in_progress",
+                  "done",
+                  "cancelled",
+                  "all"
+                ]
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "not_done",
+                    "todo",
+                    "in_progress",
+                    "done",
+                    "cancelled",
+                    "all"
+                  ]
+                }
+              }
+            ]
+          },
+          "due": {
+            "description": "Due date (📅 / [due:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "scheduled": {
+            "description": "Scheduled date (⏳ / [scheduled:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "start": {
+            "description": "Start date (🛫 / [start:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "done": {
+            "description": "Done date (✅ / [completion:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "created": {
+            "description": "Created date (➕ / [created:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "cancelled": {
+            "description": "Cancelled date (❌ / [cancelled:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "priority": {
+            "description": "Priority levels, OR-combined; \"none\" selects tasks with no priority signifier",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "highest",
+                "high",
+                "medium",
+                "low",
+                "lowest",
+                "none"
+              ]
+            }
+          },
+          "folder": {
+            "description": "Restrict to a note-path prefix (e.g. \"Code Projects/vault-cortex\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "tag": {
+            "description": "Inline task tag, bare name without \"#\"; parent tags match children",
+            "type": "string",
+            "minLength": 1
+          },
+          "heading": {
+            "description": "Exact heading text or array of headings, OR-combined, case-sensitive (e.g. \"Active\" or [\"Active\", \"Up Next\"])",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "path": {
+            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Max results (default 50)",
+            "type": "number"
+          },
+          "sort_by": {
+            "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
+            "type": "string",
+            "enum": [
+              "due",
+              "scheduled",
+              "start",
+              "created",
+              "done",
+              "priority",
+              "note_mtime",
+              "position"
+            ]
+          },
+          "sort_direction": {
+            "description": "Sort direction. Default per field: \"asc\" for due/scheduled/priority/position, \"desc\" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.",
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_update_task",
+      "description": "Update a task's status, priority, or Kanban lane in a single atomic call. Multiple mutations compose — status + priority + lane move all apply in one write cycle.\n\nExample: vault_update_task({ path: \"TASKS.md\", block_id: \"my-task\", status: \"done\" }) — complete a task; on a Kanban board, auto-moves to the done lane\nExample: vault_update_task({ path: \"TASKS.md\", line: 42, priority: \"high\" }) — set priority\nExample: vault_update_task({ path: \"TASKS.md\", block_id: \"my-task\", status: \"in_progress\", lane: \"Active\" }) — start working and move to Active\nExample: vault_update_task({ path: \"TASKS.md\", block_id: \"my-task\", lane: \"Up Next\" }) — lane move without status change\nExample: vault_update_task({ path: \"TASKS.md\", line: 15, priority: \"none\" }) — remove priority\n\nWhen to use: Any task state change — completing, starting, re-prioritizing, or moving between Kanban lanes. Use vault_list_tasks first to get identification fields (path + block_id or line). For Kanban boards with multiple done lanes, check done_lanes from vault_list_tasks to know which to pass.\n\nParameters:\n- Exactly one of block_id or line is required to identify the task.\n- At least one of status, priority, or lane is required (the mutation).\n- status changes the checkbox and manages dates: \"done\" appends ✅ date, \"cancelled\" appends ❌ date, \"todo\"/\"in_progress\" removes completion dates. On a Kanban board, \"done\" without an explicit lane auto-detects the done lane (via **Complete** marker, falling back to \"Done\" heading).\n- lane is only valid on notes with kanban-plugin frontmatter (is_kanban_task in vault_list_tasks).\n- format overrides the auto-detected Tasks plugin write format (\"emoji\" or \"dataview\"). When omitted, reads the Tasks plugin config from .obsidian/; defaults to emoji if .obsidian/ is not synced to the server. Both formats are always recognized for reading — only the write format is configurable.\n\nErrors:\n- \"note not found\" — path does not exist\n- \"no task at line N\" — line doesn't contain a task checkbox\n- \"block_id not found\" — no task line ends with ^block_id\n- \"at least one mutation required\" — none of status, priority, or lane provided\n- \"lane requires a Kanban board\" — lane on a note without kanban-plugin frontmatter\n- \"heading not found\" — target lane doesn't exist; lists available headings\n- \"multiple done lanes detected\" — pass lane explicitly; check done_lanes from vault_list_tasks\n- \"no done lane detected\" — no **Complete** marker and no \"Done\" heading; pass lane explicitly\n\nReturns: JSON { path, line, description, changes } — line is the final 1-based position (may shift after a lane move), description is a short excerpt, changes lists what was applied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note containing the task (must end in \".md\")"
+          },
+          "block_id": {
+            "description": "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "1-based line number from vault_list_tasks. Fragile if the file changed since the query.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "status": {
+            "description": "Target status. \"done\" appends ✅ date and auto-moves to done lane on Kanban boards. \"cancelled\" appends ❌ date.",
+            "type": "string",
+            "enum": [
+              "todo",
+              "in_progress",
+              "done",
+              "cancelled"
+            ]
+          },
+          "priority": {
+            "description": "Target priority. \"none\" removes the priority emoji.",
+            "type": "string",
+            "enum": [
+              "highest",
+              "high",
+              "medium",
+              "low",
+              "lowest",
+              "none"
+            ]
+          },
+          "lane": {
+            "description": "Target Kanban lane heading for a lane move. Only valid on Kanban boards.",
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "description": "Field format for new metadata (done dates, priority). Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+            "type": "string",
+            "enum": [
+              "emoji",
+              "dataview"
+            ]
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_read_file",
+      "description": "Read a non-markdown vault file in its most useful form per type — the read-side companion to vault_read_note for everything that isn't a note.\n\nExample: vault_read_file({ path: \"attachments/diagram.png\" }) — the image itself, shrunk to fit response limits when needed\nExample: vault_read_file({ path: \"Boards/Roadmap.canvas\" }) — a readable outline of the canvas\nExample: vault_read_file({ path: \"Boards/Roadmap.canvas\", raw: true }) — the canvas's exact JSON source\nExample: vault_read_file({ path: \"exports/data.json\" }) — the file content as text\nExample: vault_read_file({ path: \"papers/research.pdf\" }) — structured text with title, headings, and links\nExample: vault_read_file({ path: \"papers/research.pdf\", raw: true }) — each page rendered as an image block\n\nWhat each type returns:\n- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.\n- Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).\n- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes), fenced code blocks (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to 5 pages are rendered.\n- Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.\n\nWhen to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. For .md notes use vault_read_note — this tool rejects them.\n\nErrors:\n- \"not a file\" — the path ends in .md; read notes with vault_read_note\n- \"file not found\" — nothing exists at that path; discover valid paths via vault_list_files\n- \"file too large\" — the file exceeds the server's read cap (MAX_FILE_BYTES, default 50 MiB)\n- \"text output too large\" — a text file or PDF renders past the output cap; only smaller files can be returned whole\n- \"not valid UTF-8\" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content\n- \"PDF has no extractable text\" — the PDF exists but contains no text content (scanned or image-only); states the page count. Set raw: true to render pages as images instead\n- \"PDF page rendering failed\" — raw: true was set but no pages could be rendered; the PDF may be corrupt\n- \"image cannot be fitted\" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)\n- \"raw source is not available for images\" — raw applies to text-representable files; an image's delivered form is its image block\n- unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size\n\nReturns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block.\n\nSearch coverage: vault_search indexes markdown notes; find files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the file, including its extension (e.g. \"attachments/photo.png\", \"Boards/Roadmap.canvas\"). Must NOT end in \".md\" — notes are read with vault_read_note."
+          },
+          "raw": {
+            "description": "Return an alternative representation of the file. For .canvas this is the JSON Canvas source (geometry, ids, colors); for .pdf this renders pages as images instead of extracting text — useful for scanned documents, diagrams, and layout-sensitive content. Text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "vault_list_files",
+      "description": "List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.\n\nExample: vault_list_files({}) — every non-markdown file in the vault\nExample: vault_list_files({ folder: \"attachments\" })\nExample: vault_list_files({ extensions: [\".png\", \".jpg\"], limit: 20 })\n\nWhen to use: discovering what files exist before reading them with vault_read_file. vault_search, vault_list_notes, and vault_search_by_folder cover only markdown notes, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.\n\nParameters:\n- folder: folder path filter (e.g. \"attachments\" or \"Projects/media\"), searched recursively; omit for the whole vault\n- extensions: restrict to these extensions — case-insensitive, with or without the leading dot (\".png\" and \"png\" both work)\n- limit: maximum entries returned (default 50). extension_counts and total always reflect the full filtered set, not just the returned page.\n\nErrors:\n- A folder containing no files — or a folder that doesn't exist — returns an empty listing, not an error.\n- A folder path escaping the vault (e.g. \"../elsewhere\") is rejected with a path-traversal error.\n\nReturns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Files of supported types are readable via vault_read_file; vault_search covers markdown notes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Folder path to search recursively (e.g. \"attachments\"). Omit to list the whole vault.",
+            "type": "string",
+            "minLength": 1
+          },
+          "extensions": {
+            "description": "Only include these extensions, case-insensitive, leading dot optional (e.g. [\".png\", \"jpg\"]).",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "limit": {
+            "description": "Max entries returned (default 50).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ],
+  "version": "0.33.0"
+}

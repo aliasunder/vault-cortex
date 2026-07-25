@@ -1,0 +1,142 @@
+// Builds the LobeHub Marketplace manifest (lhm.plugin.json) from the server
+// itself. Written as a module so both the sync script and the drift test read
+// the same builder — the test is only meaningful if it compares the committed
+// file against exactly what `npm run sync:lobehub-manifest` would write.
+//
+// The tool and prompt arrays come from a real McpServer wired through the real
+// registration path and queried over an in-memory MCP transport, so the
+// published listing describes the same surface a connected client sees — no
+// hand-maintained copy to fall out of date.
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { fileURLToPath } from "node:url"
+import { registerTools } from "../src/vault-mcp/mcp-core/tool-definitions.js"
+import { registerPrompts } from "../src/vault-mcp/mcp-core/prompt-definitions.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
+import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+import type { Logger } from "../src/logger.js"
+import packageJson from "../package.json" with { type: "json" }
+import serverJson from "../server.json" with { type: "json" }
+
+/** Marketplace-assigned listing id, copied from the lobehub.com/mcp/<id> URL.
+ *  LobeHub assigns it at import time — publishing against an invented id 404s. */
+export const LOBEHUB_IDENTIFIER = "aliasunder-vault-cortex"
+
+const GITHUB_OWNER = "aliasunder"
+
+/** Absolute path of the committed manifest `lhm plugin publish` reads. */
+export const LOBEHUB_MANIFEST_PATH = fileURLToPath(
+  new URL("../lhm.plugin.json", import.meta.url),
+)
+
+export type LobehubManifest = {
+  author: string
+  authorUrl: string
+  description: string
+  identifier: string
+  name: string
+  prompts: { name: string; description: string }[]
+  tags: string[]
+  tools: { name: string; description: string; inputSchema: unknown }[]
+  version: string
+}
+
+/** Registration logs a summary line per group; the sync script's own output is
+ *  the report, so the builder stays quiet. */
+const noop = (): void => {}
+const silentLogger: Logger = {
+  debug: noop,
+  info: noop,
+  warn: noop,
+  error: noop,
+  child: () => silentLogger,
+}
+
+/**
+ * Stands up the MCP server in-process and returns a client already connected to
+ * it. The search index is an empty in-memory database and the vault path is
+ * never read: registration only declares metadata, and no tool handler runs.
+ */
+const connectToRegisteredServer = async (): Promise<Client> => {
+  const config = loadConfig({})
+  const server = new McpServer({
+    name: "vault-cortex",
+    version: packageJson.version,
+  })
+  const registrationContext = {
+    server,
+    vaultPath: "/vault",
+    search: createSearchIndex(":memory:", undefined, undefined, {
+      memoryDir: config.memoryDir,
+    }),
+    logger: silentLogger,
+    config,
+  }
+  registerTools(registrationContext)
+  registerPrompts(registrationContext)
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair()
+  const client = new Client({
+    name: "lobehub-manifest-builder",
+    version: packageJson.version,
+  })
+  await Promise.all([
+    server.connect(serverTransport),
+    client.connect(clientTransport),
+  ])
+  return client
+}
+
+/**
+ * Fails loudly if the SDK ever starts paginating these lists — a truncated
+ * manifest would silently understate the server on the marketplace.
+ */
+const assertSinglePage = (listName: string, nextCursor?: string): void => {
+  if (nextCursor) {
+    throw new Error(
+      `${listName} returned a paginated response; the manifest builder reads one page only`,
+    )
+  }
+}
+
+/**
+ * Builds the manifest. Default config is deliberate: MEMORY_ENABLED and
+ * FILE_TOOLS_ENABLED are on by default, and the listing advertises the full
+ * surface rather than one deployment's subset.
+ */
+export const buildLobehubManifest = async (): Promise<LobehubManifest> => {
+  const client = await connectToRegisteredServer()
+  const toolsResult = await client.listTools()
+  const promptsResult = await client.listPrompts()
+  assertSinglePage("tools/list", toolsResult.nextCursor)
+  assertSinglePage("prompts/list", promptsResult.nextCursor)
+  await client.close()
+
+  return {
+    author: GITHUB_OWNER,
+    authorUrl: `https://github.com/${GITHUB_OWNER}`,
+    description: serverJson.description,
+    identifier: LOBEHUB_IDENTIFIER,
+    name: serverJson.title,
+    prompts: promptsResult.prompts.map((prompt) => ({
+      name: prompt.name,
+      description: prompt.description ?? "",
+    })),
+    tags: packageJson.keywords,
+    tools: toolsResult.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description ?? "",
+      inputSchema: tool.inputSchema,
+    })),
+    version: packageJson.version,
+  }
+}
+
+/** Serializes the manifest exactly as the committed file stores it, so the
+ *  drift test can compare bytes rather than re-implement formatting. The file
+ *  is Prettier-ignored — it is generated output, like DOCKERHUB.md. */
+export const serializeLobehubManifest = (manifest: LobehubManifest): string =>
+  `${JSON.stringify(manifest, null, 2)}\n`
