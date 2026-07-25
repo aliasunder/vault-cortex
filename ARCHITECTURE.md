@@ -133,9 +133,9 @@ All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_fol
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
-- **Every link form** — wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Minimal rewrites** — a link is rewritten only when leaving it unchanged would break it
-- **Guardrails** — refuses to overwrite an existing destination or touch `PROTECTED_PATHS`
+- **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
+- **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
+- **Guardrails:** refuses to overwrite an existing destination or touch `PROTECTED_PATHS`
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
@@ -186,7 +186,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 entries — the granularity the other layers miss (`vault_get_memory` returns
 whole files/sections; `vault_search` is note-granular).
 
-_Indexing:_
+**Indexing:**
 
 - A pure entry parser (`obsidian-markdown/memory-entries.ts`) feeds dedicated
   index tables: `memory_entries` + FTS, plus `memory_entry_vectors` when
@@ -197,7 +197,7 @@ _Indexing:_
 - Entries reconcile by content-hash identity, not position — a newest-first
   append re-embeds exactly one entry
 
-_Query pipeline:_
+**Query pipeline:**
 
 1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF
 2. **Cut** — adaptive cross-encoder relevance floor: 10% of the best score,
