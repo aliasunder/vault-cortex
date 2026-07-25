@@ -2,8 +2,9 @@
 // updating the LobeHub Marketplace listing
 // (lobehub.com/mcp/aliasunder-vault-cortex).
 //
-// scripts/__tests__/lobehub-manifest.test.ts fails CI when the committed
-// manifest drifts from the server; this script is the one-command fix.
+// The manifest is generated output, not committed — it is gitignored, and
+// publish:lobehub regenerates it first, so what ships always matches the
+// server's live tool and prompt registry.
 //
 // Usage: npm run sync:lobehub-manifest
 //        npm run publish:lobehub   (sync, then publish — needs `lhm login`)

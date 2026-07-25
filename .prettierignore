@@ -5,4 +5,3 @@ node_modules/
 *.sqlite
 CHANGELOG.md
 DOCKERHUB.md
-lhm.plugin.json

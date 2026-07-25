@@ -76,13 +76,12 @@ jobs:
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT -> $NEXT ($BUMP)"
 
-      - name: Bump package.json, package-lock.json, server.json, and lhm.plugin.json
+      - name: Bump package.json, package-lock.json, and server.json
         env:
           NEXT: ${{ steps.next.outputs.version }}
         run: |
           npm version "$NEXT" --no-git-tag-version
           jq --arg v "$NEXT" '.version = $v | .packages[0].identifier = "ghcr.io/aliasunder/vault-cortex:" + $v' server.json > server.json.tmp && mv server.json.tmp server.json
-          jq --arg v "$NEXT" '.version = $v' lhm.plugin.json > lhm.plugin.json.tmp && mv lhm.plugin.json.tmp lhm.plugin.json
           npx prettier --write server.json
 
       - name: Commit, tag, and push
@@ -91,7 +90,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json server.json lhm.plugin.json
+          git add package.json package-lock.json server.json
           git commit -m "release: v$NEXT"
           git tag "v$NEXT"
           git push origin HEAD --tags

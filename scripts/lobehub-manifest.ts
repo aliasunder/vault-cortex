@@ -1,7 +1,6 @@
 // Builds the LobeHub Marketplace manifest (lhm.plugin.json) from the server
-// itself. Written as a module so both the sync script and the drift test read
-// the same builder — the test is only meaningful if it compares the committed
-// file against exactly what `npm run sync:lobehub-manifest` would write.
+// itself. Split from the sync script so the tests can exercise the builder
+// without writing to disk.
 //
 // The tool and prompt arrays come from a real McpServer wired through the real
 // registration path and queried over an in-memory MCP transport, so the
@@ -27,7 +26,8 @@ export const LOBEHUB_IDENTIFIER = "aliasunder-vault-cortex"
 
 const GITHUB_OWNER = "aliasunder"
 
-/** Absolute path of the committed manifest `lhm plugin publish` reads. */
+/** Absolute path of the manifest `lhm plugin publish` reads. Generated, not
+ *  committed — `npm run publish:lobehub` regenerates it before every publish. */
 export const LOBEHUB_MANIFEST_PATH = fileURLToPath(
   new URL("../lhm.plugin.json", import.meta.url),
 )
