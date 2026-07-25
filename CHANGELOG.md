@@ -53,6 +53,28 @@
 
 
 
+
+## [0.33.0] — 2026-07-25
+
+### Features
+
+- Add FILE_TOOLS_ENABLED env var to conditionally hide file tools (#363)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.32.0
+
+### Maintenance
+
+- **deps-dev:** Bump postcss from 8.5.16 to 8.5.23 (#371)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.1 to 4.37.3 (#364)
+- **deps:** Bump the production group across 1 directory with 3 updates (#369)
+- **deps:** Bump actions/checkout from 7.0.0 to 7.0.1 (#365)
+- **deps:** Bump docker/login-action from 4.4.0 to 4.5.1 (#366)
+- **deps:** Bump ossf/scorecard-action from 2.4.3 to 2.4.4 (#367)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.2 to 6.2.3 (#368)
+- **deps-dev:** Bump the development group with 3 updates (#370)
+
 ## [0.32.0] — 2026-07-22
 
 ### ⚠ BREAKING CHANGES
