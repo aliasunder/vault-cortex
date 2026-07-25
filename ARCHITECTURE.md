@@ -4,24 +4,25 @@ Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
+**Contents** — [Why This Exists](#why-this-exists) · [Layers](#capability-layers) · [Requirements](#user-requirements) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search-r8) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
+
 ## Why This Exists
 
-The typical Obsidian + MCP setup requires three moving parts running
-simultaneously: Obsidian open → Local REST API plugin installed → a separate
-MCP server wrapping the REST API. That chain is local-only.
+Vault Cortex packs the entire vault-to-agent chain into one always-on Docker
+container:
 
-Vault Cortex replaces it:
-
-- **Docker-based** — no Obsidian desktop required to be running, no plugins, works with `.md` files on disk
+- **Docker-based** — works directly with `.md` files on disk; no plugins, and no Obsidian desktop required to be running
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
 - **MCP spec-compliant** — streamable-http transport, OAuth 2.1
+
+It replaces the typical Obsidian + MCP setup — three moving parts running
+simultaneously (Obsidian open → Local REST API plugin installed → a separate
+MCP server wrapping the REST API), a chain that only works locally.
 
 See the [README](./README.md) for the full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but Vault Cortex runs anywhere Docker does.
-
-**Contents** — [Why This Exists](#why-this-exists) · [Layers](#capability-layers) · [Requirements](#user-requirements) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search-r8) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
 
 ## Capability Layers
 
@@ -108,6 +109,8 @@ graph TB
 
 ## MCP Tools
 
+All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read.
+
 ### Vault Read/Write (R2, R3)
 
 | Tool                      | Input                                                        | Annotation      |
@@ -154,7 +157,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
 - `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout)
 
-All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans`) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read. `sort_by` is `"created" | "modified"` (default `"modified"`).
+`vault_recent_notes` sorts via `sort_by`, `"created" | "modified"` (default `"modified"`).
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
 
@@ -206,7 +209,7 @@ _Query pipeline:_
 4. **Output** — ascending by date; truncation drops the least-relevant entries,
    never a date end
 
-**Auto-initialization** is a two-layer bootstrap — startup seeds the default structure, write-time handles growth beyond it:
+**Auto-initialization:** A two-layer bootstrap — startup seeds the default structure, write-time handles growth beyond it:
 
 - **Startup:** if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure.
 - **Write-time:** `vault_update_memory` auto-creates files and sections on write — agents can save preferences without manual setup; a newly-created file is seeded with a placeholder scope callout to fill in.
@@ -276,8 +279,8 @@ Each row carries its full attribution: note path, full parent folder, nearest he
 
 Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts/get`) — user-initiated workflows, distinct from the model-driven tools:
 
-- **Registration** mirrors the tools pattern: `prompt-definitions.ts` orchestrates group modules under `mcp-core/prompts/`, called per session in `mcp-router.ts`.
-- **Client surfacing** varies: a **+** menu (Claude Desktop), slash commands (Claude Code), or similar (OpenCode, Zed); some clients (Cursor, Windsurf) currently expose tools only.
+- **Registration:** mirrors the tools pattern — `prompt-definitions.ts` orchestrates group modules under `mcp-core/prompts/`, called per session in `mcp-router.ts`.
+- **Client surfacing:** varies by client — a **+** menu (Claude Desktop), slash commands (Claude Code), or similar (OpenCode, Zed); some clients (Cursor, Windsurf) currently expose tools only.
 - **No drift by construction:** handlers assemble live vault content at invocation time over the same data layer the tools use — live content plus thin, durable instruction, never an embedded procedure that can go stale.
 
 | Prompt              | Arguments             | Purpose                                                                                                                                                                                                                                                                                                                                       |
@@ -301,22 +304,48 @@ Each handler degrades to a valid message rather than throwing, so a prompt never
 
 Both models lazy-load on first use (~1–2s cold start each, cached after). Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. Vector tables persist across rebuilds (only FTS, notes, links, tasks, and non-md tables are cleared) — Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, and non-md tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
-**Vector schema:** Two tables in the same SQLite database as FTS5:
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
+
+**Vector schema:** Two tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks (R9)](#tasks-r9)):
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
-
-**Task index:** The `tasks` table lives in the same SQLite database alongside the FTS5 and vector tables — see [Tasks (R9)](#tasks-r9).
-
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables are persistent across restarts; content-hash gating skips unchanged chunks on incremental file-watcher updates. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
 **New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory, delayed to twice chokidar's write-stability threshold (`awaitWriteFinish`, 2 s — a 4 s delay) so in-flight writes settle first. The rescan:
 
 - lists the directory recursively (symlinked directories included) and skips everything chokidar already tracks
 - indexes each settled file chokidar missed, and registers every missed entry with `watcher.add()` so future events fire for it
 - leaves any file still mid-write for the `awaitWriteFinish` gate to index once it settles, retrying itself only where no watch exists yet
+
+**Indexing pipeline (startup + incremental):**
+
+```mermaid
+flowchart TD
+    VF[Vault Files] --> RB[rebuildFromVault]
+    RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
+    P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
+    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+
+    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
+    UP --> FTS[Update FTS5]
+    UP --> LK[Update Links]
+    UP --> EM[embedAndStoreChunks]
+    EM --> CH{Content\nhash match?}
+    CH --> |unchanged| SK[Skip]
+    CH --> |changed| EMB[Embed chunk\nbge-small q8]
+    EMB --> VEC[Store in\nnote_vectors]
+
+    FW --> |delete| RM[removeNote]
+    RM --> D1[Delete FTS + links]
+    RM --> D2[Delete chunks + vectors]
+
+    style VF fill:#f9f,stroke:#333
+    style FW fill:#f9f,stroke:#333
+    style CH fill:#ffd,stroke:#333
+    style SK fill:#dfd,stroke:#333
+```
 
 **Hybrid search:** `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
 
@@ -326,7 +355,7 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
 5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
 
-**Cross-encoder reranking:** After RRF fusion, a cross-encoder model ([ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), 22M params, INT8 quantized) rescores the top candidates by evaluating each (query, document) pair jointly — unlike the bi-encoder, it captures query-document interaction and distinguishes intent ("how I feel about") from topic ("uses of"). Results are reordered via position-aware score blending (inspired by [qmd](https://github.com/tobi/qmd)):
+**Cross-encoder reranking:** After RRF fusion, the cross-encoder model from the component table above rescores the top candidates by evaluating each (query, document) pair jointly — unlike the bi-encoder, it captures query-document interaction and distinguishes intent ("how I feel about") from topic ("uses of"). Results are reordered via position-aware score blending (inspired by [qmd](https://github.com/tobi/qmd)):
 
 - **Ranks 1–3:** 75% RRF / 25% reranker — protect strong retrieval hits
 - **Ranks 4–10:** 50% / 50% — even blend in the middle
@@ -355,34 +384,6 @@ flowchart LR
     style CE fill:#fdb,stroke:#333
     style BL fill:#dbf,stroke:#333
     style R fill:#bfb,stroke:#333
-```
-
-**Indexing pipeline (startup + incremental):**
-
-```mermaid
-flowchart TD
-    VF[Vault Files] --> RB[rebuildFromVault]
-    RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
-    P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
-    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
-
-    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
-    UP --> FTS[Update FTS5]
-    UP --> LK[Update Links]
-    UP --> EM[embedAndStoreChunks]
-    EM --> CH{Content\nhash match?}
-    CH --> |unchanged| SK[Skip]
-    CH --> |changed| EMB[Embed chunk\nbge-small q8]
-    EMB --> VEC[Store in\nnote_vectors]
-
-    FW --> |delete| RM[removeNote]
-    RM --> D1[Delete FTS + links]
-    RM --> D2[Delete chunks + vectors]
-
-    style VF fill:#f9f,stroke:#333
-    style FW fill:#f9f,stroke:#333
-    style CH fill:#ffd,stroke:#333
-    style SK fill:#dfd,stroke:#333
 ```
 
 **Search module decomposition:** The search query and indexing layer is split into six modules (the embedding pipeline and file watcher are described above):
@@ -432,6 +433,11 @@ JWTs. Same validation as the Lambda, independent second check.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
+
+**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
+API Gateway authorizer is misconfigured, or someone hits the public IP
+directly, Express still rejects. `/healthz` bypasses auth for docker-compose
+healthchecks.
 
 **OAuth flow:**
 
@@ -508,16 +514,18 @@ generator extracts the real client IP from API Gateway's `Forwarded` header
 (express-rate-limit's built-in validators are disabled — they assume
 direct-to-server traffic, not reverse-proxy deployments).
 
-**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
-API Gateway authorizer is misconfigured, or someone hits the public IP
-directly, Express still rejects. `/healthz` bypasses auth for docker-compose
-healthchecks.
+**Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
+both. Existing JWTs signed with the old key become invalid immediately.
+Refresh tokens in SQLite are unaffected — clients silently get new JWTs
+signed with the new key on their next token refresh.
 
 **Optional: close port 8000.** Set `ORIGIN_URL` to route API Gateway through
 a tunnel or reverse proxy (e.g., Cloudflare Tunnel), then set
 `MCP_PORT_CIDRS=none` to block direct access. With this configuration, bearer
 tokens never travel in plaintext on any network segment — all traffic is
 HTTPS end-to-end. See [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
+
+### Deployment options
 
 **Optional: restrict SSH.** Set `SSH_CIDRS=none` to block public SSH and
 reach the instance exclusively via a Tailscale WireGuard mesh (Tailscale
@@ -530,12 +538,7 @@ execute-api URL (which stays active alongside it). The ACM cert and DNS
 records are managed outside SST — any DNS provider works. See
 [`DEPLOY.md`](./DEPLOY.md#custom-domain-optional).
 
-**Rotation:** Update the SST secret AND the Lightsail `.env`, then redeploy
-both. Existing JWTs signed with the old key become invalid immediately.
-Refresh tokens in SQLite are unaffected — clients silently get new JWTs
-signed with the new key on their next token refresh.
-
-### Container Startup
+### Container startup
 
 Inside the `:remote` container, s6-rc runs an init chain of oneshots, then
 starts two supervised longruns in dependency order (service definitions live
@@ -580,8 +583,8 @@ MCP server starts as soon as sync spawns — and no startup ordering guarantees
 "the initial sync has _completed_". On a fresh volume that means two races,
 each with its own safety net: the search index self-heals (the file watcher
 indexes files as they arrive), and the memory bootstrap can race arriving
-files — the memory-write shrink guard is what actually prevents the
-fresh-volume clobber. s6-rc dependencies gate startup order only — a later
+files — the memory-write [shrink guard](#memory-layer-safety) is what
+actually prevents the fresh-volume clobber. s6-rc dependencies gate startup order only — a later
 sync crash restarts just that service, not the MCP server.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
@@ -679,9 +682,9 @@ Docker hardening, and durability seatbelts above.
 - **Memory file separator rejection** (`memory-store.ts`):
   `memoryFilePath()` rejects `/` and `\` in memory file names — a name
   like `../../outside` cannot escape the memory directory.
-- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`, `Daily
-Notes`) blocks deletion and move-into for configured folders, checked
-  after normalization.
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`,
+  `Daily Notes`) blocks deletion and move-into for configured folders,
+  checked after normalization.
 
 #### SQL + search safety
 
@@ -752,7 +755,7 @@ Notes`) blocks deletion and move-into for configured folders, checked
 | Obsidian Sync      | $5/mo                                              |
 | **Total**          | **~$18–30/mo**                                     |
 
-Vault Cortex runs anywhere Docker does — the reference deployment uses Lightsail, but any VPS with comparable specs works.
+Any VPS with comparable specs works — the table above prices the Lightsail reference deployment.
 
 ## Key Decisions
 
