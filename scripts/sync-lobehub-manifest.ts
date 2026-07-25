@@ -2,11 +2,16 @@
 // updating the LobeHub Marketplace listing
 // (lobehub.com/mcp/aliasunder-vault-cortex).
 //
-// src/vault-mcp/mcp-core/__tests__/lobehub-manifest.test.ts fails CI when the
-// committed manifest drifts from the server; this script is the one-command fix.
+// scripts/__tests__/lobehub-manifest.test.ts fails CI when the committed
+// manifest drifts from the server; this script is the one-command fix.
 //
 // Usage: npm run sync:lobehub-manifest
 //        npm run publish:lobehub   (sync, then publish — needs `lhm login`)
+//
+// publish:lobehub pins @lobehub/market-cli to an exact version: the publisher
+// runs with a logged-in marketplace credential, and the CLI is pre-1.0, so an
+// unpinned `npx` would hand that credential to whatever `latest` resolves to
+// on the day. Bump the pin deliberately, the way the workflows pin actions.
 
 import { writeFileSync } from "node:fs"
 import {
