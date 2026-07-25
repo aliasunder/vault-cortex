@@ -109,7 +109,7 @@ graph TB
 
 ## MCP Tools
 
-All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read.
+All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present (opt-in via `include_leading_callout` on `vault_search`; automatic on the rest) — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read.
 
 ### Vault Read/Write (R2, R3)
 
