@@ -76,6 +76,7 @@ const startServer = async (): Promise<void> => {
 
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,
+    fileToolsEnabled: config.fileToolsEnabled,
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,

@@ -301,6 +301,47 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("FILE_TOOLS_ENABLED", () => {
+    it("defaults to true when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.fileToolsEnabled).toBe(true)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ FILE_TOOLS_ENABLED: "true" })
+      expect(config.fileToolsEnabled).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ FILE_TOOLS_ENABLED: "false" })
+      expect(config.fileToolsEnabled).toBe(false)
+    })
+
+    it("rejects a non-boolean value", () => {
+      expect(() => loadConfig({ FILE_TOOLS_ENABLED: "yes" })).toThrow(
+        /FILE_TOOLS_ENABLED/,
+      )
+    })
+
+    it("still parses MAX_FILE_BYTES when disabled", () => {
+      const config = loadConfig({
+        FILE_TOOLS_ENABLED: "false",
+        MAX_FILE_BYTES: "10485760",
+      })
+      expect(config.fileToolsEnabled).toBe(false)
+      expect(config.maxFileBytes).toBe(10_485_760)
+    })
+
+    it("still parses MAX_IMAGE_OUTPUT_BYTES when disabled", () => {
+      const config = loadConfig({
+        FILE_TOOLS_ENABLED: "false",
+        MAX_IMAGE_OUTPUT_BYTES: "65536",
+      })
+      expect(config.fileToolsEnabled).toBe(false)
+      expect(config.maxImageOutputBytes).toBe(65_536)
+    })
+  })
+
   describe("MAX_FILE_BYTES", () => {
     it("defaults to 50 MiB (52428800) when unset", () => {
       const config = loadConfig(EMPTY_ENV)

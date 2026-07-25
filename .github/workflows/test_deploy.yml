@@ -194,6 +194,7 @@ jobs:
           EMBEDDING_ENABLED: ${{ vars.EMBEDDING_ENABLED }}
           RERANK_MODE: ${{ vars.RERANK_MODE }}
           MEMORY_ENABLED: ${{ vars.MEMORY_ENABLED }}
+          FILE_TOOLS_ENABLED: ${{ vars.FILE_TOOLS_ENABLED }}
           MEMORY_DIR: ${{ vars.MEMORY_DIR }}
           PROTECTED_PATHS: ${{ vars.PROTECTED_PATHS }}
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
@@ -215,6 +216,7 @@ jobs:
           EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-true}
           RERANK_MODE=${RERANK_MODE:-blended}
           MEMORY_ENABLED=${MEMORY_ENABLED:-true}
+          FILE_TOOLS_ENABLED=${FILE_TOOLS_ENABLED:-true}
           MEMORY_DIR=${MEMORY_DIR:-About Me}
           PUID=1000
           PGID=1000

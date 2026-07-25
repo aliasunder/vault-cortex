@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1.",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.32.0",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.33.0",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -94,6 +94,11 @@
         {
           "name": "MEMORY_ENABLED",
           "description": "Enable or disable the structured memory layer. When false, memory tools are hidden, bootstrap is skipped, and server metadata omits memory references.",
+          "default": "true"
+        },
+        {
+          "name": "FILE_TOOLS_ENABLED",
+          "description": "Enable or disable file tools (vault_read_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
           "default": "true"
         },
         {
