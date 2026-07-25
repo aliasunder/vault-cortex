@@ -74,7 +74,7 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  sync-cli-env-blocks.ts                # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
+  sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
   sync-lobehub-manifest.ts             # Writes lhm.plugin.json (npm run sync:lobehub-manifest)
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
