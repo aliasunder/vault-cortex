@@ -37,6 +37,10 @@ export type VaultConfig = Readonly<{
   /** When false, the memory layer is fully disabled — bootstrap is skipped,
    *  memory tools are hidden, and server metadata omits memory references. */
   memoryEnabled: boolean
+  /** When false, file tools (vault_read_file, vault_list_files) are hidden —
+   *  tool registration is skipped and server metadata omits file tool
+   *  references. File config vars are still parsed when disabled. */
+  fileToolsEnabled: boolean
   memoryDir: string
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
@@ -107,6 +111,12 @@ export const loadConfig = (
     .default("true")
     .asBool()
 
+  const fileToolsEnabled = envVar
+    .from(env)
+    .get("FILE_TOOLS_ENABLED")
+    .default("true")
+    .asBool()
+
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -156,6 +166,7 @@ export const loadConfig = (
 
   return Object.freeze({
     memoryEnabled,
+    fileToolsEnabled,
     memoryDir,
     protectedPaths,
     orphanExcludeFolders,

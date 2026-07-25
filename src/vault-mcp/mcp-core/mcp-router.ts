@@ -82,6 +82,15 @@ export const createMcpRouter = ({
         const searchDescription = config.embeddingEnabled
           ? "hybrid search"
           : "full-text search"
+        const fileToolsClause = config.fileToolsEnabled
+          ? "; vault_read_file for images, canvases, and other non-markdown files"
+          : ""
+        const memoryClause = config.memoryEnabled
+          ? `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.`
+          : ". Use vault_write_note for writes."
+        const instructions = `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
+
+Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`
         const server = new McpServer(
           {
             name: "vault-cortex",
@@ -93,15 +102,7 @@ export const createMcpRouter = ({
             icons: SERVER_ICONS,
             websiteUrl: SERVER_WEBSITE_URL,
           },
-          {
-            instructions: config.memoryEnabled
-              ? `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
-
-Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`
-              : `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_write_note for writes.
-
-Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-          },
+          { instructions },
         )
 
         const sessionLogger = logger.child({

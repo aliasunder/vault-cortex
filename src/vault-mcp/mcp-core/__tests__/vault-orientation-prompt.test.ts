@@ -373,6 +373,21 @@ describe("vault-orientation with MEMORY_ENABLED=false", () => {
   })
 })
 
+// ── FILE_TOOLS_ENABLED=false ──────────────────────────────────
+
+describe("vault-orientation with FILE_TOOLS_ENABLED=false", () => {
+  const disabledConfig = loadConfig({ FILE_TOOLS_ENABLED: "false" })
+
+  it("omits vault_list_files from the go-deeper tools", async () => {
+    const { calls } = await setupVault({ config: disabledConfig })
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).not.toContain("vault_list_files")
+    expect(text).toContain("vault_read_note")
+  })
+})
+
 // ── Genericness ─────────────────────────────────────────────────
 
 describe("vault-orientation genericness", () => {

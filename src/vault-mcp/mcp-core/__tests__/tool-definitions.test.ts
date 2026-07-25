@@ -724,6 +724,55 @@ describe("MEMORY_ENABLED=false", () => {
   })
 })
 
+describe("FILE_TOOLS_ENABLED=false", () => {
+  const FILE_TOOLS = [
+    TOOL_NAMES.VAULT_READ_FILE,
+    TOOL_NAMES.VAULT_LIST_FILES,
+  ] as const
+
+  const FILE_TOOL_SET = new Set<string>(FILE_TOOLS)
+  const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter(
+    (toolName) => !FILE_TOOL_SET.has(toolName),
+  )
+
+  const registerWithDisabledFileTools = (): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({ FILE_TOOLS_ENABLED: "false" }),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  it("does not register file tools", () => {
+    const disabledCalls = registerWithDisabledFileTools()
+    const registeredNames = disabledCalls.map(([toolName]) => toolName)
+    for (const fileTool of FILE_TOOLS) {
+      expect(registeredNames).not.toContain(fileTool)
+    }
+  })
+
+  it("registers exactly the non-file tools", () => {
+    const disabledCalls = registerWithDisabledFileTools()
+    const registeredNames = disabledCalls.map(([toolName]) => toolName)
+    expect(new Set(registeredNames)).toEqual(new Set(EXPECTED_NON_FILE_TOOLS))
+    expect(registeredNames).toHaveLength(EXPECTED_NON_FILE_TOOLS.length)
+  })
+
+  it("non-file tool descriptions do not reference file tools", () => {
+    const disabledCalls = registerWithDisabledFileTools()
+    for (const [, toolConfig] of disabledCalls) {
+      expect(toolConfig.description).toBeDefined()
+      for (const fileToolName of FILE_TOOLS) {
+        expect(toolConfig.description).not.toContain(fileToolName)
+      }
+    }
+  })
+})
+
 describe("vault_memory_recall handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
