@@ -177,7 +177,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
 
-Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search-r8):
+Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search):
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
@@ -185,7 +185,7 @@ Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCH
 
 All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
-See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for model details, blend weights, and the full pipeline breakdown.
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.
 
 ## Memory
 
