@@ -135,7 +135,7 @@ All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_fol
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
 - **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
-- **Guardrails:** refuses to overwrite an existing destination or touch `PROTECTED_PATHS`
+- **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into `PROTECTED_PATHS`
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
@@ -458,6 +458,7 @@ sequenceDiagram
     AG->>E: Forward
     E-->>C: {authorization_servers: [...]}
 
+    Note over C,E: Every client call below also traverses AG<br/>(open routes — no authorizer); AG hop omitted for brevity
     C->>E: GET /.well-known/oauth-authorization-server
     E-->>C: {authorization_endpoint, token_endpoint, registration_endpoint, ...}
 
@@ -520,10 +521,13 @@ Refresh tokens in SQLite are unaffected — clients silently get new JWTs
 signed with the new key on their next token refresh.
 
 **Optional: close port 8000.** Set `ORIGIN_URL` to route API Gateway through
-a tunnel or reverse proxy (e.g., Cloudflare Tunnel), then set
-`MCP_PORT_CIDRS=none` to block direct access. With this configuration, bearer
-tokens never travel in plaintext on any network segment — all traffic is
-HTTPS end-to-end. See [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
+a tunnel or reverse proxy that terminates on the instance and forwards to
+`localhost:8000` (e.g., Cloudflare Tunnel), then set `MCP_PORT_CIDRS=none` to
+block direct access. With that topology, bearer tokens never travel in
+plaintext on any network segment — every network hop is HTTPS or
+tunnel-encrypted, and the final proxy-to-server hop stays on loopback. A proxy
+on a separate host forwarding plain HTTP would not qualify. See
+[`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
 ### Deployment options
 
@@ -683,8 +687,8 @@ Docker hardening, and durability seatbelts above.
   `memoryFilePath()` rejects `/` and `\` in memory file names — a name
   like `../../outside` cannot escape the memory directory.
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`,
-  `Daily Notes`) blocks deletion and move-into for configured folders,
-  checked after normalization.
+  `Daily Notes`) blocks deleting notes in, moving notes out of, and
+  moving notes into configured folders, checked after normalization.
 
 #### SQL + search safety
 
