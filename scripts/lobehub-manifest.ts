@@ -183,8 +183,9 @@ export const buildLobehubManifest = async (): Promise<LobehubManifest> => {
   }
 }
 
-/** Serializes the manifest exactly as the committed file stores it, so the
- *  drift test can compare bytes rather than re-implement formatting. The file
- *  is Prettier-ignored — it is generated output, like DOCKERHUB.md. */
+/** Serializes the manifest exactly as `lhm plugin publish` reads it, so the
+ *  format is pinned in one place rather than re-implemented by each caller.
+ *  Prettier skips the file because it is gitignored (.gitignore is part of
+ *  Prettier's default ignore path), so nothing reformats it after this. */
 export const serializeLobehubManifest = (manifest: LobehubManifest): string =>
   `${JSON.stringify(manifest, null, 2)}\n`
