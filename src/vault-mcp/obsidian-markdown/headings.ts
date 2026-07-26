@@ -221,8 +221,11 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 export const linesBeforeFirstHeading = (
   lines: readonly string[],
   headings: readonly HeadingInfo[],
-): readonly string[] =>
-  lines.slice(0, headings[0]?.startLine ?? findTrailingCommentBlockStart(lines))
+): readonly string[] => {
+  const regionEndLine =
+    headings[0]?.startLine ?? findTrailingCommentBlockStart(lines)
+  return lines.slice(0, regionEndLine)
+}
 
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. */
 export const findHeading = (
