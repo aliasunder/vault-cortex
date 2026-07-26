@@ -473,7 +473,21 @@ API Gateway authorizer is misconfigured, or someone hits the public IP
 directly, Express still rejects. `/healthz` bypasses auth for docker-compose
 healthchecks.
 
-**OAuth flow:**
+**OAuth flow at a glance:**
+
+```text
+1. Client → POST /mcp (no token)                          → 401 → client starts OAuth
+2. Client → GET /.well-known/oauth-protected-resource     → discover auth server
+3. Client → GET /.well-known/oauth-authorization-server   → discover endpoints
+4. Client → POST /register                                → dynamic client registration
+5. Client → GET /authorize?...&code_challenge=...         → consent page in browser
+6. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
+7. Client → POST /token (code + code_verifier)            → JWT access token + refresh token
+8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
+9. Token expires → POST /token (refresh_token)            → new JWT (silent, no browser)
+```
+
+**In detail:**
 
 ```mermaid
 sequenceDiagram
