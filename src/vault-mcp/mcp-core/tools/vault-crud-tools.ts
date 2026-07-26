@@ -36,9 +36,9 @@ const describeDisplacedLeadingContent = ({
   firstHeading,
 }: DisplacedLeadingContent): string => {
   if (!firstHeading) {
-    return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To keep that content above the new section, use operation "append".`
+    return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
   }
-  return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To keep that content in place and put the new section just above the first heading, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
+  return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
 export const registerVaultCrudTools = ({
