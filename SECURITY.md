@@ -24,7 +24,8 @@ The attack surface includes:
 
 ## Runtime Hardening
 
-Beyond the authentication and scanning protections described above, the
+Beyond the authentication layers listed under [Scope](#scope) and the
+scanners covered in [Automated Scanning](#automated-scanning) below, the
 following runtime patterns address specific attack classes. See
 [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for
 mechanism-level detail.
