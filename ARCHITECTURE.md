@@ -15,9 +15,9 @@ container:
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
 - **MCP spec-compliant** — streamable-http transport, OAuth 2.1
 
-It replaces the typical Obsidian + MCP setup — three moving parts running
-simultaneously (Obsidian open → Local REST API plugin installed → a separate
-MCP server wrapping the REST API), a chain that only works locally.
+It replaces the typical Obsidian + MCP setup, which chains three moving parts
+— Obsidian running, the Local REST API plugin, and a separate MCP server
+wrapping that API — and only works locally.
 
 See the [README](./README.md) for the full value proposition.
 
