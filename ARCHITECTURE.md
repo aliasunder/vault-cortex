@@ -4,7 +4,7 @@ Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
-**Contents** — [Why This Exists](#why-this-exists) · [Capabilities](#capabilities) · [Requirements](#user-requirements) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
+**Contents** — [Why This Exists](#why-this-exists) · [Capabilities](#capabilities) · [Constraints](#design-constraints) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
 
 ## Why This Exists
 
@@ -32,19 +32,16 @@ The server's capabilities fall into three groups with different availability sem
 - **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else.
 - **Search enhancement ladder:** the one genuinely additive stack. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
-## User Requirements
+## Design Constraints
 
-| ID  | Requirement                     | Phase | Summary                                                                                   |
-| --- | ------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
-| R1  | Bidirectional sync              | 1     | Obsidian Sync + obsidian-headless. One vault, always current.                             |
-| R2  | Remote vault read access        | 1     | Any MCP client can read any note by path, list notes in any folder.                       |
-| R3  | Remote vault write access       | 1     | Writes sync back to all Obsidian apps automatically via R1.                               |
-| R4  | Full-text and structured search | 1     | SQLite FTS5 — ranked results, filter by tags/type/folder/dates.                           |
-| R5  | Memory tools                    | 1     | Read/append to configurable memory folder (default: `About Me/`).                         |
-| R6  | Secure remote access            | 1     | HTTPS via API Gateway. OAuth 2.1 + static bearer token.                                   |
-| R7  | Low operational overhead        | 1     | Always-on, no manual intervention. Free local, low-cost VPS remote. IaC via SST.          |
-| R8  | Extensible for semantic search  | 2     | Hybrid search (sqlite-vec + local embeddings) plugs into existing watcher. Not a rewrite. |
-| R9  | Vault-wide task management      | 3     | Filter by status, dates, priority. Manage across Kanban lanes. Both task formats.         |
+The constraints that shaped every decision below:
+
+- **One vault, always current** — the server operates on the same vault your Obsidian apps edit, kept current by bidirectional Obsidian Sync; writes made over MCP appear in Obsidian and vice versa. No export step, no copy.
+- **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
+- **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
+- **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
+- **Secure by default** — remote access is HTTPS-only, authenticated via OAuth 2.1 or a bearer token, validated at two independent layers.
+- **Portable** — runs anywhere Docker does; nothing depends on the author's machine, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
 
@@ -111,7 +108,7 @@ graph TB
 
 All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below) include `bytes` (on-disk file size) and each note's `leading_callout` in its metadata when present (opt-in via `include_leading_callout` on `vault_search`; automatic on the rest) — `bytes` lets agents decide whether to read in full or use `outline`/`heading` mode before committing to a read.
 
-### Vault Read/Write (R2, R3)
+### Vault Read/Write
 
 | Tool                      | Input                                                        | Annotation      |
 | ------------------------- | ------------------------------------------------------------ | --------------- |
@@ -139,7 +136,7 @@ All discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_fol
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
-### Search (R4)
+### Search
 
 | Tool                     | Input                        | Annotation   |
 | ------------------------ | ---------------------------- | ------------ |
@@ -172,7 +169,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
 
-### Memory (R5)
+### Memory
 
 | Tool                      | Input                            | Annotation       |
 | ------------------------- | -------------------------------- | ---------------- |
@@ -256,7 +253,7 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 **Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
-### Tasks (R9)
+### Tasks
 
 | Tool                | Input                                                                                                                                          | Annotation   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
@@ -308,7 +305,7 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
-**Vector schema:** Two tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks (R9)](#tasks-r9)):
+**Vector schema:** Two tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID

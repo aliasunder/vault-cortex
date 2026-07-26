@@ -211,7 +211,7 @@ The task layer handles this so agents don't have to:
 - **Update** — complete, reprioritize, and move tasks between Kanban lanes in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. All three changes can happen at once
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
-See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
+See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
 ## Files
 
