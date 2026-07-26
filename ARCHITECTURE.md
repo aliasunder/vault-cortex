@@ -29,8 +29,8 @@ API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 The server's capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, task queries and mutations, and the link graph. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading — images, canvases, PDFs, and data files, each in the form most useful to an agent (`FILE_TOOLS_ENABLED`). Independent opt-outs — either can be disabled without affecting anything else.
-- **Search enhancement ladder — the one additive stack:** keyword search → plus sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED` — embeddings generated locally by a small ONNX model, no external API) → plus cross-encoder reranking with position-aware score blending, rescuing intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else.
+- **Search enhancement ladder:** the one genuinely additive stack. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## User Requirements
 
