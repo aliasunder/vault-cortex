@@ -17,7 +17,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
 
 ## What you get
 
@@ -177,7 +177,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
 
-Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search-r8):
+Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search):
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
@@ -185,7 +185,7 @@ Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCH
 
 All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
-See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search-r8) for model details, blend weights, and the full pipeline breakdown.
+See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.
 
 ## Memory
 
@@ -211,7 +211,7 @@ The task layer handles this so agents don't have to:
 - **Update** — complete, reprioritize, and move tasks between Kanban lanes in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. All three changes can happen at once
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
-See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks-r9) for the indexing model, date cascade sorting, and Kanban lane detection.
+See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
 ## Files
 
@@ -290,7 +290,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
-**Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every search and discovery result. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+**Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
 ## Configuration
 
