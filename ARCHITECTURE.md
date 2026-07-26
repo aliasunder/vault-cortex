@@ -4,7 +4,7 @@ Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
-**Contents** — [Why This Exists](#why-this-exists) · [Layers](#capability-layers) · [Requirements](#user-requirements) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
+**Contents** — [Why This Exists](#why-this-exists) · [Capabilities](#capabilities) · [Requirements](#user-requirements) · [Components](#component-diagram) · [Data Flow](#data-flow) · [Tools](#mcp-tools) · [Prompts](#mcp-prompts) · [Hybrid Search](#hybrid-search) · [Infrastructure](#infrastructure) · [Cost](#cost) · [Key Decisions](#key-decisions)
 
 ## Why This Exists
 
@@ -15,22 +15,22 @@ container:
 - **Remote access** — Obsidian Sync in Docker keeps the vault current; works from your phone, a remote server, or any MCP client
 - **MCP spec-compliant** — streamable-http transport, OAuth 2.1
 
-It replaces the typical Obsidian + MCP setup, which chains three moving parts
-— Obsidian running, the Local REST API plugin, and a separate MCP server
-wrapping that API — and only works locally.
+It replaces the typical Obsidian + MCP setup — a local-only chain of three
+moving parts: Obsidian running, the Local REST API plugin, and a separate MCP
+server wrapping that API.
 
 See the [README](./README.md) for the full value proposition.
 
 This document covers the architecture of the reference deployment — Lightsail,
 API Gateway, SST — but Vault Cortex runs anywhere Docker does.
 
-## Capability Layers
+## Capabilities
 
-The server provides three capability layers, each additive:
+The server's capabilities fall into three groups with different availability semantics:
 
-- **Vault CRUD + memory + files** — read/write notes, heading-targeted patching, note moving with link rewriting, read non-markdown files (images, canvases, PDFs, data files) each in the form most useful to an agent, and an About Me/ memory layer for AI personalization. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
-- **Hybrid search** — FTS5 keyword matching + sqlite-vec vector similarity, fused via RRF. Embeddings generated locally by a small ONNX model — no external API.
-- **Cross-encoder reranking** — position-aware score blending after RRF fusion, rescuing intent-heavy queries where keywords and vectors both miss.
+- **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, task queries and mutations, and the link graph. The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)).
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading — images, canvases, PDFs, and data files, each in the form most useful to an agent (`FILE_TOOLS_ENABLED`). Independent opt-outs — either can be disabled without affecting anything else.
+- **Search enhancement ladder — the one additive stack:** keyword search → plus sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED` — embeddings generated locally by a small ONNX model, no external API) → plus cross-encoder reranking with position-aware score blending, rescuing intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## User Requirements
 
