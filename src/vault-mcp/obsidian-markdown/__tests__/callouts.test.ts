@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseLeadingCallout } from "../callouts.js"
+import { parseLeadingCallout, parseLeadingCalloutSpan } from "../callouts.js"
 
 describe("parseLeadingCallout", () => {
   it("parses a callout that is the first body line (before any heading)", () => {
@@ -148,5 +148,76 @@ describe("parseLeadingCallout", () => {
       title: "Tight",
       body: "body",
     })
+  })
+})
+
+describe("parseLeadingCalloutSpan", () => {
+  it("spans a callout that is the first body line", () => {
+    const lines = ["> [!info] Scope", "> body line", "", "## Section"]
+    expect(parseLeadingCalloutSpan(lines)).toEqual({
+      callout: { type: "info", title: "Scope", body: "body line" },
+      startLine: 0,
+      endLine: 2,
+    })
+  })
+
+  it("starts the span below a skipped H1 and blank lines", () => {
+    // startLine must not be 0 here — a consumer subtracting the span from the
+    // top of the body would otherwise swallow the H1.
+    const lines = ["# Me", "", "> [!info] Scope", "> body", "", "## Identity"]
+    expect(parseLeadingCalloutSpan(lines)).toEqual({
+      callout: { type: "info", title: "Scope", body: "body" },
+      startLine: 2,
+      endLine: 4,
+    })
+  })
+
+  it("spans trailing blank blockquote lines that the rendered body drops", () => {
+    const lines = ["> [!info] Scope", "> content", ">", ">  ", "", "## Next"]
+    // Span and body are asserted together so they cannot drift: the body stops
+    // at "content", the span still covers the two blank `>` lines.
+    expect(parseLeadingCalloutSpan(lines)).toEqual({
+      callout: { type: "info", title: "Scope", body: "content" },
+      startLine: 0,
+      endLine: 4,
+    })
+  })
+
+  it("ends the span before a stacked sibling callout", () => {
+    const lines = [
+      "> [!info] First",
+      "> a",
+      "> [!warning] Second",
+      "> b",
+      "",
+      "## S",
+    ]
+    expect(parseLeadingCalloutSpan(lines)).toEqual({
+      callout: { type: "info", title: "First", body: "a" },
+      startLine: 0,
+      endLine: 2,
+    })
+    // Line 2 sits outside the span, so it stays visible to consumers.
+    expect(lines[2]).toBe("> [!warning] Second")
+  })
+
+  it("indexes the caller's own array when lines carry CRLF", () => {
+    const lines =
+      "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split(
+        "\n",
+      )
+    expect(parseLeadingCalloutSpan(lines)).toEqual({
+      callout: { type: "info", title: "Scope", body: "line one\nline two" },
+      startLine: 1,
+      endLine: 4,
+    })
+  })
+
+  it("returns null when there is no callout", () => {
+    expect(parseLeadingCalloutSpan(["Just prose.", "", "## S"])).toBeNull()
+  })
+
+  it("returns null for an empty array", () => {
+    expect(parseLeadingCalloutSpan([])).toBeNull()
   })
 })

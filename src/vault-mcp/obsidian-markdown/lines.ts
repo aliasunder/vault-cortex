@@ -18,6 +18,21 @@ export const splitIntoLines = (content: string): string[] =>
     .split("\n")
     .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
+// ── Blank-edge trimming ─────────────────────────────────────────
+
+/** Drops blank lines from both ends of a line array, keeping interior blanks
+ *  intact. A caller that turns a line region into reportable text — an outline's
+ *  leading content, a byte count in a write confirmation — wants the region's
+ *  real extent, not the blank padding that separates it from its neighbours. */
+export const trimBlankEdgeLines = (
+  lines: readonly string[],
+): readonly string[] => {
+  const firstContentIndex = lines.findIndex((line) => line.trim() !== "")
+  if (firstContentIndex === -1) return []
+  const lastContentIndex = lines.findLastIndex((line) => line.trim() !== "")
+  return lines.slice(firstContentIndex, lastContentIndex + 1)
+}
+
 // ── Blockquote prefix stripping ─────────────────────────────────
 
 /** Matches one blockquote marker: up to 3 spaces indent + `>` + optional

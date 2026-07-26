@@ -201,6 +201,32 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   })
 }
 
+/**
+ * Returns the body lines above the note's first heading of any level (H1–H6) —
+ * the region a no-heading `prepend` lands in, and the only content a prepended
+ * heading can pull into its own section. A note whose first line is a heading
+ * returns an empty array.
+ *
+ * With no headings the region runs to the start of any trailing `%% %%` comment
+ * block rather than to EOF, mirroring how parseHeadings bounds a final section's
+ * bodyEndLine. Without that, an empty Kanban board — no lanes yet, just its
+ * trailing `%% kanban:settings %%` block — would report the settings JSON as
+ * body content.
+ *
+ * Takes an already-parsed heading list so a caller holding one (an outline read)
+ * doesn't parse twice. Deriving the boundary from parseHeadings also makes the
+ * region fence- and comment-aware for free: a `## foo` inside a code fence is
+ * not the first heading, so the fenced block stays inside the region.
+ */
+export const linesBeforeFirstHeading = (
+  lines: readonly string[],
+  headings: readonly HeadingInfo[],
+): readonly string[] => {
+  const regionEndLine =
+    headings[0]?.startLine ?? findTrailingCommentBlockStart(lines)
+  return lines.slice(0, regionEndLine)
+}
+
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. */
 export const findHeading = (
   headings: readonly HeadingInfo[],
