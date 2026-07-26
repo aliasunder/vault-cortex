@@ -23,8 +23,9 @@ See the [README](./README.md) for the full value proposition.
 
 Most of this document is deployment-independent. The
 [Component Diagram](#component-diagram), [Infrastructure](#infrastructure), and
-[Cost](#cost) sections describe the reference deployment — Lightsail, API
-Gateway, SST — but Vault Cortex runs anywhere Docker does.
+[Cost](#cost) sections describe the **reference deployment** — the AWS setup
+this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
+[`DEPLOY.md`](./DEPLOY.md)) — but Vault Cortex runs anywhere Docker does.
 
 ## Capabilities
 
