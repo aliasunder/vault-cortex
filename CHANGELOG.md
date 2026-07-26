@@ -54,6 +54,22 @@
 
 
 
+
+## [0.33.1] — 2026-07-26
+
+### Features
+
+- **scripts:** Generate and publish the LobeHub Marketplace manifest (#373)
+
+### Bug Fixes
+
+- **deps:** Bump brace-expansion to 5.0.8 for CVE-2026-14257 (#374)
+
+### Documentation
+
+- **architecture:** Consolidate fragmented sections, add Contents line, scannability pass (#375)
+- Update CHANGELOG.md for v0.33.0
+
 ## [0.33.0] — 2026-07-25
 
 ### Features
