@@ -478,7 +478,7 @@ sequenceDiagram
     AG->>E: Forward
     E-->>C: {authorization_servers: [...]}
 
-    Note over C,E: Every client call below also traverses AG<br/>(open routes — no authorizer); AG hop omitted for brevity
+    Note over C,E: Every client call below also traverses AG<br/>(open routes — no authorizer) — AG hop omitted for brevity
     C->>E: GET /.well-known/oauth-authorization-server
     E-->>C: {authorization_endpoint, token_endpoint, registration_endpoint, ...}
 
