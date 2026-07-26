@@ -94,10 +94,6 @@ graph TB
     APIGW -->|proxy| MCP_SERVER
 ```
 
-The diagram shows the `:remote` deployment. The local `:latest` target
-collapses to the container alone — the MCP server and its SQLite index over a
-bind-mounted vault; no Sync process, no AWS.
-
 ## Data Flow
 
 **Read:** MCP client → API Gateway (TLS + auth) → MCP server → filesystem or SQLite → response.
