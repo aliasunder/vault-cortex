@@ -644,22 +644,26 @@ describe("vault_patch_note handler", () => {
       "Intro prose.\n\n## Section\n\nbody\n",
     )
 
-    const result = (await handler(
+    const result = await handler(
       {
         path: "intro.md",
         operation: "prepend",
         content: "## New Section\n- entry",
       },
       mockExtra,
-    )) as { content: Array<{ text: string }>; isError?: boolean }
+    )
 
-    expect(result.isError).toBeUndefined()
     // The heading is named by its bare text — that is what the `heading` param
     // matches, so a "## Section" form here would send the agent into
     // "heading not found".
-    expect(result.content[0]?.text).toBe(
-      'Applied prepend to intro.md → file body. The inserted heading now contains 12 bytes of content that already sat above the note\'s first heading. To place a section above that content instead, use operation "insert_before" with heading "Section" (H2).',
-    )
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Applied prepend to intro.md → file body. The inserted heading now contains 12 bytes of content that already sat above the note\'s first heading. To place a section above that content instead, use operation "insert_before" with heading "Section" (H2).',
+        },
+      ],
+    })
     expect(await readNote()).toBe(
       "## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n",
     )
@@ -671,15 +675,19 @@ describe("vault_patch_note handler", () => {
       "Just prose.\n",
     )
 
-    const result = (await handler(
+    const result = await handler(
       { path: "flat.md", operation: "prepend", content: "## New Section" },
       mockExtra,
-    )) as { content: Array<{ text: string }>; isError?: boolean }
-
-    expect(result.isError).toBeUndefined()
-    expect(result.content[0]?.text).toBe(
-      'Applied prepend to flat.md → file body. The inserted heading now contains the note\'s entire body (11 bytes) — the note had no headings of its own. To place a section below that content instead, use operation "append".',
     )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Applied prepend to flat.md → file body. The inserted heading now contains the note\'s entire body (11 bytes) — the note had no headings of its own. To place a section below that content instead, use operation "append".',
+        },
+      ],
+    })
     expect(await readNote()).toBe("## New Section\nJust prose.\n")
   })
 
@@ -690,15 +698,16 @@ describe("vault_patch_note handler", () => {
       "# Title\n\nIntro.\n\n## Section\n",
     )
 
-    const result = (await handler(
+    const result = await handler(
       { path: "titled.md", operation: "prepend", content: "## New Section" },
       mockExtra,
-    )) as { content: Array<{ text: string }>; isError?: boolean }
-
-    expect(result.isError).toBeUndefined()
-    expect(result.content[0]?.text).toBe(
-      "Applied prepend to titled.md → file body",
     )
+
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "Applied prepend to titled.md → file body" },
+      ],
+    })
     expect(await readNote()).toBe(
       "## New Section\n# Title\n\nIntro.\n\n## Section\n",
     )
@@ -730,16 +739,20 @@ describe("vault_read_note outline mode", () => {
     )
     if (!readCall) throw new Error("vault_read_note not registered")
 
-    const result = (await readCall[2](
+    const result = await readCall[2](
       { path: "both.md", outline: true },
       mockExtra,
-    )) as { content: Array<{ text: string }>; isError?: boolean }
-
-    expect(result.isError).toBeUndefined()
-    // Exact JSON pins key order, which the conditional spreads determine.
-    expect(result.content[0]?.text).toBe(
-      '{"leading_callout":{"type":"info","title":"Scope","body":"the callout body"},"leading_content":"Prose after the callout.","headings":[{"level":2,"text":"Section","bytes":11}]}',
     )
+
+    // Exact JSON pins key order, which the conditional spreads determine.
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '{"leading_callout":{"type":"info","title":"Scope","body":"the callout body"},"leading_content":"Prose after the callout.","headings":[{"level":2,"text":"Section","bytes":11}]}',
+        },
+      ],
+    })
   })
 })
 
