@@ -30,7 +30,7 @@ Gateway, SST — but Vault Cortex runs anywhere Docker does.
 
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
-- **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, task queries and mutations, and the link graph.
+- **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
 - **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
@@ -38,11 +38,11 @@ The MCP surface is **tools + prompts** — model-driven tools plus user-initiate
 
 The constraints that shaped every decision below:
 
-- **One vault, always current** — the server operates on the same vault your Obsidian apps edit, kept current by bidirectional Obsidian Sync; writes made over MCP appear in Obsidian and vice versa. No export step, no copy.
+- **One vault, always current** — the server operates on the same vault your Obsidian apps edit: bind-mounted locally, kept current by bidirectional Obsidian Sync remotely. Writes made over MCP appear in Obsidian and vice versa. No export step, no copy.
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — remote access is HTTPS-only, authenticated via OAuth 2.1 or a bearer token, validated at two independent layers.
+- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token, validated at two independent layers.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
@@ -308,7 +308,7 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 
 Both models lazy-load on first use (~1–2s cold start each, cached after). Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
-#### Query fusion
+### Query fusion
 
 `vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
 
@@ -318,7 +318,7 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
 5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
 
-#### Cross-encoder reranking
+### Cross-encoder reranking
 
 After RRF fusion, the cross-encoder model from the component table above rescores the top candidates by evaluating each (query, document) pair jointly — unlike the bi-encoder, it captures query-document interaction and distinguishes intent ("how I feel about") from topic ("uses of"). Results are reordered via position-aware score blending (inspired by [qmd](https://github.com/tobi/qmd)):
 
@@ -349,11 +349,11 @@ flowchart LR
     style R fill:#bfb,stroke:#333
 ```
 
-#### Graceful fallback
+### Graceful fallback
 
 When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or the embedding model fails, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` and `reranked: boolean` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
 
-#### Indexing
+### Indexing
 
 **Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, and non-md tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
@@ -398,7 +398,7 @@ flowchart TD
     style SK fill:#dfd,stroke:#333
 ```
 
-#### Module decomposition
+### Module decomposition
 
 The search query and indexing layer is split into six modules (the embedding pipeline and file watcher are described above):
 
@@ -447,7 +447,8 @@ unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403**
 on HTTP APIs, which MCP clients treat as a broken server rather than a
 sign-in prompt.
 
-**Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth` in `server.ts`):
+**Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth`, applied to the
+`/mcp` routes in `mcp-core/mcp-router.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
 JWTs. Same validation as the Lambda, independent second check.
 
@@ -755,8 +756,10 @@ Docker hardening, and durability seatbelts above.
 #### Memory layer safety
 
 - **Shrink guard** (`guardAgainstShrink` in `memory-store.ts`): refuses
-  a write that would remove >50% of a file's bytes (floor: 200 B) —
-  catches template-clobber bugs from the Obsidian Sync startup race.
+  a write that would remove >50% of a file's bytes — catches
+  template-clobber bugs from the Obsidian Sync startup race. Files at or
+  under 1250 bytes are exempt (a threshold just above the largest empty
+  template, so a file with no real entries is never guarded).
 - **Idempotency guard**: if the exact bullet already exists in the target
   section, `updateMemory` no-ops — prevents duplicate entries from MCP
   client retries after gateway timeouts.
