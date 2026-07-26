@@ -55,6 +55,19 @@
 
 
 
+
+## [0.33.2] — 2026-07-26
+
+### Features
+
+- Surface leading content in outline and warn on displacing prepends (#372)
+
+### Documentation
+
+- **security:** Fix stale directional self-reference in Runtime Hardening intro (#377)
+- **devin:** Slim wiki.json purposes to structural descriptions (#376)
+- Update CHANGELOG.md for v0.33.1
+
 ## [0.33.1] — 2026-07-26
 
 ### Features
