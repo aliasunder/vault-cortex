@@ -42,7 +42,7 @@ The constraints that shaped every decision below:
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token, validated at two independent layers.
+- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment validates every request at two independent layers.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
