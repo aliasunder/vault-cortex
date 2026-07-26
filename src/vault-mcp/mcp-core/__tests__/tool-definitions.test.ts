@@ -660,7 +660,7 @@ describe("vault_patch_note handler", () => {
       content: [
         {
           type: "text",
-          text: 'Applied prepend to intro.md → file body. The inserted heading now contains 12 bytes of content that already sat above the note\'s first heading. To place the section above the first heading without nesting that content, use operation "insert_before" with heading "Section" (H2).',
+          text: 'Applied prepend to intro.md → file body. The 12 bytes of pre-existing content above the note\'s first heading are now nested under the inserted heading. To keep that content in place and put the new section just above the first heading, use operation "insert_before" with heading "Section" (H2).',
         },
       ],
     })
@@ -684,7 +684,7 @@ describe("vault_patch_note handler", () => {
       content: [
         {
           type: "text",
-          text: 'Applied prepend to flat.md → file body. The inserted heading now contains the note\'s entire body (11 bytes) — the note had no headings of its own. To place a section below that content instead, use operation "append".',
+          text: 'Applied prepend to flat.md → file body. The note\'s entire pre-existing body (11 bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To keep that content above the new section, use operation "append".',
         },
       ],
     })
