@@ -297,6 +297,29 @@ describe("parseMemoryEntries", () => {
     ])
   })
 
+  it("closes an open entry at an empty heading (no separator or text)", () => {
+    const lines = [
+      "## Section",
+      "- **2026-01-10**: Entry before the empty heading.",
+      "###",
+      "- **2026-01-20**: Entry after the empty heading.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "Section",
+        date: "2026-01-10",
+        text: "- **2026-01-10**: Entry before the empty heading.",
+        entryIndex: 0,
+      },
+      {
+        section: "Section",
+        date: "2026-01-20",
+        text: "- **2026-01-20**: Entry after the empty heading.",
+        entryIndex: 1,
+      },
+    ])
+  })
+
   it("does not treat an undated or malformed bullet as an entry start", () => {
     const lines = [
       "## Section",

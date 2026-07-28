@@ -59,6 +59,15 @@ describe("parseLeadingCallout", () => {
     expect(parseLeadingCallout(lines)).toBeNull()
   })
 
+  it("skips an empty H1 (no separator or text)", () => {
+    const lines = ["#", "> [!info] Scope", "> body", "", "## Section"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "body",
+    })
+  })
+
   it("returns null when there is no callout", () => {
     const lines = ["# Title", "", "Just prose, no callout.", "", "## Section"]
     expect(parseLeadingCallout(lines)).toBeNull()

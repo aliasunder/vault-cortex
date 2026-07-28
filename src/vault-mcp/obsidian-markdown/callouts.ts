@@ -39,8 +39,9 @@ const CALLOUT_OPENER_REGEX = /^>\s*\[!([A-Za-z][\w-]*)\]([+-]?)\s*(.*)$/
 const CALLOUT_BODY_REGEX = /^>\s?(.*)$/
 
 /** Matches an H1 heading line per CommonMark §4.2: 0-3 leading spaces,
- *  one `#`, space-or-tab, then text. Only one leading H1 is skipped. */
-const H1_REGEX = /^ {0,3}#[ \t].+$/
+ *  one `#`, then optionally a space/tab separator and text. Empty H1
+ *  (`#` alone on a line) is valid. Only one leading H1 is skipped. */
+const H1_REGEX = /^ {0,3}#(?:[ \t].*)?$/
 
 /**
  * Returns the index of the first body line — the first line that is neither

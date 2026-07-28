@@ -47,11 +47,12 @@ export type MemoryEntry = Readonly<{
 const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
 
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
- *  spaces, hashes, space-or-tab separator. Inside an H2 span this can only be a
- *  deeper heading (H3+) — parseHeadings ends the span at the next H1/H2 — and
- *  a sub-heading starts new content, so it closes the open entry rather than
- *  being absorbed as continuation text. */
-const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}[ \t]/
+ *  spaces, hashes, then a space/tab separator or end of line (empty headings
+ *  are valid). Inside an H2 span this can only be a deeper heading (H3+) —
+ *  parseHeadings ends the span at the next H1/H2 — and a sub-heading starts
+ *  new content, so it closes the open entry rather than being absorbed as
+ *  continuation text. */
+const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/
 
 // ── Parser ──────────────────────────────────────────────────────
 

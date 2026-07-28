@@ -15,8 +15,9 @@ export const stripMarkdownSyntax = (text: string): string =>
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     // Obsidian comments: %% ... %% (single-line and multi-line)
     .replace(/%%[^]*?%%/g, "")
-    // Heading markers: ## → removed (keep the text; 0-3 leading spaces per §4.2)
-    .replace(/^ {0,3}#{1,6}[ \t]+/gm, "")
+    // Heading markers: ## → removed (keep the text; 0-3 leading spaces per §4.2,
+    // empty headings match via the end-of-line alternative)
+    .replace(/^ {0,3}#{1,6}(?:[ \t]+|$)/gm, "")
     // Bold/italic markers
     .replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1")
     .replace(/_{1,3}([^_]+)_{1,3}/g, "$1")
