@@ -251,6 +251,52 @@ describe("parseMemoryEntries", () => {
     expect(parseMemoryEntries(lines)).toEqual([])
   })
 
+  it("closes an open entry at a heading with leading spaces (CommonMark §4.2)", () => {
+    const lines = [
+      "## Section",
+      "- **2026-01-10**: Entry before the sub-heading.",
+      "  ### Sub-topic",
+      "- **2026-01-20**: Entry after the sub-heading.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "Section",
+        date: "2026-01-10",
+        text: "- **2026-01-10**: Entry before the sub-heading.",
+        entryIndex: 0,
+      },
+      {
+        section: "Section",
+        date: "2026-01-20",
+        text: "- **2026-01-20**: Entry after the sub-heading.",
+        entryIndex: 1,
+      },
+    ])
+  })
+
+  it("closes an open entry at a heading with a tab separator (CommonMark §4.2)", () => {
+    const lines = [
+      "## Section",
+      "- **2026-01-10**: Entry before the sub-heading.",
+      "###\tSub-topic",
+      "- **2026-01-20**: Entry after the sub-heading.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "Section",
+        date: "2026-01-10",
+        text: "- **2026-01-10**: Entry before the sub-heading.",
+        entryIndex: 0,
+      },
+      {
+        section: "Section",
+        date: "2026-01-20",
+        text: "- **2026-01-20**: Entry after the sub-heading.",
+        entryIndex: 1,
+      },
+    ])
+  })
+
   it("does not treat an undated or malformed bullet as an entry start", () => {
     const lines = [
       "## Section",

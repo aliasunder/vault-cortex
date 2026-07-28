@@ -24,8 +24,9 @@ export type HeadingInfo = Readonly<{
 
 // ── Internal helpers ────────────────────────────────────────────
 
-/** Matches markdown headings H1–H6: captures the `#` prefix and heading text. */
-const HEADING_REGEX = /^(#{1,6}) (.+)$/
+/** Matches ATX headings H1–H6 per CommonMark §4.2: 0-3 leading spaces,
+ *  1-6 `#` characters, a space or tab separator, then heading text. */
+const HEADING_REGEX = /^ {0,3}(#{1,6})[ \t](.+)$/
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
@@ -158,7 +159,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       const match = HEADING_REGEX.exec(line)
       const matchedHashes = match?.[1]
       const matchedText = match?.[2]
-      if (matchedHashes !== undefined && matchedText !== undefined) {
+      if (matchedHashes && matchedText) {
         return {
           headings: [
             ...state.headings,
