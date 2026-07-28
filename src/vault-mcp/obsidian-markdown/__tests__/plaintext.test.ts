@@ -34,6 +34,16 @@ describe("stripMarkdownSyntax", () => {
       expected: "Section Title\nSubsection",
     },
     {
+      name: "heading markers with leading spaces stripped (CommonMark §4.2)",
+      input: " ## Spaced\n   ### Deep",
+      expected: "Spaced\nDeep",
+    },
+    {
+      name: "heading with 4+ leading spaces is not stripped (indented code block)",
+      input: "    ## Not a heading",
+      expected: "    ## Not a heading",
+    },
+    {
       name: "bold markers stripped",
       input: "This is **bold text** here",
       expected: "This is bold text here",

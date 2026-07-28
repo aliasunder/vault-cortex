@@ -34,6 +34,31 @@ describe("parseLeadingCallout", () => {
     })
   })
 
+  it("skips a leading H1 with leading spaces (CommonMark §4.2)", () => {
+    const lines = [" # Me", "> [!info] Scope", "> body", "", "## Section"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "body",
+    })
+  })
+
+  it("skips a leading H1 with a tab separator (CommonMark §4.2)", () => {
+    const lines = ["#\tMe", "> [!info] Scope", "> body", "", "## Section"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "body",
+    })
+  })
+
+  it("does not skip a line with 4+ leading spaces as an H1", () => {
+    // 4 spaces makes it an indented code block, not a heading — the callout
+    // is preceded by body content, so it is not a leading callout.
+    const lines = ["    # Not a heading", "> [!info] Not leading", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
+
   it("returns null when there is no callout", () => {
     const lines = ["# Title", "", "Just prose, no callout.", "", "## Section"]
     expect(parseLeadingCallout(lines)).toBeNull()

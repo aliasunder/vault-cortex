@@ -121,12 +121,16 @@ describe("parseHeadings", () => {
       "  ## Two", // 1
       "   ### Three", // 2
     ])
-    expect(
-      headings.map((heading) => ({ text: heading.text, level: heading.level })),
-    ).toEqual([
-      { text: "One", level: 1 },
-      { text: "Two", level: 2 },
-      { text: "Three", level: 3 },
+    expect(headings).toEqual([
+      { text: "One", level: 1, startLine: 0, bodyStartLine: 1, bodyEndLine: 3 },
+      { text: "Two", level: 2, startLine: 1, bodyStartLine: 2, bodyEndLine: 3 },
+      {
+        text: "Three",
+        level: 3,
+        startLine: 2,
+        bodyStartLine: 3,
+        bodyEndLine: 3,
+      },
     ])
   })
 
