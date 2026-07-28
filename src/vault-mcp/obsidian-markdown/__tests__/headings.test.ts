@@ -100,6 +100,53 @@ describe("parseHeadings", () => {
     ])
   })
 
+  // ── CommonMark §4.2 parity ────────────────────────────────────
+
+  it("parses a heading with a tab separator", () => {
+    const headings = parseHeadings(["##\tTitle"])
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 1,
+      },
+    ])
+  })
+
+  it("parses headings with 1-3 leading spaces", () => {
+    const headings = parseHeadings([
+      " # One", // 0
+      "  ## Two", // 1
+      "   ### Three", // 2
+    ])
+    expect(
+      headings.map((heading) => ({ text: heading.text, level: heading.level })),
+    ).toEqual([
+      { text: "One", level: 1 },
+      { text: "Two", level: 2 },
+      { text: "Three", level: 3 },
+    ])
+  })
+
+  it("parses a heading with leading spaces and tab separator", () => {
+    const headings = parseHeadings(["  ##\tTitle"])
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 1,
+      },
+    ])
+  })
+
+  it("does not parse a heading with 4+ leading spaces (indented code block)", () => {
+    expect(parseHeadings(["    ## Title"])).toEqual([])
+  })
+
   it("strips trailing closing hashes from heading text", () => {
     const headings = parseHeadings(["## Title ##"])
     const headingTexts = headings.map((heading) => heading.text)
@@ -255,6 +302,14 @@ describe("linesBeforeFirstHeading", () => {
   it("does not trim a blank-only region", () => {
     // Blank-suppression is the consumer's call, not this parser's.
     expect(regionOf(["", "   ", "\t"])).toEqual(["", "   ", "\t"])
+  })
+
+  it("stops at a heading with leading spaces", () => {
+    expect(regionOf(["intro", "  ## Section"])).toEqual(["intro"])
+  })
+
+  it("stops at a heading with a tab separator", () => {
+    expect(regionOf(["intro", "##\tSection"])).toEqual(["intro"])
   })
 
   it("finds no heading boundary in raw CRLF lines", () => {
