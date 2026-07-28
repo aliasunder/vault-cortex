@@ -1035,6 +1035,9 @@ describe("patchNote — leading-content advisory", () => {
       bytes: Buffer.byteLength("Intro prose.", "utf8"),
       firstHeading: { text: "Section", level: 2 },
     })
+    expect(await readTestNote("intro.md")).toBe(
+      "#####\nIntro prose.\n\n## Section\n\nbody\n",
+    )
   })
 
   it.each([
