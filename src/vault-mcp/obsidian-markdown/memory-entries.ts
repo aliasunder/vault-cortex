@@ -143,7 +143,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
 
       const entryStartMatch = ENTRY_START_PATTERN.exec(line)
       const entryDate = entryStartMatch?.[1]
-      if (entryDate !== undefined) {
+      if (entryDate) {
         if (openEntry !== null) {
           entries.push(closeEntry(openEntry, span.text, entries.length))
         }

@@ -159,7 +159,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       const match = HEADING_REGEX.exec(line)
       const matchedHashes = match?.[1]
       const matchedText = match?.[2]
-      if (matchedHashes !== undefined && matchedText !== undefined) {
+      if (matchedHashes && matchedText) {
         return {
           headings: [
             ...state.headings,
