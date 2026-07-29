@@ -517,6 +517,9 @@ export const createSearchIndex = (
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
+  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(
+    `SELECT path FROM notes`,
+  )
 
   // ── Non-markdown file awareness ────────────────────────────────
   //
@@ -1101,7 +1104,7 @@ export const createSearchIndex = (
 
       // Memory files additionally maintain their entry-granular index. Placed
       // before the skipLinks return so rebuild Pass 1 covers it.
-      if (memoryFile !== null) {
+      if (memoryFile) {
         upsertMemoryEntries(memoryFile, parsed.content, logger)
       }
 
@@ -1113,9 +1116,7 @@ export const createSearchIndex = (
 
       if (skipLinks) return
 
-      const allPaths = db
-        .prepare<unknown[], { path: string }>("SELECT path FROM notes")
-        .all()
+      const allPaths = selectAllNotePathsStmt.all()
       const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
@@ -1322,7 +1323,7 @@ export const createSearchIndex = (
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
     const memoryFile = memoryFileNameFromPath(params.notePath)
-    if (memoryFile !== null) {
+    if (memoryFile) {
       await embedMemoryEntriesForFile(memoryFile, logger)
     }
   }
@@ -1345,7 +1346,7 @@ export const createSearchIndex = (
         deleteVectorsForNoteStmt.run(filePath)
         deleteChunksForNoteStmt.run(filePath)
       }
-      if (memoryFile !== null) {
+      if (memoryFile) {
         removeMemoryEntriesForFile(memoryFile)
       }
     })()
@@ -1592,7 +1593,7 @@ export const createSearchIndex = (
                 logger,
               )
               const memoryFile = memoryFileNameFromPath(note.relativePath)
-              if (memoryFile !== null) {
+              if (memoryFile) {
                 entriesEmbedded += await embedMemoryEntriesForFile(
                   memoryFile,
                   logger,
