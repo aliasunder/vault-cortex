@@ -194,7 +194,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (setextCandidate !== null) {
       const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
       const underlineChars = setextMatch?.[1]
-      if (underlineChars !== undefined) {
+      if (underlineChars) {
         collectedHeadings.push({
           text: setextCandidate.text.trim(),
           level: underlineChars.startsWith("=") ? 1 : 2,
@@ -219,9 +219,9 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
-  return collectedHeadings.map((heading, idx) => {
+  return collectedHeadings.map((heading, index) => {
     const nextSameOrHigher = collectedHeadings
-      .slice(idx + 1)
+      .slice(index + 1)
       .find((next) => next.level <= heading.level)
     return {
       text: heading.text,
