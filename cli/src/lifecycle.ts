@@ -81,8 +81,7 @@ const requireInitializedDir = (
  * Resolves --dir to the on-disk deployment and validates its .env for a
  * container start: mode detection, VAULT_PATH (local), and PUBLIC_URL
  * (local). Reports each failure via prompts.error and returns undefined.
- * Shared by upgrade, restart, and configure so their precondition checks
- * can't drift.
+ * Shared by upgrade and restart so their precondition checks can't drift.
  */
 export const resolveDeployment = (
   dirFlag: string | undefined,
