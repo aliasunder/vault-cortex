@@ -95,8 +95,9 @@ describe("runDown", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("No .env found")
-    expect(scripted.errors[0]).toContain("npx vault-cortex init")
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -110,7 +111,10 @@ describe("runDown", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("Container runtime not running")
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
   })
 
   it("succeeds without removing anything when no container exists", async () => {
@@ -139,7 +143,7 @@ describe("runDown", () => {
     ])
   })
 
-  it("does not tear down a local .env lacking PUBLIC_URL", async () => {
+  it("tears down a local .env lacking PUBLIC_URL without rejecting it", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
     // A compose-era .env that upgrade/restart would reject — teardown
     // must still work on it.
@@ -147,15 +151,24 @@ describe("runDown", () => {
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n",
     )
+    const removeCalls: string[] = []
+    const dockerWithRemoveSpy: DockerRunner = {
+      ...dockerReady,
+      stopAndRemoveContainer: () => {
+        removeCalls.push("called")
+        return true
+      },
+    }
     const scripted = createScriptedPrompts()
 
     const exitCode = await runDown(
       { dir: targetDir },
-      { prompts: scripted.prompts, docker: dockerReady },
+      { prompts: scripted.prompts, docker: dockerWithRemoveSpy },
     )
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([])
+    expect(removeCalls).toEqual(["called"])
   })
 
   it("removes the container and reports data preservation", async () => {
@@ -218,7 +231,9 @@ describe("runLogs", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("No .env found")
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -232,7 +247,10 @@ describe("runLogs", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("Container runtime not running")
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
   })
 
   it("exits 1 with a restart hint when no container exists", async () => {
@@ -334,8 +352,9 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("No .env found")
-    expect(scripted.errors[0]).toContain("npx vault-cortex init")
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+    ])
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
@@ -349,7 +368,9 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("VAULT_PATH is empty or missing")
+    expect(scripted.errors).toEqual([
+      `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
+    ])
   })
 
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
@@ -366,7 +387,10 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("PUBLIC_URL not found")
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
+        "Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000",
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -380,7 +404,10 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("Container runtime not running")
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
   })
 
   it("never pulls an image", async () => {
@@ -434,7 +461,10 @@ describe("runRestart", () => {
         },
       ],
     ])
-    expect(scripted.logs).toContain("Applied the current .env settings.")
+    expect(scripted.logs).toEqual([
+      "Starting container...",
+      "Applied the current .env settings.",
+    ])
     expect(scripted.outros).toEqual(["Restart complete."])
   })
 
@@ -488,7 +518,7 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("docker run failed")
+    expect(scripted.errors).toEqual(["docker run failed — see output above."])
   })
 
   it("reports failure when the health check times out", async () => {
@@ -510,9 +540,10 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.spinnerMessages).toContain(
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
       "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
-    )
+    ])
   })
 
   it("uses the PORT from .env for health polling", async () => {
