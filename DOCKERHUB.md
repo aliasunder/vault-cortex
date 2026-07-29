@@ -69,6 +69,8 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 
+Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
+
 See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#files) for the image pipeline and dispatch model.
 
 ## Tools
