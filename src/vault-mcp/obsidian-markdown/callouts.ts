@@ -38,10 +38,15 @@ const CALLOUT_OPENER_REGEX = /^>\s*\[!([A-Za-z][\w-]*)\]([+-]?)\s*(.*)$/
  *  blank line has no `>` and so does not match — it ends the callout body. */
 const CALLOUT_BODY_REGEX = /^>\s?(.*)$/
 
-/** Matches an H1 heading line per CommonMark §4.2: 0-3 leading spaces,
+/** Matches an ATX H1 heading line per CommonMark §4.2: 0-3 leading spaces,
  *  one `#`, then optionally a space/tab separator and text. Empty H1
  *  (`#` alone on a line) is valid. Only one leading H1 is skipped. */
 const H1_REGEX = /^ {0,3}#(?:[ \t].*)?$/
+
+/** Matches a setext H1 underline: 0-3 leading spaces, one or more `=`,
+ *  optional trailing whitespace. Only `=` (H1), not `-` (H2) — the
+ *  function skips exactly one H1 title, and only H1 is relevant here. */
+const SETEXT_H1_UNDERLINE_REGEX = /^ {0,3}=+[ \t]*$/
 
 /**
  * Returns the index of the first body line — the first line that is neither
@@ -61,6 +66,12 @@ const firstBodyLineIndex = (
   if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
   if (!skippedH1 && H1_REGEX.test(line))
     return firstBodyLineIndex(lines, index + 1, true)
+  // Setext H1: current non-blank line is content, next line is a `===` underline.
+  if (!skippedH1) {
+    const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined
+    if (nextLine !== undefined && SETEXT_H1_UNDERLINE_REGEX.test(nextLine))
+      return firstBodyLineIndex(lines, index + 2, true)
+  }
   return index
 }
 

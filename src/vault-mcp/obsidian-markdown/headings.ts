@@ -1,4 +1,5 @@
-/** Markdown heading parser — shared section-span logic for read and write.
+/** Markdown heading parser (ATX + setext) — shared section-span logic for read
+ * and write.
  *
  * Both the read side (`vault_read_note` outline + section reads) and the write
  * side (`vault_patch_note`) target sections by heading, so they share one
@@ -28,6 +29,14 @@ export type HeadingInfo = Readonly<{
  *  1-6 `#` characters, then optionally a space/tab separator and heading text.
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
+
+/** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
+ *  one or more `=` (H1) or `-` (H2) characters, optional trailing whitespace.
+ *  A valid setext heading requires a non-blank text line immediately above.
+ *  Multi-line content before the underline is not supported — only the single
+ *  immediately preceding line becomes the heading text. This matches Obsidian,
+ *  which renders multi-line setext inconsistently (Edit mode ≠ Reading mode). */
+const SETEXT_UNDERLINE_REGEX = /^ {0,3}(=+|-+)[ \t]*$/
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
@@ -119,86 +128,110 @@ export const findTrailingCommentBlockStart = (
 // ── Exported parser ─────────────────────────────────────────────
 
 /**
- * Single-pass heading parser for H1–H6 with code-block and comment awareness.
- * Section body = heading+1 through next heading of same-or-higher level (or EOF).
+ * Heading parser for H1–H6 with code-block and comment awareness. Recognizes
+ * both ATX (`## Title`) and setext (`Title` over `===`/`---`) headings.
+ * Section body = heading line(s)+1 through next same-or-higher heading (or EOF).
  */
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // Phase 1: collect headings, skipping content inside fenced code blocks and
-  // `%% %%` comment blocks. Fence and comment state are threaded through the
-  // accumulator (no mutable external state).
-  const { headings: collectedHeadings } = lines.reduce<{
-    headings: Array<{ text: string; level: number; startLine: number }>
-    openFence: OpenFence
-    commentOpen: boolean
-  }>(
-    (state, line, i) => {
-      // Fence/comment precedence: fence state advances only outside comments
-      // (inside a comment, fence delimiters are just text); comment toggles
-      // run only outside fences (inside a fence, `%%` is just text).
-      const fenceResult = state.commentOpen
-        ? null
-        : advanceFence(line, state.openFence)
-      // fenceResult is null when inside a comment (fence processing skipped);
-      // fenceResult.openFence is null when a fence just closed — both are valid
-      // states, so `??` can't distinguish them.
-      const openFence =
-        fenceResult !== null ? fenceResult.openFence : state.openFence
+  // `%% %%` comment blocks. Setext detection requires two-line awareness
+  // (text line + underline), so the parser uses a for-loop with mutable state
+  // rather than a reduce — a parser threading line-by-line state with lookahead.
+  const collectedHeadings: Array<{
+    text: string
+    level: number
+    startLine: number
+    bodyStartLine: number
+  }> = []
+  // `let` carries fence, comment, and setext-candidate state across lines —
+  // inherently sequential parser state that cannot be expressed as a fold.
+  let openFence: OpenFence = null
+  let commentOpen = false
+  // The previous non-blank, non-heading, non-fence/comment content line — a
+  // candidate for setext heading text if the current line is an underline.
+  let setextCandidate: { text: string; index: number } | null = null
 
-      if (fenceResult?.lineIsCode) {
-        return { headings: state.headings, openFence, commentOpen: false }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line === undefined) continue
+
+    // Fence/comment precedence: fence state advances only outside comments
+    // (inside a comment, fence delimiters are just text); comment toggles
+    // run only outside fences (inside a fence, `%%` is just text).
+    if (!commentOpen) {
+      const fenceResult = advanceFence(line, openFence)
+      openFence = fenceResult.openFence
+      if (fenceResult.lineIsCode) {
+        setextCandidate = null
+        continue
       }
+    }
 
-      const commentResult = advanceComment(line, state.commentOpen)
-      if (commentResult.lineIsComment) {
-        return {
-          headings: state.headings,
-          openFence,
-          commentOpen: commentResult.commentOpen,
-        }
+    const commentResult = advanceComment(line, commentOpen)
+    commentOpen = commentResult.commentOpen
+    if (commentResult.lineIsComment) {
+      setextCandidate = null
+      continue
+    }
+
+    const atxMatch = HEADING_REGEX.exec(line)
+    const matchedHashes = atxMatch?.[1]
+    if (matchedHashes) {
+      const matchedText = atxMatch?.[2] ?? ""
+      collectedHeadings.push({
+        // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
+        text: matchedText.replace(/\s+#+\s*$/, "").trim(),
+        level: matchedHashes.length,
+        startLine: i,
+        bodyStartLine: i + 1,
+      })
+      setextCandidate = null
+      continue
+    }
+
+    // Setext underline check — a setext heading is a non-blank content line
+    // followed by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
+    if (setextCandidate !== null) {
+      const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
+      const underlineChars = setextMatch?.[1]
+      if (underlineChars !== undefined) {
+        collectedHeadings.push({
+          text: setextCandidate.text.trim(),
+          level: underlineChars.startsWith("=") ? 1 : 2,
+          startLine: setextCandidate.index,
+          bodyStartLine: i + 1,
+        })
+        setextCandidate = null
+        continue
       }
+    }
 
-      const match = HEADING_REGEX.exec(line)
-      const matchedHashes = match?.[1]
-      const matchedText = match?.[2] ?? ""
-      if (matchedHashes) {
-        return {
-          headings: [
-            ...state.headings,
-            {
-              // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
-              text: matchedText.replace(/\s+#+\s*$/, "").trim(),
-              level: matchedHashes.length,
-              startLine: i,
-            },
-          ],
-          openFence,
-          commentOpen: false,
-        }
-      }
-
-      return { headings: state.headings, openFence, commentOpen: false }
-    },
-    { headings: [], openFence: null, commentOpen: false },
-  )
+    // Track setext candidate: non-blank content → candidate; blank → reset.
+    if (line.trim() === "") {
+      setextCandidate = null
+    } else {
+      setextCandidate = { text: line, index: i }
+    }
+  }
 
   // Phase 2: compute body ranges — each section's body ends where the next
   // heading of the same or higher level starts. Sections with no such heading
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
-  return collectedHeadings.map((heading, i) => {
+  return collectedHeadings.map((heading, idx) => {
     const nextSameOrHigher = collectedHeadings
-      .slice(i + 1)
+      .slice(idx + 1)
       .find((next) => next.level <= heading.level)
     return {
       text: heading.text,
       level: heading.level,
       startLine: heading.startLine,
-      bodyStartLine: heading.startLine + 1,
+      bodyStartLine: heading.bodyStartLine,
       // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
       bodyEndLine:
         nextSameOrHigher?.startLine ??
-        Math.max(heading.startLine + 1, trailingCommentBlockStart),
+        Math.max(heading.bodyStartLine, trailingCommentBlockStart),
     }
   })
 }

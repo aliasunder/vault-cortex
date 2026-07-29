@@ -91,6 +91,30 @@ describe("parseLeadingCallout", () => {
     expect(parseLeadingCallout(lines)).toBeNull()
   })
 
+  it("skips a setext H1 before a callout", () => {
+    const lines = ["Title", "===", "> [!info] Scope", "> body"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "body",
+    })
+  })
+
+  it("does not skip a setext H2 before a callout", () => {
+    // Only H1 is skipped; a setext H2 (---) is body content.
+    const lines = ["Title", "---", "> [!info] Not leading", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
+
+  it("skips a setext H1 with leading spaces on the underline", () => {
+    const lines = ["Title", "  ===", "> [!info] Scope", "> body"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "body",
+    })
+  })
+
   it("collects only the first of two stacked callouts", () => {
     const lines = [
       "> [!info] First",
