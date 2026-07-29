@@ -310,14 +310,39 @@ describe("parseHeadings", () => {
 
   it("parses setext underlines with trailing whitespace", () => {
     const headings = parseHeadings(["Title", "=== \t "])
-    expect(headings[0]?.level).toBe(1)
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
   })
 
-  it("parses a single-character setext underline", () => {
-    const headingsH1 = parseHeadings(["Title", "="])
-    expect(headingsH1[0]?.level).toBe(1)
-    const headingsH2 = parseHeadings(["Title", "-"])
-    expect(headingsH2[0]?.level).toBe(2)
+  it("parses a single-character = underline as H1", () => {
+    expect(parseHeadings(["Title", "="])).toEqual([
+      {
+        text: "Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("parses a single-character - underline as H2", () => {
+    expect(parseHeadings(["Title", "-"])).toEqual([
+      {
+        text: "Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
   })
 
   it("does not parse --- after a blank line as setext (thematic break)", () => {
@@ -408,8 +433,15 @@ describe("parseHeadings", () => {
   })
 
   it("trims whitespace from setext heading text", () => {
-    const headings = parseHeadings(["  Padded Title  ", "==="])
-    expect(headings[0]?.text).toBe("Padded Title")
+    expect(parseHeadings(["  Padded Title  ", "==="])).toEqual([
+      {
+        text: "Padded Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
   })
 
   it("spans a setext heading body to the next same-or-higher heading", () => {
@@ -421,21 +453,22 @@ describe("parseHeadings", () => {
       "---", // 4
       "body b", // 5
     ]
-    const headings = parseHeadings(lines)
-    expect(headings[0]).toEqual({
-      text: "Section A",
-      level: 1,
-      startLine: 0,
-      bodyStartLine: 2,
-      bodyEndLine: 6,
-    })
-    expect(headings[1]).toEqual({
-      text: "Section B",
-      level: 2,
-      startLine: 3,
-      bodyStartLine: 5,
-      bodyEndLine: 6,
-    })
+    expect(parseHeadings(lines)).toEqual([
+      {
+        text: "Section A",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 6,
+      },
+      {
+        text: "Section B",
+        level: 2,
+        startLine: 3,
+        bodyStartLine: 5,
+        bodyEndLine: 6,
+      },
+    ])
   })
 })
 
@@ -571,8 +604,12 @@ describe("findHeading", () => {
 
   it("resolves a setext heading by text and level", () => {
     const mixedHeadings = parseHeadings(["# ATX", "Setext Title", "---"])
-    const found = findHeading(mixedHeadings, "Setext Title")
-    expect(found.level).toBe(2)
-    expect(found.startLine).toBe(1)
+    expect(findHeading(mixedHeadings, "Setext Title")).toEqual({
+      text: "Setext Title",
+      level: 2,
+      startLine: 1,
+      bodyStartLine: 3,
+      bodyEndLine: 3,
+    })
   })
 })
