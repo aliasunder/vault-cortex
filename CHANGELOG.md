@@ -56,6 +56,21 @@
 
 
 
+
+## [0.33.3] — 2026-07-29
+
+### Features
+
+- Recognize empty ATX headings (##, ## ) (#379)
+
+### Bug Fixes
+
+- Accept tab separators and leading spaces in ATX headings (CommonMark §4.2) (#378)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.33.2
+
 ## [0.33.2] — 2026-07-26
 
 ### Features
