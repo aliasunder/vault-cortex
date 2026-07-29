@@ -15,7 +15,12 @@ import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
-import type { SearchIndex } from "../search-index.js"
+import type {
+  NoteMetadata,
+  OutgoingLinkEntry,
+  SearchIndex,
+  TaskEntry,
+} from "../search-index.js"
 import { logger } from "../../../logger.js"
 
 let index: SearchIndex
@@ -67,6 +72,134 @@ const testStat = (
 ): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
+})
+
+/** Expected NoteMetadata.modified for a testStat mtime — same epoch-ms → ISO
+ *  conversion the index performs, computed independently in the test's zone. */
+const isoFromMillis = (mtimeMs: number): string => {
+  const iso = DateTime.fromMillis(mtimeMs).toISO()
+  if (iso === null) throw new Error(`invalid test mtime: ${mtimeMs}`)
+  return iso
+}
+
+/** Poisons one factory-prepared statement, identified by an SQL fragment: a
+ *  prototype-level prepare spy patches the matching statement's .run to throw
+ *  while armed. Must be installed BEFORE createSearchIndex — every write
+ *  statement is prepared at factory scope — and stays disarmed so factory
+ *  setup and seeding writes succeed until a test arms it. */
+const installStatementPoison = (sqlFragment: string) => {
+  const message = `injected failure on: ${sqlFragment}`
+  // Concrete function type: prepare's generic conditional return type doesn't
+  // resolve through .call, so pin the default instantiation explicitly.
+  const realPrepare: (
+    this: Database.Database,
+    source: string,
+  ) => Database.Statement = Database.prototype.prepare
+  // Mutable arming flag: the patched .run closes over this object so tests
+  // can trigger the failure long after the statement was prepared.
+  const poisonState = { armed: false }
+  const prepareSpy = vi
+    .spyOn(Database.prototype, "prepare")
+    .mockImplementation(function (this: Database.Database, source: string) {
+      const statement = realPrepare.call(this, source)
+      if (source.includes(sqlFragment)) {
+        const realRun = statement.run.bind(statement)
+        statement.run = (...runParams: unknown[]) => {
+          if (poisonState.armed) throw new Error(message)
+          return realRun(...runParams)
+        }
+      }
+      return statement
+    })
+  onTestFinished(() => prepareSpy.mockRestore())
+  return {
+    message,
+    arm: () => {
+      poisonState.armed = true
+    },
+    disarm: () => {
+      poisonState.armed = false
+    },
+  }
+}
+
+/** Version A of the atomicity-test note: distinct title, tag, body term,
+ *  one task (so the poisoned tasks statement provably fires), one link. */
+const ATOMIC_NOTE_VERSION_A = `---
+title: Version A
+tags: [atomic-a]
+---
+
+Alpha body about penguins.
+
+- [ ] alpha task
+
+[[Alpha Target]]
+`
+
+/** Version B — differs from A in every asserted dimension. */
+const ATOMIC_NOTE_VERSION_B = `---
+title: Version B
+tags: [atomic-b]
+---
+
+Beta body about walruses.
+
+- [ ] beta task
+
+[[Beta Target]]
+`
+
+/** The full NoteMetadata row version A produces with testStat(1000). */
+const versionAMetadata = (): NoteMetadata => ({
+  path: "atomic/target.md",
+  title: "Version A",
+  tags: ["atomic-a"],
+  related: [],
+  folder: "atomic",
+  type: null,
+  created: null,
+  modified: isoFromMillis(1000),
+  bytes: 100,
+  properties: { title: "Version A", tags: ["atomic-a"] },
+  leading_callout: null,
+})
+
+/** The full TaskEntry version A's `- [ ] alpha task` (line 8) produces. */
+const versionATask = (): TaskEntry => ({
+  path: "atomic/target.md",
+  line: 8,
+  status: "todo",
+  status_char: " ",
+  description: "alpha task",
+  heading: null,
+  folder: "atomic",
+  created: null,
+  scheduled: null,
+  start: null,
+  due: null,
+  done: null,
+  cancelled: null,
+  priority: null,
+  recurrence: null,
+  on_completion: null,
+  task_id: null,
+  depends_on: [],
+  tags: [],
+  block_id: null,
+  is_kanban_task: false,
+  lane: null,
+  done_lanes: null,
+})
+
+/** The full OutgoingLinkEntry for version A's unresolved [[Alpha Target]]. */
+const versionALink = (): OutgoingLinkEntry => ({
+  path: "Alpha Target",
+  title: null,
+  exists: false,
+  kind: "note",
+  bytes: null,
+  daily_note_forward_ref: false,
 })
 
 describe("schema creation", () => {
@@ -393,6 +526,118 @@ describe("upsertNote", () => {
   })
 })
 
+describe("upsertNote atomicity", () => {
+  it("rolls back to the prior version when a statement fails mid-upsert", () => {
+    const poison = installStatementPoison("INSERT INTO tasks")
+    const atomicIndex = createSearchIndex(":memory:")
+    atomicIndex.upsertNote(
+      {
+        filePath: "atomic/target.md",
+        rawContent: ATOMIC_NOTE_VERSION_A,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // By the time the poisoned task INSERT fires, version B's FTS delete,
+    // notes upsert, FTS insert, and tasks delete have already run inside the
+    // transaction — intact version-A state below proves genuine rollback,
+    // not a no-op.
+    poison.arm()
+    expect(() =>
+      atomicIndex.upsertNote(
+        {
+          filePath: "atomic/target.md",
+          rawContent: ATOMIC_NOTE_VERSION_B,
+          fileStat: testStat(2000),
+        },
+        logger,
+      ),
+    ).toThrow(poison.message)
+    poison.disarm()
+
+    expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
+    const versionAHits = atomicIndex.fullTextSearch(
+      { query: "penguins" },
+      logger,
+    )
+    expect(versionAHits.map((result) => result.path)).toEqual([
+      "atomic/target.md",
+    ])
+    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual(
+      [],
+    )
+    expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
+      total: 1,
+      tasks: [versionATask()],
+    })
+    expect(
+      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
+    ).toEqual([versionALink()])
+  })
+
+  it("leaves no trace when a statement fails on a first-ever upsert", () => {
+    const poison = installStatementPoison("INSERT INTO tasks")
+    const atomicIndex = createSearchIndex(":memory:")
+    // Control note: its positive assertions below prove the query path works,
+    // so the target note's empty results can't pass vacuously (fullTextSearch
+    // catches SQL errors and returns []).
+    atomicIndex.upsertNote(
+      {
+        filePath: "atomic/control.md",
+        rawContent: "Control body about flamingos.\n",
+        fileStat: testStat(500),
+      },
+      logger,
+    )
+
+    poison.arm()
+    expect(() =>
+      atomicIndex.upsertNote(
+        {
+          filePath: "atomic/target.md",
+          rawContent: ATOMIC_NOTE_VERSION_A,
+          fileStat: testStat(1000),
+        },
+        logger,
+      ),
+    ).toThrow(poison.message)
+    poison.disarm()
+
+    const controlMetadata: NoteMetadata = {
+      path: "atomic/control.md",
+      title: "control",
+      tags: [],
+      related: [],
+      folder: "atomic",
+      type: null,
+      created: null,
+      modified: isoFromMillis(500),
+      bytes: 100,
+      properties: {},
+      leading_callout: null,
+    }
+    expect(atomicIndex.recentNotes({}, logger)).toEqual([controlMetadata])
+    expect(atomicIndex.fullTextSearch({ query: "penguins" }, logger)).toEqual(
+      [],
+    )
+    const controlHits = atomicIndex.fullTextSearch(
+      { query: "flamingos" },
+      logger,
+    )
+    expect(controlHits.map((result) => result.path)).toEqual([
+      "atomic/control.md",
+    ])
+    expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
+      total: 0,
+      tasks: [],
+    })
+    expect(
+      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
+    ).toEqual([])
+  })
+})
+
 describe("removeNote", () => {
   it("removes an indexed note", () => {
     index.upsertNote(
@@ -410,6 +655,47 @@ describe("removeNote", () => {
 
   it("does not throw for non-existent path", () => {
     expect(() => index.removeNote("ghost.md")).not.toThrow()
+  })
+})
+
+describe("removeNote atomicity", () => {
+  it("keeps the note fully present when a delete fails mid-removal", () => {
+    // The tasks delete is the last unconditional statement in removeNote (no
+    // embedder or memoryDir here), so the FTS, notes, and links deletes have
+    // all run inside the transaction when the poison fires — full presence
+    // below proves they rolled back.
+    const poison = installStatementPoison("DELETE FROM tasks")
+    const atomicIndex = createSearchIndex(":memory:")
+    atomicIndex.upsertNote(
+      {
+        filePath: "atomic/target.md",
+        rawContent: ATOMIC_NOTE_VERSION_A,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    poison.arm()
+    expect(() => atomicIndex.removeNote("atomic/target.md")).toThrow(
+      poison.message,
+    )
+    poison.disarm()
+
+    expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
+    const versionAHits = atomicIndex.fullTextSearch(
+      { query: "penguins" },
+      logger,
+    )
+    expect(versionAHits.map((result) => result.path)).toEqual([
+      "atomic/target.md",
+    ])
+    expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
+      total: 1,
+      tasks: [versionATask()],
+    })
+    expect(
+      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
+    ).toEqual([versionALink()])
   })
 })
 
