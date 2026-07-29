@@ -151,6 +151,36 @@ describe("parseHeadings", () => {
     expect(parseHeadings(["    ## Title"])).toEqual([])
   })
 
+  it("parses an empty heading (hashes only, no separator or text)", () => {
+    const headings = parseHeadings(["##"])
+    expect(headings).toEqual([
+      {
+        text: "",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 1,
+      },
+    ])
+  })
+
+  it("parses an empty heading with trailing space (separator but no text)", () => {
+    const headings = parseHeadings(["## "])
+    expect(headings).toEqual([
+      {
+        text: "",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 1,
+      },
+    ])
+  })
+
+  it("does not parse hashes followed by text without a separator", () => {
+    expect(parseHeadings(["##NoSpace"])).toEqual([])
+  })
+
   it("strips trailing closing hashes from heading text", () => {
     const headings = parseHeadings(["## Title ##"])
     const headingTexts = headings.map((heading) => heading.text)
@@ -316,9 +346,13 @@ describe("linesBeforeFirstHeading", () => {
     expect(regionOf(["intro", "##\tSection"])).toEqual(["intro"])
   })
 
+  it("stops at an empty heading (no separator or text)", () => {
+    expect(regionOf(["intro", "##"])).toEqual(["intro"])
+  })
+
   it("finds no heading boundary in raw CRLF lines", () => {
     // Documents the contract: callers normalize with splitIntoLines first.
-    // HEADING_REGEX ends in `(.+)$` and `.` excludes CR, so "## S\r" is not a
+    // HEADING_REGEX uses `(.*)` where `.` excludes CR, so "## S\r" is not a
     // heading and the whole body reads as leading content.
     const lines = "intro\r\n## S\r\n".split("\n")
     expect(regionOf(lines)).toEqual(["intro\r", "## S\r", ""])

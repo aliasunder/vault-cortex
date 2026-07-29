@@ -998,8 +998,8 @@ describe("patchNote — leading-content advisory", () => {
   })
 
   it("detects a CRLF-authored heading in the prepended content", async () => {
-    // HEADING_REGEX's `(.+)$` excludes CR, so without normalization a
-    // CRLF-authored heading would read as ordinary text and report nothing.
+    // HEADING_REGEX uses `(.*)` where `.` excludes CR, so without
+    // normalization a CRLF-authored heading would read as ordinary text.
     await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
@@ -1018,11 +1018,32 @@ describe("patchNote — leading-content advisory", () => {
     })
   })
 
+  it("reports displacement when an empty heading is prepended above leading content", async () => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
+
+    const result = await patchNote(
+      {
+        vaultPath: vault,
+        path: "intro.md",
+        operation: "prepend",
+        content: "#####",
+      },
+      logger,
+    )
+
+    expect(result.displacedLeadingContent).toEqual({
+      bytes: Buffer.byteLength("Intro prose.", "utf8"),
+      firstHeading: { text: "Section", level: 2 },
+    })
+    expect(await readTestNote("intro.md")).toBe(
+      "#####\nIntro prose.\n\n## Section\n\nbody\n",
+    )
+  })
+
   it.each([
     ["a tag line", "#project note"],
     ["a bare tag", "#project"],
     ["seven hashes", "####### Seven"],
-    ["hashes with no text", "#####"],
     ["a fenced heading", "```md\n## Example\n```"],
     ["a callout", "> [!note] Hi"],
     ["plain prose", "Just a line."],

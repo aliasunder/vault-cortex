@@ -44,6 +44,16 @@ describe("stripMarkdownSyntax", () => {
       expected: "    ## Not a heading",
     },
     {
+      name: "heading with tab separator stripped (CommonMark §4.2)",
+      input: "##\tSection Title",
+      expected: "Section Title",
+    },
+    {
+      name: "empty heading markers stripped (hashes only, no text)",
+      input: "##\nSome content",
+      expected: "\nSome content",
+    },
+    {
       name: "bold markers stripped",
       input: "This is **bold text** here",
       expected: "This is bold text here",

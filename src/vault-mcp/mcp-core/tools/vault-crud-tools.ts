@@ -73,7 +73,7 @@ Errors:
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading).
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none.`,
+Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note, and edit via vault_replace_in_note.`,
       inputSchema: {
         path: z
           .string()
@@ -321,7 +321,7 @@ Heading-targeted ops keep the matched heading and write content verbatim — don
 
 Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, that content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section.
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included in the parent section. Empty headings ("##" with no text) act as boundaries but cannot be targeted — edit their content via vault_replace_in_note instead.
 
 Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).
 

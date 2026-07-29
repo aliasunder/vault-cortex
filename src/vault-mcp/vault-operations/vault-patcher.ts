@@ -54,10 +54,10 @@ export type PatchNoteResult = Readonly<{
  *  line — or null when it starts with anything else. parseHeadings makes this
  *  fence-aware, so a `## foo` inside an opening code fence is not a heading.
  *
- *  Strips a trailing CR before parsing: HEADING_REGEX ends in `(.+)$` and `.`
- *  excludes CR, so a CRLF-authored `## New\r` would otherwise match nothing and
- *  silently read as ordinary text. Detection only — callers insert the caller's
- *  own lines verbatim, line endings untouched. */
+ *  Strips a trailing CR before parsing: HEADING_REGEX uses `(.*)` where `.`
+ *  excludes CR, so a CRLF-authored `## New\r` would otherwise read as ordinary
+ *  text and report nothing. Detection only — callers insert the caller's own
+ *  lines verbatim, line endings untouched. */
 const leadingHeadingOfContent = (
   contentLines: readonly string[],
 ): HeadingInfo | null => {
