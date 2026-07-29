@@ -215,7 +215,7 @@ describe("runDown", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      "Could not remove the container — see output above.",
+      "Could not remove the container — check: docker rm -f vault-cortex",
     ])
   })
 })

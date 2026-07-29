@@ -197,7 +197,9 @@ export const runDown = async (
   }
 
   if (!docker.stopAndRemoveContainer()) {
-    prompts.error("Could not remove the container — see output above.")
+    prompts.error(
+      `Could not remove the container — check: docker rm -f ${CONTAINER_NAME}`,
+    )
     return 1
   }
 
