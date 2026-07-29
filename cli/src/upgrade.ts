@@ -18,6 +18,11 @@ export type UpgradeDeps = {
   healthTimeoutMs?: number
 }
 
+/**
+ * Pulls the latest image, re-creates the container, and verifies health.
+ * The only lifecycle command that contacts the registry — restart re-creates
+ * from the image already on disk.
+ */
 export const runUpgrade = async (
   flags: UpgradeFlags,
   deps: UpgradeDeps,
