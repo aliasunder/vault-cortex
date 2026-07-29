@@ -708,6 +708,8 @@ describe("runInit with a kept existing .env", () => {
       dockerRun: () => true,
       pullImage: () => true,
       stopAndRemoveContainer: () => true,
+      containerExists: () => true,
+      streamLogs: async () => 0,
       runObsidianLogin: () => false,
     }
     const fetchedUrls: string[] = []
@@ -772,6 +774,8 @@ describe("runInit remote encryption password", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
+      containerExists: () => false,
+      streamLogs: async () => 1,
       runObsidianLogin: () => false,
     }
 
@@ -807,6 +811,8 @@ describe("runInit sync-token auto-capture fallback", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
+      containerExists: () => false,
+      streamLogs: async () => 1,
       runObsidianLogin: () => false,
     }
 
