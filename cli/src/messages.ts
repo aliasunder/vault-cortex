@@ -169,7 +169,7 @@ ${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging) are commented
 out in ${targetDir}/.env — uncomment, set a value, then apply with
-"npx vault-cortex upgrade" (restart alone does not re-read .env).
+"npx vault-cortex restart" (plain docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
 
@@ -250,8 +250,8 @@ ${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging, sync
 behavior) are commented out in ${targetDir}/.env — uncomment, set a
-value, then apply with "npx vault-cortex upgrade" (restart alone does
-not re-read .env).
+value, then apply with "npx vault-cortex restart" (plain docker
+restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
 

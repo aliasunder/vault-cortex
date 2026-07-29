@@ -38,7 +38,7 @@ describe("buildLocalEnv", () => {
 
     expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
+      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
     )
   })
 })
@@ -108,7 +108,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
+      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
     )
   })
 })
