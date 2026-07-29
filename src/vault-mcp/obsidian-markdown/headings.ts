@@ -207,10 +207,13 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     }
 
     // Track setext candidate: non-blank content → candidate; blank → reset.
+    // Block-level lines (list items, blockquotes) can't be setext heading
+    // content per CommonMark §4.3 — only paragraph text qualifies.
     if (line.trim() === "") {
       setextCandidate = null
     } else {
-      setextCandidate = { text: line, index: i }
+      const isBlockLevelLine = /^[-*+] |^\d+[.)] |^>/.test(line.trimStart())
+      setextCandidate = isBlockLevelLine ? null : { text: line, index: i }
     }
   }
 
