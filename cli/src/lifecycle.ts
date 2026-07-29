@@ -138,7 +138,17 @@ export const recreateContainer = async (
   const { deployment, healthTimeoutMs } = params
   const { prompts, docker, fetchFn } = deps
 
-  docker.stopAndRemoveContainer()
+  // `docker rm -f` on a missing container exits non-zero on engines < 23,
+  // so the bare return value can't distinguish "nothing to remove" from a
+  // real failure — only treat removal as failed when a container exists.
+  // Proceeding after a genuine failure would surface as a confusing
+  // "container name already in use" from docker run.
+  if (docker.containerExists() && !docker.stopAndRemoveContainer()) {
+    prompts.error(
+      `Could not remove the existing container — check: docker rm -f ${CONTAINER_NAME}`,
+    )
+    return 1
+  }
 
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({

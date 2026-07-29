@@ -206,7 +206,14 @@ export const createDockerRunner = (): DockerRunner => ({
       // exit on its own SIGINT, the streams flush, and the exit code
       // propagate. `once` self-removes, so later ctrl-Cs behave normally.
       process.once("SIGINT", () => {})
-      child.once("error", () => resolveExitCode(1))
+      child.once("error", (spawnError) => {
+        // Event handler, not a catch — but the same "never swallow" rule
+        // applies: without this line a spawn failure is a bare exit 1.
+        process.stderr.write(
+          `vault-cortex: could not run docker logs — ${spawnError.message}\n`,
+        )
+        resolveExitCode(1)
+      })
       // A null code means the child died to a signal — report the shell
       // convention for ctrl-C (128 + SIGINT = 130).
       child.once("close", (code) => resolveExitCode(code ?? 130))

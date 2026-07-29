@@ -217,6 +217,7 @@ describe("runDown", () => {
     expect(scripted.errors).toEqual([
       "Could not remove the container — check: docker rm -f vault-cortex",
     ])
+    expect(scripted.outros).toEqual([])
   })
 })
 
@@ -519,6 +520,62 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual(["docker run failed — see output above."])
+  })
+
+  it("exits 1 without starting when an existing container cannot be removed", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    writeLocalEnv(targetDir)
+    const runCalls: string[] = []
+    const dockerRemoveFails: DockerRunner = {
+      ...dockerReady,
+      stopAndRemoveContainer: () => false,
+      dockerRun: () => {
+        runCalls.push("called")
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerRemoveFails,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(runCalls).toEqual([])
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f vault-cortex",
+    ])
+  })
+
+  it("proceeds past a failed removal probe when no container exists", async () => {
+    // Engines < 23 exit non-zero from `docker rm -f` on a missing container —
+    // a first-start restart must not treat that as a removal failure.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    writeLocalEnv(targetDir)
+    const removeCalls: string[] = []
+    const dockerFirstStart: DockerRunner = {
+      ...dockerReady,
+      containerExists: () => false,
+      stopAndRemoveContainer: () => {
+        removeCalls.push("called")
+        return false
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerFirstStart, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(removeCalls).toEqual([])
+    expect(scripted.errors).toEqual([])
   })
 
   it("reports failure when the health check times out", async () => {
