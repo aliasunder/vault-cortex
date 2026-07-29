@@ -2,12 +2,16 @@ import { Command } from "commander"
 
 import type { GetSyncTokenFlags } from "./get-sync-token.js"
 import type { InitFlags } from "./init.js"
+import type { DownFlags, LogsFlags, RestartFlags } from "./lifecycle.js"
 import type { UpgradeFlags } from "./upgrade.js"
 
 export type ProgramOptions = {
   version: string
   runInit: (flags: InitFlags) => Promise<number>
   runUpgrade: (flags: UpgradeFlags) => Promise<number>
+  runRestart: (flags: RestartFlags) => Promise<number>
+  runLogs: (flags: LogsFlags) => Promise<number>
+  runDown: (flags: DownFlags) => Promise<number>
   runGetSyncToken: (flags: GetSyncTokenFlags) => Promise<number>
 }
 
@@ -52,6 +56,48 @@ export const buildProgram = (options: ProgramOptions): Command => {
     )
     .action(async (flags: UpgradeFlags) => {
       process.exitCode = await options.runUpgrade(flags)
+    })
+
+  program
+    .command("restart")
+    .description(
+      "Re-create the container from .env and verify health (applies .env edits; no image pull)",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .action(async (flags: RestartFlags) => {
+      process.exitCode = await options.runRestart(flags)
+    })
+
+  program
+    .command("logs")
+    .description("Show container logs")
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .option("--follow", "stream new log output until interrupted (ctrl-C)")
+    .option(
+      "--since <time>",
+      'only logs newer than this (e.g. "10m", "2h", or a timestamp)',
+    )
+    .action(async (flags: LogsFlags) => {
+      process.exitCode = await options.runLogs(flags)
+    })
+
+  program
+    .command("down")
+    .description(
+      "Stop and remove the container — vault data and settings are preserved",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .action(async (flags: DownFlags) => {
+      process.exitCode = await options.runDown(flags)
     })
 
   program

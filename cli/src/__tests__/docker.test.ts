@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildDockerLogsArgs,
   buildDockerRunArgs,
   buildObsidianLoginArgs,
   CONTAINER_NAME,
@@ -302,5 +303,41 @@ describe("pollHealth", () => {
     )
 
     expect(healthy).toBe(false)
+  })
+})
+
+describe("buildDockerLogsArgs", () => {
+  it("targets the container with no flags by default", () => {
+    expect(buildDockerLogsArgs({ follow: false })).toEqual([
+      "logs",
+      CONTAINER_NAME,
+    ])
+  })
+
+  it("adds --follow when requested", () => {
+    expect(buildDockerLogsArgs({ follow: true })).toEqual([
+      "logs",
+      "--follow",
+      CONTAINER_NAME,
+    ])
+  })
+
+  it("adds --since with its value when provided", () => {
+    expect(buildDockerLogsArgs({ follow: false, since: "10m" })).toEqual([
+      "logs",
+      "--since",
+      "10m",
+      CONTAINER_NAME,
+    ])
+  })
+
+  it("combines --follow and --since in flag order", () => {
+    expect(buildDockerLogsArgs({ follow: true, since: "2h" })).toEqual([
+      "logs",
+      "--follow",
+      "--since",
+      "2h",
+      CONTAINER_NAME,
+    ])
   })
 })

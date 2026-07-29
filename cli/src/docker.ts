@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 
 import type { Mode } from "./scaffold.js"
 
@@ -14,6 +14,13 @@ export type DockerRunParams = {
   vaultPath?: string
 }
 
+export type DockerLogsParams = {
+  /** Stream new output until interrupted (`docker logs --follow`). */
+  follow: boolean
+  /** Passed through to `docker logs --since` (e.g. "10m", "2h", or a timestamp). */
+  since?: string
+}
+
 export type DockerRunner = {
   /** True when the Docker daemon is reachable. */
   isDaemonRunning: () => boolean
@@ -23,6 +30,13 @@ export type DockerRunner = {
   pullImage: (image: string) => boolean
   /** Stops and removes the vault-cortex container (idempotent). */
   stopAndRemoveContainer: () => boolean
+  /** True when a vault-cortex container exists, running or stopped. */
+  containerExists: () => boolean
+  /**
+   * Streams `docker logs` to the terminal; resolves with the docker
+   * process's exit code once the stream ends.
+   */
+  streamLogs: (params: DockerLogsParams) => Promise<number>
   /** Runs the Obsidian login with a volume mount for token auto-capture. */
   runObsidianLogin: (configMountPath: string) => boolean
 }
@@ -141,6 +155,20 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
   return args
 }
 
+/**
+ * Builds the `docker logs` args array. Pure function — no I/O — so it's
+ * testable without spawning processes.
+ */
+export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
+  const { follow, since } = params
+  return [
+    "logs",
+    ...(follow ? ["--follow"] : []),
+    ...(since ? ["--since", since] : []),
+    CONTAINER_NAME,
+  ]
+}
+
 export const createDockerRunner = (): DockerRunner => ({
   isDaemonRunning: () =>
     spawnSync("docker", ["info"], { timeout: 5_000 }).status === 0,
@@ -159,6 +187,30 @@ export const createDockerRunner = (): DockerRunner => ({
     spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
   stopAndRemoveContainer: () =>
     spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
+  // `docker rm -f` on a missing container exits 1 on engines < 23 and 0 on
+  // >= 23, so stopAndRemoveContainer's status can't distinguish "already
+  // gone" from "failed" — callers needing idempotent messaging probe
+  // existence first. Output stays piped (discarded): this is a boolean probe.
+  containerExists: () =>
+    spawnSync("docker", ["container", "inspect", CONTAINER_NAME]).status === 0,
+  // Async spawn, not spawnSync: --follow streams until interrupted, and the
+  // exit code must be observable after the stream closes.
+  streamLogs: (params) =>
+    new Promise((resolveExitCode) => {
+      const child = spawn("docker", buildDockerLogsArgs(params), {
+        stdio: ["ignore", "inherit", "inherit"],
+      })
+      // ctrl-C delivers SIGINT to the whole foreground process group. Node's
+      // default disposition would kill this process before the child's
+      // "close" event fires; this no-op keep-alive lets the docker child
+      // exit on its own SIGINT, the streams flush, and the exit code
+      // propagate. `once` self-removes, so later ctrl-Cs behave normally.
+      process.once("SIGINT", () => {})
+      child.once("error", () => resolveExitCode(1))
+      // A null code means the child died to a signal — report the shell
+      // convention for ctrl-C (128 + SIGINT = 130).
+      child.once("close", (code) => resolveExitCode(code ?? 130))
+    }),
   runObsidianLogin: (configMountPath) =>
     spawnSync(
       "docker",

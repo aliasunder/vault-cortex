@@ -91,6 +91,8 @@ const dockerUnavailable: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 

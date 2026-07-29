@@ -46,6 +46,8 @@ const dockerReady: DockerRunner = {
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
+  containerExists: () => true,
+  streamLogs: async () => 0,
   runObsidianLogin: () => false,
 }
 
@@ -54,6 +56,8 @@ const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 
