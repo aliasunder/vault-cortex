@@ -165,7 +165,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
     expect(scripted.prints[0]).toContain(
-      "Optional settings (timezone, memory folder, port, logging) are commented",
+      "Optional settings (timezone, memory folder, port, logging) live in",
     )
   })
 
