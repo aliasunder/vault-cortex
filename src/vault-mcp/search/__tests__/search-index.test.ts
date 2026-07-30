@@ -528,7 +528,7 @@ describe("upsertNote", () => {
 
 describe("upsertNote atomicity", () => {
   it("rolls back to the prior version when a statement fails mid-upsert", () => {
-    const poison = installStatementPoison("INSERT INTO tasks")
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
       {
@@ -543,7 +543,7 @@ describe("upsertNote atomicity", () => {
     // notes upsert, FTS insert, and tasks delete have already run inside the
     // transaction — intact version-A state below proves genuine rollback,
     // not a no-op.
-    poison.arm()
+    taskInsertPoison.arm()
     expect(() =>
       atomicIndex.upsertNote(
         {
@@ -553,8 +553,8 @@ describe("upsertNote atomicity", () => {
         },
         logger,
       ),
-    ).toThrow(poison.message)
-    poison.disarm()
+    ).toThrow(taskInsertPoison.message)
+    taskInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
     const versionAHits = atomicIndex.fullTextSearch(
@@ -577,7 +577,9 @@ describe("upsertNote atomicity", () => {
   })
 
   it("rolls back the link phase when a link statement fails mid-upsert", () => {
-    const poison = installStatementPoison("INSERT OR IGNORE INTO links")
+    const linkInsertPoison = installStatementPoison(
+      "INSERT OR IGNORE INTO links",
+    )
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
       {
@@ -593,7 +595,7 @@ describe("upsertNote atomicity", () => {
     // version-A link below proves link-phase rollback specifically, which
     // the tasks-phase poison above never exercises (it throws before the
     // links table is touched).
-    poison.arm()
+    linkInsertPoison.arm()
     expect(() =>
       atomicIndex.upsertNote(
         {
@@ -603,8 +605,8 @@ describe("upsertNote atomicity", () => {
         },
         logger,
       ),
-    ).toThrow(poison.message)
-    poison.disarm()
+    ).toThrow(linkInsertPoison.message)
+    linkInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
     const versionAHits = atomicIndex.fullTextSearch(
@@ -627,7 +629,7 @@ describe("upsertNote atomicity", () => {
   })
 
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
-    const poison = installStatementPoison("INSERT INTO tasks")
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
     // Control note: its positive assertions below prove the query path works,
     // so the target note's empty results can't pass vacuously (fullTextSearch
@@ -641,7 +643,7 @@ describe("upsertNote atomicity", () => {
       logger,
     )
 
-    poison.arm()
+    taskInsertPoison.arm()
     expect(() =>
       atomicIndex.upsertNote(
         {
@@ -651,8 +653,8 @@ describe("upsertNote atomicity", () => {
         },
         logger,
       ),
-    ).toThrow(poison.message)
-    poison.disarm()
+    ).toThrow(taskInsertPoison.message)
+    taskInsertPoison.disarm()
 
     const controlMetadata: NoteMetadata = {
       path: "atomic/control.md",
@@ -714,7 +716,7 @@ describe("removeNote atomicity", () => {
     // embedder or memoryDir here), so the FTS, notes, and links deletes have
     // all run inside the transaction when the poison fires — full presence
     // below proves they rolled back.
-    const poison = installStatementPoison("DELETE FROM tasks")
+    const taskDeletePoison = installStatementPoison("DELETE FROM tasks")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
       {
@@ -725,11 +727,11 @@ describe("removeNote atomicity", () => {
       logger,
     )
 
-    poison.arm()
+    taskDeletePoison.arm()
     expect(() => atomicIndex.removeNote("atomic/target.md")).toThrow(
-      poison.message,
+      taskDeletePoison.message,
     )
-    poison.disarm()
+    taskDeletePoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
     const versionAHits = atomicIndex.fullTextSearch(
