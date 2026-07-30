@@ -135,7 +135,7 @@ jobs:
         run: |
           MCP_AUTH_TOKEN="$(openssl rand -hex 24)"
 
-          docker run -d --name smoke -p 8000:8000 \
+          docker run -d --name smoke --pull=never -p 8000:8000 \
             -v "$RUNNER_TEMP/smoke-vault:/vault:ro" \
             -e MCP_AUTH_TOKEN="$MCP_AUTH_TOKEN" \
             -e PUBLIC_URL=http://localhost:8000 \
