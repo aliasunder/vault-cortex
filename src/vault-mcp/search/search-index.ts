@@ -300,14 +300,11 @@ export const createSearchIndex = (
   // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;
   // stated explicitly so the retry contract survives refactors (e.g. a future
   // `timeout: 0` open option) and isn't re-flagged by audits as missing.
-  // Caveat: the busy handler does not retry a deferred transaction that reads
-  // before its first write — the read pins a WAL snapshot, a concurrent commit
-  // from another connection makes it stale, and the later write-lock upgrade
-  // fails immediately with SQLITE_BUSY_SNAPSHOT (retrying can't refresh a
-  // mid-transaction snapshot). Write-first wraps (upsertNote, removeNote) are
-  // immune — their lock is contested at statement 1, where the busy handler
-  // does apply. A wrap that must read before its first write only gets the
-  // timeout's protection via the .immediate() variant.
+  // Caveat: the timeout doesn't protect a deferred transaction that reads
+  // before its first write — its pinned WAL snapshot goes stale on a
+  // concurrent commit and the write-lock upgrade fails instantly with
+  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (upsertNote, removeNote) are
+  // covered; a read-first wrap needs the .immediate() variant.
   db.pragma("busy_timeout = 5000")
   sqliteVec.load(db)
 
