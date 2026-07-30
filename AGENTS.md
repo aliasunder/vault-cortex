@@ -117,7 +117,7 @@ src/
       lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines
       frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
-      headings.ts                      # Shared H1–H6 section-span parser (read + patch)
+      headings.ts                      # Shared H1–H6 section-span parser — ATX + setext (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)

@@ -297,6 +297,15 @@ export const createSearchIndex = (
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
+  // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;
+  // stated explicitly so the retry contract survives refactors (e.g. a future
+  // `timeout: 0` open option) and isn't re-flagged by audits as missing.
+  // Caveat: the timeout doesn't protect a deferred transaction that reads
+  // before its first write — its pinned WAL snapshot goes stale on a
+  // concurrent commit and the write-lock upgrade fails instantly with
+  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (upsertNote, removeNote) are
+  // covered; a read-first wrap needs the .immediate() variant.
+  db.pragma("busy_timeout = 5000")
   sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
@@ -512,6 +521,9 @@ export const createSearchIndex = (
   // (source, resolved) row so re-resolution can't hit a PK collision.
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
+  )
+  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(
+    `SELECT path FROM notes`,
   )
 
   // ── Non-markdown file awareness ────────────────────────────────
@@ -1035,103 +1047,112 @@ export const createSearchIndex = (
       kanban_done_lanes: kanbanDoneLanes,
     }
 
-    deleteFtsStmt.run(note.path)
-    upsertNotesStmt.run(
-      note.path,
-      note.title,
-      note.content,
-      note.tags,
-      note.related,
-      note.folder,
-      note.type,
-      note.created,
-      note.mtime,
-      note.properties,
-      note.leading_callout,
-      note.bytes,
-      note.kanban_done_lanes,
-    )
     const metadataText = buildFtsMetadataText(frontmatter)
-    insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
     // Task rows carry the full immediate-parent folder (posix dirname), unlike
     // notes.folder which stores only the first path segment — task triage
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
-    deleteTasksStmt.run(note.path)
     const extractedTasks = tasks.extractTasks(rawContent)
-    for (const extractedTask of extractedTasks) {
-      insertTaskStmt.run({
-        notePath: note.path,
-        line: extractedTask.line,
-        statusChar: extractedTask.statusChar,
-        status: extractedTask.status,
-        description: extractedTask.description,
-        created: extractedTask.createdDate,
-        scheduled: extractedTask.scheduledDate,
-        start: extractedTask.startDate,
-        due: extractedTask.dueDate,
-        done: extractedTask.doneDate,
-        cancelled: extractedTask.cancelledDate,
-        priority: extractedTask.priority,
-        recurrence: extractedTask.recurrence,
-        onCompletion: extractedTask.onCompletion,
-        taskId: extractedTask.taskId,
-        dependsOn: JSON.stringify(extractedTask.dependsOn),
-        tags: JSON.stringify(extractedTask.tags),
-        blockId: extractedTask.blockId,
-        heading: extractedTask.heading,
-        folder: taskFolder,
-      })
-    }
-
-    // Memory files additionally maintain their entry-granular index. Placed
-    // before the skipLinks return so rebuild Pass 1 covers it.
     const memoryFile = memoryFileNameFromPath(filePath)
-    if (memoryFile !== null) {
-      upsertMemoryEntries(memoryFile, parsed.content, logger)
-    }
 
+    // All index writes commit or roll back together — a mid-sequence throw
+    // must not leave notes/FTS/tasks/links mutually inconsistent. The
+    // `skipLinks` return exits the transaction callback (return commits,
+    // throw rolls back), so code after the wrap's `)()` runs on both paths
+    // — no link-phase work may live there.
+    db.transaction(() => {
+      deleteFtsStmt.run(note.path)
+      upsertNotesStmt.run(
+        note.path,
+        note.title,
+        note.content,
+        note.tags,
+        note.related,
+        note.folder,
+        note.type,
+        note.created,
+        note.mtime,
+        note.properties,
+        note.leading_callout,
+        note.bytes,
+        note.kanban_done_lanes,
+      )
+      insertFtsStmt.run(note.path, note.title, note.content, metadataText)
+
+      deleteTasksStmt.run(note.path)
+      for (const extractedTask of extractedTasks) {
+        insertTaskStmt.run({
+          notePath: note.path,
+          line: extractedTask.line,
+          statusChar: extractedTask.statusChar,
+          status: extractedTask.status,
+          description: extractedTask.description,
+          created: extractedTask.createdDate,
+          scheduled: extractedTask.scheduledDate,
+          start: extractedTask.startDate,
+          due: extractedTask.dueDate,
+          done: extractedTask.doneDate,
+          cancelled: extractedTask.cancelledDate,
+          priority: extractedTask.priority,
+          recurrence: extractedTask.recurrence,
+          onCompletion: extractedTask.onCompletion,
+          taskId: extractedTask.taskId,
+          dependsOn: JSON.stringify(extractedTask.dependsOn),
+          tags: JSON.stringify(extractedTask.tags),
+          blockId: extractedTask.blockId,
+          heading: extractedTask.heading,
+          folder: taskFolder,
+        })
+      }
+
+      // Memory files additionally maintain their entry-granular index. Placed
+      // before the skipLinks return so rebuild Pass 1 covers it.
+      if (memoryFile) {
+        upsertMemoryEntries(memoryFile, parsed.content, logger)
+      }
+
+      if (skipLinks) return
+
+      const allPaths = selectAllNotePathsStmt.all()
+      const pathList = allPaths.map((row) => row.path)
+
+      deleteLinksStmt.run(note.path)
+      for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
+        const resolved = links.resolve(rawTarget, pathList, note.path)
+        if (resolved !== null) {
+          insertLinkStmt.run(note.path, resolved)
+        } else {
+          const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path)
+          insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
+        }
+      }
+
+      // Re-resolve links still stored as raw text now that this note exists.
+      // Re-run resolveLink with each link's own source so every form upgrades
+      // uniformly — basename, full path, and source-relative ("../") — covering
+      // Obsidian's "link first, create the note later" workflow.
+      const unresolvedLinks = selectUnresolvedLinksStmt.all()
+      for (const link of unresolvedLinks) {
+        const resolved = links.resolve(link.target, pathList, link.source)
+        if (resolved !== null) {
+          updateLinkTargetStmt.run({
+            resolved,
+            source: link.source,
+            rawTarget: link.target,
+          })
+        }
+      }
+    })()
+
+    // Emitted after the transaction commits so a rolled-back write can't
+    // leave a success line behind.
     logger.debug("indexed note", {
       path: note.path,
       bytes: note.bytes,
       tasksIndexed: extractedTasks.length,
     })
-
-    if (skipLinks) return
-
-    const allPaths = db
-      .prepare<unknown[], { path: string }>("SELECT path FROM notes")
-      .all()
-    const pathList = allPaths.map((row) => row.path)
-
-    deleteLinksStmt.run(note.path)
-    for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
-      const resolved = links.resolve(rawTarget, pathList, note.path)
-      if (resolved !== null) {
-        insertLinkStmt.run(note.path, resolved)
-      } else {
-        const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path)
-        insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
-      }
-    }
-
-    // Re-resolve links still stored as raw text now that this note exists.
-    // Re-run resolveLink with each link's own source so every form upgrades
-    // uniformly — basename, full path, and source-relative ("../") — covering
-    // Obsidian's "link first, create the note later" workflow.
-    const unresolvedLinks = selectUnresolvedLinksStmt.all()
-    for (const link of unresolvedLinks) {
-      const resolved = links.resolve(link.target, pathList, link.source)
-      if (resolved !== null) {
-        updateLinkTargetStmt.run({
-          resolved,
-          source: link.source,
-          rawTarget: link.target,
-        })
-      }
-    }
   }
 
   // ── Embedding pipeline ─────────────────────────────────────────
@@ -1309,7 +1330,7 @@ export const createSearchIndex = (
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
     const memoryFile = memoryFileNameFromPath(params.notePath)
-    if (memoryFile !== null) {
+    if (memoryFile) {
       await embedMemoryEntriesForFile(memoryFile, logger)
     }
   }
@@ -1319,18 +1340,23 @@ export const createSearchIndex = (
    *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
    *  its entries re-enter as new rows and re-embed once in the background. */
   const removeNote = (filePath: string): void => {
-    deleteFtsStmt.run(filePath)
-    removeNotesStmt.run(filePath)
-    deleteLinksStmt.run(filePath)
-    deleteTasksStmt.run(filePath)
-    if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
-      deleteVectorsForNoteStmt.run(filePath)
-      deleteChunksForNoteStmt.run(filePath)
-    }
     const memoryFile = memoryFileNameFromPath(filePath)
-    if (memoryFile !== null) {
-      removeMemoryEntriesForFile(memoryFile)
-    }
+
+    // All deletes commit or roll back together — a mid-sequence throw must
+    // not leave the note half-removed across notes/FTS/tasks/links.
+    db.transaction(() => {
+      deleteFtsStmt.run(filePath)
+      removeNotesStmt.run(filePath)
+      deleteLinksStmt.run(filePath)
+      deleteTasksStmt.run(filePath)
+      if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
+        deleteVectorsForNoteStmt.run(filePath)
+        deleteChunksForNoteStmt.run(filePath)
+      }
+      if (memoryFile) {
+        removeMemoryEntriesForFile(memoryFile)
+      }
+    })()
   }
 
   /** Drops the entire index and re-indexes every .md file in the vault.
@@ -1474,9 +1500,7 @@ export const createSearchIndex = (
       // Pass 2: re-extract links now that all paths are in the notes table,
       // resolving targets that the per-note upsertNote pass may have missed
       // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-      const allPaths = db
-        .prepare<[], { path: string }>("SELECT path FROM notes")
-        .all()
+      const allPaths = selectAllNotePathsStmt.all()
       const pathList = allPaths.map((row) => row.path)
 
       db.exec("DELETE FROM links")
@@ -1574,7 +1598,7 @@ export const createSearchIndex = (
                 logger,
               )
               const memoryFile = memoryFileNameFromPath(note.relativePath)
-              if (memoryFile !== null) {
+              if (memoryFile) {
                 entriesEmbedded += await embedMemoryEntriesForFile(
                   memoryFile,
                   logger,

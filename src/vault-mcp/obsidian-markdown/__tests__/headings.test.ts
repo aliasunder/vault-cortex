@@ -269,6 +269,207 @@ describe("parseHeadings", () => {
       "Real",
     ])
   })
+
+  // ── setext heading support (CommonMark §4.3) ─────────────────
+
+  it("parses a setext H1 heading (=== underline)", () => {
+    const headings = parseHeadings(["Title", "==="])
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("parses a setext H2 heading (--- underline)", () => {
+    const headings = parseHeadings(["Title", "---"])
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("parses setext underlines with 0-3 leading spaces", () => {
+    const headings = parseHeadings(["H1", " ===", "H2", "  ---"])
+    expect(
+      headings.map((heading) => ({ text: heading.text, level: heading.level })),
+    ).toEqual([
+      { text: "H1", level: 1 },
+      { text: "H2", level: 2 },
+    ])
+  })
+
+  it("parses setext underlines with trailing whitespace", () => {
+    const headings = parseHeadings(["Title", "=== \t "])
+    expect(headings).toEqual([
+      {
+        text: "Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("parses a single-character = underline as H1", () => {
+    expect(parseHeadings(["Title", "="])).toEqual([
+      {
+        text: "Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("parses a single-character - underline as H2", () => {
+    expect(parseHeadings(["Title", "-"])).toEqual([
+      {
+        text: "Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("does not parse --- after a blank line as setext (thematic break)", () => {
+    expect(parseHeadings(["Text", "", "---"])).toEqual([])
+  })
+
+  it("does not parse --- as the first line as setext", () => {
+    expect(parseHeadings(["---", "body"])).toEqual([])
+  })
+
+  it("does not parse a setext underline with 4+ leading spaces", () => {
+    expect(parseHeadings(["Title", "    ==="])).toEqual([])
+  })
+
+  it("ignores setext underlines inside a fenced code block", () => {
+    const lines = ["```", "Title", "===", "```", "## Real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+    ])
+  })
+
+  it("ignores setext underlines inside a comment block", () => {
+    const lines = ["%%", "Title", "===", "%%", "## Real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Real",
+    ])
+  })
+
+  it("parses adjacent setext headings", () => {
+    // H2 is a child of H1, so H1's body spans to EOF (includes the H2).
+    const headings = parseHeadings(["H1 Title", "===", "H2 Title", "---"])
+    expect(headings).toEqual([
+      {
+        text: "H1 Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 4,
+      },
+      {
+        text: "H2 Title",
+        level: 2,
+        startLine: 2,
+        bodyStartLine: 4,
+        bodyEndLine: 4,
+      },
+    ])
+  })
+
+  it("parses mixed ATX and setext headings with correct spans", () => {
+    const lines = [
+      "# ATX H1", // 0
+      "body", // 1
+      "Setext H2", // 2
+      "---", // 3
+      "more body", // 4
+    ]
+    const headings = parseHeadings(lines)
+    expect(headings).toEqual([
+      {
+        text: "ATX H1",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 5,
+      },
+      {
+        text: "Setext H2",
+        level: 2,
+        startLine: 2,
+        bodyStartLine: 4,
+        bodyEndLine: 5,
+      },
+    ])
+  })
+
+  it("does not parse ATX heading followed by === as setext", () => {
+    const headings = parseHeadings(["## ATX Title", "==="])
+    expect(headings).toEqual([
+      {
+        text: "ATX Title",
+        level: 2,
+        startLine: 0,
+        bodyStartLine: 1,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("trims whitespace from setext heading text", () => {
+    expect(parseHeadings(["  Padded Title  ", "==="])).toEqual([
+      {
+        text: "Padded Title",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 2,
+      },
+    ])
+  })
+
+  it("spans a setext heading body to the next same-or-higher heading", () => {
+    const lines = [
+      "Section A", // 0
+      "===", // 1
+      "body a", // 2
+      "Section B", // 3
+      "---", // 4
+      "body b", // 5
+    ]
+    expect(parseHeadings(lines)).toEqual([
+      {
+        text: "Section A",
+        level: 1,
+        startLine: 0,
+        bodyStartLine: 2,
+        bodyEndLine: 6,
+      },
+      {
+        text: "Section B",
+        level: 2,
+        startLine: 3,
+        bodyStartLine: 5,
+        bodyEndLine: 6,
+      },
+    ])
+  })
 })
 
 describe("linesBeforeFirstHeading", () => {
@@ -350,6 +551,14 @@ describe("linesBeforeFirstHeading", () => {
     expect(regionOf(["intro", "##"])).toEqual(["intro"])
   })
 
+  it("stops at a setext heading", () => {
+    expect(regionOf(["intro", "Section", "===", "body"])).toEqual(["intro"])
+  })
+
+  it("returns nothing when the first line is a setext heading's text line", () => {
+    expect(regionOf(["Title", "===", "body"])).toEqual([])
+  })
+
   it("finds no heading boundary in raw CRLF lines", () => {
     // Documents the contract: callers normalize with splitIntoLines first.
     // HEADING_REGEX uses `(.*)` where `.` excludes CR, so "## S\r" is not a
@@ -391,5 +600,16 @@ describe("findHeading", () => {
     expect(() => findHeading(headings, "   ")).toThrow(
       "heading cannot be empty",
     )
+  })
+
+  it("resolves a setext heading by text and level", () => {
+    const mixedHeadings = parseHeadings(["# ATX", "Setext Title", "---"])
+    expect(findHeading(mixedHeadings, "Setext Title")).toEqual({
+      text: "Setext Title",
+      level: 2,
+      startLine: 1,
+      bodyStartLine: 3,
+      bodyEndLine: 3,
+    })
   })
 })
