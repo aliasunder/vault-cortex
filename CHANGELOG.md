@@ -57,6 +57,22 @@
 
 
 
+
+## [0.33.4] — 2026-07-30
+
+### Features
+
+- Recognize setext headings per CommonMark §4.3 (#380)
+
+### Bug Fixes
+
+- Make upsertNote and removeNote atomic; state busy_timeout explicitly (#382)
+
+### Documentation
+
+- **readme:** Surface memory + file-tools opt-outs in feature sections, add Memory architecture link (#383)
+- Update CHANGELOG.md for v0.33.3
+
 ## [0.33.3] — 2026-07-29
 
 ### Features

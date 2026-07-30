@@ -19,7 +19,9 @@ through, /mcp validates static token or JWT). IaC via SST v4.
 The server provides vault CRUD, hybrid search (FTS5 keyword + sqlite-vec
 vector + cross-encoder reranking via RRF fusion and position-aware score
 blending), and the About Me/ memory layer. The Docker image uses Debian
-slim (`node:24-slim`) because `onnxruntime-node` requires glibc.
+slim (`node:24-trixie-slim`) because `onnxruntime-node` requires glibc,
+and specifically trixie because better-sqlite3 v13's bundled linux-arm64
+prebuild needs glibc >= 2.38 (bookworm's 2.36 crash-loops arm64 images).
 
 All solutions must be portable — they can't rely on one-off manual fixes,
 hardcoded paths, or user-specific configuration. If it works only on
