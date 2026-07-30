@@ -38,6 +38,10 @@ const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
  *  which renders multi-line setext inconsistently (Edit mode ≠ Reading mode). */
 const SETEXT_UNDERLINE_REGEX = /^ {0,3}(=+|-+)[ \t]*$/
 
+/** Matches block-level line openers (list items, blockquotes) that can't be
+ *  setext heading content per CommonMark §4.3 — only paragraph text qualifies. */
+const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
+
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
  * final section's body can stop short of it. Returns `lines.length` when none
@@ -130,21 +134,20 @@ export const findTrailingCommentBlockStart = (
 /**
  * Heading parser for H1–H6 with code-block and comment awareness. Recognizes
  * both ATX (`## Title`) and setext (`Title` over `===`/`---`) headings.
+ * Skips content inside fenced code blocks and `%% %%` comment blocks.
  * Section body = heading line(s)+1 through next same-or-higher heading (or EOF).
  */
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
-  // Phase 1: collect headings, skipping content inside fenced code blocks and
-  // `%% %%` comment blocks. Setext detection requires two-line awareness
-  // (text line + underline), so the parser uses a for-loop with mutable state
-  // rather than a reduce — a parser threading line-by-line state with lookahead.
+  // Phase 1: collect headings. Setext detection needs two-line lookahead
+  // (text line + underline), so the parser uses a for-loop with mutable
+  // state rather than a reduce.
   const collectedHeadings: Array<{
     text: string
     level: number
     startLine: number
     bodyStartLine: number
   }> = []
-  // `let` carries fence, comment, and setext-candidate state across lines —
-  // inherently sequential parser state that cannot be expressed as a fold.
+  // `let` carries fence, comment, and setext-candidate state across lines.
   let openFence: OpenFence = null
   let commentOpen = false
   // The previous non-blank, non-heading, non-fence/comment content line — a
@@ -207,13 +210,12 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     }
 
     // Track setext candidate: non-blank content → candidate; blank → reset.
-    // Block-level lines (list items, blockquotes) can't be setext heading
-    // content per CommonMark §4.3 — only paragraph text qualifies.
     if (line.trim() === "") {
       setextCandidate = null
     } else {
-      const isBlockLevelLine = /^[-*+] |^\d+[.)] |^>/.test(line.trimStart())
-      setextCandidate = isBlockLevelLine ? null : { text: line, index: i }
+      setextCandidate = BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())
+        ? null
+        : { text: line, index: i }
     }
   }
 
