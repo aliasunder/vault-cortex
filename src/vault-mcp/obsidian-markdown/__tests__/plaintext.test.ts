@@ -54,6 +54,26 @@ describe("stripMarkdownSyntax", () => {
       expected: "\nSome content",
     },
     {
+      name: "setext H1 underline stripped (===)",
+      input: "Title\n===\nBody",
+      expected: "Title\n\nBody",
+    },
+    {
+      name: "setext H2 underline stripped (---)",
+      input: "Title\n---\nBody",
+      expected: "Title\n\nBody",
+    },
+    {
+      name: "setext underline with leading spaces stripped",
+      input: "Title\n  ===\nBody",
+      expected: "Title\n\nBody",
+    },
+    {
+      name: "setext underline with 4+ leading spaces not stripped",
+      input: "Title\n    ===\nBody",
+      expected: "Title\n    ===\nBody",
+    },
+    {
       name: "bold markers stripped",
       input: "This is **bold text** here",
       expected: "This is bold text here",
