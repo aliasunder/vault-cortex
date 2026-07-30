@@ -58,6 +58,17 @@
 
 
 
+
+## [0.33.5] — 2026-07-30
+
+### Bug Fixes
+
+- **docker:** Trixie base so arm64 native prebuilds load; execute bindings per-arch at build time (#384)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.33.4
+
 ## [0.33.4] — 2026-07-30
 
 ### Features
