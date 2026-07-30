@@ -27,8 +27,8 @@ export type RemoteEnvAnswers = {
 // sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To change a setting: edit its value (uncommenting it first if needed),
-# then apply with "npx vault-cortex upgrade" (restart alone does not
-# re-read this file).
+# then apply with "npx vault-cortex restart" (plain docker restart does
+# not re-read this file).
 
 # Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
@@ -119,8 +119,8 @@ WINDOWS_MODE=false
 // sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
 # To change a setting: edit its value (uncommenting it first if needed),
-# then apply with "npx vault-cortex upgrade" (restart alone does not
-# re-read this file).
+# then apply with "npx vault-cortex restart" (plain docker restart does
+# not re-read this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
@@ -225,10 +225,6 @@ MCP_AUTH_TOKEN=${answers.mcpAuthToken}
 
 # Absolute path to your Obsidian vault on this machine.
 VAULT_PATH=${answers.vaultPath}
-
-# Public URL for OAuth issuer URL in discovery metadata.
-# Override if you expose the server on a different URL (e.g. via a reverse proxy).
-PUBLIC_URL=http://localhost:8000
 
 ${LOCAL_OPTIONAL_BLOCK}`
 

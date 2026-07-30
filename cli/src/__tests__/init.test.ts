@@ -91,6 +91,8 @@ const dockerUnavailable: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 
@@ -163,7 +165,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
     expect(scripted.prints[0]).toContain(
-      "Optional settings (timezone, memory folder, port, logging) are commented",
+      "Optional settings (timezone, memory folder, port, logging) live in",
     )
   })
 
@@ -320,8 +322,8 @@ describe("remote connect message https routing", () => {
     const connectMessage = scripted.prints.find((message) =>
       message.includes("Connect your MCP client"),
     )
-    expect(connectMessage).toBeDefined()
-    return connectMessage as string
+    if (!connectMessage) throw new Error("connect message was not printed")
+    return connectMessage
   }
 
   it("warns and offers claude mcp add when PUBLIC_URL is http", async () => {
@@ -706,12 +708,14 @@ describe("runInit with a kept existing .env", () => {
       dockerRun: () => true,
       pullImage: () => true,
       stopAndRemoveContainer: () => true,
+      containerExists: () => true,
+      streamLogs: async () => 0,
       runObsidianLogin: () => false,
     }
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
-      return { ok: true } as Response
+      return new Response(null, { status: 200 })
     }
 
     const exitCode = await runInit(
@@ -770,6 +774,8 @@ describe("runInit remote encryption password", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
+      containerExists: () => false,
+      streamLogs: async () => 1,
       runObsidianLogin: () => false,
     }
 
@@ -805,6 +811,8 @@ describe("runInit sync-token auto-capture fallback", () => {
       dockerRun: () => false,
       pullImage: () => false,
       stopAndRemoveContainer: () => false,
+      containerExists: () => false,
+      streamLogs: async () => 1,
       runObsidianLogin: () => false,
     }
 

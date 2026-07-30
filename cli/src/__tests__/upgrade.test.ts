@@ -46,6 +46,8 @@ const dockerReady: DockerRunner = {
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
+  containerExists: () => true,
+  streamLogs: async () => 0,
   runObsidianLogin: () => false,
 }
 
@@ -54,10 +56,12 @@ const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 
-const fetchOk: typeof fetch = async () => ({ ok: true }) as Response
+const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
 
 const fetchNever: typeof fetch = async () => {
   throw new Error("fetch must not be called")
@@ -277,7 +281,7 @@ describe("runUpgrade", () => {
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
-      return { ok: true } as Response
+      return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts()
 

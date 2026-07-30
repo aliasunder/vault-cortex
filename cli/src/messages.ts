@@ -167,9 +167,10 @@ ${smokeTest(`${baseUrl}/healthz`)}
 
 ${sectionRule("Settings")}
 
-Optional settings (timezone, memory folder, port, logging) are commented
-out in ${targetDir}/.env — uncomment, set a value, then apply with
-"npx vault-cortex upgrade" (restart alone does not re-read .env).
+Optional settings (timezone, memory folder, port, logging) live in
+${targetDir}/.env — edit a value (uncommenting it first if needed), then
+apply with "npx vault-cortex restart" (plain docker restart does not
+re-read .env).
 
 ${updateGuidance(targetDir)}
 
@@ -249,9 +250,9 @@ ${smokeTest(`${publicUrl}/healthz`)}
 ${sectionRule("Settings")}
 
 Optional settings (timezone, memory folder, port, logging, sync
-behavior) are commented out in ${targetDir}/.env — uncomment, set a
-value, then apply with "npx vault-cortex upgrade" (restart alone does
-not re-read .env).
+behavior) live in ${targetDir}/.env — edit a value (uncommenting it
+first if needed), then apply with "npx vault-cortex restart" (plain
+docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
 

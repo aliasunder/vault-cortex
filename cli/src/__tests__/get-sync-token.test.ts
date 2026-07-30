@@ -68,6 +68,8 @@ const dockerWithToken = (token: string): DockerRunner => ({
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: (configMountPath) => {
     const tokenDir = join(configMountPath, "obsidian-headless")
     mkdirSync(tokenDir, { recursive: true })
@@ -81,6 +83,8 @@ const dockerFailsLogin: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 
@@ -89,6 +93,8 @@ const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
+  containerExists: () => false,
+  streamLogs: async () => 1,
   runObsidianLogin: () => false,
 }
 
