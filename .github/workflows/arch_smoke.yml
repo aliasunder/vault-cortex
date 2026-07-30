@@ -148,7 +148,7 @@ jobs:
               echo "::error::container exited during startup (poll attempt $i)"
               exit 1
             fi
-            if curl -fsS http://localhost:8001/healthz > /dev/null 2>&1; then
+            if curl -fsS http://localhost:8000/healthz > /dev/null 2>&1; then
               echo "healthz ok (attempt $i)"
               break
             fi
@@ -160,7 +160,7 @@ jobs:
           done
 
           curl -fsS --max-time 30 -D "$RUNNER_TEMP/mcp-headers.txt" -o "$RUNNER_TEMP/mcp-body.txt" \
-            http://localhost:8001/mcp \
+            http://localhost:8000/mcp \
             -H "Authorization: Bearer $MCP_AUTH_TOKEN" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json, text/event-stream" \
