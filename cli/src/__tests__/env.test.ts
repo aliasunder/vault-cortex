@@ -23,6 +23,15 @@ describe("buildLocalEnv", () => {
     expect(lines).toContain("LOG_LEVEL=info")
   })
 
+  it("writes PUBLIC_URL exactly once — in the optional block with its default", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+
+    const publicUrlLines = env
+      .split("\n")
+      .filter((line) => line.startsWith("PUBLIC_URL="))
+    expect(publicUrlLines).toEqual(["PUBLIC_URL=http://localhost:8000"])
+  })
+
   it("links to the canonical .env.example and keeps settings with no universal default commented out", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
@@ -38,7 +47,7 @@ describe("buildLocalEnv", () => {
 
     expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
+      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
     )
   })
 })
@@ -108,7 +117,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toContain("To change a setting: edit its value")
     expect(env).toContain(
-      'then apply with "npx vault-cortex upgrade" (restart alone does not\n# re-read this file).',
+      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
     )
   })
 })

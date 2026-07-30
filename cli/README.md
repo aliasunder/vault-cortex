@@ -23,6 +23,10 @@ manages the container so you don't have to.
   token, start the server
 - [`upgrade`](#upgrade) — pull the latest image and re-create the container;
   your data stays
+- [`restart`](#restart) — re-create the container so your `.env` edits take
+  effect; no image pull
+- [`logs`](#logs) — show the server's logs, live or after the fact
+- [`down`](#down) — stop and remove the container; your data stays
 - [`get-sync-token`](#get-sync-token) — generate an Obsidian Sync auth token
   for remote setups
 
@@ -87,6 +91,55 @@ Prefer Docker Compose? The CLI uses `docker run` for simplicity, but the
 include Compose files you can use directly. If you set up with Compose, stick
 with Compose for updates too (`docker compose pull && docker compose up -d`)
 — the CLI and Compose manage the container independently.
+
+## restart
+
+Re-create the container from your `.env` and verify health:
+
+```bash
+npx vault-cortex@latest restart
+```
+
+Use it after editing `.env` — settings are only read when the container is
+created, so a plain `docker restart` won't pick them up, but this will. Unlike
+[`upgrade`](#upgrade), it never pulls a new image: you get the same server
+version back, with your current settings applied.
+
+Use `--dir <path>` if your config isn't in `./vault-cortex`.
+
+## logs
+
+Show the server's logs:
+
+```bash
+npx vault-cortex@latest logs
+```
+
+Flags:
+
+- `--follow` — keep streaming new output until you press ctrl-C
+- `--since <time>` — only logs newer than this (e.g. `10m`, `2h`, or a
+  timestamp)
+- `--dir <path>` — directory containing `.env` (default `./vault-cortex`)
+
+```bash
+npx vault-cortex@latest logs --follow --since 10m
+```
+
+## down
+
+Stop and remove the container:
+
+```bash
+npx vault-cortex@latest down
+```
+
+Safe by design: your vault, search index, and `.env` settings all live
+outside the container, so nothing is lost. Start again any time with
+[`restart`](#restart). Running `down` when nothing is running is fine — it
+just tells you there's nothing to stop.
+
+Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
 ## get-sync-token
 
