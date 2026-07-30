@@ -9,21 +9,32 @@
 # GOTCHA: better-sqlite3 and onnxruntime-node prebuilds are arch+libc
 # specific. Always `npm ci` inside Debian — never copy node_modules
 # across libc boundaries.
-# GOTCHA: build deps (python3/make/g++) are needed as fallback if
-# prebuilds don't exist for your arch. They stay in the build stage.
+# GOTCHA: the base must satisfy the prebuilds' glibc floor. better-sqlite3
+# v13 bundles its prebuilds in the tarball, and the linux-arm64 one needs
+# glibc >= 2.38 — hence trixie (glibc 2.41), not bookworm (2.36), which
+# shipped arm64 images that crash-looped at startup. `npm rebuild` is NOT
+# a safety net: npm's allow-scripts gating turns it into a silent no-op
+# (exit 0, nothing built), and v13 tarballs no longer produce a working
+# binding from source. The deps stage instead EXECUTES both bindings —
+# release builds run linux/amd64 and linux/arm64, so a glibc or arch
+# mismatch fails the build on that arch instead of shipping broken.
 # GOTCHA: onnxruntime-node (bundled by @huggingface/transformers) needs
 # glibc — Alpine's musl has no compatible build. This is why the image
 # uses Debian slim instead of Alpine (and why the remote target installs
 # obsidian-headless via npm ci instead of building FROM the Alpine
 # obsidian-headless-sync-docker image).
 
-FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS deps
+FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS deps
 WORKDIR /app
-RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 onnxruntime-node
+RUN npm ci --omit=dev --ignore-scripts
+# Execute the native bindings on the target arch (arm64 runs under QEMU in
+# CI buildx). This is the per-architecture release gate: a prebuild whose
+# glibc floor the base image can't satisfy fails HERE, at build time, on
+# the affected arch — not at container startup on a user's machine.
+RUN node -e "const Database = require('better-sqlite3'); new Database(':memory:').exec('select 1'); require('onnxruntime-node'); console.log('native bindings verified')"
 
-FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
+FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS build
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
@@ -40,16 +51,16 @@ RUN npm run build:server
 # uses npm ci for the lockfile-pinned obsidian-headless install, then
 # removes npm the same way.
 # ---------------------------------------------------------------------------
-FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS base
+FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS base
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly (local
 # target; the remote target's s6 /init takes over PID 1 duties there).
 # libstdc++6 is pre-installed on Debian slim — no extra install needed.
-# node:24-slim ships a `node` user at UID 1000 — the local target runs as it;
-# the remote target replaces it with `obsidian` at the same UID/GID.
+# node:24-trixie-slim ships a `node` user at UID 1000 — the local target runs
+# as it; the remote target replaces it with `obsidian` at the same UID/GID.
 # apt-get upgrade: applies Debian security fixes at build time, covering
 # the window between a Debian security release and the next upstream
-# node:24-slim rebuild + digest-pin refresh. APT_UPGRADE_DATE busts the
+# node:24-trixie-slim rebuild + digest-pin refresh. APT_UPGRADE_DATE busts the
 # Docker layer cache daily in CI so security patches stay current even
 # when the Dockerfile hasn't changed.
 ARG APT_UPGRADE_DATE
