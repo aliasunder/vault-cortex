@@ -61,7 +61,7 @@ const dockerDown: DockerRunner = {
   runObsidianLogin: () => false,
 }
 
-const fetchOk: typeof fetch = async () => ({ ok: true }) as Response
+const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
 
 const fetchNever: typeof fetch = async () => {
   throw new Error("fetch must not be called")
@@ -281,7 +281,7 @@ describe("runUpgrade", () => {
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
-      return { ok: true } as Response
+      return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts()
 

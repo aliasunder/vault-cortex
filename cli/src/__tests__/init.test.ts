@@ -322,8 +322,8 @@ describe("remote connect message https routing", () => {
     const connectMessage = scripted.prints.find((message) =>
       message.includes("Connect your MCP client"),
     )
-    expect(connectMessage).toBeDefined()
-    return connectMessage as string
+    if (!connectMessage) throw new Error("connect message was not printed")
+    return connectMessage
   }
 
   it("warns and offers claude mcp add when PUBLIC_URL is http", async () => {
@@ -715,7 +715,7 @@ describe("runInit with a kept existing .env", () => {
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
-      return { ok: true } as Response
+      return new Response(null, { status: 200 })
     }
 
     const exitCode = await runInit(

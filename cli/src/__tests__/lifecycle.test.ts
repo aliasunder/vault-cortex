@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
 import { runDown, runLogs, runRestart } from "../lifecycle.js"
@@ -64,10 +64,20 @@ const dockerDown: DockerRunner = {
   runObsidianLogin: () => false,
 }
 
-const fetchOk: typeof fetch = async () => ({ ok: true }) as Response
+const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
 
 const fetchNever: typeof fetch = async () => {
   throw new Error("fetch must not be called")
+}
+
+// Creates a temp target dir and registers its removal at creation time, so
+// the suite self-cleans even when an assertion throws mid-test.
+const makeTempTargetDir = (prefix: string): string => {
+  const targetDir = mkdtempSync(join(tmpdir(), prefix))
+  onTestFinished(() => {
+    rmSync(targetDir, { recursive: true, force: true })
+  })
+  return targetDir
 }
 
 const writeLocalEnv = (targetDir: string): void => {
@@ -101,7 +111,7 @@ describe("runDown", () => {
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -118,7 +128,7 @@ describe("runDown", () => {
   })
 
   it("succeeds without removing anything when no container exists", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
     const removeCalls: string[] = []
     const dockerNoContainer: DockerRunner = {
@@ -144,7 +154,7 @@ describe("runDown", () => {
   })
 
   it("tears down a local .env lacking PUBLIC_URL without rejecting it", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     // A compose-era .env that upgrade/restart would reject — teardown
     // must still work on it.
     writeFileSync(
@@ -172,7 +182,7 @@ describe("runDown", () => {
   })
 
   it("removes the container and reports data preservation", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
     const removeCalls: string[] = []
     const dockerSpy: DockerRunner = {
@@ -200,7 +210,7 @@ describe("runDown", () => {
   })
 
   it("exits 1 when the container removal fails", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-down-"))
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
     const dockerRemoveFails: DockerRunner = {
       ...dockerReady,
@@ -238,7 +248,7 @@ describe("runLogs", () => {
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-logs-"))
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -255,7 +265,7 @@ describe("runLogs", () => {
   })
 
   it("exits 1 with a restart hint when no container exists", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-logs-"))
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
     writeLocalEnv(targetDir)
     const streamCalls: DockerLogsParams[] = []
     const dockerNoContainer: DockerRunner = {
@@ -281,7 +291,7 @@ describe("runLogs", () => {
   })
 
   it("passes --follow and --since through to the log stream", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-logs-"))
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
     writeLocalEnv(targetDir)
     const streamCalls: DockerLogsParams[] = []
     const dockerSpy: DockerRunner = {
@@ -303,7 +313,7 @@ describe("runLogs", () => {
   })
 
   it("defaults to a non-following stream with no since bound", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-logs-"))
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
     writeLocalEnv(targetDir)
     const streamCalls: DockerLogsParams[] = []
     const dockerSpy: DockerRunner = {
@@ -325,7 +335,7 @@ describe("runLogs", () => {
   })
 
   it("passes the stream's exit code through as its own", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-logs-"))
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
     writeLocalEnv(targetDir)
     const dockerInterrupted: DockerRunner = {
       ...dockerReady,
@@ -359,7 +369,7 @@ describe("runRestart", () => {
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\n")
     const scripted = createScriptedPrompts()
 
@@ -375,7 +385,7 @@ describe("runRestart", () => {
   })
 
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n",
@@ -395,7 +405,7 @@ describe("runRestart", () => {
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -412,7 +422,7 @@ describe("runRestart", () => {
   })
 
   it("never pulls an image", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const pullCalls: string[] = []
     const dockerPullSpy: DockerRunner = {
@@ -434,7 +444,7 @@ describe("runRestart", () => {
   })
 
   it("re-creates a local container with the vault path from .env", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
@@ -470,7 +480,7 @@ describe("runRestart", () => {
   })
 
   it("re-creates a remote container without a vault path", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeRemoteEnv(targetDir)
     const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
@@ -501,7 +511,7 @@ describe("runRestart", () => {
   })
 
   it("exits 1 when docker run fails", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
@@ -523,7 +533,7 @@ describe("runRestart", () => {
   })
 
   it("exits 1 without starting when an existing container cannot be removed", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const runCalls: string[] = []
     const dockerRemoveFails: DockerRunner = {
@@ -555,7 +565,7 @@ describe("runRestart", () => {
   it("proceeds past a failed removal probe when no container exists", async () => {
     // Engines < 23 exit non-zero from `docker rm -f` on a missing container —
     // a first-start restart must not treat that as a removal failure.
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const removeCalls: string[] = []
     const dockerFirstStart: DockerRunner = {
@@ -579,7 +589,7 @@ describe("runRestart", () => {
   })
 
   it("reports failure when the health check times out", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
     const fetchFail: typeof fetch = async () => {
       throw new Error("ECONNREFUSED")
@@ -604,7 +614,7 @@ describe("runRestart", () => {
   })
 
   it("uses the PORT from .env for health polling", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-restart-"))
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
@@ -612,7 +622,7 @@ describe("runRestart", () => {
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
-      return { ok: true } as Response
+      return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts()
 
