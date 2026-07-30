@@ -576,6 +576,56 @@ describe("upsertNote atomicity", () => {
     ).toEqual([versionALink()])
   })
 
+  it("rolls back the link phase when a link statement fails mid-upsert", () => {
+    const poison = installStatementPoison("INSERT OR IGNORE INTO links")
+    const atomicIndex = createSearchIndex(":memory:")
+    atomicIndex.upsertNote(
+      {
+        filePath: "atomic/target.md",
+        rawContent: ATOMIC_NOTE_VERSION_A,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // By the time the poisoned link INSERT fires, `deleteLinksStmt` has
+    // already cleared version A's links inside the transaction — the intact
+    // version-A link below proves link-phase rollback specifically, which
+    // the tasks-phase poison above never exercises (it throws before the
+    // links table is touched).
+    poison.arm()
+    expect(() =>
+      atomicIndex.upsertNote(
+        {
+          filePath: "atomic/target.md",
+          rawContent: ATOMIC_NOTE_VERSION_B,
+          fileStat: testStat(2000),
+        },
+        logger,
+      ),
+    ).toThrow(poison.message)
+    poison.disarm()
+
+    expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
+    const versionAHits = atomicIndex.fullTextSearch(
+      { query: "penguins" },
+      logger,
+    )
+    expect(versionAHits.map((result) => result.path)).toEqual([
+      "atomic/target.md",
+    ])
+    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual(
+      [],
+    )
+    expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
+      total: 1,
+      tasks: [versionATask()],
+    })
+    expect(
+      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
+    ).toEqual([versionALink()])
+  })
+
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
     const poison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")

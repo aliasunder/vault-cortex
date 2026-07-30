@@ -1055,8 +1055,8 @@ export const createSearchIndex = (
     // All index writes commit or roll back together — a mid-sequence throw
     // must not leave notes/FTS/tasks/links mutually inconsistent. The
     // `skipLinks` return exits the transaction callback (return commits,
-    // throw rolls back), so nothing may run between the wrap's `)()` and
-    // the function's end.
+    // throw rolls back), so code after the wrap's `)()` runs on both paths
+    // — no link-phase work may live there.
     db.transaction(() => {
       deleteFtsStmt.run(note.path)
       upsertNotesStmt.run(
@@ -1108,12 +1108,6 @@ export const createSearchIndex = (
         upsertMemoryEntries(memoryFile, parsed.content, logger)
       }
 
-      logger.debug("indexed note", {
-        path: note.path,
-        bytes: note.bytes,
-        tasksIndexed: extractedTasks.length,
-      })
-
       if (skipLinks) return
 
       const allPaths = selectAllNotePathsStmt.all()
@@ -1146,6 +1140,14 @@ export const createSearchIndex = (
         }
       }
     })()
+
+    // Emitted after the transaction commits so a rolled-back write can't
+    // leave a success line behind.
+    logger.debug("indexed note", {
+      path: note.path,
+      bytes: note.bytes,
+      tasksIndexed: extractedTasks.length,
+    })
   }
 
   // ── Embedding pipeline ─────────────────────────────────────────
@@ -1493,9 +1495,7 @@ export const createSearchIndex = (
       // Pass 2: re-extract links now that all paths are in the notes table,
       // resolving targets that the per-note upsertNote pass may have missed
       // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-      const allPaths = db
-        .prepare<[], { path: string }>("SELECT path FROM notes")
-        .all()
+      const allPaths = selectAllNotePathsStmt.all()
       const pathList = allPaths.map((row) => row.path)
 
       db.exec("DELETE FROM links")
