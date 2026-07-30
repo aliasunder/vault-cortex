@@ -115,6 +115,20 @@ describe("parseLeadingCallout", () => {
     })
   })
 
+  it("does not swallow a callout opener followed by === as setext H1", () => {
+    const lines = ["> [!info] Scope", "===", "> body"]
+    expect(parseLeadingCallout(lines)).toEqual({
+      type: "info",
+      title: "Scope",
+      body: "",
+    })
+  })
+
+  it("does not swallow a list item followed by === as setext H1", () => {
+    const lines = ["- item", "===", "> [!info] Scope", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
+
   it("collects only the first of two stacked callouts", () => {
     const lines = [
       "> [!info] First",

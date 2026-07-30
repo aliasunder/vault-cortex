@@ -48,6 +48,11 @@ const H1_REGEX = /^ {0,3}#(?:[ \t].*)?$/
  *  function skips exactly one H1 title, and only H1 is relevant here. */
 const SETEXT_H1_UNDERLINE_REGEX = /^ {0,3}=+[ \t]*$/
 
+/** Matches block-level line openers (list items, blockquotes) that can't be
+ *  setext heading content per CommonMark §4.3. Used to prevent a callout
+ *  opener or list item followed by `===` from being swallowed as a heading. */
+const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
+
 /**
  * Returns the index of the first body line — the first line that is neither
  * blank nor the note's single leading H1 title. Returns lines.length when no
@@ -67,7 +72,8 @@ const firstBodyLineIndex = (
   if (!skippedH1 && H1_REGEX.test(line))
     return firstBodyLineIndex(lines, index + 1, true)
   // Setext H1: current non-blank line is content, next line is a `===` underline.
-  if (!skippedH1) {
+  // Block-level lines are excluded — they can't be heading content.
+  if (!skippedH1 && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())) {
     const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined
     if (nextLine !== undefined && SETEXT_H1_UNDERLINE_REGEX.test(nextLine))
       return firstBodyLineIndex(lines, index + 2, true)
