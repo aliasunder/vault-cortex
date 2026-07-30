@@ -199,7 +199,9 @@ The layer is a folder of plain Markdown files (default: `About Me/`) holding dat
 
 Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
 
-See [templates/memory](./templates/memory/) for the file format, entry-policy convention, and starter templates.
+The whole layer is optional — set `MEMORY_ENABLED=false` to hide the memory tools and skip the folder auto-creation entirely.
+
+See [ARCHITECTURE.md → Memory](./ARCHITECTURE.md#memory) for the recall pipeline, indexing model, auto-initialization, and opt-out behavior, and [templates/memory](./templates/memory/) for the file format, entry-policy convention, and starter templates.
 
 ## Tasks
 
@@ -222,6 +224,8 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
 - **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written
 - **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
+
+Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
 
 See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline and dispatch model.
 
