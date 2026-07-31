@@ -64,11 +64,12 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
-      # Per-arch cache scope: the two legs here plus trivy-pr (which
-      # writes the default scope) would otherwise all write mode=max into
-      # one scope on one ref — last write wins and evicts the rest. The
-      # bare type=gha cache-from lets the amd64 leg still read trivy-pr's
-      # layers; it is a no-op on arm64 (no matching blobs).
+      # Per-arch, per-target cache scope: a GHA cache scope keeps only its
+      # last mode=max export, so every build sharing one scope — the two
+      # legs here, trivy-pr (default scope), or the arm64 leg's local and
+      # remote builds — would evict each other's layers. The bare type=gha
+      # cache-from lets the amd64 leg still read trivy-pr's layers; it is
+      # a no-op on arm64 (no matching blobs).
       - name: Build image from branch (local target)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -80,14 +81,15 @@ jobs:
           tags: vault-cortex:smoke
           build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           cache-from: |
-            type=gha,scope=arch-smoke-${{ matrix.arch }}
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-local
             type=gha
-          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-local
 
       # Compile check only: nothing had ever built the remote target for
       # arm64 before merge. No load/tags — the image is never run, and
       # amd64 remote coverage is trivy-pr's job (building it here too
-      # would be pure redundancy in the same PR run).
+      # would be pure redundancy in the same PR run). Reads the local
+      # scope too — both targets share the base/deps/build stages.
       - name: Build image from branch (remote target, arm64 compile check)
         if: matrix.arch == 'arm64'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -96,8 +98,9 @@ jobs:
           target: remote
           build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           cache-from: |
-            type=gha,scope=arch-smoke-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-remote
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-local
+          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-remote
 
       # Two notes across two folders exercise the boot-time index build
       # for real: frontmatter properties, tags, a wikilink pair (link
