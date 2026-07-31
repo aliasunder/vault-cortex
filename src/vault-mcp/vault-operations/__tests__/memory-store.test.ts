@@ -175,7 +175,9 @@ describe("getMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section"')
+    ).rejects.toThrow(
+      'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
   })
 
   it("returns empty string when About Me directory does not exist", async () => {
@@ -920,6 +922,152 @@ describe("updateMemory auto-creation", () => {
   })
 })
 
+describe("updateMemory near-duplicate section guard", () => {
+  it("rejects an HTML-entity variant of an existing section instead of creating a duplicate", async () => {
+    const contentBefore = await readFile(
+      join(vault, "About Me/Opinions.md"),
+      "utf8",
+    )
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "AI tooling &amp; memory (newest first)",
+          entry: "Entity-mangled section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
+    )
+    const contentAfter = await readFile(
+      join(vault, "About Me/Opinions.md"),
+      "utf8",
+    )
+    expect(contentAfter).toBe(contentBefore)
+  })
+
+  it("rejects a typo within the edit budget of an existing section", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working stlye",
+          entry: "Typo'd section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
+  })
+
+  it("rejects a whitespace variant that the strict matcher misses", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working  style",
+          entry: "Double-spaced section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)"',
+    )
+  })
+
+  it("still creates a genuinely distinct new section", async () => {
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Compensation philosophy",
+        entry: "Equity matters more than base",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+    const body = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Compensation philosophy (newest first)",
+      },
+      logger,
+    )
+    expect(body).toBe("- **2026-07-31**: Equity matters more than base")
+  })
+
+  it("allows section names that differ only in digits", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "digit-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Yearly",
+        section: "2025",
+        entry: "First year",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Yearly",
+        section: "2026",
+        entry: "Second year",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+    const secondYearBody = await getMemory(
+      { vaultPath: emptyVault, file: "Yearly", section: "2026" },
+      logger,
+    )
+    expect(secondYearBody).toBe("- **2026-07-31**: Second year")
+  })
+
+  it("does not treat short distinct names as typos of each other", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "short-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "QA",
+        entry: "Quality assurance note",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "QB",
+        entry: "Different short section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+})
+
 describe("deleteMemory", () => {
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
@@ -1102,7 +1250,9 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nope"')
+    ).rejects.toThrow(
+      'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
   })
 })
 

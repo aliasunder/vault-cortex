@@ -38,6 +38,7 @@ Prefer vault_read_note for reading non-memory notes.
 Errors:
 - "section requires a file" — section was provided without file; pass both or just file
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
+- "section not found: …" — no H2 heading matches; the error lists the file's available sections
 
 Returns: Raw markdown text.`,
       inputSchema: {
@@ -101,7 +102,7 @@ Returns: Raw markdown text.`,
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
-Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note).
+Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note). A new section name that is nearly identical to an existing heading (an HTML-entity slip, typo, or spacing variation) is rejected instead of created, so a mistyped name cannot silently fragment the file — names differing only in digits (e.g. "2025" vs "2026") are treated as distinct.
 
 Parameters:
 - options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
@@ -115,6 +116,7 @@ Errors:
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - "entry/section contains a control character" — entry or section includes a non-printable control byte; remove it before writing.
+- "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
@@ -255,6 +257,7 @@ Parameters:
 
 Errors:
 - "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with vault_delete_span or a manual edit.
+- "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.

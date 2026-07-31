@@ -13,6 +13,7 @@ import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -192,6 +193,105 @@ const findSection = (
       section.level === level &&
       section.heading.toLowerCase() === normalizedSectionName,
   )
+}
+
+/** Decodes the common HTML character entities (named, decimal, and hex) that
+ *  agents occasionally introduce into section names (e.g. "&amp;" for "&").
+ *  Used only to *detect* near-duplicate section names — stored headings are
+ *  never rewritten. An out-of-range numeric entity is left as-is rather than
+ *  thrown on: this feeds a similarity comparison, not a renderer. */
+const decodeBasicHtmlEntities = (text: string): string =>
+  text
+    .replace(/&#(\d+);/g, (entity, decimalText: string) => {
+      const codePoint = Number(decimalText)
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hexText: string) => {
+      const codePoint = Number.parseInt(hexText, 16)
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
+    })
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+
+/** Matches the canonical "(newest first)" suffix at the end of a section
+ *  name, with any surrounding whitespace. */
+const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i
+
+/** Canonical comparison form for near-duplicate detection: entity decoding,
+ *  case folding, whitespace collapsing, and the "(newest first)" suffix
+ *  stripped — so an entity-encoded or lightly mangled name lands next to the
+ *  heading it was meant to be, and edit distances measure the meaningful part
+ *  of the name rather than the shared suffix. Deliberately broader than
+ *  findSection's own normalization — the matcher stays strict; only the
+ *  create-guard uses this looser fold. */
+const sectionComparisonForm = (sectionName: string): string =>
+  decodeBasicHtmlEntities(sectionName)
+    .toLowerCase()
+    .replace(NEWEST_FIRST_SUFFIX_PATTERN, "")
+    .trim()
+    .replace(/\s+/g, " ")
+
+/** Matches every digit run — used to test whether two section names differ
+ *  only in their numbers ("2025" vs "2026"), which marks them as legitimately
+ *  distinct rather than near duplicates. */
+const DIGIT_RUN_PATTERN = /\d+/g
+
+/** Edit-distance budget for fuzzy near-miss detection, scaled to the shorter
+ *  of the two names (canonical suffix excluded). Very short names get no
+ *  fuzzy budget — "A" and "B" are distinct sections, not typos of each other
+ *  — while long prose headings tolerate the common slips (dropped letter,
+ *  stray plural, transposed pair). */
+const nearMissEditBudget = (shorterNameLength: number): number => {
+  if (shorterNameLength <= 3) return 0
+  if (shorterNameLength <= 7) return 1
+  return 2
+}
+
+/** Finds an existing H2 section whose heading the requested name is likely a
+ *  mangled form of — an HTML-entity slip, a case/whitespace/suffix variation,
+ *  or a typo within the length-scaled edit budget. Names that differ only in
+ *  digits are deliberately NOT near misses: numeric pairs ("2025" / "2026")
+ *  are how distinct year- or version-named sections legitimately coexist. */
+const findNearMissSection = (
+  sections: readonly ParsedSection[],
+  sectionName: string,
+): ParsedSection | undefined => {
+  const requestedForm = sectionComparisonForm(sectionName)
+  const requestedFormWithoutDigits = requestedForm.replace(
+    DIGIT_RUN_PATTERN,
+    "",
+  )
+  const isNearMissOfRequested = (section: ParsedSection): boolean => {
+    if (section.level !== 2) return false
+    const existingForm = sectionComparisonForm(section.heading)
+    if (existingForm === requestedForm) return true
+    const differsOnlyInDigits =
+      existingForm.replace(DIGIT_RUN_PATTERN, "") === requestedFormWithoutDigits
+    if (differsOnlyInDigits) return false
+    const shorterNameLength = Math.min(
+      existingForm.length,
+      requestedForm.length,
+    )
+    const editBudget = nearMissEditBudget(shorterNameLength)
+    if (editBudget === 0) return false
+    return levenshteinDistance(existingForm, requestedForm) <= editBudget
+  }
+  return sections.find(isNearMissOfRequested)
+}
+
+/** Comma-joined H2 headings for error messages — mirrors the heading
+ *  parser's "Available headings" remediation so a caller can self-correct
+ *  without a second lookup call. */
+const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
+  const sectionHeadings = sections
+    .filter((section) => section.level === 2)
+    .map((section) => section.heading)
+    .join(", ")
+  return sectionHeadings || "(none)"
 }
 
 // ── Factory ────────────────────────────────────────────────────
@@ -452,7 +552,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const match = findSection(sections, params.section, 2)
     if (!match) {
       throw new Error(
-        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
       )
     }
 
@@ -550,6 +650,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
         // File exists but section does not — append new H2 + entry at end
         if (!match) {
+          // A missing section is normally created — but a name that is merely
+          // a mangled form of an existing heading (entity slip, typo, spacing)
+          // would silently fragment the file into near-duplicate sections,
+          // with the new entry unreachable via the real heading. Explicit
+          // rejection over silent normalization: refuse and name both
+          // headings so the caller can self-correct.
+          const nearMiss = findNearMissSection(sections, params.section)
+          if (nearMiss) {
+            throw new Error(
+              `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: ${listSectionHeadings(sections)}`,
+            )
+          }
           const newSection = headingWithNewestFirstSuffix(params.section)
           const appendedLines = [...contentLines, `## ${newSection}`, bullet]
           const newContent = appendedLines.join("\n")
@@ -750,7 +862,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const match = findSection(sections, params.section, 2)
         if (!match) {
           throw new Error(
-            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md`,
+            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
           )
         }
 
