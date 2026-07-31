@@ -1039,6 +1039,38 @@ describe("updateMemory near-duplicate section guard", () => {
     expect(secondYearBody).toBe("- **2026-07-31**: Second year")
   })
 
+  it("decodes entities a single round — a double-encoded name is not collapsed to the raw character", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "double-encoded-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "a < b",
+        entry: "Literal angle bracket",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "&amp;lt;" decodes ONE round to the literal "&lt;" — not all the way to
+    // "<" — so it is a distinct name, not a near miss of "a < b". A
+    // double-unescaping decoder would collapse it to "a < b" and wrongly
+    // reject the create.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "a &amp;lt; b",
+        entry: "Double-encoded name stays distinct",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
   it("does not treat short distinct names as typos of each other", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "short-sections-"))
     onTestFinished(async () => {

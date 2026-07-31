@@ -195,27 +195,42 @@ const findSection = (
   )
 }
 
+/** Matches the HTML character entities the decoder understands — decimal
+ *  ("&#38;"), hex ("&#x26;"), and the common named forms — capturing the
+ *  entity body between "&" and ";". */
+const HTML_ENTITY_PATTERN = /&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi
+
+/** Replacement values for the named entities in HTML_ENTITY_PATTERN. */
+const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+}
+
 /** Decodes the common HTML character entities (named, decimal, and hex) that
  *  agents occasionally introduce into section names (e.g. "&amp;" for "&").
  *  Used only to *detect* near-duplicate section names — stored headings are
- *  never rewritten. An out-of-range numeric entity is left as-is rather than
- *  thrown on: this feeds a similarity comparison, not a renderer. */
+ *  never rewritten. Decoding is a single pass over the input, so produced
+ *  text is never re-scanned ("&amp;lt;" yields the literal "&lt;", not "<" —
+ *  double-unescaping would misread deliberately double-encoded names). An
+ *  out-of-range numeric entity is left as-is rather than thrown on: this
+ *  feeds a similarity comparison, not a renderer. */
 const decodeBasicHtmlEntities = (text: string): string =>
-  text
-    .replace(/&#(\d+);/g, (entity, decimalText: string) => {
-      const codePoint = Number(decimalText)
+  text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
+    const loweredEntityBody = entityBody.toLowerCase()
+    if (loweredEntityBody.startsWith("#x")) {
+      const codePoint = Number.parseInt(loweredEntityBody.slice(2), 16)
       return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (entity, hexText: string) => {
-      const codePoint = Number.parseInt(hexText, 16)
+    }
+    if (loweredEntityBody.startsWith("#")) {
+      const codePoint = Number(loweredEntityBody.slice(1))
       return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
-    })
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&apos;/gi, "'")
-    .replace(/&nbsp;/gi, " ")
+    }
+    return NAMED_ENTITY_VALUES[loweredEntityBody] ?? entity
+  })
 
 /** Matches the canonical "(newest first)" suffix at the end of a section
  *  name, with any surrounding whitespace. */
