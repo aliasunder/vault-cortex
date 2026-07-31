@@ -23,5 +23,8 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ vars.DOCKERHUB_USERNAME }}/vault-cortex
-          short-description: "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1."
+          # Docker Hub caps short descriptions at 100 UTF-8 BYTES, not
+          # characters — an em dash costs 3 bytes. Overflow is silently
+          # truncated. CI guards the byte length of this string.
+          short-description: "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1"
           readme-filepath: DOCKERHUB.md

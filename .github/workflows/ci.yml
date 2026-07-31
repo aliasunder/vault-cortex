@@ -18,11 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The two description guards deliberately measure differently: the MCP
+      # Registry counts code points (jq's `length` on a string), while Docker
+      # Hub counts UTF-8 bytes — an em dash is 1 code point but 3 bytes.
       - name: Guard server.json description length (≤100 chars)
         run: |
           length=$(jq -r '.description | length' server.json)
           if [ "$length" -gt 100 ]; then
             echo "::error::server.json description is ${length} chars (limit: 100). The MCP Registry rejects descriptions > 100 chars with 422."
+            exit 1
+          fi
+
+      - name: Guard Docker Hub short description length (≤100 bytes)
+        run: |
+          description=$(grep -oP 'short-description: "\K[^"]*' .github/workflows/dockerhub-description.yml || true)
+          if [ -z "$description" ]; then
+            echo "::error::Could not extract short-description from dockerhub-description.yml — did the key or quoting change?"
+            exit 1
+          fi
+          bytes=$(printf %s "$description" | wc -c)
+          if [ "$bytes" -gt 100 ]; then
+            echo "::error::Docker Hub short description is ${bytes} UTF-8 bytes (limit: 100 bytes). Docker Hub silently truncates the overflow."
             exit 1
           fi
 
