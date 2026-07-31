@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "4.2.0",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "better-sqlite3": "13.0.1",
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
@@ -77,8 +77,8 @@
     "picomatch": "4.0.5",
     "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",
-    "@napi-rs/canvas": "1.0.2",
-    "unpdf": "1.7.0",
+    "@napi-rs/canvas": "1.0.3",
+    "unpdf": "1.8.0",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
