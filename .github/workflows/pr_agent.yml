@@ -35,7 +35,7 @@ jobs:
 
       - name: Code suggestions
         if: github.event_name == 'pull_request'
-        uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
+        uses: The-PR-Agent/pr-agent@570f67ed5fc8db5be74c18df070bc20079b64b0d # v0.41.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -139,7 +139,7 @@ jobs:
       # Manual /review — only runs when triggered by comment
       - name: "Manual review (on /review command)"
         if: github.event_name == 'issue_comment'
-        uses: The-PR-Agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
+        uses: The-PR-Agent/pr-agent@570f67ed5fc8db5be74c18df070bc20079b64b0d # v0.41.0
         env:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_KEY }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
