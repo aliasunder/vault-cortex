@@ -33,7 +33,7 @@ export const levenshteinDistance = (first: string, second: string): number => {
         insertionBase === undefined ||
         substitutionBase === undefined
       ) {
-        throw new Error("levenshtein distance rows are misaligned")
+        throw new Error("levenshtein distance row access out of bounds")
       }
       const substitutionCost =
         first[rowIndex - 1] === second[columnIndex - 1] ? 0 : 1
@@ -50,7 +50,7 @@ export const levenshteinDistance = (first: string, second: string): number => {
 
   const distance = previousRow[second.length]
   if (distance === undefined) {
-    throw new Error("levenshtein distance final row is misaligned")
+    throw new Error("levenshtein distance final row access out of bounds")
   }
   return distance
 }
