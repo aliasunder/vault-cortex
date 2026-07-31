@@ -979,7 +979,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)"',
+      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
     )
   })
 
@@ -1069,6 +1069,165 @@ describe("updateMemory near-duplicate section guard", () => {
       logger,
     )
     expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a one-edit typo of a medium-length section name (one-edit budget tier)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "medium-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Goals",
+        entry: "Original section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "goal" vs "goals" is one edit; the shorter form is 4 characters, which
+    // lands in the one-edit budget tier — a rejection.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Goal",
+          entry: "Dropped-letter typo",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Goal" is nearly identical to existing section "Goals (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Goals (newest first)',
+    )
+  })
+
+  it("allows a one-edit variant of a three-character name (zero-budget tier boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "three-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Tax",
+        entry: "Three-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "tax" vs "tab" is one edit, but at 3 characters the fuzzy budget is
+    // zero — distinct short names are never treated as typos.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Tab",
+        entry: "Distinct three-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a one-edit variant of a four-character name (zero-to-one budget boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "four-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Taxi",
+        entry: "Four-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // One character longer than the zero-budget tier: "taxa" vs "taxi" is one
+    // edit at 4 characters, which the one-edit budget flags.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Taxa",
+          entry: "One-edit variant",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Taxi (newest first)',
+    )
+  })
+
+  it("allows a two-edit variant of a seven-character name (one-edit budget tier ceiling)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "seven-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Journal",
+        entry: "Seven-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "journla" is a transposition (two edits) of "journal"; at 7 characters
+    // the budget is still one edit, so this is treated as a distinct name.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Journla",
+        entry: "Two-edit variant stays distinct",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a two-edit variant of an eight-character name (one-to-two budget boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "eight-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Practice",
+        entry: "Eight-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // One character longer than the one-edit tier: "practiec" is a
+    // transposition (two edits) of "practice", which the two-edit budget flags.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Practiec",
+          entry: "Transposition typo",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Practice (newest first)',
+    )
   })
 
   it("does not treat short distinct names as typos of each other", async () => {
