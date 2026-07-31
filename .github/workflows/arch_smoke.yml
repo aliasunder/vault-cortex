@@ -1,0 +1,201 @@
+name: Arch Smoke
+
+# Builds and boots the Docker image on both production architectures on
+# every PR — native runners, no QEMU. Motivated by v0.33.0–v0.33.4: the
+# arm64 image crash-looped (better-sqlite3 v13's linux-arm64 prebuild
+# needs glibc >= 2.38, the base had 2.36) and nothing at PR time ever
+# executed an arm64 artifact — trivy-pr builds amd64 only. Each leg:
+#   1. build --target local — natively executes the Dockerfile deps-stage
+#      native-binding assertion for its arch
+#   2. boot smoke — run the image against a small fixture vault; /healthz
+#      returning 200 proves better-sqlite3 + sqlite-vec loaded and the
+#      FTS index built (server.ts exits 1 on any startup failure), then
+#      an authenticated MCP initialize round-trip is asserted
+#   3. arm64 only: build --target remote as a compile check (build-only —
+#      trivy-pr already builds remote on amd64, and booting remote would
+#      need obsidian-sync credentials)
+#
+# EMBEDDING_ENABLED=false at runtime is fine: onnxruntime-node's dynamic
+# import is never reached, but the deps-stage assertion already executed
+# require('onnxruntime-node') for this arch at build time.
+#
+# The rendered job names — "arch-smoke (amd64)" / "arch-smoke (arm64)" —
+# are the required-status-check contexts in the branch ruleset; friendly
+# arch names keep those contexts stable if runner labels change.
+
+on:
+  pull_request:
+  push:
+    branches: [main] # seeds the per-arch build cache all PRs can restore
+
+concurrency:
+  group: arch-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  arch-smoke:
+    name: arch-smoke (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      # Arch failures are independent signals — never cancel the other leg.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # Same daily cache-bust as trivy-pr — an APT_UPGRADE_DATE that
+      # differs between the two workflows would change the base layer
+      # hash and stop the amd64 leg sharing trivy-pr's cache.
+      - name: Cache-bust date for apt-get upgrade
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      # Per-arch, per-target cache scope: a GHA cache scope keeps only its
+      # last mode=max export, so every build sharing one scope — the two
+      # legs here, trivy-pr (default scope), or the arm64 leg's local and
+      # remote builds — would evict each other's layers. The bare type=gha
+      # cache-from lets the amd64 leg still read trivy-pr's layers; it is
+      # a no-op on arm64 (no matching blobs).
+      - name: Build image from branch (local target)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: local
+          # Make the built image visible to the local Docker daemon so the
+          # boot step can run it by tag.
+          load: true
+          tags: vault-cortex:smoke
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
+          cache-from: |
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-local
+            type=gha
+          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-local
+
+      # Compile check only: nothing had ever built the remote target for
+      # arm64 before merge. No load/tags — the image is never run, and
+      # amd64 remote coverage is trivy-pr's job (building it here too
+      # would be pure redundancy in the same PR run). Reads the local
+      # scope too — both targets share the base/deps/build stages.
+      - name: Build image from branch (remote target, arm64 compile check)
+        if: matrix.arch == 'arm64'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          target: remote
+          build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
+          cache-from: |
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-remote
+            type=gha,scope=arch-smoke-${{ matrix.arch }}-local
+          cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-remote
+
+      # Two notes across two folders exercise the boot-time index build
+      # for real: frontmatter properties, tags, a wikilink pair (link
+      # extraction + backlinks), and a task line — all inserted into FTS
+      # by the blocking rebuildFromVault before /healthz can return 200.
+      - name: Create fixture vault
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke-vault/Projects" "$RUNNER_TEMP/smoke-vault/Daily"
+          cat > "$RUNNER_TEMP/smoke-vault/Projects/Arch Smoke.md" << 'EOF'
+          ---
+          tags: [ci, smoke]
+          status: active
+          ---
+
+          # Arch Smoke
+
+          Fixture note for the CI boot smoke — indexed at container start.
+          Links to [[2026-07-30]].
+
+          - [ ] boot the image on both architectures
+          EOF
+          cat > "$RUNNER_TEMP/smoke-vault/Daily/2026-07-30.md" << 'EOF'
+          # 2026-07-30
+
+          Daily fixture note linking back to [[Arch Smoke]]. #smoke
+          EOF
+
+      # MEMORY_ENABLED=false keeps the About Me/ bootstrap from writing
+      # into the mount, so the vault can be read-only (the container's
+      # UID-1000 'node' user couldn't write the runner-owned dir anyway).
+      # The token is generated per run — nothing token-shaped is committed.
+      # No --rm: the container must survive a failure so the diagnostics
+      # step can read its logs.
+      - name: Boot smoke (healthz + MCP initialize)
+        run: |
+          MCP_AUTH_TOKEN="$(openssl rand -hex 24)"
+
+          docker run -d --name smoke --pull=never -p 8000:8000 \
+            -v "$RUNNER_TEMP/smoke-vault:/vault:ro" \
+            -e MCP_AUTH_TOKEN="$MCP_AUTH_TOKEN" \
+            -e PUBLIC_URL=http://localhost:8000 \
+            -e EMBEDDING_ENABLED=false \
+            -e MEMORY_ENABLED=false \
+            vault-cortex:smoke
+
+          for i in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then
+              echo "::error::container exited during startup (poll attempt $i)"
+              exit 1
+            fi
+            if curl -fsS http://localhost:8000/healthz > /dev/null 2>&1; then
+              echo "healthz ok (attempt $i)"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::/healthz not ready within 60s"
+              exit 1
+            fi
+            sleep 2
+          done
+
+          curl -fsS --max-time 30 -D "$RUNNER_TEMP/mcp-headers.txt" -o "$RUNNER_TEMP/mcp-body.txt" \
+            http://localhost:8000/mcp \
+            -H "Authorization: Bearer $MCP_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json, text/event-stream" \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0.0.1"}}}'
+          if ! grep -qi '^mcp-session-id:' "$RUNNER_TEMP/mcp-headers.txt"; then
+            echo "::error::initialize response has no mcp-session-id header"
+            exit 1
+          fi
+          # A JSON-RPC *error* still returns HTTP 200 — serverInfo only
+          # appears in a successful initialize result.
+          if ! grep -q '"serverInfo"' "$RUNNER_TEMP/mcp-body.txt"; then
+            echo "::error::initialize response body has no serverInfo"
+            cat "$RUNNER_TEMP/mcp-body.txt"
+            exit 1
+          fi
+          echo "MCP initialize ok"
+
+      # Fires on any prior step's failure (build included — hence the
+      # container-existence guard) so a red run is diagnosable from the
+      # Actions log alone.
+      - name: Dump container diagnostics
+        if: failure()
+        run: |
+          docker ps -a
+          if docker inspect smoke > /dev/null 2>&1; then
+            docker inspect -f '{{json .State}}' smoke
+            docker logs smoke
+          fi
+
+      - name: Remove smoke container
+        if: always()
+        run: |
+          if docker inspect smoke > /dev/null 2>&1; then
+            docker rm -f smoke
+          fi
