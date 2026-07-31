@@ -475,6 +475,105 @@ describe("withExclusiveMultiFileLock", () => {
   })
 })
 
+describe("case- and normalization-folded lock keys", () => {
+  const testDir = join(
+    import.meta.dirname,
+    "__fixtures__",
+    `folded-keys-${randomUUID()}`,
+  )
+
+  it("serializes two casings of the same path in queue order", async () => {
+    const executionOrder: number[] = []
+
+    // The first operation sleeps; the second doesn't. If the two casings got
+    // distinct lock keys the second would run concurrently and finish first
+    // ([2, 1]) — sharing a key forces queue order ([1, 2]).
+    const upperCaseWrite = withFileLock(join(testDir, "Note.md"), async () => {
+      await delay(20)
+      executionOrder.push(1)
+    })
+    const lowerCaseWrite = withFileLock(join(testDir, "note.md"), async () => {
+      executionOrder.push(2)
+    })
+
+    await Promise.all([upperCaseWrite, lowerCaseWrite])
+    expect(executionOrder).toEqual([1, 2])
+  })
+
+  it("rejects a fail-fast lock while another casing of the path is held", async () => {
+    const heldWrite = withExclusiveFileLock(
+      join(testDir, "Busy Note.md"),
+      async () => {
+        await delay(50)
+        return "held"
+      },
+    )
+
+    expect(() =>
+      withExclusiveFileLock(join(testDir, "busy note.md"), async () => "x"),
+    ).toThrow("concurrent write in progress")
+
+    expect(await heldWrite).toBe("held")
+  })
+
+  it("rejects a fail-fast lock while the NFD spelling of the held NFC path is in flight", async () => {
+    // "é" as one precomposed code point (NFC) vs "e" + combining acute (NFD)
+    // — one file on macOS APFS, so the two spellings must share a lock key.
+    // Escapes rather than literals: an editor or formatter could silently
+    // re-normalize two visually identical literals into one form and make
+    // this test vacuous.
+    const nfcPath = join(testDir, "caf\u00e9.md")
+    const nfdPath = join(testDir, "cafe\u0301.md")
+
+    const heldWrite = withExclusiveFileLock(nfcPath, async () => {
+      await delay(50)
+      return "held"
+    })
+
+    expect(() => withExclusiveFileLock(nfdPath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
+
+    expect(await heldWrite).toBe("held")
+  })
+
+  it("still allows concurrent locks on genuinely different names", async () => {
+    const heldWrite = withExclusiveFileLock(
+      join(testDir, "First.md"),
+      async () => {
+        await delay(20)
+        return "first"
+      },
+    )
+
+    const differentNameResult = await withExclusiveFileLock(
+      join(testDir, "Second.md"),
+      async () => "second",
+    )
+
+    expect(differentNameResult).toBe("second")
+    expect(await heldWrite).toBe("first")
+  })
+
+  it("collapses two casings of one path in a multi-file lock to a single key", async () => {
+    // Both casings in one lock set must dedupe to one key rather than
+    // self-conflict, and while held, a third casing is locked out.
+    const multiWrite = withExclusiveMultiFileLock(
+      [join(testDir, "Moved.md"), join(testDir, "moved.md")],
+      async () => {
+        await delay(50)
+        return "moved"
+      },
+    )
+
+    expect(() =>
+      withExclusiveFileLock(join(testDir, "MOVED.MD"), async () => "x"),
+    ).toThrow("concurrent write in progress")
+
+    expect(await multiWrite).toBe("moved")
+  })
+})
+
 describe("cross-mode interaction", () => {
   const testDir = join(
     import.meta.dirname,

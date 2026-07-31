@@ -16,7 +16,11 @@
  *
  *  The lock map is a module-level singleton — all importers in the same
  *  process share it, so a vault_update_memory and a vault_replace_in_note
- *  targeting the same file correctly block/reject each other. */
+ *  targeting the same file correctly block/reject each other.
+ *
+ *  Lock keys are case- and Unicode-normalization-folded (see lockKeyForPath),
+ *  so two spellings of the same file mutually exclude on the filesystems
+ *  where they ARE the same file (macOS/Windows bind mounts). */
 
 import { resolve } from "node:path"
 
@@ -24,6 +28,24 @@ import { resolve } from "node:path"
 // removed once a file's writes settle and no later write is queued (see
 // forgetIfStillTail), so the map only holds files with a write in flight.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
+
+/** Canonical lock-map key for a path: resolved, NFC-normalized, and
+ *  case-folded — on every platform.
+ *
+ *  On case-insensitive filesystems (macOS APFS and Windows — the deploy/local
+ *  bind-mount deployments), "Note.md" and "note.md" are ONE file, and APFS
+ *  additionally treats NFC/NFD spellings of the same name as one file — so
+ *  byte-exact keys would let two spellings of one file dodge each other's
+ *  locks and lose updates. Folding unconditionally (rather than gating on a
+ *  platform flag) is deliberate: keys never touch disk, and the failure modes
+ *  are asymmetric. Under-merging silently loses data; over-merging — two
+ *  genuinely distinct case-colliding files on a Linux vault sharing a key —
+ *  costs at worst a spurious, self-remediating "concurrent write in progress"
+ *  rejection or a harmless queue. Obsidian itself resolves links
+ *  case-insensitively, so a vault relying on case-colliding names is already
+ *  broken for Obsidian users. */
+const lockKeyForPath = (filePath: string): string =>
+  resolve(filePath).normalize("NFC").toLowerCase()
 
 /** Cleanup helper — removes the map entry once the write settles, but only
  *  if no later write has queued behind it (i.e. we're still the tail). */
@@ -49,7 +71,7 @@ export const withFileLock = <T>(
   filePath: string,
   operation: () => Promise<T>,
 ): Promise<T> => {
-  const key = resolve(filePath)
+  const key = lockKeyForPath(filePath)
   const previousWrite = fileWriteLocks.get(key) ?? Promise.resolve()
   const thisWrite = previousWrite.then(operation, operation)
   fileWriteLocks.set(key, thisWrite)
@@ -67,7 +89,7 @@ export const withExclusiveMultiFileLock = <T>(
   filePaths: readonly string[],
   operation: () => Promise<T>,
 ): Promise<T> => {
-  const keys = [...new Set(filePaths.map((filePath) => resolve(filePath)))]
+  const keys = [...new Set(filePaths.map(lockKeyForPath))]
   const anyFileBusy = keys.some((key) => fileWriteLocks.has(key))
   if (anyFileBusy) {
     throw new Error("concurrent write in progress")
