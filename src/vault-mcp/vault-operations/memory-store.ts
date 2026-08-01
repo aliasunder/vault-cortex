@@ -37,7 +37,7 @@ const guardAgainstShrink = (
     afterBytes < beforeBytes * SHRINK_RATIO
   ) {
     throw new Error(
-      `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction); re-read with vault_get_memory to confirm current content before retrying`,
+      `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
     )
   }
 }
