@@ -175,7 +175,9 @@ describe("getMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section"')
+    ).rejects.toThrow(
+      'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
   })
 
   it("returns empty string when About Me directory does not exist", async () => {
@@ -920,6 +922,343 @@ describe("updateMemory auto-creation", () => {
   })
 })
 
+describe("updateMemory near-duplicate section guard", () => {
+  it("rejects an HTML-entity variant of an existing section instead of creating a duplicate", async () => {
+    const contentBefore = await readFile(
+      join(vault, "About Me/Opinions.md"),
+      "utf8",
+    )
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "AI tooling &amp; memory (newest first)",
+          entry: "Entity-mangled section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)". Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
+    )
+    const contentAfter = await readFile(
+      join(vault, "About Me/Opinions.md"),
+      "utf8",
+    )
+    expect(contentAfter).toBe(contentBefore)
+  })
+
+  it("rejects a typo within the edit budget of an existing section", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working stlye",
+          entry: "Typo'd section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
+  })
+
+  it("rejects a whitespace variant that the strict matcher misses", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working  style",
+          entry: "Double-spaced section name",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
+  })
+
+  it("still creates a genuinely distinct new section", async () => {
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Compensation philosophy",
+        entry: "Equity matters more than base",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+    const body = await getMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Compensation philosophy (newest first)",
+      },
+      logger,
+    )
+    expect(body).toBe("- **2026-07-31**: Equity matters more than base")
+  })
+
+  it("allows section names that differ only in digits", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "digit-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Yearly",
+        section: "2025",
+        entry: "First year",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Yearly",
+        section: "2026",
+        entry: "Second year",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+    const secondYearBody = await getMemory(
+      { vaultPath: emptyVault, file: "Yearly", section: "2026" },
+      logger,
+    )
+    expect(secondYearBody).toBe("- **2026-07-31**: Second year")
+  })
+
+  it("decodes entities a single round — a double-encoded name is not collapsed to the raw character", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "double-encoded-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "a < b",
+        entry: "Literal angle bracket",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "&amp;lt;" decodes ONE round to the literal "&lt;" — not all the way to
+    // "<" — so it is a distinct name, not a near miss of "a < b". A
+    // double-unescaping decoder would collapse it to "a < b" and wrongly
+    // reject the create.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "a &amp;lt; b",
+        entry: "Double-encoded name stays distinct",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a one-edit typo of a medium-length section name (one-edit budget tier)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "medium-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Goals",
+        entry: "Original section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "goal" vs "goals" is one edit; the shorter form is 4 characters, which
+    // lands in the one-edit budget tier — a rejection.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Goal",
+          entry: "Dropped-letter typo",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Goal" is nearly identical to existing section "Goals (newest first)". Existing sections: Goals (newest first)',
+    )
+  })
+
+  it("allows a one-edit variant of a three-character name (zero-budget tier boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "three-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Tax",
+        entry: "Three-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "tax" vs "tab" is one edit, but at 3 characters the fuzzy budget is
+    // zero — distinct short names are never treated as typos.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Tab",
+        entry: "Distinct three-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a one-edit variant of a four-character name (zero-to-one budget boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "four-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Taxi",
+        entry: "Four-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // One character longer than the zero-budget tier: "taxa" vs "taxi" is one
+    // edit at 4 characters, which the one-edit budget flags.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Taxa",
+          entry: "One-edit variant",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)". Existing sections: Taxi (newest first)',
+    )
+  })
+
+  it("allows a two-edit variant of a seven-character name (one-edit budget tier ceiling)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "seven-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Journal",
+        entry: "Seven-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // "journla" is a transposition (two edits) of "journal"; at 7 characters
+    // the budget is still one edit, so this is treated as a distinct name.
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Journla",
+        entry: "Two-edit variant stays distinct",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+
+  it("rejects a two-edit variant of an eight-character name (one-to-two budget boundary)", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "eight-char-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Practice",
+        entry: "Eight-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    // One character longer than the one-edit tier: "practiec" is a
+    // transposition (two edits) of "practice", which the two-edit budget flags.
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Practiec",
+          entry: "Transposition typo",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)". Existing sections: Practice (newest first)',
+    )
+  })
+
+  it("does not treat short distinct names as typos of each other", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "short-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "QA",
+        entry: "Quality assurance note",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    const outcome = await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "QB",
+        entry: "Different short section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    expect(outcome).toBe("created-section")
+  })
+})
+
 describe("deleteMemory", () => {
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
@@ -1102,7 +1441,9 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nope"')
+    ).rejects.toThrow(
+      'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+    )
   })
 })
 
