@@ -43,9 +43,22 @@ const fileWriteLocks = new Map<string, Promise<unknown>>()
  *  costs at worst a spurious, self-remediating "concurrent write in progress"
  *  rejection or a harmless queue. Obsidian itself resolves links
  *  case-insensitively, so a vault relying on case-colliding names is already
- *  broken for Obsidian users. */
+ *  broken for Obsidian users.
+ *
+ *  Case folding is the upper-then-lower double map, not a bare toLowerCase:
+ *  lowercasing alone leaves Unicode case-fold pairs apart (Greek final sigma
+ *  "ς" lowercases to itself, never meeting "σ"; "ß" never meets "ss"), while
+ *  routing through the shared uppercase form folds them together the way
+ *  case-folding filesystems do. Both spellings of a name always pass through
+ *  the same pipeline, so the double map can only coarsen key equivalence —
+ *  and over-merging is the benign direction. The trailing NFC re-normalizes
+ *  because case mapping does not always preserve normalization form. */
 const lockKeyForPath = (filePath: string): string =>
-  resolve(filePath).normalize("NFC").toLowerCase()
+  resolve(filePath)
+    .normalize("NFC")
+    .toUpperCase()
+    .toLowerCase()
+    .normalize("NFC")
 
 /** Cleanup helper — removes the map entry once the write settles, but only
  *  if no later write has queued behind it (i.e. we're still the tail). */

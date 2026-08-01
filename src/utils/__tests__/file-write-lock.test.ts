@@ -537,6 +537,26 @@ describe("case- and normalization-folded lock keys", () => {
     expect(await heldWrite).toBe("held")
   })
 
+  it("rejects a fail-fast lock while the final-sigma spelling of the held normal-sigma path is in flight", async () => {
+    // Greek final sigma (U+03C2) lowercases to itself, so a bare toLowerCase
+    // would never fold it into normal sigma (U+03C3) — Unicode case folding
+    // (and case-folding filesystems) treat the two as one name. Escapes, not
+    // literals, so the two spellings stay visibly distinct in source.
+    const normalSigmaPath = join(testDir, "λόγο\u03c3.md")
+    const finalSigmaPath = join(testDir, "λόγο\u03c2.md")
+
+    const heldWrite = withExclusiveFileLock(normalSigmaPath, async () => {
+      await delay(50)
+      return "held"
+    })
+
+    expect(() =>
+      withExclusiveFileLock(finalSigmaPath, async () => "x"),
+    ).toThrow("concurrent write in progress")
+
+    expect(await heldWrite).toBe("held")
+  })
+
   it("still allows concurrent locks on genuinely different names", async () => {
     const heldWrite = withExclusiveFileLock(
       join(testDir, "First.md"),
