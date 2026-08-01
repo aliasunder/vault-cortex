@@ -59,6 +59,34 @@
 
 
 
+
+## [0.33.6] — 2026-08-01
+
+### Features
+
+- **cli:** Add down, logs, and restart lifecycle subcommands (#381)
+
+### Bug Fixes
+
+- **locks:** Fold lock keys so path spellings of one file mutually exclude (#392)
+- **memory:** Reject near-duplicate section names instead of fragmenting (#387)
+- **ci:** Keep Docker Hub short description within its 100-byte limit (#386)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.33.5
+
+### CI / Infrastructure
+
+- Per-arch image build + boot smoke on every PR (#385)
+
+### Maintenance
+
+- **deps:** Bump the production group across 1 directory with 3 updates (#390)
+- **deps:** Bump docker/login-action from 4.5.1 to 4.5.2 (#388)
+- **deps:** Bump The-PR-Agent/pr-agent from 0.39.0 to 0.41.0 (#389)
+- **deps-dev:** Bump the development group with 3 updates (#391)
+
 ## [0.33.5] — 2026-07-30
 
 ### Bug Fixes
