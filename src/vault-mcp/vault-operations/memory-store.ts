@@ -674,7 +674,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           const nearMiss = findNearMissSection(sections, params.section)
           if (nearMiss) {
             throw new Error(
-              `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: ${listSectionHeadings(sections)}`,
+              `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}". Existing sections: ${listSectionHeadings(sections)}`,
             )
           }
           const newSection = headingWithNewestFirstSuffix(params.section)

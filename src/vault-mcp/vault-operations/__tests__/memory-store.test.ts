@@ -940,7 +940,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
+      'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)". Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
     )
     const contentAfter = await readFile(
       join(vault, "About Me/Opinions.md"),
@@ -962,7 +962,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
     )
   })
 
@@ -979,7 +979,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
     )
   })
 
@@ -1100,7 +1100,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Goal" is nearly identical to existing section "Goals (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Goals (newest first)',
+      'section not created: "Goal" is nearly identical to existing section "Goals (newest first)". Existing sections: Goals (newest first)',
     )
   })
 
@@ -1163,7 +1163,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Taxi (newest first)',
+      'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)". Existing sections: Taxi (newest first)',
     )
   })
 
@@ -1226,7 +1226,7 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)" — pass that exact heading to append there, or use a clearly different name to create a distinct section. Existing sections: Practice (newest first)',
+      'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)". Existing sections: Practice (newest first)',
     )
   })
 
