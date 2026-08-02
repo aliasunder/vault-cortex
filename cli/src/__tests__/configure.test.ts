@@ -249,8 +249,12 @@ describe("runConfigure with picked settings", () => {
       },
     ])
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9100/healthz"])
+    // The derived PUBLIC_URL follows the port and is reported as changed.
+    expect(readFileSync(envFilePath, "utf8").split("\n")).toContain(
+      "PUBLIC_URL=http://localhost:9100",
+    )
     expect(scripted.logs).toEqual([
-      "Updated PORT in " + targetDir + "/.env.",
+      `Updated PORT, PUBLIC_URL in ${targetDir}/.env.`,
       "Starting container...",
       "Applied the current .env settings.",
     ])
@@ -304,10 +308,42 @@ describe("runConfigure with picked settings", () => {
         `Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000`,
     ])
     expect(dockerRunCalls).toEqual([])
-    // The settings edit itself succeeded before the restart failed.
+    // The settings edit itself succeeded before the restart failed — and the
+    // user is told so, with the way to apply once the .env issue is fixed.
     expect(readFileSync(envFilePath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=false\n",
     )
+    expect(scripted.warnings).toEqual([
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+    ])
+  })
+
+  it("warns when a PORT change leaves a custom PUBLIC_URL untouched", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    writeFileSync(
+      envFilePath,
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=https://vault.example.com\nPORT=8000\n",
+    )
+    const scripted = createScriptedPrompts([
+      ["PORT"],
+      "9100", // new host port
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    const envLines = readFileSync(envFilePath, "utf8").split("\n")
+    expect(envLines).toContain("PORT=9100")
+    // A custom PUBLIC_URL is the user's own — never rewritten, only flagged.
+    expect(envLines).toContain("PUBLIC_URL=https://vault.example.com")
+    expect(scripted.warnings).toEqual([
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+    ])
   })
 
   it("exits 1 when the restarted container never becomes healthy", async () => {

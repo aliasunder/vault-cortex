@@ -8,6 +8,8 @@ import {
 import {
   applyOptionalSettings,
   askOptionalSettings,
+  derivePublicUrlOverride,
+  readOptionalValue,
 } from "./optional-settings.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
@@ -46,16 +48,29 @@ export const runConfigure = async (
   const { targetDir, envFilePath, mode } = initialized
 
   const envContent = readFileSync(envFilePath, "utf8")
-  const overrides = await askOptionalSettings({ mode, envContent }, prompts)
-  const changedNames = Object.keys(overrides)
-  if (changedNames.length === 0) {
+  const pickedOverrides = await askOptionalSettings(
+    { mode, envContent },
+    prompts,
+  )
+  if (Object.keys(pickedOverrides).length === 0) {
     prompts.log("No settings selected — nothing changed.")
     prompts.outro("Done.")
     return 0
   }
 
+  const overrides = derivePublicUrlOverride(envContent, pickedOverrides)
+  const changedNames = Object.keys(overrides)
   writeFileSync(envFilePath, applyOptionalSettings(envContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)
+
+  // A custom PUBLIC_URL is never rewritten (see derivePublicUrlOverride), but
+  // a port change can still strand it — surface the consequence non-blocking.
+  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  if (pickedOverrides.PORT && !overrides.PUBLIC_URL && currentPublicUrl) {
+    prompts.warn(
+      `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`,
+    )
+  }
 
   const restartHint = `Apply the new settings with: npx vault-cortex restart --dir "${targetDir}"`
   if (!docker.isDaemonRunning()) {
@@ -79,7 +94,14 @@ export const runConfigure = async (
   // Resolve from disk after the write so the restart honors the new values
   // (a changed PORT must drive the port mapping and health URL).
   const deployment = resolveDeployment(flags.dir, prompts)
-  if (!deployment) return 1
+  if (!deployment) {
+    // The edit already succeeded — don't let the failed restart read as a
+    // failed configure.
+    prompts.warn(
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+    )
+    return 1
+  }
   const exitCode = await recreateContainer(
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
     { prompts, docker, fetchFn },

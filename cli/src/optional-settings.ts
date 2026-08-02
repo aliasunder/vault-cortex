@@ -101,33 +101,64 @@ export const readOptionalValue = (
 }
 
 /**
- * Applies chosen values to .env content as a pure text transform: an active
- * line is replaced, a commented-out line is uncommented and replaced, and a
- * var with no line at all (a .env predating the setting) is appended — the
- * chosen value must land in the file, never be silently dropped.
+ * Applies chosen values to .env content as a pure text transform: every
+ * active line for the var is replaced (docker --env-file gives the last
+ * duplicate precedence, so a single-line replace could leave a stale
+ * duplicate winning), a commented-out line is uncommented and replaced, and
+ * a var with no line at all (a .env predating the setting) is appended —
+ * the chosen value must land in the file, never be silently dropped.
  */
 export const applyOptionalSettings = (
   envContent: string,
   overrides: Record<string, string>,
 ): string =>
   Object.entries(overrides).reduce((content, [name, value]) => {
-    // Function replacements avoid $-pattern interpretation in values, same
-    // as patchEnvObsidianToken.
-    const activeLine = activeLinePattern(name)
-    if (activeLine.test(content)) {
-      return content.replace(activeLine, () => `${name}=${value}`)
+    // Fresh RegExp per use (the /g flag makes instances stateful via
+    // lastIndex); function replacements avoid $-pattern interpretation in
+    // values, same as patchEnvObsidianToken.
+    const everyActiveLine = new RegExp(`^${name}=.*$`, "gm")
+    if (activeLinePattern(name).test(content)) {
+      return content.replace(everyActiveLine, () => `${name}=${value}`)
     }
-    const commentedLine = commentedLinePattern(name)
-    if (commentedLine.test(content)) {
-      return content.replace(commentedLine, () => `${name}=${value}`)
+    if (commentedLinePattern(name).test(content)) {
+      return content.replace(
+        commentedLinePattern(name),
+        () => `${name}=${value}`,
+      )
     }
     return `${content.trimEnd()}\n\n${name}=${value}\n`
   }, envContent)
 
-/** A whole number in the TCP port range. */
+/**
+ * A PORT override moves the server, and the local quickstart derives
+ * PUBLIC_URL (the OAuth issuer) from that port. When the current PUBLIC_URL
+ * is exactly the derived http://localhost:<current port> form, it follows
+ * the new port — otherwise the advertised OAuth discovery endpoints would
+ * point at a port nothing listens on. A custom PUBLIC_URL (reverse proxy,
+ * remote domain) is the user's own and is never touched.
+ */
+export const derivePublicUrlOverride = (
+  envContent: string,
+  overrides: Record<string, string>,
+): Record<string, string> => {
+  const newPort = overrides.PORT
+  if (!newPort) return overrides
+  const currentPort =
+    readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
+  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
+  return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
+}
+
+/**
+ * Plain digits in the TCP port range. Number() coercion is not enough:
+ * it accepts "1e4"/"0x1F40"/"+9000", which readEnvPort's /^PORT=(\d+)/
+ * would later fail to read back — silently falling to the default port.
+ */
 const isValidPort = (value: string): boolean => {
+  if (!/^\d+$/.test(value)) return false
   const port = Number(value)
-  return Number.isInteger(port) && port >= 1 && port <= 65535
+  return port >= 1 && port <= 65535
 }
 
 /**
@@ -186,10 +217,14 @@ const askSettingValue = async (
   switch (setting.kind) {
     case "toggle": {
       // Absent line = the server's built-in default, which is true for
-      // every curated toggle — so anything but an explicit "false" is on.
+      // every curated toggle. The server reads these via env-var's asBool,
+      // which also accepts 0/1 — so "0" must seed the confirm as off.
+      const currentlyDisabled = ["false", "0"].includes(
+        (currentValue ?? "").toLowerCase(),
+      )
       const enabled = await prompts.confirm(
         setting.question,
-        currentValue !== "false",
+        !currentlyDisabled,
       )
       return String(enabled)
     }

@@ -906,6 +906,10 @@ describe("runInit guided optional settings", () => {
     // The default line must be replaced, not left behind next to an append.
     expect(envLines).not.toContain("MEMORY_ENABLED=true")
     expect(envLines).toContain("PORT=9000")
+    // The derived PUBLIC_URL (the OAuth issuer) follows the port change —
+    // otherwise discovery metadata would point at a dead port.
+    expect(envLines).toContain("PUBLIC_URL=http://localhost:9000")
+    expect(envLines).not.toContain("PUBLIC_URL=http://localhost:8000")
     // The connect message reads PORT from the .env on disk, so the chosen
     // port must flow through to the printed URLs.
     expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
@@ -967,6 +971,42 @@ describe("runInit guided optional settings", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
       "PORT=9000",
     )
+  })
+
+  it("warns that picks were discarded when an existing .env is kept", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+      false, // .env differs — keep the existing file
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The answered setting never landed — the file is byte-identical.
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
+    expect(scripted.warnings).toEqual([
+      'Your optional-setting choices were not applied — the existing .env was kept. Adjust it with "npx vault-cortex configure".',
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime, then run:\n" +
+        `  npx vault-cortex upgrade --dir "${targetDir}"`,
+    ])
   })
 
   it("writes the chosen SYNC_MODE in the remote flow", async () => {

@@ -10,6 +10,7 @@ import { pollHealth, type DockerRunner } from "./docker.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
+  derivePublicUrlOverride,
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
@@ -309,7 +310,10 @@ const runLocalInit = async (
         { mode: "local", envContent: defaultEnvContent },
         prompts,
       )
-  const envContent = applyOptionalSettings(defaultEnvContent, optionalOverrides)
+  const envContent = applyOptionalSettings(
+    defaultEnvContent,
+    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
+  )
 
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
@@ -333,6 +337,17 @@ const runLocalInit = async (
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
     envResult?.status === "created" || envResult?.status === "overwritten"
+  // The chooser's answers ride the generated content, so keeping an existing
+  // .env silently discards them — say so and point at the tool for existing
+  // deployments.
+  if (
+    envResult?.status === "kept" &&
+    Object.keys(optionalOverrides).length > 0
+  ) {
+    prompts.warn(
+      'Your optional-setting choices were not applied — the existing .env was kept. Adjust it with "npx vault-cortex configure".',
+    )
+  }
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 
@@ -412,7 +427,10 @@ const runRemoteInit = async (
     { mode: "remote", envContent: defaultEnvContent },
     prompts,
   )
-  const envContent = applyOptionalSettings(defaultEnvContent, optionalOverrides)
+  const envContent = applyOptionalSettings(
+    defaultEnvContent,
+    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
+  )
   const files = buildFilesToWrite(envContent)
   const results = await writeFiles(
     { targetDir, files },
@@ -427,6 +445,16 @@ const runRemoteInit = async (
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten =
     envResult?.status === "created" || envResult?.status === "overwritten"
+  // Same kept-.env consequence as the local flow: chooser answers ride the
+  // generated content and are discarded with it.
+  if (
+    envResult?.status === "kept" &&
+    Object.keys(optionalOverrides).length > 0
+  ) {
+    prompts.warn(
+      'Your optional-setting choices were not applied — the existing .env was kept. Adjust it with "npx vault-cortex configure".',
+    )
+  }
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 

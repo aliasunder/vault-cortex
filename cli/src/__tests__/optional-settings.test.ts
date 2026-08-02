@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyOptionalSettings,
   askOptionalSettings,
+  derivePublicUrlOverride,
   readOptionalValue,
 } from "../optional-settings.js"
 import type { Prompts, SelectOption } from "../prompts.js"
@@ -127,11 +128,68 @@ describe("applyOptionalSettings", () => {
     )
   })
 
+  it("replaces every duplicate active line, not just the first", () => {
+    // docker --env-file gives the LAST duplicate precedence — a first-line
+    // replace would leave a stale duplicate silently winning.
+    const patched = applyOptionalSettings(
+      "MEMORY_ENABLED=true\nPORT=8000\nMEMORY_ENABLED=true\n",
+      { MEMORY_ENABLED: "false" },
+    )
+    expect(patched).toBe(
+      "MEMORY_ENABLED=false\nPORT=8000\nMEMORY_ENABLED=false\n",
+    )
+  })
+
   it("writes values containing replacement patterns literally", () => {
     // String.prototype.replace interprets $-patterns in string replacements;
     // the function replacement must keep the value byte-for-byte.
     const patched = applyOptionalSettings("TZ=UTC\n", { TZ: "A$&B" })
     expect(patched).toBe("TZ=A$&B\n")
+  })
+})
+
+describe("derivePublicUrlOverride", () => {
+  it("follows a PORT change when PUBLIC_URL is the derived localhost form", () => {
+    const derived = derivePublicUrlOverride(
+      "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
+      { PORT: "9000" },
+    )
+    expect(derived).toEqual({
+      PORT: "9000",
+      PUBLIC_URL: "http://localhost:9000",
+    })
+  })
+
+  it("derives from the current PORT, not the default", () => {
+    const derived = derivePublicUrlOverride(
+      "PUBLIC_URL=http://localhost:9100\nPORT=9100\n",
+      { PORT: "9200" },
+    )
+    expect(derived).toEqual({
+      PORT: "9200",
+      PUBLIC_URL: "http://localhost:9200",
+    })
+  })
+
+  it("never touches a custom PUBLIC_URL", () => {
+    const derived = derivePublicUrlOverride(
+      "PUBLIC_URL=https://vault.example.com\nPORT=8000\n",
+      { PORT: "9000" },
+    )
+    expect(derived).toEqual({ PORT: "9000" })
+  })
+
+  it("returns the overrides unchanged without a PORT override", () => {
+    const derived = derivePublicUrlOverride(
+      "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
+      { MEMORY_ENABLED: "false" },
+    )
+    expect(derived).toEqual({ MEMORY_ENABLED: "false" })
+  })
+
+  it("returns the overrides unchanged when PUBLIC_URL is absent", () => {
+    const derived = derivePublicUrlOverride("PORT=8000\n", { PORT: "9000" })
+    expect(derived).toEqual({ PORT: "9000" })
   })
 })
 
@@ -259,6 +317,40 @@ describe("askOptionalSettings per-setting prompts", () => {
         initialValue: "bidirectional",
       },
     ])
+  })
+
+  it('seeds a toggle\'s confirm as disabled for the server-valid "0"', async () => {
+    // The server reads toggles via env-var's asBool, which accepts 0/1 —
+    // the confirm must not misrepresent MEMORY_ENABLED=0 as enabled.
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_ENABLED=0\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message: "Enable the memory layer (About Me/ folder + memory tools)?",
+        initialValue: false,
+      },
+    ])
+  })
+
+  it("rejects numeric port forms readEnvPort cannot read back", async () => {
+    // "1e4" passes Number() but not /^\d+$/ — written verbatim it would
+    // silently fall back to the default port on every later read.
+    const scripted = createScriptedPrompts([["PORT"], "1e4", "9000"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "PORT must be a whole number between 1 and 65535.",
+    ])
+    expect(overrides).toEqual({ PORT: "9000" })
   })
 
   it("uses the default port on an empty submission", async () => {
