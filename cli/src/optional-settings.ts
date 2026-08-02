@@ -6,6 +6,12 @@ type OptionalSettingBase = {
   name: string
   /** Human label shown in the settings chooser. */
   label: string
+  /**
+   * A toggle var this setting has no effect without. When that toggle is
+   * currently off, the chooser hint says so — the user learns the dependency
+   * before spending a prompt on an inert value.
+   */
+  requiresToggle?: string
   /** Only offered in remote-mode flows (absent = offered in both modes). */
   remoteOnly?: true
 }
@@ -47,6 +53,7 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     label: "Memory folder",
     question: "Vault folder for the memory files:",
     defaultValue: "About Me",
+    requiresToggle: "MEMORY_ENABLED",
   },
   {
     kind: "toggle",
@@ -166,6 +173,14 @@ export const derivePublicUrlOverride = (
 }
 
 /**
+ * The .env spellings the server reads as "off" — env-var's asBool accepts
+ * 0/1 alongside true/false. An absent or unrecognized value falls to the
+ * server default, which is enabled for every curated toggle.
+ */
+const isDisabledToggleValue = (value: string | undefined): boolean =>
+  ["false", "0"].includes((value ?? "").toLowerCase())
+
+/**
  * Plain digits in the TCP port range. Number() coercion is not enough:
  * it accepts "1e4"/"0x1F40"/"+9000", which readEnvPort's /^PORT=(\d+)/
  * would later fail to read back — silently falling to the default port.
@@ -252,15 +267,9 @@ const askSettingValue = async (
   const { setting, currentValue } = params
   switch (setting.kind) {
     case "toggle": {
-      // Absent line = the server's built-in default, which is true for
-      // every curated toggle. The server reads these via env-var's asBool,
-      // which also accepts 0/1 — so "0" must seed the confirm as off.
-      const currentlyDisabled = ["false", "0"].includes(
-        (currentValue ?? "").toLowerCase(),
-      )
       const enabled = await prompts.confirm(
         setting.question,
-        !currentlyDisabled,
+        !isDisabledToggleValue(currentValue),
       )
       return String(enabled)
     }
@@ -302,10 +311,18 @@ export const askOptionalSettings = async (
   )
   const chooserOptions = offeredSettings.map((setting) => {
     const currentValue = readOptionalValue(envContent, setting.name)
+    const requiredToggle = OPTIONAL_SETTINGS.find(
+      (candidate) => candidate.name === setting.requiresToggle,
+    )
+    const dependencyNote =
+      requiredToggle &&
+      isDisabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+        ? ` · not used while ${requiredToggle.label} is off`
+        : ""
     return {
       value: setting.name,
       label: setting.label,
-      hint: `${setting.name} · currently ${currentValue || "not set"}`,
+      hint: `${setting.name} · currently ${currentValue || "not set"}${dependencyNote}`,
     }
   })
 

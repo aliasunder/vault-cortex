@@ -264,12 +264,45 @@ describe("askOptionalSettings chooser", () => {
       scripted.multiselectCalls[0].options.map((option) => option.hint),
     ).toEqual([
       "MEMORY_ENABLED · currently false",
-      "MEMORY_DIR · currently not set",
+      "MEMORY_DIR · currently not set · not used while Memory layer is off",
       "FILE_TOOLS_ENABLED · currently not set",
       "EMBEDDING_ENABLED · currently not set",
       "PORT · currently 9000",
       "TZ · currently not set",
     ])
+  })
+
+  it("omits the memory-folder dependency note while the memory layer is on", async () => {
+    const scripted = createScriptedPrompts([[]])
+
+    await askOptionalSettings(
+      {
+        mode: "local",
+        envContent: "MEMORY_ENABLED=true\nMEMORY_DIR=About Me\n",
+      },
+      scripted.prompts,
+    )
+
+    const memoryFolderOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "MEMORY_DIR",
+    )
+    expect(memoryFolderOption?.hint).toBe("MEMORY_DIR · currently About Me")
+  })
+
+  it('adds the dependency note for the server-valid disabled spelling "0"', async () => {
+    const scripted = createScriptedPrompts([[]])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_ENABLED=0\n" },
+      scripted.prompts,
+    )
+
+    const memoryFolderOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "MEMORY_DIR",
+    )
+    expect(memoryFolderOption?.hint).toBe(
+      "MEMORY_DIR · currently not set · not used while Memory layer is off",
+    )
   })
 
   it("returns no overrides and asks nothing further when nothing is picked", async () => {
