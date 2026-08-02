@@ -167,7 +167,8 @@ ${smokeTest(`${baseUrl}/healthz`)}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (timezone, memory folder, port, logging):
+Adjust optional settings (memory layer and folder, file tools,
+semantic search, port, timezone):
   npx vault-cortex configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
@@ -251,8 +252,8 @@ ${smokeTest(`${publicUrl}/healthz`)}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (timezone, memory folder, port, logging,
-sync behavior):
+Adjust optional settings (memory layer and folder, file tools,
+semantic search, port, timezone, sync direction):
   npx vault-cortex configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it

@@ -20,6 +20,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
   const warnings: string[] = []
   const logs: string[] = []
   const outros: string[] = []
+  const spinnerMessages: string[] = []
 
   const nextAnswer = (message: string): ScriptedAnswer => {
     asked.push(message)
@@ -64,10 +65,17 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     },
     password: async (message) => String(nextAnswer(message)),
     confirm: async (message) => Boolean(nextAnswer(message)),
-    spinner: () => ({ start: () => {}, stop: () => {} }),
+    spinner: () => ({
+      start: (message) => {
+        spinnerMessages.push(`start: ${message}`)
+      },
+      stop: (message) => {
+        spinnerMessages.push(`stop: ${message}`)
+      },
+    }),
   }
 
-  return { prompts, asked, errors, warnings, logs, outros }
+  return { prompts, asked, errors, warnings, logs, outros, spinnerMessages }
 }
 
 const dockerDown: DockerRunner = {
@@ -369,6 +377,12 @@ describe("runConfigure with picked settings", () => {
     )
 
     expect(exitCode).toBe(1)
+    // Pins the exit to the health check, not an earlier bail-out — the
+    // container started (spinner ran) and the poll timed out.
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
+    ])
   })
 
   it("propagates a failed container start as exit 1", async () => {
