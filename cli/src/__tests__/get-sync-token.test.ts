@@ -49,6 +49,7 @@ const createSilentPrompts = () => {
       errors.push(message)
     },
     select: async () => "",
+    multiselect: async () => [],
     text: async () => "",
     password: async () => "",
     confirm: async () => false,

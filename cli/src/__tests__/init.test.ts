@@ -13,7 +13,7 @@ import { runInit } from "../init.js"
 import type { DockerRunner } from "../docker.js"
 import type { Prompts } from "../prompts.js"
 
-type ScriptedAnswer = string | boolean
+type ScriptedAnswer = string | boolean | string[]
 
 type SelectCall = { message: string; initialValue: string }
 
@@ -60,6 +60,15 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     select: async (message, _options, initialValue) => {
       selectCalls.push({ message, initialValue })
       return String(nextAnswer(message))
+    },
+    multiselect: async (message) => {
+      const answer = nextAnswer(message)
+      if (!Array.isArray(answer)) {
+        throw new Error(
+          `multiselect needs a string[] scripted answer, got: ${String(answer)}`,
+        )
+      }
+      return answer
     },
     text: async (message, options) => {
       const answer = String(nextAnswer(message))
@@ -165,7 +174,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
     expect(scripted.prints[0]).toContain(
-      "Optional settings (timezone, memory folder, port, logging) live in",
+      "Adjust optional settings (timezone, memory folder, port, logging):",
     )
   })
 
@@ -307,6 +316,7 @@ describe("remote connect message https routing", () => {
       "MyVault",
       "", // blank sync token — fill in .env later
       false, // no encryption
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -364,6 +374,7 @@ describe("remote connect message https routing", () => {
       "MyVault",
       "", // blank sync token — fill in .env later
       false, // no encryption
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -395,6 +406,7 @@ describe("remote connect message https routing", () => {
       "MyVault",
       "", // blank sync token — fill in .env later
       false, // no encryption
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -422,6 +434,7 @@ describe("remote connect message https routing", () => {
       "MyVault",
       "", // blank sync token — fill in .env later
       false, // no encryption
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -449,7 +462,12 @@ describe("remote connect message https routing", () => {
 describe("runInit interactive local flow", () => {
   it("defaults the mode select to local", async () => {
     const vaultDir = makeVault()
-    const scripted = createScriptedPrompts(["local", vaultDir, makeTargetDir()])
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      makeTargetDir(),
+      [], // no optional settings
+    ])
 
     await runInit(
       {},
@@ -477,6 +495,7 @@ describe("runInit interactive local flow", () => {
       missingPath,
       vaultDir,
       targetDir,
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -498,7 +517,12 @@ describe("runInit interactive local flow", () => {
   it("warns and skips the start offer when Docker is installed but the daemon is down", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["local", vaultDir, targetDir])
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      [], // no optional settings
+    ])
     const dockerDaemonDown: DockerRunner = {
       ...dockerUnavailable,
       isDaemonRunning: () => false,
@@ -522,7 +546,13 @@ describe("runInit interactive local flow", () => {
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
     const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["local", plainDir, true, targetDir])
+    const scripted = createScriptedPrompts([
+      "local",
+      plainDir,
+      true, // use the non-Obsidian folder anyway
+      targetDir,
+      [], // no optional settings
+    ])
 
     const exitCode = await runInit(
       {},
@@ -550,6 +580,7 @@ describe("runInit remote flow", () => {
       false, // don't generate the token now (declined auto-capture)
       "sync-token-xyz", // paste fallback — obsidian sync token
       false, // no end-to-end encryption
+      [], // no optional settings
       false, // don't start the server
     ])
     const dockerReady: DockerRunner = {
@@ -573,6 +604,7 @@ describe("runInit remote flow", () => {
       "Generate the token now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
       "Start the server now?",
     ])
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
@@ -580,7 +612,9 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
-    expect(scripted.prints[0]).toContain("Optional settings (timezone, memory")
+    expect(scripted.prints[0]).toContain(
+      "Adjust optional settings (timezone, memory",
+    )
   })
 
   it("skips paste prompt when auto-capture succeeds", async () => {
@@ -590,6 +624,7 @@ describe("runInit remote flow", () => {
       "MyVault",
       true, // generate the token now
       false, // no end-to-end encryption
+      [], // no optional settings
       false, // don't start the server
     ])
     const dockerWithCapture: DockerRunner = {
@@ -636,6 +671,7 @@ describe("runInit remote flow", () => {
       "MyVault",
       "", // blank token — fill in later (Docker unavailable, no capture offer)
       false, // no encryption
+      [], // no optional settings
     ])
 
     const exitCode = await runInit(
@@ -660,6 +696,7 @@ describe("runInit with a kept existing .env", () => {
     "local",
     vaultDir,
     targetDir,
+    [], // no optional settings
     false, // .env differs — keep the existing file
   ]
 
@@ -738,7 +775,12 @@ describe("runInit --vault-path flag in interactive mode", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     const missingPath = join(tmpdir(), "vault-cli-no-such-vault")
-    const scripted = createScriptedPrompts(["local", vaultDir, targetDir])
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      [], // no optional settings
+    ])
 
     const exitCode = await runInit(
       { vaultPath: missingPath },
@@ -767,6 +809,7 @@ describe("runInit remote encryption password", () => {
       "sync-token-xyz", // paste fallback
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
+      [], // no optional settings
       false, // don't start the server
     ])
     const dockerReady: DockerRunner = {
@@ -805,6 +848,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       true, // try to generate the token
       "", // paste fallback — blank token, fill in later
       false, // no encryption
+      [], // no optional settings
     ])
     const dockerWithFailingCapture: DockerRunner = {
       isDaemonRunning: () => true,
@@ -830,6 +874,126 @@ describe("runInit sync-token auto-capture fallback", () => {
     )
     expect(scripted.warnings[0]).toContain(
       "The Obsidian login did not complete",
+    )
+  })
+})
+
+describe("runInit guided optional settings", () => {
+  it("applies picked settings to the written .env (toggle off + port change)", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      ["MEMORY_ENABLED", "PORT"], // picked in the chooser
+      false, // disable the memory layer
+      "9000", // host port
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n")
+    expect(envLines).toContain("MEMORY_ENABLED=false")
+    expect(envLines).toContain("PORT=9000")
+    // The connect message reads PORT from the .env on disk, so the chosen
+    // port must flow through to the printed URLs.
+    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
+  })
+
+  it("uncomments the TZ line when the timezone is picked", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      ["TZ"],
+      "America/Toronto",
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n")
+    expect(envLines).toContain("TZ=America/Toronto")
+    expect(envLines).not.toContain("# TZ=America/New_York")
+  })
+
+  it("re-prompts on an invalid port until a valid one is given", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      ["PORT"],
+      "not-a-port", // rejected
+      "70000", // out of range — rejected
+      "9000", // accepted
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      "PORT must be a whole number between 1 and 65535.",
+      "PORT must be a whole number between 1 and 65535.",
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
+      "PORT=9000",
+    )
+  })
+
+  it("writes the chosen SYNC_MODE in the remote flow", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com",
+      "MyVault",
+      "", // blank sync token — fill in .env later
+      false, // no encryption
+      ["SYNC_MODE"],
+      "pull-only",
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerUnavailable,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.selectCalls).toContainEqual({
+      message: "How should Obsidian Sync move changes?",
+      initialValue: "bidirectional",
+    })
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
+      "SYNC_MODE=pull-only",
     )
   })
 })

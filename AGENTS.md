@@ -86,7 +86,9 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     main.ts                            # Top-level wiring (program + init + prompts + docker)
     program.ts                         # Commander program definition
     init.ts                            # Init command orchestration
+    configure.ts                       # Configure command (guided settings edit + restart offer)
     prompts.ts                         # Interactive prompt flow (mode, vault path, token)
+    optional-settings.ts               # Guided optional-settings flow (curated vars, chooser, .env patching)
     scaffold.ts                        # File generation (.env)
     docker.ts                          # Container management (docker run, health-check wait)
     upgrade.ts                         # Upgrade command (pull + re-create + health check)

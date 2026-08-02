@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { buildProgram } from "../program.js"
+import type { ConfigureFlags } from "../configure.js"
 import type { GetSyncTokenFlags } from "../get-sync-token.js"
 import type { InitFlags } from "../init.js"
 import type { DownFlags, LogsFlags, RestartFlags } from "../lifecycle.js"
@@ -8,6 +9,7 @@ import type { UpgradeFlags } from "../upgrade.js"
 
 const buildCapturingProgram = () => {
   const initCalls: InitFlags[] = []
+  const configureCalls: ConfigureFlags[] = []
   const upgradeCalls: UpgradeFlags[] = []
   const restartCalls: RestartFlags[] = []
   const logsCalls: LogsFlags[] = []
@@ -17,6 +19,10 @@ const buildCapturingProgram = () => {
     version: "0.0.0-test",
     runInit: async (flags) => {
       initCalls.push(flags)
+      return 0
+    },
+    runConfigure: async (flags) => {
+      configureCalls.push(flags)
       return 0
     },
     runUpgrade: async (flags) => {
@@ -47,6 +53,7 @@ const buildCapturingProgram = () => {
   return {
     program,
     initCalls,
+    configureCalls,
     upgradeCalls,
     restartCalls,
     logsCalls,
@@ -101,6 +108,26 @@ describe("buildProgram init", () => {
     await expect(
       program.parseAsync(["--version"], { from: "user" }),
     ).rejects.toThrow("0.0.0-test")
+  })
+})
+
+describe("buildProgram configure", () => {
+  it("passes --dir through to runConfigure", async () => {
+    const { program, configureCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["configure", "--dir", "/opt/vault-cortex"], {
+      from: "user",
+    })
+
+    expect(configureCalls).toEqual([{ dir: "/opt/vault-cortex" }])
+  })
+
+  it("invokes configure with no flags when none are given", async () => {
+    const { program, configureCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["configure"], { from: "user" })
+
+    expect(configureCalls).toEqual([{}])
   })
 })
 

@@ -21,6 +21,8 @@ manages the container so you don't have to.
 
 - [`init`](#init) — interactive setup: scaffold the config, generate the auth
   token, start the server
+- [`configure`](#configure) — change optional settings interactively and
+  restart to apply them
 - [`upgrade`](#upgrade) — pull the latest image and re-create the container;
   your data stays
 - [`restart`](#restart) — re-create the container so your `.env` edits take
@@ -44,9 +46,12 @@ What it does:
    - **Local** — Docker on this machine, your vault folder bind-mounted
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync),
      reachable from any device
-2. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
-3. Optionally starts the container and waits for the health check
-4. Prints your connection details — the MCP URL, your auth token, and how to
+2. Offers the most common optional settings — memory layer, file tools,
+   semantic search, port, timezone (plus sync direction for remote) — press
+   enter to keep the defaults, or pick the ones you want to change
+3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
+4. Optionally starts the container and waits for the health check
+5. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
 Existing files are never overwritten without asking. During a remote setup,
@@ -66,6 +71,22 @@ Non-interactive example:
 ```bash
 npx vault-cortex@latest init --yes --vault-path /path/to/YourVault
 ```
+
+## configure
+
+Change optional settings on an existing setup:
+
+```bash
+npx vault-cortex@latest configure
+```
+
+Shows the same settings chooser as [`init`](#init) — memory layer, file
+tools, semantic search, port, timezone (plus sync direction for remote) —
+pre-filled with your current values, saves your picks to `.env`, and offers
+to restart the container so they take effect. Settings not in the chooser
+live in `.env` too: edit the value there, then run [`restart`](#restart).
+
+Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
 ## upgrade
 

@@ -1,5 +1,6 @@
 import { Command } from "commander"
 
+import type { ConfigureFlags } from "./configure.js"
 import type { GetSyncTokenFlags } from "./get-sync-token.js"
 import type { InitFlags } from "./init.js"
 import type { DownFlags, LogsFlags, RestartFlags } from "./lifecycle.js"
@@ -8,6 +9,7 @@ import type { UpgradeFlags } from "./upgrade.js"
 export type ProgramOptions = {
   version: string
   runInit: (flags: InitFlags) => Promise<number>
+  runConfigure: (flags: ConfigureFlags) => Promise<number>
   runUpgrade: (flags: UpgradeFlags) => Promise<number>
   runRestart: (flags: RestartFlags) => Promise<number>
   runLogs: (flags: LogsFlags) => Promise<number>
@@ -43,6 +45,19 @@ export const buildProgram = (options: ProgramOptions): Command => {
     )
     .action(async (flags: InitFlags) => {
       process.exitCode = await options.runInit(flags)
+    })
+
+  program
+    .command("configure")
+    .description(
+      "Change optional settings interactively and restart to apply them",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .action(async (flags: ConfigureFlags) => {
+      process.exitCode = await options.runConfigure(flags)
     })
 
   program

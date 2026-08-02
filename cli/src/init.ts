@@ -8,6 +8,10 @@ import {
 } from "./messages.js"
 import { pollHealth, type DockerRunner } from "./docker.js"
 import {
+  applyOptionalSettings,
+  askOptionalSettings,
+} from "./optional-settings.js"
+import {
   buildFilesToWrite,
   readEnvPort,
   writeFiles,
@@ -295,12 +299,22 @@ const runLocalInit = async (
 
   const token = generateToken()
 
+  // Guided optional settings: the chooser reads current values from the
+  // generated defaults; enter with nothing picked keeps them all. --yes
+  // skips the chooser — it's non-interactive by contract.
+  const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
+  const optionalOverrides = flags.yes
+    ? {}
+    : await askOptionalSettings(
+        { mode: "local", envContent: defaultEnvContent },
+        prompts,
+      )
+  const envContent = applyOptionalSettings(defaultEnvContent, optionalOverrides)
+
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
   // any differing file becomes an exit-1 below, leaving it untouched.
-  const files = buildFilesToWrite(
-    buildLocalEnv({ mcpAuthToken: token, vaultPath }),
-  )
+  const files = buildFilesToWrite(envContent)
   const resolveConflict = flags.yes ? keepExisting : confirmOverwrite(prompts)
   const results = await writeFiles({ targetDir, files }, resolveConflict)
   reportWrites({ targetDir, results }, prompts)
@@ -385,13 +399,20 @@ const runRemoteInit = async (
 
   const token = generateToken()
 
-  const envContent = buildRemoteEnv({
+  // Guided optional settings, mirroring the local flow — remote also offers
+  // SYNC_MODE. Remote init is always interactive, so no --yes gate here.
+  const defaultEnvContent = buildRemoteEnv({
     mcpAuthToken: token,
     publicUrl,
     obsidianAuthToken,
     vaultName,
     vaultPassword,
   })
+  const optionalOverrides = await askOptionalSettings(
+    { mode: "remote", envContent: defaultEnvContent },
+    prompts,
+  )
+  const envContent = applyOptionalSettings(defaultEnvContent, optionalOverrides)
   const files = buildFilesToWrite(envContent)
   const results = await writeFiles(
     { targetDir, files },

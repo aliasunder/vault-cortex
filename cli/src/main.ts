@@ -1,3 +1,4 @@
+import { runConfigure } from "./configure.js"
 import { createDockerRunner } from "./docker.js"
 import { runGetSyncToken } from "./get-sync-token.js"
 import { runInit } from "./init.js"
@@ -11,6 +12,12 @@ export const run = async (version: string): Promise<void> => {
     version,
     runInit: (flags) =>
       runInit(flags, {
+        prompts: createPrompts(),
+        docker: createDockerRunner(),
+        fetchFn: fetch,
+      }),
+    runConfigure: (flags) =>
+      runConfigure(flags, {
         prompts: createPrompts(),
         docker: createDockerRunner(),
         fetchFn: fetch,
