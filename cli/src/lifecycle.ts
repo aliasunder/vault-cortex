@@ -60,7 +60,7 @@ const DEFAULT_TARGET_DIR = "./vault-cortex"
  * starting a container: resolves --dir and confirms an init'd .env exists.
  * Full start-readiness validation lives in resolveDeployment.
  */
-const requireInitializedDir = (
+export const requireInitializedDir = (
   dirFlag: string | undefined,
   prompts: Prompts,
 ): { targetDir: string; envFilePath: string; mode: Mode } | undefined => {

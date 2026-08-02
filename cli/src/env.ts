@@ -26,9 +26,10 @@ export type RemoteEnvAnswers = {
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:local-optional:begin
 const LOCAL_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
-# To change a setting: edit its value (uncommenting it first if needed),
-# then apply with "npx vault-cortex restart" (plain docker restart does
-# not re-read this file).
+# To change a setting: run "npx vault-cortex configure", or edit its
+# value here (uncommenting it first if needed) and apply with
+# "npx vault-cortex restart" (plain docker restart does not re-read
+# this file).
 
 # Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
@@ -118,9 +119,10 @@ WINDOWS_MODE=false
 // └─────────────────────────────────────────────────────────────────────────┘
 // sync:remote-optional:begin
 const REMOTE_OPTIONAL_BLOCK = `# Optional ──────────────────────────────────────────────────
-# To change a setting: edit its value (uncommenting it first if needed),
-# then apply with "npx vault-cortex restart" (plain docker restart does
-# not re-read this file).
+# To change a setting: run "npx vault-cortex configure", or edit its
+# value here (uncommenting it first if needed) and apply with
+# "npx vault-cortex restart" (plain docker restart does not re-read
+# this file).
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York

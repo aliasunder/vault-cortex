@@ -35,6 +35,12 @@ export type Prompts = {
     options: SelectOption[],
     initialValue: string,
   ) => Promise<string>
+  /**
+   * Zero-or-more chooser (space toggles, enter submits). Always optional —
+   * submitting with nothing selected resolves to an empty array, so callers
+   * treat "no picks" as "skip", never as a validation error.
+   */
+  multiselect: (message: string, options: SelectOption[]) => Promise<string[]>
   text: (
     message: string,
     options?: { placeholder?: string; defaultValue?: string },
@@ -76,6 +82,12 @@ export const createPrompts = (): Prompts => ({
   error: (message) => clack.log.error(message),
   select: async (message, options, initialValue) =>
     exitOnCancel(await clack.select({ message, options, initialValue })),
+  // required: false makes an empty submission legal — the Prompts contract
+  // promises "no picks" resolves to [] instead of a re-prompt loop.
+  multiselect: async (message, options) =>
+    exitOnCancel(
+      await clack.multiselect({ message, options, required: false }),
+    ),
   text: async (message, options = {}) =>
     exitOnCancel(
       await clack.text({

@@ -45,9 +45,13 @@ describe("buildLocalEnv", () => {
   it("tells the user how to change a setting and apply it", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
-    expect(env).toContain("To change a setting: edit its value")
+    // The whole wrapped header as one literal (comment continuation lines
+    // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
+      'To change a setting: run "npx vault-cortex configure", or edit its\n' +
+        "# value here (uncommenting it first if needed) and apply with\n" +
+        '# "npx vault-cortex restart" (plain docker restart does not re-read\n' +
+        "# this file).",
     )
   })
 })
@@ -115,9 +119,13 @@ describe("buildRemoteEnv", () => {
   it("tells the user how to change a setting and apply it", () => {
     const env = buildRemoteEnv(baseAnswers)
 
-    expect(env).toContain("To change a setting: edit its value")
+    // The whole wrapped header as one literal (comment continuation lines
+    // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'then apply with "npx vault-cortex restart" (plain docker restart does\n# not re-read this file).',
+      'To change a setting: run "npx vault-cortex configure", or edit its\n' +
+        "# value here (uncommenting it first if needed) and apply with\n" +
+        '# "npx vault-cortex restart" (plain docker restart does not re-read\n' +
+        "# this file).",
     )
   })
 })
