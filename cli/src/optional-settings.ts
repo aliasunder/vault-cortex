@@ -68,7 +68,7 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     kind: "choice",
     name: "SYNC_MODE",
     label: "Sync direction",
-    question: "How should Obsidian Sync move changes?",
+    question: "Obsidian Sync direction:",
     choices: [
       {
         value: "bidirectional",

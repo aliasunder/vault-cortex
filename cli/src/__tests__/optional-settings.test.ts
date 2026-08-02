@@ -333,7 +333,7 @@ describe("askOptionalSettings per-setting prompts", () => {
 
     expect(scripted.selectCalls).toEqual([
       {
-        message: "How should Obsidian Sync move changes?",
+        message: "Obsidian Sync direction:",
         initialValue: "bidirectional",
       },
     ])
@@ -426,7 +426,7 @@ describe("askOptionalSettings per-setting prompts", () => {
 
     expect(scripted.selectCalls).toEqual([
       {
-        message: "How should Obsidian Sync move changes?",
+        message: "Obsidian Sync direction:",
         initialValue: "pull-only",
       },
     ])

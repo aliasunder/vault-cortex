@@ -1032,7 +1032,7 @@ describe("runInit guided optional settings", () => {
     // --mode remote skips the mode select, so this is the flow's only select.
     expect(scripted.selectCalls).toEqual([
       {
-        message: "How should Obsidian Sync move changes?",
+        message: "Obsidian Sync direction:",
         initialValue: "bidirectional",
       },
     ])
