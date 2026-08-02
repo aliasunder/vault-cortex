@@ -227,6 +227,51 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ MEMORY_ENABLED: "true" })
   })
 
+  it("seeds a toggle's confirm as enabled when the var is absent", async () => {
+    // Absent line = the server's built-in default (true for every curated
+    // toggle) — the confirm must start on Yes, not fall to false.
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message: "Enable the memory layer (About Me/ folder + memory tools)?",
+        initialValue: true,
+      },
+    ])
+  })
+
+  it("seeds the SYNC_MODE select with its default when the var is absent", async () => {
+    const scripted = createScriptedPrompts([["SYNC_MODE"], "pull-only"])
+
+    await askOptionalSettings(
+      { mode: "remote", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.selectCalls).toEqual([
+      {
+        message: "How should Obsidian Sync move changes?",
+        initialValue: "bidirectional",
+      },
+    ])
+  })
+
+  it("uses the default port on an empty submission", async () => {
+    const scripted = createScriptedPrompts([["PORT"], ""])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({ PORT: "8000" })
+  })
+
   it("seeds the SYNC_MODE select with the current .env value", async () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "bidirectional"])
 

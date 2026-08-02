@@ -184,9 +184,10 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.warnings).toEqual([
       `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
     ])
-    expect(scripted.asked).not.toContain(
-      "Restart the container now to apply the new settings?",
-    )
+    expect(scripted.asked).toEqual([
+      "Any optional settings to change? (press enter to skip)",
+      "Enable the memory layer (About Me/ folder + memory tools)?",
+    ])
   })
 
   it("saves the changes and prints the restart hint when the restart is declined", async () => {
@@ -274,6 +275,64 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=https://vault.example.com\n\nSYNC_MODE=pull-only\n",
     )
+  })
+
+  it("keeps the saved change and exits 1 when the .env cannot start a container", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    // Passes the light init'd-dir gate (detectMode sees a local .env) but
+    // fails resolveDeployment's start validation: no PUBLIC_URL.
+    writeFileSync(
+      envFilePath,
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=true\n",
+    )
+    const { docker, dockerRunCalls } = createRecordingDocker()
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+      true, // restart now
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
+        `Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000`,
+    ])
+    expect(dockerRunCalls).toEqual([])
+    // The settings edit itself succeeded before the restart failed.
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=false\n",
+    )
+  })
+
+  it("exits 1 when the restarted container never becomes healthy", async () => {
+    const targetDir = makeTempTargetDir()
+    writeLocalEnv(targetDir)
+    const { docker } = createRecordingDocker()
+    const fetchFail: typeof fetch = async () =>
+      new Response(null, { status: 500 })
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+      true, // restart now
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker,
+        fetchFn: fetchFail,
+        healthTimeoutMs: 0,
+      },
+    )
+
+    expect(exitCode).toBe(1)
   })
 
   it("propagates a failed container start as exit 1", async () => {

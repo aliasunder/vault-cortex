@@ -903,6 +903,8 @@ describe("runInit guided optional settings", () => {
     expect(exitCode).toBe(0)
     const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n")
     expect(envLines).toContain("MEMORY_ENABLED=false")
+    // The default line must be replaced, not left behind next to an append.
+    expect(envLines).not.toContain("MEMORY_ENABLED=true")
     expect(envLines).toContain("PORT=9000")
     // The connect message reads PORT from the .env on disk, so the chosen
     // port must flow through to the printed URLs.
@@ -988,10 +990,13 @@ describe("runInit guided optional settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.selectCalls).toContainEqual({
-      message: "How should Obsidian Sync move changes?",
-      initialValue: "bidirectional",
-    })
+    // --mode remote skips the mode select, so this is the flow's only select.
+    expect(scripted.selectCalls).toEqual([
+      {
+        message: "How should Obsidian Sync move changes?",
+        initialValue: "bidirectional",
+      },
+    ])
     expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
       "SYNC_MODE=pull-only",
     )
