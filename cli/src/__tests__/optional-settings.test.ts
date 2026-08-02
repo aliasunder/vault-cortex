@@ -82,6 +82,12 @@ describe("readOptionalValue", () => {
     expect(readOptionalValue("PORT=9000\nTZ=UTC\n", "PORT")).toBe("9000")
   })
 
+  it("returns the last duplicate, matching docker --env-file precedence", () => {
+    expect(readOptionalValue("PORT=8000\nTZ=UTC\nPORT=9000\n", "PORT")).toBe(
+      "9000",
+    )
+  })
+
   it("returns undefined for a commented-out line", () => {
     expect(readOptionalValue("# TZ=America/New_York\n", "TZ")).toBeUndefined()
   })
