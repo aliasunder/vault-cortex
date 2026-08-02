@@ -5,111 +5,26 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runConfigure } from "../configure.js"
 import type { DockerRunParams, DockerRunner } from "../docker.js"
-import type { Prompts } from "../prompts.js"
-
-type ScriptedAnswer = string | boolean | string[]
-
-/**
- * A Prompts stub that replays canned answers in order and records what was
- * asked — same shape as the init.test.ts stub.
- */
-const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
-  const remaining = [...answers]
-  const asked: string[] = []
-  const errors: string[] = []
-  const warnings: string[] = []
-  const logs: string[] = []
-  const outros: string[] = []
-  const spinnerMessages: string[] = []
-
-  const nextAnswer = (message: string): ScriptedAnswer => {
-    asked.push(message)
-    const answer = remaining.shift()
-    if (answer === undefined)
-      throw new Error(`No scripted answer for prompt: ${message}`)
-    return answer
-  }
-
-  const prompts: Prompts = {
-    intro: () => {},
-    outro: (message) => {
-      outros.push(message)
-    },
-    note: () => {},
-    print: () => {},
-    log: (message) => {
-      logs.push(message)
-    },
-    warn: (message) => {
-      warnings.push(message)
-    },
-    error: (message) => {
-      errors.push(message)
-    },
-    select: async (message) => String(nextAnswer(message)),
-    multiselect: async (message) => {
-      const answer = nextAnswer(message)
-      if (!Array.isArray(answer)) {
-        throw new Error(
-          `multiselect needs a string[] scripted answer, got: ${String(answer)}`,
-        )
-      }
-      return answer
-    },
-    text: async (message, options) => {
-      const answer = String(nextAnswer(message))
-      // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
-      if (answer === "" && options?.defaultValue !== undefined)
-        return options.defaultValue
-      return answer
-    },
-    password: async (message) => String(nextAnswer(message)),
-    confirm: async (message) => Boolean(nextAnswer(message)),
-    spinner: () => ({
-      start: (message) => {
-        spinnerMessages.push(`start: ${message}`)
-      },
-      stop: (message) => {
-        spinnerMessages.push(`stop: ${message}`)
-      },
-    }),
-  }
-
-  return { prompts, asked, errors, warnings, logs, outros, spinnerMessages }
-}
-
-const dockerDown: DockerRunner = {
-  isDaemonRunning: () => false,
-  dockerRun: () => false,
-  pullImage: () => false,
-  stopAndRemoveContainer: () => false,
-  containerExists: () => false,
-  streamLogs: async () => 1,
-  runObsidianLogin: () => false,
-}
+import {
+  createScriptedPrompts,
+  dockerDown,
+  dockerReady,
+  fetchNever,
+  fetchOk,
+} from "./command-stubs.js"
 
 /** A ready daemon that records dockerRun calls for start-parameter asserts. */
 const createRecordingDocker = () => {
   const dockerRunCalls: DockerRunParams[] = []
   const docker: DockerRunner = {
-    isDaemonRunning: () => true,
+    ...dockerReady,
+    containerExists: () => false,
     dockerRun: (params) => {
       dockerRunCalls.push(params)
       return true
     },
-    pullImage: () => true,
-    stopAndRemoveContainer: () => true,
-    containerExists: () => false,
-    streamLogs: async () => 0,
-    runObsidianLogin: () => false,
   }
   return { docker, dockerRunCalls }
-}
-
-const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
-
-const fetchNever: typeof fetch = async () => {
-  throw new Error("fetch must not be called")
 }
 
 // Creates a temp target dir and registers its removal at creation time, so
@@ -389,13 +304,9 @@ describe("runConfigure with picked settings", () => {
     const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
-      isDaemonRunning: () => true,
-      dockerRun: () => false,
-      pullImage: () => true,
-      stopAndRemoveContainer: () => true,
+      ...dockerReady,
       containerExists: () => false,
-      streamLogs: async () => 0,
-      runObsidianLogin: () => false,
+      dockerRun: () => false,
     }
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
