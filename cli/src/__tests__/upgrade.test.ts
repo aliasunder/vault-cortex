@@ -4,69 +4,14 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import type { DockerRunner } from "../docker.js"
-import type { Prompts } from "../prompts.js"
 import { runUpgrade } from "../upgrade.js"
-
-const createScriptedPrompts = () => {
-  const errors: string[] = []
-  const logs: string[] = []
-  const spinnerMessages: string[] = []
-
-  const prompts: Prompts = {
-    intro: () => {},
-    outro: () => {},
-    note: () => {},
-    print: () => {},
-    log: (message) => {
-      logs.push(message)
-    },
-    warn: () => {},
-    error: (message) => {
-      errors.push(message)
-    },
-    select: async () => "",
-    multiselect: async () => [],
-    text: async () => "",
-    password: async () => "",
-    confirm: async () => false,
-    spinner: () => ({
-      start: (message) => {
-        spinnerMessages.push(`start: ${message}`)
-      },
-      stop: (message) => {
-        spinnerMessages.push(`stop: ${message}`)
-      },
-    }),
-  }
-
-  return { prompts, errors, logs, spinnerMessages }
-}
-
-const dockerReady: DockerRunner = {
-  isDaemonRunning: () => true,
-  dockerRun: () => true,
-  pullImage: () => true,
-  stopAndRemoveContainer: () => true,
-  containerExists: () => true,
-  streamLogs: async () => 0,
-  runObsidianLogin: () => false,
-}
-
-const dockerDown: DockerRunner = {
-  isDaemonRunning: () => false,
-  dockerRun: () => false,
-  pullImage: () => false,
-  stopAndRemoveContainer: () => false,
-  containerExists: () => false,
-  streamLogs: async () => 1,
-  runObsidianLogin: () => false,
-}
-
-const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
-
-const fetchNever: typeof fetch = async () => {
-  throw new Error("fetch must not be called")
-}
+import {
+  createScriptedPrompts,
+  dockerDown,
+  dockerReady,
+  fetchNever,
+  fetchOk,
+} from "./command-stubs.js"
 
 const writeLocalEnv = (targetDir: string): void => {
   writeFileSync(

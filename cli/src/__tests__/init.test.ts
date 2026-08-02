@@ -11,103 +11,13 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runInit } from "../init.js"
 import type { DockerRunner } from "../docker.js"
-import type { Prompts } from "../prompts.js"
-
-type ScriptedAnswer = string | boolean | string[]
-
-type SelectCall = { message: string; initialValue: string }
-
-/**
- * A Prompts stub that replays canned answers in order and records what was
- * asked — lets the tests assert the exact prompt sequence per flow.
- */
-const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
-  const remaining = [...answers]
-  const asked: string[] = []
-  const errors: string[] = []
-  const warnings: string[] = []
-  const logs: string[] = []
-  const notes: string[] = []
-  const prints: string[] = []
-  const selectCalls: SelectCall[] = []
-
-  const nextAnswer = (message: string): ScriptedAnswer => {
-    asked.push(message)
-    const answer = remaining.shift()
-    if (answer === undefined)
-      throw new Error(`No scripted answer for prompt: ${message}`)
-    return answer
-  }
-
-  const prompts: Prompts = {
-    intro: () => {},
-    outro: () => {},
-    note: (message) => {
-      notes.push(message)
-    },
-    print: (message) => {
-      prints.push(message)
-    },
-    log: (message) => {
-      logs.push(message)
-    },
-    warn: (message) => {
-      warnings.push(message)
-    },
-    error: (message) => {
-      errors.push(message)
-    },
-    select: async (message, _options, initialValue) => {
-      selectCalls.push({ message, initialValue })
-      return String(nextAnswer(message))
-    },
-    multiselect: async (message) => {
-      const answer = nextAnswer(message)
-      if (!Array.isArray(answer)) {
-        throw new Error(
-          `multiselect needs a string[] scripted answer, got: ${String(answer)}`,
-        )
-      }
-      return answer
-    },
-    text: async (message, options) => {
-      const answer = String(nextAnswer(message))
-      // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
-      if (answer === "" && options?.defaultValue !== undefined)
-        return options.defaultValue
-      return answer
-    },
-    password: async (message) => String(nextAnswer(message)),
-    confirm: async (message, _initialValue) => Boolean(nextAnswer(message)),
-    spinner: () => ({ start: () => {}, stop: () => {} }),
-  }
-
-  return {
-    prompts,
-    asked,
-    errors,
-    warnings,
-    logs,
-    notes,
-    prints,
-    selectCalls,
-    remaining,
-  }
-}
-
-const dockerUnavailable: DockerRunner = {
-  isDaemonRunning: () => false,
-  dockerRun: () => false,
-  pullImage: () => false,
-  stopAndRemoveContainer: () => false,
-  containerExists: () => false,
-  streamLogs: async () => 1,
-  runObsidianLogin: () => false,
-}
-
-const fetchNever: typeof fetch = async () => {
-  throw new Error("fetch must not be called in these tests")
-}
+import {
+  createScriptedPrompts,
+  dockerDaemonOnly,
+  dockerDown,
+  dockerReady,
+  fetchNever,
+} from "./command-stubs.js"
 
 const makeVault = (): string => {
   const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"))
@@ -143,7 +53,7 @@ describe("runInit flag validation", () => {
 
     const exitCode = await runInit(flags, {
       prompts: scripted.prompts,
-      docker: dockerUnavailable,
+      docker: dockerDown,
       fetchFn: fetchNever,
     })
 
@@ -162,7 +72,7 @@ describe("runInit --yes (non-interactive local)", () => {
       { yes: true, vaultPath: vaultDir, dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -189,7 +99,7 @@ describe("runInit --yes (non-interactive local)", () => {
       },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -211,7 +121,7 @@ describe("runInit --yes (non-interactive local)", () => {
       { yes: true, vaultPath: vaultDir, dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -236,7 +146,7 @@ describe("local connect message client routing", () => {
       { yes: true, vaultPath: vaultDir, dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -264,7 +174,7 @@ describe("local connect message client routing", () => {
       { yes: true, vaultPath: vaultDir, dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -297,7 +207,7 @@ describe("target directory tilde expansion", () => {
       { yes: true, vaultPath: vaultDir, dir: "~/vault-cortex" },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -323,7 +233,7 @@ describe("remote connect message https routing", () => {
       { mode: "remote", dir: makeTargetDir() },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -381,7 +291,7 @@ describe("remote connect message https routing", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -413,7 +323,7 @@ describe("remote connect message https routing", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -441,7 +351,7 @@ describe("remote connect message https routing", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -473,7 +383,7 @@ describe("runInit interactive local flow", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -502,7 +412,7 @@ describe("runInit interactive local flow", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -523,16 +433,11 @@ describe("runInit interactive local flow", () => {
       targetDir,
       [], // no optional settings
     ])
-    const dockerDaemonDown: DockerRunner = {
-      ...dockerUnavailable,
-      isDaemonRunning: () => false,
-    }
-
     const exitCode = await runInit(
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerDaemonDown,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -558,7 +463,7 @@ describe("runInit interactive local flow", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -583,16 +488,11 @@ describe("runInit remote flow", () => {
       [], // no optional settings
       false, // don't start the server
     ])
-    const dockerReady: DockerRunner = {
-      ...dockerUnavailable,
-      isDaemonRunning: () => true,
-    }
-
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
     )
@@ -628,8 +528,7 @@ describe("runInit remote flow", () => {
       false, // don't start the server
     ])
     const dockerWithCapture: DockerRunner = {
-      ...dockerUnavailable,
-      isDaemonRunning: () => true,
+      ...dockerDaemonOnly,
       runObsidianLogin: (configMountPath) => {
         const tokenDir = join(configMountPath, "obsidian-headless")
         mkdirSync(tokenDir, { recursive: true })
@@ -678,7 +577,7 @@ describe("runInit remote flow", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -711,7 +610,7 @@ describe("runInit with a kept existing .env", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -740,15 +639,6 @@ describe("runInit with a kept existing .env", () => {
       ...keepEnvAnswers(vaultDir, targetDir),
       true, // start the server now
     ])
-    const dockerReady: DockerRunner = {
-      isDaemonRunning: () => true,
-      dockerRun: () => true,
-      pullImage: () => true,
-      stopAndRemoveContainer: () => true,
-      containerExists: () => true,
-      streamLogs: async () => 0,
-      runObsidianLogin: () => false,
-    }
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
@@ -786,7 +676,7 @@ describe("runInit --vault-path flag in interactive mode", () => {
       { vaultPath: missingPath },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -812,21 +702,11 @@ describe("runInit remote encryption password", () => {
       [], // no optional settings
       false, // don't start the server
     ])
-    const dockerReady: DockerRunner = {
-      isDaemonRunning: () => true,
-      dockerRun: () => false,
-      pullImage: () => false,
-      stopAndRemoveContainer: () => false,
-      containerExists: () => false,
-      streamLogs: async () => 1,
-      runObsidianLogin: () => false,
-    }
-
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
     )
@@ -850,21 +730,11 @@ describe("runInit sync-token auto-capture fallback", () => {
       false, // no encryption
       [], // no optional settings
     ])
-    const dockerWithFailingCapture: DockerRunner = {
-      isDaemonRunning: () => true,
-      dockerRun: () => false,
-      pullImage: () => false,
-      stopAndRemoveContainer: () => false,
-      containerExists: () => false,
-      streamLogs: async () => 1,
-      runObsidianLogin: () => false,
-    }
-
     await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerWithFailingCapture,
+        docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
     )
@@ -895,7 +765,7 @@ describe("runInit guided optional settings", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -930,7 +800,7 @@ describe("runInit guided optional settings", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -958,7 +828,7 @@ describe("runInit guided optional settings", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -991,7 +861,7 @@ describe("runInit guided optional settings", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
@@ -1023,7 +893,7 @@ describe("runInit guided optional settings", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerUnavailable,
+        docker: dockerDown,
         fetchFn: fetchNever,
       },
     )
