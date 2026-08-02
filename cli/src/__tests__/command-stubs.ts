@@ -61,6 +61,25 @@ export const createScriptedPrompts = (
     return answer
   }
 
+  // Typed variants reject a wrong-type answer instead of coercing it — a
+  // script misaligned with the flow's actual prompts must fail, not feed
+  // "false" into a text prompt or truthy-cast an array into a confirm.
+  const nextStringAnswer = (message: string): string => {
+    const answer = nextAnswer(message)
+    if (typeof answer === "string") return answer
+    throw new Error(
+      `prompt "${message}" needs a string scripted answer, got: ${String(answer)}`,
+    )
+  }
+
+  const nextBooleanAnswer = (message: string): boolean => {
+    const answer = nextAnswer(message)
+    if (typeof answer === "boolean") return answer
+    throw new Error(
+      `prompt "${message}" needs a boolean scripted answer, got: ${String(answer)}`,
+    )
+  }
+
   const prompts: Prompts = {
     intro: () => {},
     outro: (message) => {
@@ -83,7 +102,7 @@ export const createScriptedPrompts = (
     },
     select: async (message, _options, initialValue) => {
       selectCalls.push({ message, initialValue })
-      return String(nextAnswer(message))
+      return nextStringAnswer(message)
     },
     multiselect: async (message, options) => {
       multiselectCalls.push({ message, options })
@@ -97,16 +116,16 @@ export const createScriptedPrompts = (
     },
     text: async (message, options) => {
       textCalls.push({ message, defaultValue: options?.defaultValue })
-      const answer = String(nextAnswer(message))
+      const answer = nextStringAnswer(message)
       // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
       if (answer === "" && options?.defaultValue !== undefined)
         return options.defaultValue
       return answer
     },
-    password: async (message) => String(nextAnswer(message)),
+    password: async (message) => nextStringAnswer(message),
     confirm: async (message, initialValue) => {
       confirmCalls.push({ message, initialValue })
-      return Boolean(nextAnswer(message))
+      return nextBooleanAnswer(message)
     },
     spinner: () => ({
       start: (message) => {
