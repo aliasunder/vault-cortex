@@ -18,7 +18,7 @@
     },
     {
       "title": "CLI",
-      "purpose": "The vault-cortex npm package under cli/ — the init, upgrade, and get-sync-token commands, their interactive and non-interactive flows, and the module structure under cli/src/."
+      "purpose": "The vault-cortex npm package under cli/ — the init, configure, upgrade, restart, logs, down, and get-sync-token commands, their interactive and non-interactive flows, and the module structure under cli/src/."
     },
     {
       "title": "Configuration Reference",
