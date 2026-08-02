@@ -13,6 +13,7 @@ type ScriptedAnswer = string | boolean | string[]
 type MultiselectCall = { message: string; options: SelectOption[] }
 type ConfirmCall = { message: string; initialValue: boolean }
 type SelectCall = { message: string; initialValue: string }
+type TextCall = { message: string; defaultValue: string | undefined }
 
 /**
  * A Prompts stub that replays canned answers in order and records what was
@@ -26,6 +27,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
   const multiselectCalls: MultiselectCall[] = []
   const confirmCalls: ConfirmCall[] = []
   const selectCalls: SelectCall[] = []
+  const textCalls: TextCall[] = []
 
   const nextAnswer = (message: string): ScriptedAnswer => {
     asked.push(message)
@@ -60,6 +62,7 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
       return answer
     },
     text: async (message, options) => {
+      textCalls.push({ message, defaultValue: options?.defaultValue })
       const answer = String(nextAnswer(message))
       // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
       if (answer === "" && options?.defaultValue !== undefined)
@@ -74,7 +77,15 @@ const createScriptedPrompts = (answers: ScriptedAnswer[]) => {
     spinner: () => ({ start: () => {}, stop: () => {} }),
   }
 
-  return { prompts, asked, errors, multiselectCalls, confirmCalls, selectCalls }
+  return {
+    prompts,
+    asked,
+    errors,
+    multiselectCalls,
+    confirmCalls,
+    selectCalls,
+    textCalls,
+  }
 }
 
 describe("readOptionalValue", () => {
@@ -212,6 +223,7 @@ describe("askOptionalSettings chooser", () => {
       scripted.multiselectCalls[0].options.map((option) => option.value),
     ).toEqual([
       "MEMORY_ENABLED",
+      "MEMORY_DIR",
       "FILE_TOOLS_ENABLED",
       "EMBEDDING_ENABLED",
       "PORT",
@@ -231,6 +243,7 @@ describe("askOptionalSettings chooser", () => {
       scripted.multiselectCalls[0].options.map((option) => option.value),
     ).toEqual([
       "MEMORY_ENABLED",
+      "MEMORY_DIR",
       "FILE_TOOLS_ENABLED",
       "EMBEDDING_ENABLED",
       "PORT",
@@ -251,6 +264,7 @@ describe("askOptionalSettings chooser", () => {
       scripted.multiselectCalls[0].options.map((option) => option.hint),
     ).toEqual([
       "MEMORY_ENABLED · currently false",
+      "MEMORY_DIR · currently not set",
       "FILE_TOOLS_ENABLED · currently not set",
       "EMBEDDING_ENABLED · currently not set",
       "PORT · currently 9000",
@@ -357,6 +371,38 @@ describe("askOptionalSettings per-setting prompts", () => {
       "PORT must be a whole number between 1 and 65535.",
     ])
     expect(overrides).toEqual({ PORT: "9000" })
+  })
+
+  it("collects a custom memory folder, seeded with the current value", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_DIR"], "Memory Bank"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Vault folder for the memory files:",
+        defaultValue: "About Me",
+      },
+    ])
+    expect(overrides).toEqual({ MEMORY_DIR: "Memory Bank" })
+  })
+
+  it("re-prompts on an empty memory folder until a name is given", async () => {
+    // No current value and no typed answer: the stub returns the prompt's
+    // defaultValue ("About Me"), so a genuinely empty submission needs the
+    // default suppressed — send whitespace, which trims to empty.
+    const scripted = createScriptedPrompts([["MEMORY_DIR"], "   ", "Notes"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual(["The folder name can't be empty."])
+    expect(overrides).toEqual({ MEMORY_DIR: "Notes" })
   })
 
   it("uses the default port on an empty submission", async () => {

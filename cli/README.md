@@ -46,9 +46,11 @@ What it does:
    - **Local** — Docker on this machine, your vault folder bind-mounted
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync),
      reachable from any device
-2. Offers the most common optional settings — memory layer, file tools,
-   semantic search, port, timezone (plus sync direction for remote) — press
-   enter to keep the defaults, or pick the ones you want to change
+2. Offers the most common optional settings — memory layer and its folder,
+   file tools, semantic search, port, timezone (plus sync direction for
+   remote) — press enter to keep the defaults, or pick the ones you want to
+   change. Skipped when the target directory already has a `.env` (use
+   [`configure`](#configure) instead)
 3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
 4. Optionally starts the container and waits for the health check
 5. Prints your connection details — the MCP URL, your auth token, and how to
@@ -80,10 +82,10 @@ Change optional settings on an existing setup:
 npx vault-cortex@latest configure
 ```
 
-Shows the same settings chooser as [`init`](#init) — memory layer, file
-tools, semantic search, port, timezone (plus sync direction for remote) —
-pre-filled with your current values, saves your picks to `.env`, and offers
-to restart the container so they take effect. Settings not in the chooser
+Shows the same settings chooser as [`init`](#init) — memory layer and its
+folder, file tools, semantic search, port, timezone (plus sync direction for
+remote) — pre-filled with your current values, saves your picks to `.env`,
+and offers to restart the container so they take effect. Settings not in the chooser
 live in `.env` too: edit the value there, then run [`restart`](#restart).
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.

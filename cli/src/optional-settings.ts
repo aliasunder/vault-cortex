@@ -20,6 +20,11 @@ type OptionalSetting =
   | (OptionalSettingBase & { kind: "port" })
   | (OptionalSettingBase & { kind: "timezone" })
   | (OptionalSettingBase & {
+      kind: "folder"
+      question: string
+      defaultValue: string
+    })
+  | (OptionalSettingBase & {
       kind: "choice"
       question: string
       choices: SelectOption[]
@@ -35,6 +40,13 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     name: "MEMORY_ENABLED",
     label: "Memory layer",
     question: "Enable the memory layer (About Me/ folder + memory tools)?",
+  },
+  {
+    kind: "folder",
+    name: "MEMORY_DIR",
+    label: "Memory folder",
+    question: "Vault folder for the memory files:",
+    defaultValue: "About Me",
   },
   {
     kind: "toggle",
@@ -211,6 +223,27 @@ const askTimezone = async (
   return askTimezone(currentValue, prompts)
 }
 
+/** Re-prompts until the answer is a non-empty folder name. */
+const askFolder = async (
+  params: {
+    question: string
+    currentValue: string | undefined
+    defaultValue: string
+  },
+  prompts: Prompts,
+): Promise<string> => {
+  const { question, currentValue, defaultValue } = params
+  const answer = (
+    await prompts.text(question, {
+      defaultValue: currentValue ?? defaultValue,
+      placeholder: defaultValue,
+    })
+  ).trim()
+  if (answer !== "") return answer
+  prompts.error("The folder name can't be empty.")
+  return askFolder(params, prompts)
+}
+
 /** Routes a picked setting to its kind's prompt and returns the .env value. */
 const askSettingValue = async (
   params: { setting: OptionalSetting; currentValue: string | undefined },
@@ -235,6 +268,15 @@ const askSettingValue = async (
       return askPort(currentValue, prompts)
     case "timezone":
       return askTimezone(currentValue, prompts)
+    case "folder":
+      return askFolder(
+        {
+          question: setting.question,
+          currentValue,
+          defaultValue: setting.defaultValue,
+        },
+        prompts,
+      )
     case "choice":
       return prompts.select(
         setting.question,
