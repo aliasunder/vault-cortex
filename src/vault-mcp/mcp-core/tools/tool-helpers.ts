@@ -6,6 +6,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
+import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import { describeError } from "../../../utils/describe-error.js"
 
 export type ToolRegistrationContext = {
@@ -62,6 +63,25 @@ export const dateFilterSchema = z
       .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
   })
   .optional()
+
+/** One-line, model-facing summary of a paged text read: the window served,
+ *  the rendition's total line count, and the next start_line when more
+ *  remains — shared by vault_read_note and vault_read_file. */
+export const describeTextWindow = (
+  path: string,
+  lineWindow: LineWindow,
+): string => {
+  const { startLine, endLine, totalLines } = lineWindow
+
+  if (totalLines === 0) return `${path} — 0 lines (end of file)`
+
+  const isLastWindow = endLine >= totalLines
+  const continuation = isLastWindow
+    ? "(end of file)"
+    : `(continue with start_line: ${endLine + 1})`
+
+  return `${path} — lines ${startLine}–${endLine} of ${totalLines} ${continuation}`
+}
 
 /** Wraps a handler with try/catch, returning isError on failure. The format
  *  callback produces the full content-block array — text, image, or mixed

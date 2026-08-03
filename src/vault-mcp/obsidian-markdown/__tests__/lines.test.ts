@@ -5,6 +5,7 @@ import {
   advanceFence,
   advanceComment,
   classifyLines,
+  pageTextByLines,
   type OpenFence,
 } from "../lines.js"
 
@@ -433,5 +434,130 @@ describe("classifyLines", () => {
       { text: "> code", inCode: true },
       { text: "not code anymore", inCode: false },
     ])
+  })
+})
+
+// ── pageTextByLines ─────────────────────────────────────────────
+
+describe("pageTextByLines", () => {
+  it("pages text to the requested 1-based window", () => {
+    const text = "alpha\nbeta\ngamma\ndelta\nepsilon"
+    const result = pageTextByLines({
+      text,
+      path: "note.md",
+      startLine: 2,
+      limit: 2,
+    })
+    expect(result.text).toBe("beta\ngamma")
+    expect(result.lineWindow).toEqual({
+      startLine: 2,
+      endLine: 3,
+      totalLines: 5,
+    })
+  })
+
+  it("returns remaining lines when limit is omitted", () => {
+    const text = "a\nb\nc\nd\ne"
+    const result = pageTextByLines({ text, path: "note.md", startLine: 4 })
+    expect(result.text).toBe("d\ne")
+    expect(result.lineWindow).toEqual({
+      startLine: 4,
+      endLine: 5,
+      totalLines: 5,
+    })
+  })
+
+  it("returns first lines when startLine is omitted", () => {
+    const text = "a\nb\nc\nd\ne"
+    const result = pageTextByLines({ text, path: "note.md", limit: 2 })
+    expect(result.text).toBe("a\nb")
+    expect(result.lineWindow).toEqual({
+      startLine: 1,
+      endLine: 2,
+      totalLines: 5,
+    })
+  })
+
+  it("normalizes CRLF to LF", () => {
+    const text = "alpha\r\nbeta\r\ngamma\r\n"
+    const result = pageTextByLines({
+      text,
+      path: "note.md",
+      startLine: 1,
+      limit: 3,
+    })
+    expect(result.text).toBe("alpha\nbeta\ngamma")
+    expect(result.lineWindow.totalLines).toBe(3)
+  })
+
+  it("does not count a trailing newline as a line", () => {
+    const text = "alpha\nbeta\n"
+    const result = pageTextByLines({ text, path: "note.md", startLine: 1 })
+    expect(result.lineWindow.totalLines).toBe(2)
+    expect(result.text).toBe("alpha\nbeta")
+  })
+
+  it("counts lines correctly without a trailing newline", () => {
+    const text = "line1\nline2\nline3"
+    const result = pageTextByLines({ text, path: "note.md", startLine: 1 })
+    expect(result.lineWindow.totalLines).toBe(3)
+  })
+
+  it("returns a zero-line window for empty text", () => {
+    const result = pageTextByLines({ text: "", path: "note.md", startLine: 1 })
+    expect(result.text).toBe("")
+    expect(result.lineWindow).toEqual({
+      startLine: 1,
+      endLine: 0,
+      totalLines: 0,
+    })
+  })
+
+  it("returns the empty window for a startLine past empty text", () => {
+    const result = pageTextByLines({ text: "", path: "note.md", startLine: 50 })
+    expect(result.text).toBe("")
+    expect(result.lineWindow).toEqual({
+      startLine: 50,
+      endLine: 49,
+      totalLines: 0,
+    })
+  })
+
+  it("clamps naturally when limit exceeds remaining lines", () => {
+    const text = "a\nb\nc\nd\ne"
+    const result = pageTextByLines({
+      text,
+      path: "note.md",
+      startLine: 4,
+      limit: 100,
+    })
+    expect(result.text).toBe("d\ne")
+    expect(result.lineWindow).toEqual({
+      startLine: 4,
+      endLine: 5,
+      totalLines: 5,
+    })
+  })
+
+  it("rejects a startLine below 1", () => {
+    expect(() =>
+      pageTextByLines({ text: "a\nb", path: "note.md", startLine: 0 }),
+    ).toThrow(
+      'invalid line range: "note.md" needs a start line and limit of at least 1',
+    )
+  })
+
+  it("rejects a limit below 1", () => {
+    expect(() =>
+      pageTextByLines({ text: "a\nb", path: "note.md", limit: 0 }),
+    ).toThrow(
+      'invalid line range: "note.md" needs a start line and limit of at least 1',
+    )
+  })
+
+  it("rejects a startLine past the end", () => {
+    expect(() =>
+      pageTextByLines({ text: "a\nb\nc", path: "note.md", startLine: 6 }),
+    ).toThrow('start line past the end: "note.md" renders to 3 lines')
   })
 })

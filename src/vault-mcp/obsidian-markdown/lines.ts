@@ -18,6 +18,82 @@ export const splitIntoLines = (content: string): string[] =>
     .split("\n")
     .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
+// ── Line paging ────────────────────────────────────────────────
+
+/** The 1-based line window a paged text read covered, plus the rendition's
+ *  total line count so the caller can tell a final page from a mid-file one. */
+export type LineWindow = Readonly<{
+  startLine: number
+  endLine: number
+  totalLines: number
+}>
+
+/** A paged text result: the windowed text (LF-joined) and the line window
+ *  metadata describing what was served and how much remains. */
+export type PagedTextResult = Readonly<{
+  text: string
+  lineWindow: LineWindow
+}>
+
+/**
+ * Pages a text string by line range — the shared primitive behind both
+ * vault_read_note and vault_read_file paging. Lines are counted wc -l style
+ * (a trailing newline's empty final element is not a line of content) and the
+ * window is rejoined with "\n", so CRLF sources come back LF-normalized.
+ *
+ * `path` is used only in error messages — the function does no I/O.
+ */
+export const pageTextByLines = (params: {
+  text: string
+  path: string
+  startLine?: number | undefined
+  limit?: number | undefined
+}): PagedTextResult => {
+  const { text, path, startLine, limit } = params
+
+  const splitLines = splitIntoLines(text)
+  // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
+  // that isn't a line of content — drop exactly that one element.
+  const hasTrailingNewlineArtifact =
+    splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
+  const contentLines = hasTrailingNewlineArtifact
+    ? splitLines.slice(0, -1)
+    : splitLines
+  const totalLines = contentLines.length
+
+  const firstLine = startLine ?? 1
+  // The tool schema already enforces >= 1, but a negative slice start would
+  // silently serve lines from the END of the rendition — guard here too so a
+  // future direct caller gets a loud error, never the wrong window.
+  const hasInvalidLineRange =
+    firstLine < 1 || (limit !== undefined && limit < 1)
+  if (hasInvalidLineRange) {
+    throw new Error(
+      `invalid line range: "${path}" needs a start line and limit of at least 1`,
+    )
+  }
+  // An empty rendition has no lines to overshoot — any window of it is the
+  // empty window; only a non-empty rendition can have a start past its end.
+  const isStartPastEnd = totalLines > 0 && firstLine > totalLines
+  if (isStartPastEnd) {
+    throw new Error(
+      `start line past the end: "${path}" renders to ${totalLines} lines`,
+    )
+  }
+
+  const windowLines = contentLines.slice(
+    firstLine - 1,
+    limit === undefined ? undefined : firstLine - 1 + limit,
+  )
+  const windowText = windowLines.join("\n")
+  const endLine = firstLine - 1 + windowLines.length
+
+  return {
+    text: windowText,
+    lineWindow: { startLine: firstLine, endLine, totalLines },
+  }
+}
+
 // ── Blank-edge trimming ─────────────────────────────────────────
 
 /** Drops blank lines from both ends of a line array, keeping interior blanks
