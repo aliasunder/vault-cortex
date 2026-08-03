@@ -1,0 +1,72 @@
+name: Umm Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+# Non-trigger comments still create a (guard-skipped) run — isolate them in a
+# per-run group so they can't cancel an in-flight review. Every comment the
+# review posts on the PR would otherwise kill the very run it belongs to.
+concurrency:
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !contains(github.event.comment.body, '@umm review')) && format('-noop-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    name: umm, actually
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.user.login == github.repository_owner
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.user.login == github.repository_owner &&
+        contains(github.event.comment.body, '@umm review')
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.UMM_CLIENT_ID }}
+          private-key: ${{ secrets.UMM_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          # Enables the branded check run (App avatar in the checks list)
+          permission-checks: write
+
+      # Every optional input is overridable via a repo variable; unset vars
+      # fall back to the action's defaults. Inputs whose default is empty
+      # (fallback_model, max_findings) pass empty when the var is unset —
+      # identical to omitting them.
+      - uses: aliasunder/umm-actually@f453e8b29656803b7a39c41da9e49d7fd2f2cc1b # v0.3.0
+        with:
+          github_token: ${{ steps.app-token.outputs.token }}
+          openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
+          model: ${{ vars.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-6' }}
+          fallback_model: ${{ vars.UMM_FALLBACK_MODEL }}
+          max_findings: ${{ vars.UMM_MAX_FINDINGS }}
+          severity_threshold: ${{ vars.UMM_SEVERITY_THRESHOLD || 'low' }}
+          conventions_file: ${{ vars.UMM_CONVENTIONS_FILE || 'AGENTS.md' }}
+          priority_docs: ${{ vars.UMM_PRIORITY_DOCS || 'README.md' }}
+          context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '80000' }}
+          trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
+          max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
+          max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '262144' }}
+          max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
+          max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
+          cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}
