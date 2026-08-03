@@ -60,7 +60,11 @@ npx vault-cortex@latest init
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex@latest upgrade` ([details →](./cli/#upgrade))
+![npx vault-cortex init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](./assets/demo-cli-init.gif)
+
+**Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
+
+**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -93,7 +97,9 @@ npx vault-cortex@latest init --mode remote
 
 That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex@latest upgrade` ([details →](./cli/#upgrade))
+**Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
+
+**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -161,15 +167,27 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## How It Works
 
+Everything runs in one Docker container, working directly with the `.md` files on disk:
+
+- **Your vault stays the source of truth** — the server reads and writes the same plain Markdown files your Obsidian apps do.
+- **Search is derived data** — a file watcher keeps the index (keywords + vectors) current as notes change, and it can be rebuilt from your notes at any time.
+- **The remote image adds a sync loop** — a bundled Obsidian Sync service keeps the container's vault current with every device: edit a note on your phone and it's searchable moments later; an agent writes a note and it shows up in Obsidian.
+
 ```mermaid
 graph LR
-    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["MCP server"]
-    Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|FTS5 + vector| SQLite[("SQLite\nFTS5 + sqlite-vec")]
-    Sync["Obsidian Sync service"] <-->|Obsidian Sync| Vault
+    subgraph container ["One Docker container"]
+        Sync["sync service<br/>(remote image)"]
+        Vault[("/vault<br/>.md files — source of truth")]
+        Index[("search index<br/>keywords + vectors")]
+        Server["MCP server"]
+        Sync <-->|read/write| Vault
+        Vault -->|file watcher| Index
+        Server <-->|read/write| Vault
+        Server -->|query| Index
+    end
+    Obsidian["Your Obsidian apps<br/>(phone, laptop)"] <-->|Obsidian Sync| Sync
+    Client["Any MCP client<br/>(Claude, Cursor, claude.ai)"] -->|OAuth 2.1 / Bearer| Server
 ```
-
-The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. The sync service keeps the vault in sync with your Obsidian apps — it ships inside the same container in the `:remote` image variant (remote deployments only; the default `:latest` image is the MCP server alone).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
 
