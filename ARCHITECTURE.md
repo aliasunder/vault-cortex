@@ -252,16 +252,16 @@ Link queries use a `links` table populated during indexing:
 
 ### Files
 
-| Tool               | Input                          | Annotation   |
-| ------------------ | ------------------------------ | ------------ |
-| `vault_read_file`  | `path, raw?`                   | readOnlyHint |
-| `vault_list_files` | `folder?, extensions?, limit?` | readOnlyHint |
+| Tool               | Input                             | Annotation   |
+| ------------------ | --------------------------------- | ------------ |
+| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
+| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
 
 `vault_read_file` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
 2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity.
-3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation).
+3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js). A document metadata header (title, page count, link count), heading hierarchy inferred from relative font sizes, fenced code blocks detected via monospace fonts, page separators, and a deduplicated links footer. `raw: true` switches to page-image mode: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
 5. **Unknown types** return an error naming the readable set.
 

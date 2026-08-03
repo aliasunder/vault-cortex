@@ -8,6 +8,7 @@ import {
 import type { StructuredTextItem } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -20,7 +21,8 @@ import type { Logger } from "../../logger.js"
  *
  * - `readAssetContent` dispatches one file to its most useful representation:
  *   images fitted to a byte budget, canvases linearized (or their raw JSON
- *   source), text formats decoded verbatim, structured errors for the rest.
+ *   source), text formats decoded verbatim — whole, or as a 1-based line
+ *   window when paging params are supplied — structured errors for the rest.
  * - `buildAssetListing` browses many: extension-filtered, counted per
  *   extension over the full filtered set, and capped to a statted slice.
  *   There is no pagination — `limit` caps the returned entries, and
@@ -50,12 +52,21 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
 /** Fixed cap on text output (passthrough files and canvas renditions) so a
  *  huge text asset can't blow a client's response limit. Deliberately not an
  *  env var — the image budget is the tunable surface; text past this size
- *  needs paging, not a bigger blob. */
+ *  is read in line windows, not raised into a bigger blob. */
 const MAX_TEXT_OUTPUT_BYTES = 102_400
 
+/** The 1-based line window a paged text read covered, plus the rendition's
+ *  total line count so the caller can tell a final page from a mid-file one. */
+export type LineWindow = Readonly<{
+  startLine: number
+  endLine: number
+  totalLines: number
+}>
+
 /** The computed result of one asset read, before content-block formatting:
- *  an image (fitted to the byte budget), a text rendition, or multiple
- *  sequential page images (e.g. rendered PDF pages). */
+ *  an image (fitted to the byte budget), a text rendition (whole, or a line
+ *  window when paging params were supplied), or multiple sequential page
+ *  images (e.g. rendered PDF pages). */
 export type AssetReadResult =
   | Readonly<{
       kind: "image"
@@ -63,7 +74,12 @@ export type AssetReadResult =
       originalBytes: number
       path: string
     }>
-  | Readonly<{ kind: "text"; text: string }>
+  | Readonly<{
+      kind: "text"
+      text: string
+      path: string
+      lineWindow?: LineWindow
+    }>
   /** Multiple sequential page images — e.g. rendered PDF pages. */
   | Readonly<{
       kind: "pages"
@@ -89,6 +105,82 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
     `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
       `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
   )
+}
+
+/**
+ * Builds the text result for a rendition — whole or paged. Without paging
+ * params the full text returns byte-identical, cap enforced as before. With
+ * paging, lines are counted wc -l style (a trailing newline's empty final
+ * element is not a line of content) and the window is rejoined with "\n", so
+ * CRLF sources come back LF-normalized. A start line past the last line
+ * errors with the total so the caller can re-aim; the cap applies to the
+ * window itself, so a single oversized line still errors.
+ */
+const buildPagedTextResult = (params: {
+  text: string
+  path: string
+  startLine?: number | undefined
+  limit?: number | undefined
+}): AssetReadResult => {
+  const { text, path, startLine, limit } = params
+  const isPagedRead = startLine !== undefined || limit !== undefined
+  if (!isPagedRead) {
+    assertTextWithinCap({ text, path })
+    return { kind: "text", text, path }
+  }
+
+  const splitLines = splitIntoLines(text)
+  // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
+  // that isn't a line of content — drop exactly that one element.
+  const hasTrailingNewlineArtifact =
+    splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
+  const contentLines = hasTrailingNewlineArtifact
+    ? splitLines.slice(0, -1)
+    : splitLines
+  const totalLines = contentLines.length
+
+  const firstLine = startLine ?? 1
+  // The tool schema already enforces >= 1, but a negative slice start would
+  // silently serve lines from the END of the rendition — guard here too so a
+  // future direct caller gets a loud error, never the wrong window.
+  const hasInvalidLineRange =
+    firstLine < 1 || (limit !== undefined && limit < 1)
+  if (hasInvalidLineRange) {
+    throw new Error(
+      `invalid line range: "${path}" needs a start line and limit of at least 1`,
+    )
+  }
+  // An empty rendition has no lines to overshoot — any window of it is the
+  // empty window; only a non-empty rendition can have a start past its end.
+  const isStartPastEnd = totalLines > 0 && firstLine > totalLines
+  if (isStartPastEnd) {
+    throw new Error(
+      `start line past the end: "${path}" renders to ${totalLines} lines`,
+    )
+  }
+
+  const windowLines = contentLines.slice(
+    firstLine - 1,
+    limit === undefined ? undefined : firstLine - 1 + limit,
+  )
+  const windowText = windowLines.join("\n")
+  const endLine = firstLine - 1 + windowLines.length
+
+  const windowBytes = Buffer.byteLength(windowText, "utf8")
+  const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
+  if (exceedsByteCap) {
+    throw new Error(
+      `text output too large: "${path}" lines ${firstLine}–${endLine} ` +
+        `render to ${windowBytes} bytes (cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
+    )
+  }
+
+  return {
+    kind: "text",
+    text: windowText,
+    path,
+    lineWindow: { startLine: firstLine, endLine, totalLines },
+  }
 }
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
@@ -302,21 +394,28 @@ const reconstructPdfMarkdown = (params: {
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type; `raw` skips the canvas rendition for the exact JSON source.
- * Throws structured errors for images with `raw` and unsupported types —
- * each stating the file's existence and size.
+ * `startLine`/`limit` page any text rendition as a 1-based line window —
+ * they apply after the rendition is produced (passthrough source, canvas
+ * outline or raw JSON, PDF-extracted text), so every path that can hit the
+ * text cap can also be paged. Throws structured errors for images with
+ * `raw`, non-text reads with paging params, and unsupported types — each
+ * stating the file's existence and size.
  */
 const readAssetContent = async (
   params: {
     vaultPath: string
     path: string
     raw?: boolean | undefined
+    startLine?: number | undefined
+    limit?: number | undefined
     maxFileBytes: number
     maxImageOutputBytes: number
     maxPdfRenderPages: number
   },
   logger: Logger,
 ): Promise<AssetReadResult> => {
-  const { path, raw } = params
+  const { path, raw, startLine, limit } = params
+  const isPagedRead = startLine !== undefined || limit !== undefined
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
@@ -325,6 +424,12 @@ const readAssetContent = async (
   if (isImage && raw) {
     throw new Error(
       `raw source is not available for images: "${path}" is ` +
+        `binary — its image block is the delivered form`,
+    )
+  }
+  if (isImage && isPagedRead) {
+    throw new Error(
+      `line range is not available for images: "${path}" is ` +
         `binary — its image block is the delivered form`,
     )
   }
@@ -338,15 +443,19 @@ const readAssetContent = async (
   if (asset.extension === ".canvas") {
     const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
     const text = raw ? canvasSource : linearizeCanvas(canvasSource)
-    assertTextWithinCap({ text, path })
-    return { kind: "text", text }
+    return buildPagedTextResult({ text, path, startLine, limit })
   }
   if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
     const text = decodeUtf8Strict({ buffer: asset.buffer, path })
-    assertTextWithinCap({ text, path })
-    return { kind: "text", text }
+    return buildPagedTextResult({ text, path, startLine, limit })
   }
   if (asset.extension === ".pdf") {
+    if (raw && isPagedRead) {
+      throw new Error(
+        `line range is not available for rendered PDF pages: ` +
+          `"${path}" delivers page images, not text`,
+      )
+    }
     // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
     // so byteOffset/byteLength carve out this buffer's portion.
     const pdfData = new Uint8Array(
@@ -417,8 +526,7 @@ const readAssetContent = async (
         items,
         pdfLinks: linkResult.links ?? [],
       })
-      assertTextWithinCap({ text, path })
-      return { kind: "text", text }
+      return buildPagedTextResult({ text, path, startLine, limit })
     } finally {
       proxy.cleanup()
     }
