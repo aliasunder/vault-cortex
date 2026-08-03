@@ -76,9 +76,13 @@ jobs:
           # context. Nested paths fine; spaces after commas fine; never
           # quote individual paths (quotes are not stripped), e.g.
           # README.md, docs/deploy/lightsail.md
+          # No count cap — bounded only by the shared token budget below;
+          # docs that don't fit are named in the review's context notes
           priority_docs: ${{ vars.UMM_PRIORITY_DOCS || 'README.md' }}
-          # Approximate token budget for prompt context (file contents +
-          # diff)
+          # One shared token pool for all prompt context, spent in priority
+          # order: diff → changed files → import-traced related files →
+          # priority docs → mention-matched docs. (Conventions file has its
+          # own separate cap inside the action.)
           context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '80000' }}
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
@@ -86,8 +90,10 @@ jobs:
           # Positive integers — workspace scan bounds
           max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
           max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '262144' }}
-          # Positive integers — caps on import-traced files / mention-
-          # matched docs added to context
+          # Count caps are independent buckets: max_related_files caps
+          # import-traced code files only; max_related_docs caps
+          # mention-matched docs only and NEVER counts priority_docs
+          # (those are excluded from its bucket)
           max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
           max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
           # true | false — per-run cost report in the workflow step summary
