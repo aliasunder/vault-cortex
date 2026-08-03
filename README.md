@@ -161,15 +161,23 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## How It Works
 
+Everything runs in one Docker container. The MCP server works directly with the `.md` files on disk, and a file watcher keeps the search index (keywords + vectors) current as notes change. Your vault stays the source of truth: the server reads and writes plain Markdown, and the index is derived data it can rebuild from your notes at any time. In the remote image, a bundled Obsidian Sync service keeps the container's vault current with every device — edit a note on your phone and it's searchable moments later; an agent writes a note and it shows up in Obsidian.
+
 ```mermaid
 graph LR
-    Client["MCP Client"] -->|OAuth 2.1 / Bearer| Server["MCP server"]
-    Server -->|read/write| Vault[("/vault<br/>.md files")]
-    Server -->|FTS5 + vector| SQLite[("SQLite\nFTS5 + sqlite-vec")]
-    Sync["Obsidian Sync service"] <-->|Obsidian Sync| Vault
+    subgraph container ["One Docker container"]
+        Sync["sync service<br/>(remote image)"]
+        Vault[("/vault<br/>.md files — source of truth")]
+        Index[("search index<br/>keywords + vectors")]
+        Server["MCP server"]
+        Sync <-->|read/write| Vault
+        Vault -->|file watcher| Index
+        Server <-->|read/write| Vault
+        Server -->|query| Index
+    end
+    Obsidian["Your Obsidian apps<br/>(phone, laptop)"] <-->|Obsidian Sync| Sync
+    Client["Any MCP client<br/>(Claude, Cursor, claude.ai)"] -->|OAuth 2.1 / Bearer| Server
 ```
-
-The search index is rebuildable derived state — FTS5 keyword tables rebuild on startup, vector embeddings persist across restarts with content-hash gating (only changed notes re-embed). A file watcher keeps both current, and queries fuse both signals via Reciprocal Rank Fusion. The sync service keeps the vault in sync with your Obsidian apps — it ships inside the same container in the `:remote` image variant (remote deployments only; the default `:latest` image is the MCP server alone).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
 
