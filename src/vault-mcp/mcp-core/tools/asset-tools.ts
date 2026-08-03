@@ -2,7 +2,10 @@
 
 import { z } from "zod"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
-import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
+import type {
+  AssetReadResult,
+  LineWindow,
+} from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
@@ -30,6 +33,21 @@ const describeDeliveredImage = (result: {
   if (!fitted.recompressed)
     return `${delivered} (original file, not recompressed)`
   return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
+}
+
+/** One-line, model-facing summary of a paged text read: the window served,
+ *  the rendition's total line count, and the next start_line when more
+ *  remains — mirroring the metadata line image and page reads carry. */
+const describeTextWindow = (path: string, lineWindow: LineWindow): string => {
+  if (lineWindow.totalLines === 0) return `${path} — 0 lines (end of file)`
+  const continuation =
+    lineWindow.endLine >= lineWindow.totalLines
+      ? "(end of file)"
+      : `(continue with start_line: ${lineWindow.endLine + 1})`
+  return (
+    `${path} — lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
+    `of ${lineWindow.totalLines} ${continuation}`
+  )
 }
 
 /** Formats an asset read result into MCP content blocks — the image, pages,
@@ -68,6 +86,15 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
     ])
     return [{ type: "text", text: metadataLine }, ...pageBlocks]
   }
+  if (result.lineWindow) {
+    return [
+      {
+        type: "text",
+        text: describeTextWindow(result.path, result.lineWindow),
+      },
+      { type: "text", text: result.text },
+    ]
+  }
   return [{ type: "text", text: result.text }]
 }
 
@@ -87,6 +114,7 @@ Example: vault_read_file({ path: "attachments/diagram.png" }) — the image itse
 Example: vault_read_file({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_file({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_file({ path: "exports/data.json" }) — the file content as text
+Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines, preceded by a metadata line stating the window and total line count
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 Example: vault_read_file({ path: "papers/research.pdf", raw: true }) — each page rendered as an image block
 
@@ -95,14 +123,17 @@ What each type returns:
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
 - PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes), fenced code blocks (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to ${config.maxPdfRenderPages} pages are rendered.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
+- Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. For .md notes use vault_read_note — this tool rejects them.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. For .md notes use vault_read_note — this tool rejects them. To check a large file's size before reading it whole, request start_line: 1 with limit: 1 — one line plus the total line count.
 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
 - "file not found" — nothing exists at that path; discover valid paths via vault_list_files
 - "file too large" — the file exceeds the server's read cap (MAX_FILE_BYTES, default 50 MiB)
-- "text output too large" — a text file or PDF renders past the output cap; only smaller files can be returned whole
+- "text output too large" — a text file or PDF renders past the output cap; page it with start_line and limit, or reduce limit when a single window overflows
+- "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
+- "line range is not available" — start_line/limit on an image or on a PDF with raw: true; line paging applies to text results only
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
 - "PDF has no extractable text" — the PDF exists but contains no text content (scanned or image-only); states the page count. Set raw: true to render pages as images instead
 - "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
@@ -110,7 +141,7 @@ Errors:
 - "raw source is not available for images" — raw applies to text-representable files; an image's delivered form is its image block
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block.
+Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.
 
 Search coverage: vault_search indexes markdown notes; find files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
       inputSchema: {
@@ -126,6 +157,22 @@ Search coverage: vault_search indexes markdown notes; find files by browsing (va
           .describe(
             "Return an alternative representation of the file. For .canvas this is the JSON Canvas source (geometry, ids, colors); for .pdf this renders pages as images instead of extracting text — useful for scanned documents, diagrams, and layout-sensitive content. Text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
           ),
+        start_line: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "First line to return, 1-based (default 1). Pages any text result — text formats, canvas outlines and raw JSON, PDF-extracted text. Not valid for images or for PDFs with raw: true.",
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line. The output byte cap still applies to the window — reduce limit if it overflows.",
+          ),
       },
       annotations: {
         readOnlyHint: true,
@@ -134,12 +181,12 @@ Search coverage: vault_search indexes markdown notes; find files by browsing (va
         openWorldHint: false,
       },
     },
-    async ({ path, raw }, extra) => {
+    async ({ path, raw, start_line, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_FILE,
       })
-      reqLogger.info("tool_call", { path, raw })
+      reqLogger.info("tool_call", { path, raw, startLine: start_line, limit })
       return safeHandlerContent(
         reqLogger,
         () =>
@@ -148,6 +195,8 @@ Search coverage: vault_search indexes markdown notes; find files by browsing (va
               vaultPath,
               path,
               raw,
+              startLine: start_line,
+              limit,
               maxFileBytes: config.maxFileBytes,
               maxImageOutputBytes: config.maxImageOutputBytes,
               maxPdfRenderPages: config.maxPdfRenderPages,
@@ -177,6 +226,7 @@ Search coverage: vault_search indexes markdown notes; find files by browsing (va
             reqLogger.info("tool_result", {
               path,
               textBytes: Buffer.byteLength(result.text, "utf8"),
+              ...(result.lineWindow ?? {}),
             })
           }
           return formatAssetReadResult(result)

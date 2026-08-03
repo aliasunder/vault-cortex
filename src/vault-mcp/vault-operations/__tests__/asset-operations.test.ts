@@ -104,6 +104,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "papers/research.pdf",
       text: [
         "Title: Research Paper | Pages: 1 | Links: 1",
         "",
@@ -153,6 +154,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "doc.pdf",
       text: [
         "Title: Code Doc | Pages: 1",
         "",
@@ -195,6 +197,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "doc.pdf",
       text: [
         "Title: Links Doc | Pages: 1 | Links: 2",
         "",
@@ -227,6 +230,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "untitled.pdf",
       text: ["Title: (untitled) | Pages: 1", "", "Hello"].join("\n"),
     })
   })
@@ -256,6 +260,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "multi.pdf",
       text: [
         "Title: Multi-page | Pages: 2",
         "",
@@ -465,6 +470,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "code.pdf",
       text: [
         "Title: Trailing Code | Pages: 1",
         "",
@@ -505,6 +511,7 @@ describe("readAssetContent — PDF extraction", () => {
 
     expect(result).toEqual({
       kind: "text",
+      path: "flat.pdf",
       text: [
         "Title: Flat Doc | Pages: 1",
         "",
@@ -775,5 +782,240 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       pagesRendered: 1,
       path: "notitle.pdf",
     })
+  })
+})
+
+describe("readAssetContent — line paging", () => {
+  /** Stubs readAsset with a UTF-8 text file of the given extension. */
+  const stubReadAsset = (content: string, extension: string): void => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from(content, "utf8"),
+      bytes: Buffer.byteLength(content, "utf8"),
+      extension,
+    })
+  }
+
+  it("pages a text file to the requested window with 1-based metadata", async () => {
+    stubReadAsset("line1\nline2\nline3\nline4\nline5\n", ".csv")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "data.csv", startLine: 2, limit: 2 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "line2\nline3",
+      path: "data.csv",
+      lineWindow: { startLine: 2, endLine: 3, totalLines: 5 },
+    })
+  })
+
+  it("returns the remaining lines when limit is omitted", async () => {
+    stubReadAsset("line1\nline2\nline3\nline4\nline5\n", ".log")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "server.log", startLine: 4 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "line4\nline5",
+      path: "server.log",
+      lineWindow: { startLine: 4, endLine: 5, totalLines: 5 },
+    })
+  })
+
+  it("returns the first lines when the start line is omitted", async () => {
+    stubReadAsset("line1\nline2\nline3\nline4\nline5\n", ".txt")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "notes.txt", limit: 2 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "line1\nline2",
+      path: "notes.txt",
+      lineWindow: { startLine: 1, endLine: 2, totalLines: 5 },
+    })
+  })
+
+  it("returns LF-joined lines for a CRLF file", async () => {
+    stubReadAsset("alpha\r\nbeta\r\ngamma\r\n", ".csv")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "windows.csv", startLine: 1, limit: 3 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "alpha\nbeta\ngamma",
+      path: "windows.csv",
+      lineWindow: { startLine: 1, endLine: 3, totalLines: 3 },
+    })
+  })
+
+  it("does not count a trailing newline's empty final line", async () => {
+    stubReadAsset("alpha\nbeta\n", ".txt")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "trailing.txt", startLine: 1 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "alpha\nbeta",
+      path: "trailing.txt",
+      lineWindow: { startLine: 1, endLine: 2, totalLines: 2 },
+    })
+  })
+
+  it("returns a zero-line window for an empty file", async () => {
+    stubReadAsset("", ".csv")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "empty.csv", startLine: 1 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "",
+      path: "empty.csv",
+      lineWindow: { startLine: 1, endLine: 0, totalLines: 0 },
+    })
+  })
+
+  it("returns the empty window for a start line past an empty file", async () => {
+    stubReadAsset("", ".log")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "empty.log", startLine: 50 },
+      logger,
+    )
+
+    // The window covers [startLine, endLine] and is empty when
+    // endLine < startLine — an empty rendition has nothing to overshoot.
+    expect(result).toEqual({
+      kind: "text",
+      text: "",
+      path: "empty.log",
+      lineWindow: { startLine: 50, endLine: 49, totalLines: 0 },
+    })
+  })
+
+  it("rejects a start line past the end stating the total line count", async () => {
+    stubReadAsset("alpha\nbeta\ngamma\n", ".csv")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "data.csv", startLine: 4 },
+        logger,
+      ),
+    ).rejects.toThrow('start line past the end: "data.csv" renders to 3 lines')
+  })
+
+  it("rejects a paged window that still exceeds the output cap", async () => {
+    const oversizedLine = "x".repeat(102_401)
+    stubReadAsset(`${oversizedLine}\nshort line\n`, ".log")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "big.log", startLine: 1, limit: 1 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'text output too large: "big.log" lines 1–1 render to 102401 bytes ' +
+        "(cap 102400 bytes)",
+    )
+  })
+
+  it("pages the reconstructed PDF text", async () => {
+    stubReadAsset("fake-pdf-bytes", ".pdf")
+    mockGetMeta.mockResolvedValue({
+      info: { Title: "Research Paper" },
+    })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          ...buildPageItems(["Introduction"], { fontSize: 18 }),
+          ...buildPageItems(["This is the body text of the paper."], {
+            fontSize: 10.5,
+          }).map((item) => ({ ...item, y: 750 })),
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({
+      links: ["https://example.com"],
+      totalPages: 1,
+    })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "papers/research.pdf", startLine: 3, limit: 2 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "# Introduction\nThis is the body text of the paper.",
+      path: "papers/research.pdf",
+      lineWindow: { startLine: 3, endLine: 4, totalLines: 7 },
+    })
+  })
+
+  it("pages the raw canvas source", async () => {
+    stubReadAsset('{\n  "nodes": [],\n  "edges": []\n}', ".canvas")
+
+    const result = await assetOperations.readAssetContent(
+      {
+        ...defaultParams,
+        path: "Boards/Roadmap.canvas",
+        raw: true,
+        startLine: 2,
+        limit: 2,
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: '  "nodes": [],\n  "edges": []',
+      path: "Boards/Roadmap.canvas",
+      lineWindow: { startLine: 2, endLine: 3, totalLines: 4 },
+    })
+  })
+
+  it("rejects paging combined with raw PDF page rendering", async () => {
+    stubReadAsset("fake-pdf-bytes", ".pdf")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "doc.pdf", raw: true, startLine: 1 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'line range is not available for rendered PDF pages: "doc.pdf" ' +
+        "delivers page images, not text",
+    )
+  })
+
+  it("rejects paging for an image", async () => {
+    stubReadAsset("fake-png-bytes", ".png")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "pic.png", limit: 10 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'line range is not available for images: "pic.png" is binary — ' +
+        "its image block is the delivered form",
+    )
   })
 })

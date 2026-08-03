@@ -302,6 +302,13 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_note")
   })
 
+  it("vault_read_file description documents the line-paging error contracts", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_FILE)
+    expect(config.description).toContain('"start line past the end"')
+    expect(config.description).toContain('"line range is not available"')
+    expect(config.description).toContain("page it with start_line and limit")
+  })
+
   it("vault_list_files description cross-references vault_read_file", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_FILES)
     expect(config.description).toContain("vault_read_file")
@@ -1263,6 +1270,85 @@ describe("file tool handlers", () => {
       expect(result.content).toEqual([{ type: "text", text: content }])
     },
   )
+
+  it("pages a text file and prepends the window metadata block", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "data.csv"), "l1\nl2\nl3\nl4\n", "utf8")
+    const result = await readAsset({
+      path: "data.csv",
+      start_line: 2,
+      limit: 2,
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "data.csv — lines 2–3 of 4 (continue with start_line: 4)",
+        },
+        { type: "text", text: "l2\nl3" },
+      ],
+    })
+  })
+
+  it("reports end of file on the final window", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "data.csv"), "l1\nl2\nl3\nl4\n", "utf8")
+    const result = await readAsset({
+      path: "data.csv",
+      start_line: 3,
+      limit: 5,
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "data.csv — lines 3–4 of 4 (end of file)" },
+        { type: "text", text: "l3\nl4" },
+      ],
+    })
+  })
+
+  it("reports a zero-line window for a paged empty file", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "empty.log"), "", "utf8")
+    const result = await readAsset({ path: "empty.log", start_line: 1 })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "empty.log — 0 lines (end of file)" },
+        { type: "text", text: "" },
+      ],
+    })
+  })
+
+  it("rejects a start line past the end of the file", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "data.csv"), "l1\nl2\nl3\nl4\n", "utf8")
+    const result = await readAsset({ path: "data.csv", start_line: 9 })
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: start line past the end: "data.csv" renders to 4 lines',
+        },
+      ],
+    })
+  })
+
+  it("rejects paging for an image", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "pic.png"), Buffer.from([0x89, 0x50]))
+    const result = await readAsset({ path: "pic.png", limit: 5 })
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text:
+            '[Error]: line range is not available for images: "pic.png" is ' +
+            "binary — its image block is the delivered form",
+        },
+      ],
+    })
+  })
 
   it("returns a small PNG as an image block with a metadata text line", async () => {
     const { vault, readAsset } = await setupAssetHarness()
