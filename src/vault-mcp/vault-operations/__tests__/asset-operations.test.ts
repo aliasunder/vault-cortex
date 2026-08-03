@@ -875,6 +875,22 @@ describe("readAssetContent — line paging", () => {
     })
   })
 
+  it("counts lines correctly for a file without a trailing newline", async () => {
+    stubReadAsset("line1\nline2\nline3", ".csv")
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "no-trailing.csv", startLine: 2, limit: 2 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "line2\nline3",
+      path: "no-trailing.csv",
+      lineWindow: { startLine: 2, endLine: 3, totalLines: 3 },
+    })
+  })
+
   it("returns a zero-line window for an empty file", async () => {
     stubReadAsset("", ".csv")
 
