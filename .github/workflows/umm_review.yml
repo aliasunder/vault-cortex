@@ -1,0 +1,123 @@
+name: Umm Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+# Non-trigger comments still create a (guard-skipped) run — isolate them in a
+# per-run group so they can't cancel an in-flight review. Every comment the
+# review posts on the PR would otherwise kill the very run it belongs to.
+concurrency:
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '@umm review')) && format('-noop-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    name: umm, actually
+    if: >-
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.user.login == github.repository_owner
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.user.login == github.repository_owner &&
+        startsWith(github.event.comment.body, '@umm review')
+      )
+    permissions:
+      contents: read
+    steps:
+      # issue_comment events check out the default branch unless overridden —
+      # the action reads workspace files for context, so it needs the PR head.
+      # Only same-repo PR heads are eligible: fork content must never enter
+      # this secrets-bearing workflow, so fork PRs fall back to the default
+      # checkout (reviewed from the API diff with base-branch context). Runs
+      # before any checkout, on a read-only token, with no untrusted input.
+      - name: Resolve review checkout ref
+        id: review-ref
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          same_repo=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '.head.repo.full_name == .base.repo.full_name')
+          if [ "$same_repo" = "true" ]; then
+            echo "ref=refs/pull/${PR_NUMBER}/head" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Empty for pull_request events (gate skipped) and fork PRs —
+          # checkout then uses its default ref
+          ref: ${{ steps.review-ref.outputs.ref }}
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.UMM_CLIENT_ID }}
+          private-key: ${{ secrets.UMM_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          # Enables the branded check run (App avatar in the checks list)
+          permission-checks: write
+
+      # Every optional input is overridable via a repo variable (Settings →
+      # Secrets and variables → Actions → Variables); unset vars fall back
+      # to the action's defaults. Inputs whose default is empty
+      # (fallback_model, max_findings) pass empty when the var is unset —
+      # identical to omitting them.
+      - uses: aliasunder/umm-actually@f453e8b29656803b7a39c41da9e49d7fd2f2cc1b # v0.3.0
+        with:
+          github_token: ${{ steps.app-token.outputs.token }}
+          openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
+          # Full OpenRouter slug as listed on openrouter.ai/models — no
+          # "openrouter/" prefix, e.g. deepseek/deepseek-v4-pro
+          model: ${{ vars.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-6' }}
+          # Same slug format; retried when the primary fails structured
+          # output. Empty = no fallback
+          fallback_model: ${{ vars.UMM_FALLBACK_MODEL }}
+          # Positive integer cap on posted findings (highest severity
+          # first). Empty = uncapped
+          max_findings: ${{ vars.UMM_MAX_FINDINGS }}
+          # Minimum severity to post: low | medium | high | critical
+          severity_threshold: ${{ vars.UMM_SEVERITY_THRESHOLD || 'low' }}
+          # Repo-relative path to the conventions/instructions file fed to
+          # the model
+          conventions_file: ${{ vars.UMM_CONVENTIONS_FILE || 'AGENTS.md' }}
+          # Comma-separated repo-relative paths always included in review
+          # context. Nested paths fine; spaces after commas fine; never
+          # quote individual paths (quotes are not stripped), e.g.
+          # README.md, docs/deploy/lightsail.md
+          # No count cap — bounded only by the shared token budget below;
+          # docs that don't fit are named in the review's context notes
+          priority_docs: ${{ vars.UMM_PRIORITY_DOCS || 'README.md' }}
+          # One shared token pool for all prompt context, spent in priority
+          # order: diff → changed files → import-traced related files →
+          # priority docs → mention-matched docs. (Conventions file has its
+          # own separate cap inside the action.)
+          context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '80000' }}
+          # true | false — import-tracing (caller regressions) and
+          # doc-mention scanning (staleness)
+          trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
+          # Positive integers — workspace scan bounds
+          max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
+          max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '262144' }}
+          # Count caps are independent buckets: max_related_files caps
+          # import-traced code files only; max_related_docs caps
+          # mention-matched docs only and NEVER counts priority_docs
+          # (those are excluded from its bucket)
+          max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
+          max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
+          # true | false — per-run cost report in the workflow step summary
+          cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}
