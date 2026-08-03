@@ -61,6 +61,26 @@
 
 
 
+
+## [0.34.0] — 2026-08-03
+
+### Features
+
+- **files:** Line paging for vault_read_file text results (#397)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.33.7
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.3.1 (#399)
+- Replace PR-Agent with umm-actually for PR review (#398)
+
+### Maintenance
+
+- **deps:** Bump fast-uri from 3.1.4 to 3.1.5 (#400)
+
 ## [0.33.7] — 2026-08-03
 
 ### Features
