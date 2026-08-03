@@ -909,6 +909,32 @@ describe("readAssetContent — line paging", () => {
     })
   })
 
+  it("rejects a start line below 1 instead of slicing from the end", async () => {
+    stubReadAsset("alpha\nbeta\ngamma\n", ".csv")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "data.csv", startLine: 0 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'invalid line range: "data.csv" needs a start line and limit of at least 1',
+    )
+  })
+
+  it("rejects a limit below 1", async () => {
+    stubReadAsset("alpha\nbeta\ngamma\n", ".csv")
+
+    await expect(
+      assetOperations.readAssetContent(
+        { ...defaultParams, path: "data.csv", limit: 0 },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'invalid line range: "data.csv" needs a start line and limit of at least 1',
+    )
+  })
+
   it("rejects a start line past the end stating the total line count", async () => {
     stubReadAsset("alpha\nbeta\ngamma\n", ".csv")
 

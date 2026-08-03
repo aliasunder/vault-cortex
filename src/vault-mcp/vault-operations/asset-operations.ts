@@ -140,6 +140,14 @@ const buildPagedTextResult = (params: {
   const totalLines = contentLines.length
 
   const firstLine = startLine ?? 1
+  // The tool schema already enforces >= 1, but a negative slice start would
+  // silently serve lines from the END of the rendition — guard here too so a
+  // future direct caller gets a loud error, never the wrong window.
+  if (firstLine < 1 || (limit !== undefined && limit < 1)) {
+    throw new Error(
+      `invalid line range: "${path}" needs a start line and limit of at least 1`,
+    )
+  }
   // An empty rendition has no lines to overshoot — any window of it is the
   // empty window; only a non-empty rendition can have a start past its end.
   if (totalLines > 0 && firstLine > totalLines) {
