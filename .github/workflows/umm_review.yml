@@ -77,7 +77,7 @@ jobs:
       # to the action's defaults. Inputs whose default is empty
       # (fallback_model, max_findings) pass empty when the var is unset —
       # identical to omitting them.
-      - uses: aliasunder/umm-actually@ae654cc5717a3910d63d9c0ed8b73a127ae92dcc # v0.3.1
+      - uses: aliasunder/umm-actually@0c52d8edf61fb145a11db5df9af3a9303c35be61 # v0.3.2
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
@@ -110,9 +110,14 @@ jobs:
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
           trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
-          # Positive integers — workspace scan bounds
+          # BFS walk cap — total files indexed for import-tracing and
+          # doc-mention scanning. Walk terminates early at the cap; files
+          # in unvisited directories are invisible to related-file detection.
           max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
-          max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '262144' }}
+          # Per-file byte cap — files larger than this are silently
+          # excluded from the scan index (stat check only, not read).
+          # 524288 = 512 KiB ≈ 8 000 lines of typical code.
+          max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '524288' }}
           # Count caps are independent buckets: max_related_files caps
           # import-traced code files only; max_related_docs caps
           # mention-matched docs only and NEVER counts priority_docs
