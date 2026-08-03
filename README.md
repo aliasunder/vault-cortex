@@ -60,7 +60,11 @@ npx vault-cortex@latest init
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex@latest upgrade` ([details →](./cli/#upgrade))
+![npx vault-cortex init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](./assets/demo-cli-init.gif)
+
+**Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
+
+**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -93,7 +97,9 @@ npx vault-cortex@latest init --mode remote
 
 That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server ([CLI reference →](./cli/)).
 
-**Set up with the CLI?** Upgrade later with `npx vault-cortex@latest upgrade` ([details →](./cli/#upgrade))
+**Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
+
+**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
