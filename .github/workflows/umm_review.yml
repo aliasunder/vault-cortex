@@ -35,11 +35,32 @@ jobs:
       contents: read
     steps:
       # issue_comment events check out the default branch unless overridden —
-      # the action reads workspace files for context, so it needs the PR head
+      # the action reads workspace files for context, so it needs the PR head.
+      # Only same-repo PR heads are eligible: fork content must never enter
+      # this secrets-bearing workflow, so fork PRs fall back to the default
+      # checkout (reviewed from the API diff with base-branch context). Runs
+      # before any checkout, on a read-only token, with no untrusted input.
+      - name: Resolve review checkout ref
+        id: review-ref
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          same_repo=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '.head.repo.full_name == .base.repo.full_name')
+          if [ "$same_repo" = "true" ]; then
+            echo "ref=refs/pull/${PR_NUMBER}/head" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || '' }}
+          # Empty for pull_request events (gate skipped) and fork PRs —
+          # checkout then uses its default ref
+          ref: ${{ steps.review-ref.outputs.ref }}
 
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
