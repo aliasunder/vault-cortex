@@ -39,15 +39,16 @@ const describeDeliveredImage = (result: {
  *  the rendition's total line count, and the next start_line when more
  *  remains — mirroring the metadata line image and page reads carry. */
 const describeTextWindow = (path: string, lineWindow: LineWindow): string => {
-  if (lineWindow.totalLines === 0) return `${path} — 0 lines (end of file)`
-  const continuation =
-    lineWindow.endLine >= lineWindow.totalLines
-      ? "(end of file)"
-      : `(continue with start_line: ${lineWindow.endLine + 1})`
-  return (
-    `${path} — lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
-    `of ${lineWindow.totalLines} ${continuation}`
-  )
+  const { startLine, endLine, totalLines } = lineWindow
+
+  if (totalLines === 0) return `${path} — 0 lines (end of file)`
+
+  const isLastWindow = endLine >= totalLines
+  const continuation = isLastWindow
+    ? "(end of file)"
+    : `(continue with start_line: ${endLine + 1})`
+
+  return `${path} — lines ${startLine}–${endLine} of ${totalLines} ${continuation}`
 }
 
 /** Formats an asset read result into MCP content blocks — the image, pages,

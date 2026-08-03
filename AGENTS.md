@@ -411,10 +411,12 @@ throughout the codebase.
 
 <!-- distilled from vault Reference/code-standards-* on 2026-07-20; refresh: run the sync-code-standards skill -->
 
-Several rules below are lint-enforced in `eslint.config.ts` (arrow functions,
-`type` over `interface`, no `else` after return, single-char identifier ban,
-Luxon over `Date` and no `console` in `src/`, env access only via `config.ts`)
-— the rest remain review-enforced.
+These rules are authoring guidance, not a review checklist — apply them
+while writing, not after. Several are lint-enforced in `eslint.config.ts`
+(arrow functions, `type` over `interface`, no `else` after return,
+single-char identifier ban, Luxon over `Date` and no `console` in `src/`,
+env access only via `config.ts`); the rest are the author's responsibility
+at write time.
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
