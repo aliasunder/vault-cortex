@@ -143,14 +143,17 @@ const buildPagedTextResult = (params: {
   // The tool schema already enforces >= 1, but a negative slice start would
   // silently serve lines from the END of the rendition — guard here too so a
   // future direct caller gets a loud error, never the wrong window.
-  if (firstLine < 1 || (limit !== undefined && limit < 1)) {
+  const hasInvalidLineRange =
+    firstLine < 1 || (limit !== undefined && limit < 1)
+  if (hasInvalidLineRange) {
     throw new Error(
       `invalid line range: "${path}" needs a start line and limit of at least 1`,
     )
   }
   // An empty rendition has no lines to overshoot — any window of it is the
   // empty window; only a non-empty rendition can have a start past its end.
-  if (totalLines > 0 && firstLine > totalLines) {
+  const isStartPastEnd = totalLines > 0 && firstLine > totalLines
+  if (isStartPastEnd) {
     throw new Error(
       `start line past the end: "${path}" renders to ${totalLines} lines`,
     )
@@ -164,7 +167,8 @@ const buildPagedTextResult = (params: {
   const endLine = firstLine - 1 + windowLines.length
 
   const windowBytes = Buffer.byteLength(windowText, "utf8")
-  if (windowBytes > MAX_TEXT_OUTPUT_BYTES) {
+  const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
+  if (exceedsByteCap) {
     throw new Error(
       `text output too large: "${path}" lines ${firstLine}–${endLine} ` +
         `render to ${windowBytes} bytes (cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
