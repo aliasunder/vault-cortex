@@ -60,6 +60,23 @@
 
 
 
+
+## [0.33.7] — 2026-08-03
+
+### Features
+
+- **cli:** Guided optional settings in init + configure subcommand (#393)
+
+### Documentation
+
+- **readme:** Frame the CLI as the server's lifecycle manager in Quick Start (#396)
+- **readme:** Rewrite How It Works as a capability-led system overview (#395)
+- Update CHANGELOG.md for v0.33.6
+
+### Other Changes
+
+- **cli:** Consolidate scripted Prompts and DockerRunner stubs into a shared helper (#394)
+
 ## [0.33.6] — 2026-08-01
 
 ### Features
