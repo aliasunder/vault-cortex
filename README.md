@@ -161,7 +161,11 @@ See [Authentication](#authentication) for both methods and token lifetimes.
 
 ## How It Works
 
-Everything runs in one Docker container. The MCP server works directly with the `.md` files on disk, and a file watcher keeps the search index (keywords + vectors) current as notes change. Your vault stays the source of truth: the server reads and writes plain Markdown, and the index is derived data it can rebuild from your notes at any time. In the remote image, a bundled Obsidian Sync service keeps the container's vault current with every device — edit a note on your phone and it's searchable moments later; an agent writes a note and it shows up in Obsidian.
+Everything runs in one Docker container, working directly with the `.md` files on disk:
+
+- **Your vault stays the source of truth** — the server reads and writes the same plain Markdown files your Obsidian apps do.
+- **Search is derived data** — a file watcher keeps the index (keywords + vectors) current as notes change, and it can be rebuilt from your notes at any time.
+- **The remote image adds a sync loop** — a bundled Obsidian Sync service keeps the container's vault current with every device: edit a note on your phone and it's searchable moments later; an agent writes a note and it shows up in Obsidian.
 
 ```mermaid
 graph LR
