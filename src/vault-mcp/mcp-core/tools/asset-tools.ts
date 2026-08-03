@@ -88,13 +88,12 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
     return [{ type: "text", text: metadataLine }, ...pageBlocks]
   }
   if (result.lineWindow) {
-    return [
-      {
-        type: "text",
-        text: describeTextWindow(result.path, result.lineWindow),
-      },
-      { type: "text", text: result.text },
-    ]
+    const metadataBlock = {
+      type: "text" as const,
+      text: describeTextWindow(result.path, result.lineWindow),
+    }
+    const contentBlock = { type: "text" as const, text: result.text }
+    return [metadataBlock, contentBlock]
   }
   return [{ type: "text", text: result.text }]
 }
