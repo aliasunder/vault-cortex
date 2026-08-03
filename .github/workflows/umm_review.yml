@@ -49,24 +49,46 @@ jobs:
           # Enables the branded check run (App avatar in the checks list)
           permission-checks: write
 
-      # Every optional input is overridable via a repo variable; unset vars
-      # fall back to the action's defaults. Inputs whose default is empty
+      # Every optional input is overridable via a repo variable (Settings →
+      # Secrets and variables → Actions → Variables); unset vars fall back
+      # to the action's defaults. Inputs whose default is empty
       # (fallback_model, max_findings) pass empty when the var is unset —
       # identical to omitting them.
       - uses: aliasunder/umm-actually@f453e8b29656803b7a39c41da9e49d7fd2f2cc1b # v0.3.0
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
+          # Full OpenRouter slug as listed on openrouter.ai/models — no
+          # "openrouter/" prefix, e.g. deepseek/deepseek-v4-pro
           model: ${{ vars.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-6' }}
+          # Same slug format; retried when the primary fails structured
+          # output. Empty = no fallback
           fallback_model: ${{ vars.UMM_FALLBACK_MODEL }}
+          # Positive integer cap on posted findings (highest severity
+          # first). Empty = uncapped
           max_findings: ${{ vars.UMM_MAX_FINDINGS }}
+          # Minimum severity to post: low | medium | high | critical
           severity_threshold: ${{ vars.UMM_SEVERITY_THRESHOLD || 'low' }}
+          # Repo-relative path to the conventions/instructions file fed to
+          # the model
           conventions_file: ${{ vars.UMM_CONVENTIONS_FILE || 'AGENTS.md' }}
+          # Comma-separated repo-relative paths always included in review
+          # context. Nested paths fine; spaces after commas fine; never
+          # quote individual paths (quotes are not stripped), e.g.
+          # README.md, docs/deploy/lightsail.md
           priority_docs: ${{ vars.UMM_PRIORITY_DOCS || 'README.md' }}
+          # Approximate token budget for prompt context (file contents +
+          # diff)
           context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '80000' }}
+          # true | false — import-tracing (caller regressions) and
+          # doc-mention scanning (staleness)
           trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
+          # Positive integers — workspace scan bounds
           max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
           max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '262144' }}
+          # Positive integers — caps on import-traced files / mention-
+          # matched docs added to context
           max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
           max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
+          # true | false — per-run cost report in the workflow step summary
           cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}
