@@ -159,11 +159,11 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
       })
       reqLogger.info("tool_call", {
         path,
-        properties_only,
+        propertiesOnly: properties_only,
         outline,
         heading,
-        heading_level,
-        start_line,
+        headingLevel: heading_level,
+        startLine: start_line,
         limit,
       })
 
@@ -479,7 +479,12 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_PATCH_NOTE,
       })
-      reqLogger.info("tool_call", { path, operation, heading, heading_level })
+      reqLogger.info("tool_call", {
+        path,
+        operation,
+        heading,
+        headingLevel: heading_level,
+      })
       return safeHandler(
         reqLogger,
         () =>
@@ -572,7 +577,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
       reqLogger.info("tool_call", {
         path,
         isDeletion: new_text.length === 0,
-        replace_all_occurrences,
+        replaceAllOccurrences: replace_all_occurrences,
       })
       return safeHandler(
         reqLogger,
@@ -664,7 +669,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
       reqLogger.info("tool_call", {
         path,
         hasEndAnchor: Boolean(end_anchor),
-        first_match,
+        firstMatch: first_match,
       })
       return safeHandler(
         reqLogger,
