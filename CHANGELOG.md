@@ -62,6 +62,27 @@
 
 
 
+
+## [0.35.0] — 2026-08-04
+
+### Features
+
+- Add start_line/limit line paging to vault_read_note (#406)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.34.0
+
+### CI / Infrastructure
+
+- **deploy:** Stamp the OCI revision label on release images (#401)
+
+### Maintenance
+
+- **deps:** Bump better-sqlite3 13.0.1 → 13.0.2 (#405)
+- Bump umm-actually to v0.3.2, raise scan byte cap to 512 KiB (#403)
+- **deps:** Resolve OSV advisories via in-range transitive bumps (#404)
+
 ## [0.34.0] — 2026-08-03
 
 ### Features
