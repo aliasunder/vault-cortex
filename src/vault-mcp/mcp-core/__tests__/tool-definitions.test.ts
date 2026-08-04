@@ -518,6 +518,163 @@ describe("error handling", () => {
   })
 })
 
+describe("vault_read_note line paging", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  const createPagedNoteFixture = async () => {
+    const tempVault = await mkdtemp(join(tmpdir(), "tool-defs-note-paging-"))
+    onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+    await writeFile(
+      join(tempVault, "paged.md"),
+      "---\ntitle: Paged\n---\nline1\nline2\nline3\nline4\n",
+      "utf8",
+    )
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: tempVault,
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+    const readCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    if (!readCall) throw new Error("vault_read_note not registered")
+    return { handler: readCall[2], tempVault }
+  }
+
+  it("pages a full note and prepends the window metadata block", async () => {
+    const { handler } = await createPagedNoteFixture()
+    const result = (await handler(
+      { path: "paged.md", start_line: 2, limit: 2 },
+      mockExtra,
+    )) as { content: Array<{ type: string; text: string }> }
+
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "paged.md — lines 2–3 of 7 (continue with start_line: 4)",
+      },
+      { type: "text", text: "title: Paged\n---" },
+    ])
+  })
+
+  it("reports end of file on the final window", async () => {
+    const { handler } = await createPagedNoteFixture()
+    const result = (await handler(
+      { path: "paged.md", start_line: 6, limit: 10 },
+      mockExtra,
+    )) as { content: Array<{ type: string; text: string }> }
+
+    expect(result.content).toEqual([
+      { type: "text", text: "paged.md — lines 6–7 of 7 (end of file)" },
+      { type: "text", text: "line3\nline4" },
+    ])
+  })
+
+  it("pages a heading section", async () => {
+    const { handler, tempVault } = await createPagedNoteFixture()
+    await writeFile(
+      join(tempVault, "sectioned.md"),
+      "---\ntitle: Sectioned\n---\n## Active\nalpha\nbeta\ngamma\ndelta\n## Done\nfin\n",
+      "utf8",
+    )
+    const result = (await handler(
+      { path: "sectioned.md", heading: "Active", start_line: 1, limit: 2 },
+      mockExtra,
+    )) as { content: Array<{ type: string; text: string }> }
+
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "sectioned.md — lines 1–2 of 5 (continue with start_line: 3)",
+      },
+      { type: "text", text: "## Active\nalpha" },
+    ])
+  })
+
+  it("reports a zero-line window for an empty note", async () => {
+    const { handler, tempVault } = await createPagedNoteFixture()
+    await writeFile(join(tempVault, "empty.md"), "", "utf8")
+    const result = (await handler(
+      { path: "empty.md", start_line: 1 },
+      mockExtra,
+    )) as { content: Array<{ type: string; text: string }> }
+
+    expect(result.content).toEqual([
+      { type: "text", text: "empty.md — 0 lines (end of file)" },
+      { type: "text", text: "" },
+    ])
+  })
+
+  it("rejects start_line past the end of the note", async () => {
+    const { handler } = await createPagedNoteFixture()
+    const result = (await handler(
+      { path: "paged.md", start_line: 99 },
+      mockExtra,
+    )) as { content: Array<{ type: string; text: string }>; isError?: boolean }
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: start line past the end: "paged.md" renders to 7 lines',
+        },
+      ],
+    })
+  })
+
+  it("rejects paging with outline mode", async () => {
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
+    const result = (await handler(
+      { path: "note.md", outline: true, start_line: 1 },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      "line paging is not available in outline mode",
+    )
+  })
+
+  it("rejects paging with properties_only mode", async () => {
+    const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
+    const result = (await handler(
+      { path: "note.md", properties_only: true, limit: 5 },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toBe(
+      "line paging is not available in properties_only mode",
+    )
+  })
+
+  it("returns byte-identical content without paging params", async () => {
+    const { handler } = await createPagedNoteFixture()
+    const result = (await handler({ path: "paged.md" }, mockExtra)) as {
+      content: Array<{ type: string; text: string }>
+    }
+
+    expect(result.content).toHaveLength(1)
+    expect(result.content[0]?.text).toBe(
+      "---\ntitle: Paged\n---\nline1\nline2\nline3\nline4\n",
+    )
+  })
+
+  it("description documents the paging error contracts", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
+    expect(config.description).toContain("start line past the end")
+    expect(config.description).toContain(
+      "line paging is not available in outline mode",
+    )
+    expect(config.description).toContain("properties_only mode")
+  })
+})
+
 describe("vault_update_memory input schema", () => {
   // Rich validation (single-line entries, calendar-valid dates) lives in the
   // data layer, where failures flow through safeHandler as structured tool

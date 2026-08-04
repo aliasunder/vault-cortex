@@ -8,7 +8,8 @@ import {
 import type { StructuredTextItem } from "unpdf"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import { pageTextByLines } from "../obsidian-markdown/lines.js"
+import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -54,14 +55,6 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
  *  env var — the image budget is the tunable surface; text past this size
  *  is read in line windows, not raised into a bigger blob. */
 const MAX_TEXT_OUTPUT_BYTES = 102_400
-
-/** The 1-based line window a paged text read covered, plus the rendition's
- *  total line count so the caller can tell a final page from a mid-file one. */
-export type LineWindow = Readonly<{
-  startLine: number
-  endLine: number
-  totalLines: number
-}>
 
 /** The computed result of one asset read, before content-block formatting:
  *  an image (fitted to the byte budget), a text rendition (whole, or a line
@@ -110,11 +103,9 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
 /**
  * Builds the text result for a rendition — whole or paged. Without paging
  * params the full text returns byte-identical, cap enforced as before. With
- * paging, lines are counted wc -l style (a trailing newline's empty final
- * element is not a line of content) and the window is rejoined with "\n", so
- * CRLF sources come back LF-normalized. A start line past the last line
- * errors with the total so the caller can re-aim; the cap applies to the
- * window itself, so a single oversized line still errors.
+ * paging, delegates line splitting, validation, and slicing to the shared
+ * pageTextByLines primitive, then enforces the asset-specific byte cap on
+ * the resulting window.
  */
 const buildPagedTextResult = (params: {
   text: string
@@ -129,58 +120,23 @@ const buildPagedTextResult = (params: {
     return { kind: "text", text, path }
   }
 
-  const splitLines = splitIntoLines(text)
-  // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
-  // that isn't a line of content — drop exactly that one element.
-  const hasTrailingNewlineArtifact =
-    splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
-  const contentLines = hasTrailingNewlineArtifact
-    ? splitLines.slice(0, -1)
-    : splitLines
-  const totalLines = contentLines.length
-
-  const firstLine = startLine ?? 1
-  // The tool schema already enforces >= 1, but a negative slice start would
-  // silently serve lines from the END of the rendition — guard here too so a
-  // future direct caller gets a loud error, never the wrong window.
-  const hasInvalidLineRange =
-    firstLine < 1 || (limit !== undefined && limit < 1)
-  if (hasInvalidLineRange) {
-    throw new Error(
-      `invalid line range: "${path}" needs a start line and limit of at least 1`,
-    )
-  }
-  // An empty rendition has no lines to overshoot — any window of it is the
-  // empty window; only a non-empty rendition can have a start past its end.
-  const isStartPastEnd = totalLines > 0 && firstLine > totalLines
-  if (isStartPastEnd) {
-    throw new Error(
-      `start line past the end: "${path}" renders to ${totalLines} lines`,
-    )
-  }
-
-  const windowLines = contentLines.slice(
-    firstLine - 1,
-    limit === undefined ? undefined : firstLine - 1 + limit,
-  )
-  const windowText = windowLines.join("\n")
-  const endLine = firstLine - 1 + windowLines.length
+  const { text: windowText, lineWindow } = pageTextByLines({
+    text,
+    path,
+    startLine,
+    limit,
+  })
 
   const windowBytes = Buffer.byteLength(windowText, "utf8")
   const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
   if (exceedsByteCap) {
     throw new Error(
-      `text output too large: "${path}" lines ${firstLine}–${endLine} ` +
+      `text output too large: "${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
         `render to ${windowBytes} bytes (cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
     )
   }
 
-  return {
-    kind: "text",
-    text: windowText,
-    path,
-    lineWindow: { startLine: firstLine, endLine, totalLines },
-  }
+  return { kind: "text", text: windowText, path, lineWindow }
 }
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text

@@ -118,7 +118,7 @@ src/
     server.ts                          # Entry point — config, mount routes, listen
     config.ts                          # Env-var loader + ServerConfig type (loadConfig)
     obsidian-markdown/                 # Pure Obsidian/Markdown parsers + transforms (no I/O)
-      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines
+      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
       frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
       callouts.ts                      # Leading-callout parser (> [!type] blocks)
       headings.ts                      # Shared H1–H6 section-span parser — ATX + setext (read + patch)
@@ -141,7 +141,7 @@ src/
       tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
-        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent
+        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         task-tools.ts                  # 2 tools: list-tasks, update-task

@@ -2,13 +2,14 @@
 
 import { z } from "zod"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
-import type {
-  AssetReadResult,
-  LineWindow,
-} from "../../vault-operations/asset-operations.js"
+import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler, safeHandlerContent } from "./tool-helpers.js"
+import {
+  describeTextWindow,
+  safeHandler,
+  safeHandlerContent,
+} from "./tool-helpers.js"
 
 const TOOL_NAMES = {
   VAULT_READ_FILE: "vault_read_file",
@@ -33,22 +34,6 @@ const describeDeliveredImage = (result: {
   if (!fitted.recompressed)
     return `${delivered} (original file, not recompressed)`
   return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
-}
-
-/** One-line, model-facing summary of a paged text read: the window served,
- *  the rendition's total line count, and the next start_line when more
- *  remains — mirroring the metadata line image and page reads carry. */
-const describeTextWindow = (path: string, lineWindow: LineWindow): string => {
-  const { startLine, endLine, totalLines } = lineWindow
-
-  if (totalLines === 0) return `${path} — 0 lines (end of file)`
-
-  const isLastWindow = endLine >= totalLines
-  const continuation = isLastWindow
-    ? "(end of file)"
-    : `(continue with start_line: ${endLine + 1})`
-
-  return `${path} — lines ${startLine}–${endLine} of ${totalLines} ${continuation}`
 }
 
 /** Formats an asset read result into MCP content blocks — the image, pages,
