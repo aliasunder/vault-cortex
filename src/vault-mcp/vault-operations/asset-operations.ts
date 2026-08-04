@@ -56,8 +56,6 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
  *  is read in line windows, not raised into a bigger blob. */
 const MAX_TEXT_OUTPUT_BYTES = 102_400
 
-export type { LineWindow }
-
 /** The computed result of one asset read, before content-block formatting:
  *  an image (fitted to the byte budget), a text rendition (whole, or a line
  *  window when paging params were supplied), or multiple sequential page
