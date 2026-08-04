@@ -4,7 +4,10 @@
  *
  *  Two per-line state machines live here — advanceFence (CommonMark §4.5 fenced-code)
  *  and advanceComment (Obsidian `%% %%` comments) — so every consumer threads the
- *  same logic and they can never disagree about where code or comments begin. */
+ *  same logic and they can never disagree about where code or comments begin.
+ *
+ *  pageTextByLines is the shared line-paging primitive used by both vault_read_note
+ *  and vault_read_file to deliver text in 1-based line windows. */
 
 // ── Line splitting ──────────────────────────────────────────────
 
