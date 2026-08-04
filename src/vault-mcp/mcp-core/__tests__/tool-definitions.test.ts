@@ -552,11 +552,13 @@ describe("vault_read_note line paging", () => {
       mockExtra,
     )) as { content: Array<{ type: string; text: string }> }
 
-    expect(result.content).toHaveLength(2)
-    expect(result.content[0]?.text).toBe(
-      "paged.md — lines 2–3 of 7 (continue with start_line: 4)",
-    )
-    expect(result.content[1]?.text).toBe("title: Paged\n---")
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "paged.md — lines 2–3 of 7 (continue with start_line: 4)",
+      },
+      { type: "text", text: "title: Paged\n---" },
+    ])
   })
 
   it("reports end of file on the final window", async () => {
@@ -566,9 +568,10 @@ describe("vault_read_note line paging", () => {
       mockExtra,
     )) as { content: Array<{ type: string; text: string }> }
 
-    expect(result.content[0]?.text).toBe(
-      "paged.md — lines 6–7 of 7 (end of file)",
-    )
+    expect(result.content).toEqual([
+      { type: "text", text: "paged.md — lines 6–7 of 7 (end of file)" },
+      { type: "text", text: "line3\nline4" },
+    ])
   })
 
   it("pages a heading section", async () => {
@@ -583,11 +586,13 @@ describe("vault_read_note line paging", () => {
       mockExtra,
     )) as { content: Array<{ type: string; text: string }> }
 
-    expect(result.content).toHaveLength(2)
-    expect(result.content[0]?.text).toBe(
-      "sectioned.md — lines 1–2 of 5 (continue with start_line: 3)",
-    )
-    expect(result.content[1]?.text).toBe("## Active\nalpha")
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "sectioned.md — lines 1–2 of 5 (continue with start_line: 3)",
+      },
+      { type: "text", text: "## Active\nalpha" },
+    ])
   })
 
   it("reports a zero-line window for an empty note", async () => {
@@ -598,7 +603,10 @@ describe("vault_read_note line paging", () => {
       mockExtra,
     )) as { content: Array<{ type: string; text: string }> }
 
-    expect(result.content[0]?.text).toBe("empty.md — 0 lines (end of file)")
+    expect(result.content).toEqual([
+      { type: "text", text: "empty.md — 0 lines (end of file)" },
+      { type: "text", text: "" },
+    ])
   })
 
   it("rejects start_line past the end of the note", async () => {
@@ -606,11 +614,17 @@ describe("vault_read_note line paging", () => {
     const result = (await handler(
       { path: "paged.md", start_line: 99 },
       mockExtra,
-    )) as { content: Array<{ text: string }>; isError?: boolean }
+    )) as { content: Array<{ type: string; text: string }>; isError?: boolean }
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toContain("start line past the end")
-    expect(result.content[0]?.text).toContain("7 lines")
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: '[Error]: start line past the end: "paged.md" renders to 7 lines',
+        },
+      ],
+    })
   })
 
   it("rejects paging with outline mode", async () => {

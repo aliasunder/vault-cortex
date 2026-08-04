@@ -487,20 +487,33 @@ describe("pageTextByLines", () => {
       limit: 3,
     })
     expect(result.text).toBe("alpha\nbeta\ngamma")
-    expect(result.lineWindow.totalLines).toBe(3)
+    expect(result.lineWindow).toEqual({
+      startLine: 1,
+      endLine: 3,
+      totalLines: 3,
+    })
   })
 
   it("does not count a trailing newline as a line", () => {
     const text = "alpha\nbeta\n"
     const result = pageTextByLines({ text, path: "note.md", startLine: 1 })
-    expect(result.lineWindow.totalLines).toBe(2)
     expect(result.text).toBe("alpha\nbeta")
+    expect(result.lineWindow).toEqual({
+      startLine: 1,
+      endLine: 2,
+      totalLines: 2,
+    })
   })
 
   it("counts lines correctly without a trailing newline", () => {
     const text = "line1\nline2\nline3"
     const result = pageTextByLines({ text, path: "note.md", startLine: 1 })
-    expect(result.lineWindow.totalLines).toBe(3)
+    expect(result.text).toBe("line1\nline2\nline3")
+    expect(result.lineWindow).toEqual({
+      startLine: 1,
+      endLine: 3,
+      totalLines: 3,
+    })
   })
 
   it("returns a zero-line window for empty text", () => {
