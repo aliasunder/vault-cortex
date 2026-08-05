@@ -3,22 +3,35 @@
 ## Scope
 
 Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS.
-The attack surface includes:
+The attack surface below covers the server itself — what ships in the Docker
+image. Deployers bring their own TLS termination, reverse proxy, and CI/CD
+pipeline; those are outside vault-cortex's scope but the reference deployment
+notes below describe what the maintainer uses.
+
+### Server attack surface
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
-  JWT tokens (HS256), static bearer token fallback, Lambda authorizer, Express
-  middleware (defense in depth)
-- **API Gateway** — HTTP API fronting the Lightsail instance, path-aware
-  authorization (OAuth discovery endpoints pass through, `/mcp` requires valid
-  bearer)
+  JWT tokens (HS256), static bearer token fallback, Express middleware (defense
+  in depth)
 - **Express server** — handles MCP protocol messages, OAuth flows, consent page
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
   `resolveSafePath()` (resolve + prefix check). Protected paths prevent deletion
   of sensitive folders
-- **Docker Compose** — two long-running containers on Lightsail sharing a
-  `/vault` volume (UID 1000)
+- **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
+  server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
+  a single container, sharing a `/vault` volume at UID 1000)
+
+### Reference deployment (maintainer's IaC — not required by adopters)
+
+The maintainer runs the `:remote` image on AWS Lightsail behind API Gateway.
+These components are part of the maintainer's deployment, not the vault-cortex
+project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
+
+- **API Gateway + Lambda authorizer** — HTTP API fronting the Lightsail
+  instance, path-aware authorization (OAuth endpoints pass through, `/mcp`
+  requires valid bearer). IaC via SST v4
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
@@ -93,15 +106,16 @@ mechanism-level detail.
 
 ### Container hardening
 
-- Non-root user (`USER node`, UID 1000)
-- PID 1 init (`tini`) — forwards SIGTERM for clean SQLite WAL closure
+- Non-root user (UID 1000 — `node` on `:local`, `obsidian` on `:remote`)
+- PID 1 init — `:local` uses `tini`, `:remote` uses s6-overlay's `/init`;
+  both forward SIGTERM for clean SQLite WAL closure
 - Package-manager removal (`npm`/`npx`/`corepack`/`yarn` stripped from
-  runtime)
+  runtime in both targets)
 - Multi-stage build — build deps (`python3`, `make`, `g++`) never enter
   the runtime image
-- Digest-pinned base image (`node:24-slim@sha256:...`)
-- Debian security fixes applied at build time (`apt-get upgrade`)
-- Log rotation per service (Compose: `max-size: 10m`, `max-file: 3`)
+- Digest-pinned base image (`node:24-trixie-slim@sha256:...`)
+- Debian security fixes applied at build time (`apt-get upgrade`); daily
+  layer-cache bust in CI keeps patches current between base image rebuilds
 - Graceful shutdown: SIGTERM handler drains in-flight requests (10s
   timeout) before exiting
 
