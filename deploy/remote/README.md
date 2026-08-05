@@ -187,7 +187,7 @@ approach, which adds a Lambda authorizer for an extra auth layer.
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
 > DigitalOcean, Hetzner, etc. A 2 GiB instance handles semantic search fine for
 > a typical vault; 4 GiB adds headroom for concurrent search and larger vaults.
-> Add $5/mo for [Obsidian Sync](https://obsidian.md/sync). For a fully automated
+> Add $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). For a fully automated
 > AWS setup, Vault Cortex also includes an [SST IaC deployment](../../DEPLOY.md)
 > that provisions Lightsail, API Gateway, and a Lambda authorizer in one command.
 
