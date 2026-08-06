@@ -72,7 +72,7 @@ export const runConfigure = async (
     )
   }
 
-  const restartHint = `Apply the new settings with: npx vault-cortex restart --dir "${targetDir}"`
+  const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
   if (!docker.isDaemonRunning()) {
     prompts.warn(
       `Container runtime not running — settings saved.\n${restartHint}`,
@@ -98,7 +98,7 @@ export const runConfigure = async (
     // The edit already succeeded — don't let the failed restart read as a
     // failed configure.
     prompts.warn(
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     )
     return 1
   }

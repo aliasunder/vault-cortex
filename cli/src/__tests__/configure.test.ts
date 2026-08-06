@@ -58,7 +58,7 @@ describe("runConfigure preconditions", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 })
@@ -105,7 +105,7 @@ describe("runConfigure with picked settings", () => {
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
     ])
     expect(scripted.warnings).toEqual([
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
@@ -135,7 +135,7 @@ describe("runConfigure with picked settings", () => {
     expect(dockerRunCalls).toEqual([])
     expect(scripted.logs).toEqual([
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
-      `Apply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
     expect(scripted.outros).toEqual(["Done."])
   })
@@ -237,7 +237,7 @@ describe("runConfigure with picked settings", () => {
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=false\n",
     )
     expect(scripted.warnings).toEqual([
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 
@@ -265,7 +265,7 @@ describe("runConfigure with picked settings", () => {
     expect(envLines).toContain("PUBLIC_URL=https://vault.example.com")
     expect(scripted.warnings).toEqual([
       "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 

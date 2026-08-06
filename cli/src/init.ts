@@ -215,7 +215,7 @@ const offerDockerRun = async (
     prompts.warn(
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        `  npx vault-cortex upgrade --dir "${targetDir}"`,
+        `  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
     )
     return false
   }
@@ -311,7 +311,7 @@ const runLocalInit = async (
   const offerSettingsChooser = !flags.yes && !envAlreadyExists
   if (!flags.yes && envAlreadyExists) {
     prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex configure".',
+      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex@latest configure".',
     )
   }
   const optionalOverrides = offerSettingsChooser
@@ -426,7 +426,7 @@ const runRemoteInit = async (
   const envAlreadyExists = existsSync(join(targetDir, ".env"))
   if (envAlreadyExists) {
     prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex configure".',
+      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex@latest configure".',
     )
   }
   const optionalOverrides = envAlreadyExists

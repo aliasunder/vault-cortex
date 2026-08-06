@@ -36,7 +36,7 @@ const sectionRule = (label: string): string =>
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
 const upgradeCommand = (targetDir: string): string =>
-  `npx vault-cortex upgrade --dir "${targetDir}"`
+  `npx vault-cortex@latest upgrade --dir "${targetDir}"`
 
 const startServerLine = (targetDir: string): string =>
   `Start the server:\n  ${upgradeCommand(targetDir)}`
@@ -169,10 +169,10 @@ ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, file tools,
 semantic search, port, timezone):
-  npx vault-cortex configure --dir "${targetDir}"
+  npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex restart" (plain
+first if needed), then apply with "npx vault-cortex@latest restart" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
@@ -254,10 +254,10 @@ ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, file tools,
 semantic search, port, timezone, sync direction):
-  npx vault-cortex configure --dir "${targetDir}"
+  npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex restart" (plain
+first if needed), then apply with "npx vault-cortex@latest restart" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}

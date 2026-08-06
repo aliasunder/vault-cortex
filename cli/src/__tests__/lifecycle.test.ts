@@ -49,7 +49,7 @@ describe("runDown", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 
@@ -148,7 +148,7 @@ describe("runDown", () => {
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
     ])
     expect(scripted.outros).toEqual([
-      `Start again with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Start again with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 
@@ -186,7 +186,7 @@ describe("runLogs", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 
@@ -229,7 +229,7 @@ describe("runLogs", () => {
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      "No vault-cortex container — start it with `npx vault-cortex restart`.",
+      "No vault-cortex container — start it with `npx vault-cortex@latest restart`.",
     ])
   })
 
@@ -307,7 +307,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 

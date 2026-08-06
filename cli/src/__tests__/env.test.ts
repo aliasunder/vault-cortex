@@ -48,10 +48,10 @@ describe("buildLocalEnv", () => {
     // The whole wrapped header as one literal (comment continuation lines
     // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'To change a setting: run "npx vault-cortex configure", or edit its\n' +
-        "# value here (uncommenting it first if needed) and apply with\n" +
-        '# "npx vault-cortex restart" (plain docker restart does not re-read\n' +
-        "# this file).",
+      'To change a setting: run "npx vault-cortex@latest configure", or edit\n' +
+        "# its value here (uncommenting it first if needed) and apply with\n" +
+        '# "npx vault-cortex@latest restart" (plain docker restart does not\n' +
+        "# re-read this file).",
     )
   })
 })
@@ -93,7 +93,7 @@ describe("buildRemoteEnv", () => {
 
     expect(env).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(env).toContain("FILL THIS IN")
-    expect(env).toContain("npx vault-cortex get-sync-token")
+    expect(env).toContain("npx vault-cortex@latest get-sync-token")
   })
 
   it("states defaulted sync settings as uncommented lines", () => {
@@ -122,10 +122,10 @@ describe("buildRemoteEnv", () => {
     // The whole wrapped header as one literal (comment continuation lines
     // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'To change a setting: run "npx vault-cortex configure", or edit its\n' +
-        "# value here (uncommenting it first if needed) and apply with\n" +
-        '# "npx vault-cortex restart" (plain docker restart does not re-read\n' +
-        "# this file).",
+      'To change a setting: run "npx vault-cortex@latest configure", or edit\n' +
+        "# its value here (uncommenting it first if needed) and apply with\n" +
+        '# "npx vault-cortex@latest restart" (plain docker restart does not\n' +
+        "# re-read this file).",
     )
   })
 })

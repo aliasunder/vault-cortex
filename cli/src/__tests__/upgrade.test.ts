@@ -39,7 +39,7 @@ describe("runUpgrade", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors[0]).toContain("No .env found")
-    expect(scripted.errors[0]).toContain("npx vault-cortex init")
+    expect(scripted.errors[0]).toContain("npx vault-cortex@latest init")
   })
 
   it("exits 1 when Docker daemon is not running", async () => {

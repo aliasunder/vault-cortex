@@ -82,7 +82,7 @@ describe("captureObsidianToken", () => {
     expect(token).toBeUndefined()
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -101,7 +101,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login finished, but no token was captured — the " +
         "token file was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -124,7 +124,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login finished, but no token was captured — the " +
         "token file was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -149,7 +149,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings).toEqual([
       "Docker run failed — spawn docker ENOENT",
       "The Obsidian login did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     ])
   })
 

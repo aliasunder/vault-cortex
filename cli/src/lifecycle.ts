@@ -70,7 +70,7 @@ export const requireInitializedDir = (
   const mode = detectMode(envFilePath)
   if (!mode) {
     prompts.error(
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     )
     return undefined
   }
@@ -217,7 +217,7 @@ export const runDown = async (
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
   prompts.outro(
-    `Start again with: npx vault-cortex restart --dir "${initialized.targetDir}"`,
+    `Start again with: npx vault-cortex@latest restart --dir "${initialized.targetDir}"`,
   )
   return 0
 }
@@ -241,7 +241,7 @@ export const runLogs = async (
 
   if (!docker.containerExists()) {
     prompts.error(
-      "No vault-cortex container — start it with `npx vault-cortex restart`.",
+      "No vault-cortex container — start it with `npx vault-cortex@latest restart`.",
     )
     return 1
   }

@@ -120,7 +120,7 @@ export const captureObsidianToken = (
     if (!loginSucceeded) {
       prompts.warn(
         "The Obsidian login did not complete — you can run it later with:\n" +
-          "  npx vault-cortex get-sync-token",
+          "  npx vault-cortex@latest get-sync-token",
       )
       return undefined
     }
@@ -129,7 +129,7 @@ export const captureObsidianToken = (
       prompts.warn(
         "The Obsidian login finished, but no token was captured — the " +
           "token file was missing, empty, or unreadable. You can retry with:\n" +
-          "  npx vault-cortex get-sync-token",
+          "  npx vault-cortex@latest get-sync-token",
       )
       return undefined
     }
