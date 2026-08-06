@@ -257,6 +257,9 @@ export const createDockerRunner = (): DockerRunner => ({
     ).status === 0,
 })
 
+/** Default bound on a single health request (shared by probe and poll). */
+const PROBE_TIMEOUT_MS = 10_000
+
 /**
  * One-shot health probe: true on an HTTP 2xx, false on any error, non-2xx,
  * or timeout — false IS the handled outcome for a boolean probe, so the
@@ -265,9 +268,6 @@ export const createDockerRunner = (): DockerRunner => ({
  * black-hole the TCP handshake for minutes — the abort timeout bounds every
  * caller.
  */
-/** Default bound on a single health request (shared by probe and poll). */
-const PROBE_TIMEOUT_MS = 10_000
-
 export const probeHealth = async (
   params: { url: string; timeoutMs?: number },
   fetchFn: typeof fetch,
