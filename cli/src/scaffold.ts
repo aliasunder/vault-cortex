@@ -91,7 +91,7 @@ export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   // A whitespace-only line matches the regex and trims to "" — normalize to
   // undefined so the non-empty contract holds ("" is never a legitimate URL).
   const publicUrlValue = match?.[1].trim()
-  return publicUrlValue ? publicUrlValue : undefined
+  return publicUrlValue || undefined
 }
 
 /**

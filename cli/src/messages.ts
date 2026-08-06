@@ -196,8 +196,10 @@ export const buildLocalConnectMessage = (params: {
   // Assembled as a filtered list so the omission leaves no stray blank line.
   const nonOauthBlocks = [
     curlGuidance(`${baseUrl}/mcp`),
-    ...(started ? [] : [smokeTest(`${baseUrl}/healthz`)]),
-  ].join("\n\n")
+    started ? undefined : smokeTest(`${baseUrl}/healthz`),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation. Local is always
