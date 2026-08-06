@@ -526,6 +526,12 @@ describe("runRestart", () => {
     // Exit 0 with the probe provably fired — informational, never a gate.
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: No answer from https://vault.example.com/healthz yet.",
+    ])
     expect(scripted.warnings).toEqual([
       "The server is up, but its public URL didn't answer from this machine.\n" +
         "That's expected until HTTPS (or direct port) access is set up — and\n" +
