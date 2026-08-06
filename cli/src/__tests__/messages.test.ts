@@ -348,14 +348,13 @@ describe("buildDaemonNotRunningMessage", () => {
 })
 
 describe("buildDockerNotInstalledMessage", () => {
-  it("points macOS at Docker Desktop, brew, OrbStack, and Colima", () => {
+  it("points macOS at the Docker Desktop docs", () => {
     expect(
       buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" }),
     ).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-        "Install Docker Desktop (https://docs.docker.com/get-docker/ or\n" +
-        '"brew install --cask docker"), OrbStack, or Colima.',
+        "Install Docker Desktop: https://docs.docker.com/get-docker/",
     )
   })
 
@@ -369,7 +368,7 @@ describe("buildDockerNotInstalledMessage", () => {
     )
   })
 
-  it("points Windows at Docker Desktop", () => {
+  it("points Windows at the Docker Desktop docs", () => {
     expect(
       buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" }),
     ).toBe(

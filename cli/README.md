@@ -190,11 +190,8 @@ is available.
 - Node.js >= 20.12 (only for this CLI — the server itself runs in Docker)
 - [Docker](https://docs.docker.com/get-docker/) or a Docker-compatible
   runtime (e.g. OrbStack, Colima, Podman) to run the server — the CLI
-  manages the container through the `docker` command. On macOS, install
-  Docker Desktop (from the link above or `brew install --cask docker`),
-  OrbStack, or Colima; on Linux, install
-  [Docker Engine](https://docs.docker.com/engine/install/); on Windows,
-  install Docker Desktop
+  manages the container through the `docker` command (on Linux, see
+  [Docker Engine](https://docs.docker.com/engine/install/))
 
 ## Docs
 

@@ -42,15 +42,14 @@ export const buildDaemonNotRunningMessage = (nextStep: string): string =>
   "Container runtime not running — start Docker Desktop, Colima,\n" +
   `OrbStack, or another Docker-compatible runtime${nextStep}`
 
-/** Per-platform install pointer — Docker-compatible runtimes named as peers. */
+/**
+ * Per-platform install pointer — a docs link only, no install method
+ * suggestions: the CLI doesn't install anything, so the official docs (which
+ * cover every method) are the hand-off. Peers are named in the message above
+ * this line.
+ */
 const dockerInstallLine = (platform: NodeJS.Platform): string => {
-  if (platform === "darwin") {
-    return (
-      "Install Docker Desktop (https://docs.docker.com/get-docker/ or\n" +
-      '"brew install --cask docker"), OrbStack, or Colima.'
-    )
-  }
-  if (platform === "win32") {
+  if (platform === "darwin" || platform === "win32") {
     return "Install Docker Desktop: https://docs.docker.com/get-docker/"
   }
   return "Install Docker Engine: https://docs.docker.com/engine/install/"
