@@ -149,6 +149,23 @@ const smokeTest = (healthUrl: string): string =>
   `Smoke test:
   curl ${healthUrl}`
 
+/**
+ * Remote health-check block. Started: the CLI verified localhost on the VPS,
+ * but the public URL is a different check (ingress — DNS, TLS, proxy), so the
+ * command stays, reworded as the works-from-any-device check. Not started:
+ * the plain smoke test to run after starting.
+ */
+const remoteHealthCheckBlock = (
+  healthUrl: string,
+  started: boolean,
+): string => {
+  if (started) {
+    return `Health check — works from any device that can reach the URL:
+  curl ${healthUrl}`
+  }
+  return smokeTest(healthUrl)
+}
+
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
   ${upgradeCommand(targetDir)}`
@@ -174,6 +191,14 @@ export const buildLocalConnectMessage = (params: {
     : startServerLine(targetDir)
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
+
+  // Once the server is confirmed up, the smoke test is dropped — the CLI just
+  // verified this exact URL, so re-printing it reads as leftover homework.
+  // Assembled as a filtered list so the omission leaves no stray blank line.
+  const nonOauthBlocks = [
+    curlGuidance(`${baseUrl}/mcp`),
+    ...(started ? [] : [smokeTest(`${baseUrl}/healthz`)]),
+  ].join("\n\n")
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation. Local is always
@@ -203,9 +228,7 @@ it with mcp-remote:
 
 ${sectionRule("Non-OAuth")}
 
-${curlGuidance(`${baseUrl}/mcp`)}
-
-${smokeTest(`${baseUrl}/healthz`)}
+${nonOauthBlocks}
 
 ${sectionRule("Settings")}
 
@@ -290,7 +313,7 @@ ${sectionRule("Non-OAuth")}
 
 ${curlGuidance(`${publicUrl}/mcp`)}
 
-${smokeTest(`${publicUrl}/healthz`)}
+${remoteHealthCheckBlock(`${publicUrl}/healthz`, started)}
 
 ${sectionRule("Settings")}
 

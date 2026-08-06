@@ -152,6 +152,21 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain("Smoke test:")
     expect(message).toContain("curl http://localhost:8000/healthz")
   })
+
+  it("omits the smoke test once the server is started", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      started: true,
+    })
+
+    // The CLI just health-checked this exact URL. The curl auth guidance must
+    // survive (the omission removes one block, not the section), and the
+    // triple-newline check catches a stray blank line from the assembly.
+    expect(message).not.toContain("Smoke test:")
+    expect(message).not.toContain("curl http://localhost:8000/healthz")
+    expect(message).toContain('curl -H "Authorization: Bearer <token>"')
+    expect(message).not.toMatch(/\n\n\n/)
+  })
 })
 
 // ── buildRemoteConnectMessage ──────────────────────────────────────────────────
@@ -303,6 +318,23 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Smoke test:")
     expect(message).toContain("curl https://vault.example.com/healthz")
+    expect(message).not.toContain("works from any device")
+  })
+
+  it("rewords the health check as the any-device check once started", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      started: true,
+    })
+
+    // Unlike local, the command survives a confirmed start: the CLI verified
+    // localhost on the VPS, while the public URL exercises ingress — a
+    // genuinely different check, so only the first-time framing goes.
+    expect(message).toContain(
+      "Health check — works from any device that can reach the URL:\n" +
+        "  curl https://vault.example.com/healthz",
+    )
+    expect(message).not.toContain("Smoke test:")
   })
 })
 
