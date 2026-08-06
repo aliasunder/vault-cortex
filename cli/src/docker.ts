@@ -258,6 +258,29 @@ export const createDockerRunner = (): DockerRunner => ({
 })
 
 /**
+ * One-shot health probe: true on an HTTP 2xx, false on any error, non-2xx,
+ * or timeout — false IS the handled outcome for a boolean probe, so the
+ * catch maps rather than logs. Unlike the localhost poll target (which fails
+ * fast with ECONNREFUSED), a public URL behind a dropped firewall rule can
+ * black-hole the TCP handshake for minutes — the abort timeout bounds every
+ * caller.
+ */
+export const probeHealth = async (
+  params: { url: string; timeoutMs?: number },
+  fetchFn: typeof fetch,
+): Promise<boolean> => {
+  const { url, timeoutMs = 10_000 } = params
+  try {
+    const response = await fetchFn(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/**
  * Polls the health endpoint until it responds OK or the timeout elapses.
  * The first `docker run` pulls the image, so the default window is generous.
  *
@@ -272,17 +295,8 @@ export const pollHealth = async (
   const { url, timeoutMs = 120_000, intervalMs = 2_000 } = params
   const deadline = Date.now() + timeoutMs
 
-  const isHealthy = async (): Promise<boolean> => {
-    try {
-      const response = await fetchFn(url)
-      return response.ok
-    } catch {
-      return false
-    }
-  }
-
   while (Date.now() < deadline) {
-    if (await isHealthy()) return true
+    if (await probeHealth({ url }, fetchFn)) return true
     await new Promise((resolvePause) => setTimeout(resolvePause, intervalMs))
   }
   return false

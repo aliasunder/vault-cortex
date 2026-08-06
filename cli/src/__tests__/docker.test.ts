@@ -8,6 +8,7 @@ import {
   CONTAINER_NAME,
   LOCAL_IMAGE,
   pollHealth,
+  probeHealth,
   REMOTE_IMAGE,
 } from "../docker.js"
 
@@ -372,5 +373,51 @@ describe("classifyDaemonStatus", () => {
     expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
       "not-running",
     )
+  })
+})
+
+describe("probeHealth", () => {
+  it("returns true when the endpoint responds ok", async () => {
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => okResponse,
+    )
+
+    expect(probeResult).toBe(true)
+  })
+
+  it("returns false on a non-2xx response", async () => {
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => failResponse,
+    )
+
+    expect(probeResult).toBe(false)
+  })
+
+  it("returns false when the fetch throws", async () => {
+    const failingFetch: typeof fetch = async () => {
+      throw new Error("ECONNREFUSED")
+    }
+
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      failingFetch,
+    )
+
+    expect(probeResult).toBe(false)
+  })
+
+  it("passes an abort signal so a black-holed request cannot hang", async () => {
+    const seenSignals: (AbortSignal | null | undefined)[] = []
+    const recordingFetch: typeof fetch = async (_input, init) => {
+      seenSignals.push(init?.signal)
+      return okResponse
+    }
+
+    await probeHealth({ url: "http://example.test/healthz" }, recordingFetch)
+
+    expect(seenSignals).toHaveLength(1)
+    expect(seenSignals[0]).toBeInstanceOf(AbortSignal)
   })
 })

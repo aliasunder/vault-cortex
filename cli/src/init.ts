@@ -10,6 +10,7 @@ import {
   buildRemoteConnectMessage,
 } from "./messages.js"
 import { pollHealth, type DockerRunner } from "./docker.js"
+import { reportPublicUrlProbe } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -471,6 +472,14 @@ const runRemoteInit = async (
     obsidianAuthToken === ""
       ? false
       : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+  // The container check above hit localhost on this machine; the public URL
+  // is the ingress path clients actually use — probe it too, informationally.
+  if (started) {
+    await reportPublicUrlProbe(publicUrl, {
+      prompts,
+      fetchFn: deps.fetchFn,
+    })
+  }
   prompts.print(
     buildRemoteConnectMessage({
       targetDir,

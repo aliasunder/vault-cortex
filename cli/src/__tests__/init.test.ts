@@ -583,6 +583,88 @@ describe("runInit remote flow", () => {
     ])
   })
 
+  it("probes the public URL after a confirmed start and reports success", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Order proves the probe ran after the container health poll.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up (first run may take a moment)",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
+    ])
+  })
+
+  it("keeps a successful start at exit 0 when the public URL does not answer", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    // Localhost (the container check) answers; the public URL is unreachable
+    // — the state every remote init is in before HTTPS/ingress is set up.
+    const fetchPublicUrlDown: typeof fetch = async (input) => {
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchPublicUrlDown,
+      },
+    )
+
+    // Exit 0 with the probe provably fired — the probe is informational,
+    // never a gate — and the connect message still reports the running server.
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(scripted.warnings).toEqual([
+      "The server is up, but its public URL didn't answer from this machine.\n" +
+        "That's expected until HTTPS (or direct port) access is set up — and\n" +
+        "some networks keep a server from reaching its own public address even\n" +
+        "when other devices can. Once access is set up, check from any device:\n" +
+        "  curl https://vault.example.com/healthz",
+    ])
+    expect(scripted.prints[0]).toContain("The server is running.")
+  })
+
   it("skips paste prompt when auto-capture succeeds", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([

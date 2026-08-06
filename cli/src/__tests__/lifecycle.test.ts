@@ -473,6 +473,68 @@ describe("runRestart", () => {
     ])
   })
 
+  it("probes the public URL after a confirmed remote start", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Order proves the probe ran after the container health poll.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+  })
+
+  it("keeps a successful remote restart at exit 0 when the public URL does not answer", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    // Localhost (the container check) answers; the public URL is unreachable
+    // — the state every remote deployment is in before HTTPS is set up.
+    const fetchPublicUrlDown: typeof fetch = async (input) => {
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchPublicUrlDown,
+      },
+    )
+
+    // Exit 0 with the probe provably fired — informational, never a gate.
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(scripted.warnings).toEqual([
+      "The server is up, but its public URL didn't answer from this machine.\n" +
+        "That's expected until HTTPS (or direct port) access is set up — and\n" +
+        "some networks keep a server from reaching its own public address even\n" +
+        "when other devices can. Once access is set up, check from any device:\n" +
+        "  curl https://vault.example.com/healthz",
+    ])
+  })
+
   it("exits 1 when docker run fails", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)

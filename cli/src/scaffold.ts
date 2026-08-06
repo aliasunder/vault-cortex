@@ -34,6 +34,9 @@ const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
 /** Matches an active (uncommented) PUBLIC_URL line. */
 const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
 
+/** Matches an active (uncommented) PUBLIC_URL line, capturing a non-empty value. */
+const ENV_PUBLIC_URL_VALUE_LINE = /^PUBLIC_URL=(.+)\s*$/m
+
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
 
@@ -72,6 +75,20 @@ export const readEnvVaultPath = (envFilePath: string): string | undefined => {
 export const hasEnvPublicUrl = (envFilePath: string): boolean => {
   if (!existsSync(envFilePath)) return false
   return ENV_PUBLIC_URL_LINE.test(readFileSync(envFilePath, "utf8"))
+}
+
+/**
+ * Reads the public URL value from a .env file. Returns undefined when the
+ * file is missing or has no uncommented, non-empty PUBLIC_URL line —
+ * deliberately stricter than hasEnvPublicUrl, whose job is old-compose
+ * detection and so matches an empty `PUBLIC_URL=` line too.
+ */
+export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
+  if (!existsSync(envFilePath)) return undefined
+  const match = ENV_PUBLIC_URL_VALUE_LINE.exec(
+    readFileSync(envFilePath, "utf8"),
+  )
+  return match?.[1].trim()
 }
 
 /**

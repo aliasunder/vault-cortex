@@ -1,6 +1,11 @@
 import { join, resolve } from "node:path"
 
-import { CONTAINER_NAME, pollHealth, type DockerRunner } from "./docker.js"
+import {
+  CONTAINER_NAME,
+  pollHealth,
+  probeHealth,
+  type DockerRunner,
+} from "./docker.js"
 import {
   buildDaemonNotRunningMessage,
   buildDockerNotInstalledMessage,
@@ -9,6 +14,7 @@ import {
   detectMode,
   hasEnvPublicUrl,
   readEnvPort,
+  readEnvPublicUrl,
   readEnvVaultPath,
   type Mode,
 } from "./scaffold.js"
@@ -55,6 +61,8 @@ export type Deployment = {
   port: number
   /** Present only in local mode. */
   vaultPath?: string
+  /** Present only in remote mode — drives the post-start public-URL probe. */
+  publicUrl?: string
 }
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
@@ -111,7 +119,12 @@ export const resolveDeployment = (
     return undefined
   }
 
-  return { mode, targetDir, envFilePath, port, vaultPath }
+  // Local's PUBLIC_URL is the derived localhost URL — probing it would
+  // duplicate the health check recreateContainer just ran, so remote-only.
+  const publicUrl =
+    mode === "remote" ? readEnvPublicUrl(envFilePath) : undefined
+
+  return { mode, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 
 /**
@@ -130,6 +143,41 @@ export const ensureDaemonRunning = (
       : buildDaemonNotRunningMessage("."),
   )
   return false
+}
+
+/**
+ * One-shot informational probe of the public /healthz after a confirmed
+ * container start. Never a gate: a failure warns and the command still
+ * succeeds — before HTTPS/ingress access is set up an unreachable public URL
+ * is the expected state, and this machine's result doesn't prove the same
+ * for other devices (a VPS may not reach its own public address). Returning
+ * void keeps the informational contract structural.
+ */
+export const reportPublicUrlProbe = async (
+  publicUrl: string,
+  deps: { prompts: Prompts; fetchFn: typeof fetch },
+): Promise<void> => {
+  const { prompts, fetchFn } = deps
+  // A hand-edited .env value may carry a trailing slash; strip it so the
+  // probe URL is `${base}/healthz`, never `${base}//healthz`.
+  const healthUrl = `${publicUrl.replace(/\/+$/, "")}/healthz`
+  const spinner = prompts.spinner()
+  spinner.start(`Checking the public URL (${healthUrl})`)
+  const publicUrlResponded = await probeHealth({ url: healthUrl }, fetchFn)
+  if (publicUrlResponded) {
+    spinner.stop(
+      `Public URL responds — ${healthUrl} answered from this machine.`,
+    )
+    return
+  }
+  spinner.stop(`No answer from ${healthUrl} yet.`)
+  prompts.warn(
+    "The server is up, but its public URL didn't answer from this machine.\n" +
+      "That's expected until HTTPS (or direct port) access is set up — and\n" +
+      "some networks keep a server from reaching its own public address even\n" +
+      "when other devices can. Once access is set up, check from any device:\n" +
+      `  curl ${healthUrl}`,
+  )
 }
 
 /**
@@ -184,6 +232,12 @@ export const recreateContainer = async (
     return 1
   }
   spinner.stop("Server is up — health check passed.")
+
+  // Informational only — the container is confirmed healthy above, so the
+  // public-URL result never changes the exit code.
+  if (deployment.mode === "remote" && deployment.publicUrl) {
+    await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
+  }
   return 0
 }
 
