@@ -2,6 +2,10 @@ import { join, resolve } from "node:path"
 
 import { CONTAINER_NAME, pollHealth, type DockerRunner } from "./docker.js"
 import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
+} from "./messages.js"
+import {
   detectMode,
   hasEnvPublicUrl,
   readEnvPort,
@@ -118,10 +122,12 @@ export const ensureDaemonRunning = (
   docker: DockerRunner,
   prompts: Prompts,
 ): boolean => {
-  if (docker.isDaemonRunning()) return true
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus === "running") return true
   prompts.error(
-    "Container runtime not running — start Docker Desktop, Colima,\n" +
-      "OrbStack, or another Docker-compatible runtime.",
+    daemonStatus === "not-installed"
+      ? buildDockerNotInstalledMessage({ nextStep: "" })
+      : buildDaemonNotRunningMessage("."),
   )
   return false
 }

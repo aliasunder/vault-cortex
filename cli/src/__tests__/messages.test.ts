@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "../messages.js"
@@ -301,5 +303,61 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Smoke test:")
     expect(message).toContain("curl https://vault.example.com/healthz")
+  })
+})
+
+describe("buildDaemonNotRunningMessage", () => {
+  it("appends the caller's next step verbatim to the start guidance", () => {
+    expect(buildDaemonNotRunningMessage(" and try again.")).toBe(
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime and try again.",
+    )
+  })
+})
+
+describe("buildDockerNotInstalledMessage", () => {
+  it("points macOS at Docker Desktop, brew, OrbStack, and Colima", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Desktop (https://docs.docker.com/get-docker/ or\n" +
+        '"brew install --cask docker"), OrbStack, or Colima.',
+    )
+  })
+
+  it("points Linux at the Docker Engine install docs", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Engine: https://docs.docker.com/engine/install/",
+    )
+  })
+
+  it("points Windows at Docker Desktop", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Desktop: https://docs.docker.com/get-docker/",
+    )
+  })
+
+  it("appends the caller's next step verbatim after the install line", () => {
+    expect(
+      buildDockerNotInstalledMessage({
+        nextStep: "\nThen try again.",
+        platform: "linux",
+      }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Engine: https://docs.docker.com/engine/install/\n" +
+        "Then try again.",
+    )
   })
 })

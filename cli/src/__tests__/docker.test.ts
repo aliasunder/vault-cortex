@@ -4,6 +4,7 @@ import {
   buildDockerLogsArgs,
   buildDockerRunArgs,
   buildObsidianLoginArgs,
+  classifyDaemonStatus,
   CONTAINER_NAME,
   LOCAL_IMAGE,
   pollHealth,
@@ -339,5 +340,37 @@ describe("buildDockerLogsArgs", () => {
       "2h",
       CONTAINER_NAME,
     ])
+  })
+})
+
+describe("classifyDaemonStatus", () => {
+  it("classifies a zero exit as running", () => {
+    expect(classifyDaemonStatus({ status: 0 })).toBe("running")
+  })
+
+  it("classifies a non-zero exit as not-running", () => {
+    expect(classifyDaemonStatus({ status: 1 })).toBe("not-running")
+  })
+
+  it("classifies a missing docker binary (ENOENT) as not-installed", () => {
+    const spawnError = Object.assign(new Error("spawn docker ENOENT"), {
+      code: "ENOENT",
+    })
+
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
+      "not-installed",
+    )
+  })
+
+  it("classifies a spawn timeout as not-running, not not-installed", () => {
+    // A timeout also yields status null — only the ENOENT code may mean
+    // "not installed"; a wedged daemon must get start guidance, not install.
+    const spawnError = Object.assign(new Error("spawnSync docker ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+    })
+
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
+      "not-running",
+    )
   })
 })

@@ -156,7 +156,7 @@ export const createScriptedPrompts = (
 
 /** Daemon up and every operation succeeds — the container exists. */
 export const dockerReady: DockerRunner = {
-  isDaemonRunning: () => true,
+  daemonStatus: () => "running",
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
@@ -165,9 +165,9 @@ export const dockerReady: DockerRunner = {
   runObsidianLogin: () => false,
 }
 
-/** Daemon not running — every operation fails. */
+/** Daemon installed but not running — every operation fails. */
 export const dockerDown: DockerRunner = {
-  isDaemonRunning: () => false,
+  daemonStatus: () => "not-running",
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
@@ -176,13 +176,19 @@ export const dockerDown: DockerRunner = {
   runObsidianLogin: () => false,
 }
 
+/** Docker binary absent entirely — every operation fails. */
+export const dockerNotInstalled: DockerRunner = {
+  ...dockerDown,
+  daemonStatus: () => "not-installed",
+}
+
 /**
  * Daemon up but every operation fails — the spread base for per-test
  * variants that succeed at exactly one operation.
  */
 export const dockerDaemonOnly: DockerRunner = {
   ...dockerDown,
-  isDaemonRunning: () => true,
+  daemonStatus: () => "running",
 }
 
 /** Health check passes immediately. */

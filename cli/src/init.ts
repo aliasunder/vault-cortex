@@ -4,6 +4,8 @@ import { join, resolve } from "node:path"
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
 import { captureObsidianToken } from "./get-sync-token.js"
 import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "./messages.js"
@@ -211,11 +213,15 @@ const offerDockerRun = async (
 ): Promise<boolean> => {
   const { targetDir, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
-  if (!docker.isDaemonRunning()) {
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus !== "running") {
+    const upgradeHint = `npx vault-cortex@latest upgrade --dir "${targetDir}"`
     prompts.warn(
-      "Container runtime not running — start Docker Desktop, Colima,\n" +
-        "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        `  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
+      daemonStatus === "not-installed"
+        ? buildDockerNotInstalledMessage({
+            nextStep: `\nThen start the server with:\n  ${upgradeHint}`,
+          })
+        : buildDaemonNotRunningMessage(`, then run:\n  ${upgradeHint}`),
     )
     return false
   }
@@ -388,10 +394,13 @@ const runRemoteInit = async (
 
   // Auto-capture the Obsidian Sync token via a Docker volume mount when
   // the daemon is reachable. Falls back to a paste prompt when capture
-  // fails or the user declines.
-  const capturedToken = docker.isDaemonRunning()
-    ? await offerSyncTokenCapture(prompts, docker)
-    : undefined
+  // fails or the user declines. Both non-running states stay silent here —
+  // the paste fallback is fully functional without Docker, and the start
+  // offer surfaces the differentiated runtime guidance later in the flow.
+  const capturedToken =
+    docker.daemonStatus() === "running"
+      ? await offerSyncTokenCapture(prompts, docker)
+      : undefined
   // Masked prompt: the sync token is a credential and must not echo into
   // the terminal or scrollback. An empty submission still means "fill in
   // .env later" — clack's password prompt accepts blank input.

@@ -5,9 +5,11 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
 import { runDown, runLogs, runRestart } from "../lifecycle.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
   fetchOk,
@@ -67,6 +69,24 @@ describe("runDown", () => {
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
+    ])
+  })
+
+  // Message content per platform is pinned test-owned in messages.test.ts —
+  // this asserts the not-installed state routes to the install guidance.
+  it("exits 1 with install guidance when no container runtime is installed", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNotInstalled },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      buildDockerNotInstalledMessage({ nextStep: "" }),
     ])
   })
 

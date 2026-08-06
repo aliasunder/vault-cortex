@@ -3,6 +3,10 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import type { DockerRunner } from "./docker.js"
+import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
+} from "./messages.js"
 import type { Prompts } from "./prompts.js"
 import { patchEnvObsidianToken } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -150,10 +154,12 @@ export const runGetSyncToken = async (
 ): Promise<number> => {
   const { prompts, docker } = deps
 
-  if (!docker.isDaemonRunning()) {
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus !== "running") {
     prompts.error(
-      "Container runtime not running — start Docker Desktop, Colima,\n" +
-        "OrbStack, or another Docker-compatible runtime and try again.",
+      daemonStatus === "not-installed"
+        ? buildDockerNotInstalledMessage({ nextStep: "\nThen try again." })
+        : buildDaemonNotRunningMessage(" and try again."),
     )
     return 1
   }

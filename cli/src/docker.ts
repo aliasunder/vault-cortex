@@ -21,9 +21,17 @@ export type DockerLogsParams = {
   since?: string
 }
 
+/**
+ * Container-runtime reachability: "running" (daemon answered), "not-running"
+ * (binary exists but the daemon didn't answer), or "not-installed" (no docker
+ * binary on PATH) — the split decides whether guidance says "start it" or
+ * "install one".
+ */
+export type DaemonStatus = "running" | "not-running" | "not-installed"
+
 export type DockerRunner = {
-  /** True when the Docker daemon is reachable. */
-  isDaemonRunning: () => boolean
+  /** Whether the container runtime is reachable, stopped, or absent. */
+  daemonStatus: () => DaemonStatus
   /** Runs `docker run -d` with mode-specific flags. */
   dockerRun: (params: DockerRunParams) => boolean
   /** Pulls the latest image from the registry. */
@@ -169,9 +177,28 @@ export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
   ]
 }
 
+/**
+ * Classifies a `docker info` spawnSync result. ENOENT on the spawn itself
+ * means the `docker` binary is absent (not installed); any other failure —
+ * non-zero exit, timeout, signal kill — means the binary exists but the
+ * daemon isn't answering. `status` alone can't make that call: it is null
+ * for ENOENT *and* for timeouts, so the split keys on the error code.
+ */
+export const classifyDaemonStatus = (spawnResult: {
+  status: number | null
+  error?: Error
+}): DaemonStatus => {
+  if (spawnResult.status === 0) return "running"
+  const spawnErrorCode =
+    spawnResult.error && "code" in spawnResult.error
+      ? spawnResult.error.code
+      : undefined
+  return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
+}
+
 export const createDockerRunner = (): DockerRunner => ({
-  isDaemonRunning: () =>
-    spawnSync("docker", ["info"], { timeout: 5_000 }).status === 0,
+  daemonStatus: () =>
+    classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the

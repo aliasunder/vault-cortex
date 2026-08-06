@@ -11,10 +11,12 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runInit } from "../init.js"
 import type { DockerRunner } from "../docker.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDaemonOnly,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
 } from "./command-stubs.js"
@@ -448,6 +450,35 @@ describe("runInit interactive local flow", () => {
     expect(scripted.warnings[0]).toContain("Container runtime not running")
   })
 
+  // Message content per platform is pinned test-owned in messages.test.ts —
+  // this asserts the not-installed state routes to the install guidance.
+  it("warns with install guidance and skips the start offer when Docker is not installed", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      [], // no optional settings
+    ])
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain("Start the server now?")
+    expect(scripted.warnings).toEqual([
+      buildDockerNotInstalledMessage({
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
+      }),
+    ])
+  })
+
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
     const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
     const targetDir = makeTargetDir()
@@ -515,6 +546,41 @@ describe("runInit remote flow", () => {
     expect(scripted.prints[0]).toContain(
       "Adjust optional settings (memory layer and folder, file tools,\nsemantic search, port, timezone, sync direction):",
     )
+  })
+
+  it("skips the token auto-capture offer when Docker is not installed", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      "sync-token-xyz", // paste prompt directly — no auto-capture offer
+      false, // no end-to-end encryption
+      [], // no optional settings
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    // No "Generate the token now?" (capture needs Docker) and no "Start the
+    // server now?" (the install warning replaces the start offer).
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
+    expect(scripted.warnings).toEqual([
+      buildDockerNotInstalledMessage({
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
+      }),
+    ])
   })
 
   it("skips paste prompt when auto-capture succeeds", async () => {

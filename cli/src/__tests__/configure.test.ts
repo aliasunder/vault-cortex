@@ -8,6 +8,7 @@ import type { DockerRunParams, DockerRunner } from "../docker.js"
 import {
   createScriptedPrompts,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
   fetchOk,
@@ -110,6 +111,32 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
       "Enable the memory layer (About Me/ folder + memory tools)?",
+    ])
+  })
+
+  it("saves the changes and names the missing runtime when Docker is not installed", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
+    )
+    expect(scripted.warnings).toEqual([
+      `No container runtime found — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 

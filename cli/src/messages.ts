@@ -33,6 +33,48 @@ const sectionRule = (label: string): string =>
     `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
   )
 
+/**
+ * Daemon-stopped guidance shared by every command that needs the container
+ * runtime. `nextStep` finishes the message per command — appended verbatim
+ * (".", " and try again.", or a ", then run:" continuation).
+ */
+export const buildDaemonNotRunningMessage = (nextStep: string): string =>
+  "Container runtime not running — start Docker Desktop, Colima,\n" +
+  `OrbStack, or another Docker-compatible runtime${nextStep}`
+
+/** Per-platform install pointer — Docker-compatible runtimes named as peers. */
+const dockerInstallLine = (platform: NodeJS.Platform): string => {
+  if (platform === "darwin") {
+    return (
+      "Install Docker Desktop (https://docs.docker.com/get-docker/ or\n" +
+      '"brew install --cask docker"), OrbStack, or Colima.'
+    )
+  }
+  if (platform === "win32") {
+    return "Install Docker Desktop: https://docs.docker.com/get-docker/"
+  }
+  return "Install Docker Engine: https://docs.docker.com/engine/install/"
+}
+
+/**
+ * "No runtime at all" guidance — distinct from the daemon-stopped message so
+ * the user isn't told to start something that isn't installed. platform is a
+ * defaulted param (mirroring buildObsidianLoginArgs) so each branch stays
+ * testable; `nextStep` is appended verbatim, as in
+ * buildDaemonNotRunningMessage.
+ */
+export const buildDockerNotInstalledMessage = (params: {
+  nextStep: string
+  platform?: NodeJS.Platform
+}): string => {
+  const { nextStep, platform = process.platform } = params
+  return (
+    "No container runtime found — the server runs in Docker, so you need\n" +
+    "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+    `${dockerInstallLine(platform)}${nextStep}`
+  )
+}
+
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
 const upgradeCommand = (targetDir: string): string =>
