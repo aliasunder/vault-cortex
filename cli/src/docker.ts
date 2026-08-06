@@ -265,11 +265,14 @@ export const createDockerRunner = (): DockerRunner => ({
  * black-hole the TCP handshake for minutes — the abort timeout bounds every
  * caller.
  */
+/** Default bound on a single health request (shared by probe and poll). */
+const PROBE_TIMEOUT_MS = 10_000
+
 export const probeHealth = async (
   params: { url: string; timeoutMs?: number },
   fetchFn: typeof fetch,
 ): Promise<boolean> => {
-  const { url, timeoutMs = 10_000 } = params
+  const { url, timeoutMs = PROBE_TIMEOUT_MS } = params
   try {
     const response = await fetchFn(url, {
       signal: AbortSignal.timeout(timeoutMs),
@@ -295,9 +298,20 @@ export const pollHealth = async (
   const { url, timeoutMs = 120_000, intervalMs = 2_000 } = params
   const deadline = Date.now() + timeoutMs
 
+  // Each attempt is bounded by the per-request cap AND the remaining budget
+  // (a bare remaining-budget bound would let one black-holed request consume
+  // the whole window with no retries), and the pause never sleeps past the
+  // deadline — so the loop can't overshoot timeoutMs and the caller's
+  // "did not respond within N minutes" message stays accurate.
   while (Date.now() < deadline) {
-    if (await probeHealth({ url }, fetchFn)) return true
-    await new Promise((resolvePause) => setTimeout(resolvePause, intervalMs))
+    const attemptTimeoutMs = Math.min(PROBE_TIMEOUT_MS, deadline - Date.now())
+    if (await probeHealth({ url, timeoutMs: attemptTimeoutMs }, fetchFn)) {
+      return true
+    }
+    const pauseMs = Math.min(intervalMs, deadline - Date.now())
+    if (pauseMs > 0) {
+      await new Promise((resolvePause) => setTimeout(resolvePause, pauseMs))
+    }
   }
   return false
 }

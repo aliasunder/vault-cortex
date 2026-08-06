@@ -19,6 +19,7 @@ import {
 import {
   buildFilesToWrite,
   readEnvPort,
+  readEnvPublicUrl,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -465,6 +466,12 @@ const runRemoteInit = async (
     envResult?.status === "created" || envResult?.status === "overwritten"
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
+  // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
+  // existing file may hold a different URL than this run's prompt, and the
+  // server only reads the file. The prompted value is the fallback for a kept
+  // legacy .env that predates PUBLIC_URL.
+  const effectivePublicUrl =
+    readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
@@ -475,7 +482,7 @@ const runRemoteInit = async (
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
   if (started) {
-    await reportPublicUrlProbe(publicUrl, {
+    await reportPublicUrlProbe(effectivePublicUrl, {
       prompts,
       fetchFn: deps.fetchFn,
     })
@@ -484,7 +491,7 @@ const runRemoteInit = async (
     buildRemoteConnectMessage({
       targetDir,
       token,
-      publicUrl,
+      publicUrl: effectivePublicUrl,
       started,
       obsidianTokenMissing: obsidianAuthToken === "",
       tokenWritten,

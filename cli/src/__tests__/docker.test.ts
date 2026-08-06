@@ -421,3 +421,20 @@ describe("probeHealth", () => {
     expect(seenSignals[0]).toBeInstanceOf(AbortSignal)
   })
 })
+
+describe("pollHealth deadline accuracy", () => {
+  it("never sleeps past the deadline after a failed attempt", async () => {
+    // timeoutMs 30 with intervalMs 1000: an uncapped pause would resolve
+    // after ~1s; the deadline-capped pause resolves in well under 500ms.
+    // Real timers with a generous margin — no scheduling internals mocked.
+    const startedAt = Date.now()
+    const healthy = await pollHealth(
+      { url: "http://example.test/healthz", timeoutMs: 30, intervalMs: 1000 },
+      async () => failResponse,
+    )
+    const elapsedMs = Date.now() - startedAt
+
+    expect(healthy).toBe(false)
+    expect(elapsedMs).toBeLessThan(500)
+  })
+})

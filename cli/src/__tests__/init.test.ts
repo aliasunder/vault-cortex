@@ -867,6 +867,53 @@ describe("runInit remote encryption password", () => {
   })
 })
 
+describe("runInit remote with a kept existing .env", () => {
+  it("probes and displays the persisted PUBLIC_URL, not the prompted one", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    // The kept file is what the server reads — its URL must win over the
+    // prompt for both the probe and the connect message (mirrors PORT).
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\n" +
+        "OBSIDIAN_AUTH_TOKEN=persisted-tok\n" +
+        "VAULT_NAME=MyVault\n" +
+        "PUBLIC_URL=https://persisted.example.com\n",
+    )
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://prompted.example.com", // public URL prompt — differs from disk
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      false, // .env differs — keep the existing file
+      true, // start the server now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://persisted.example.com/healthz",
+    ])
+    expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp")
+    expect(scripted.prints[0]).not.toContain("prompted.example.com")
+  })
+})
+
 describe("runInit sync-token auto-capture fallback", () => {
   it("falls back to paste prompt when auto-capture fails", async () => {
     const targetDir = makeTargetDir()

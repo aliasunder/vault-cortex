@@ -228,6 +228,16 @@ describe("readEnvPublicUrl", () => {
 
     expect(readEnvPublicUrl(envPath)).toBeUndefined()
   })
+
+  it("returns undefined for a whitespace-only PUBLIC_URL= line", () => {
+    // The regex matches the spaces; the trim must not leak "" past the
+    // non-empty contract.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=   \n")
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
 })
 
 describe("detectMode", () => {
