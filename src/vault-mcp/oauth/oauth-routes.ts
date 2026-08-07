@@ -41,7 +41,19 @@ export const createOAuthRoutes = ({
     return req.ip ?? "unknown"
   }
 
+  // Explicit 5 req/min per client IP on each flow endpoint (/authorize,
+  // /token, /register, /revoke — each mounts its own limiter). The SDK's
+  // per-endpoint defaults are far looser (authorize 100/15 min, token +
+  // revoke 50/15 min, register 20/hr); for a single-user server a
+  // complete OAuth flow touches each endpoint at most twice per minute,
+  // so 5/min absorbs reconnect storms (observed worst case: 4
+  // registrations in 6 minutes) while shutting down brute force.
+  // windowMs/max are the exact keys the SDK sets before spreading this
+  // config — overriding them (rather than `limit`) leaves no dual-key
+  // ambiguity about which value wins.
   const rateLimit = {
+    windowMs: 60 * 1000,
+    max: 5,
     keyGenerator: extractClientIp,
     validate: false as const,
   }

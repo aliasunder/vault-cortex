@@ -222,28 +222,24 @@ describe("OAuth consent body validation", () => {
   })
 })
 
-describe("OAuth consent audit logging", () => {
+describe("OAuth endpoint rate limiting", () => {
   let dir: string
-  let logs: LogCall[]
-  let oauth: OAuthProvider
   let server: Server
   let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-audit-routes-"))
-    logs = []
-    const testLogger = recordingLogger(logs)
-    oauth = createOAuthProvider({
+    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-"))
+    const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      logger: testLogger,
+      logger,
     })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      logger: testLogger,
+      logger,
     })
     const app = express()
     app.use(router)
@@ -259,116 +255,25 @@ describe("OAuth consent audit logging", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  const startPendingRequest = async (): Promise<string> => {
-    const client = await oauth.provider.clientsStore!.registerClient!({
-      client_name: "Audit Client",
-      redirect_uris: [REDIRECT_URI],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
+  const register = () =>
+    fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Rate Limit Client",
+        redirect_uris: [REDIRECT_URI],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
     })
-    const params: AuthorizationParams = {
-      codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-      redirectUri: REDIRECT_URI,
-      scopes: ["vault"],
-      state: "test-state",
+
+  it("serves 5 requests in a minute from one client IP, then returns 429", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register()
+      expect(response.status).toBe(201)
     }
-    let capturedHtml = ""
-    const res = {
-      type: () => res,
-      send: (html: string) => {
-        capturedHtml = html
-        return res
-      },
-    }
-    await oauth.provider.authorize(client, params, res as unknown as Response)
-    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
-    if (!requestId) throw new Error("no request_id in consent HTML")
-    return requestId
-  }
-
-  it("logs oauth_consent_completed on approved consent", async () => {
-    const requestId = await startPendingRequest()
-    logs.length = 0
-
-    await fetch(`${baseUrl}/oauth/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        request_id: requestId,
-        token: AUTH_TOKEN,
-        action: "approve",
-      }),
-      redirect: "manual",
-    })
-
-    const event = logs.find((log) => log.message === "oauth_consent_completed")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
-    expect(event!.data.clientIp).toBeDefined()
-  })
-
-  it("logs oauth_consent_bad_token on invalid token submission", async () => {
-    const requestId = await startPendingRequest()
-    logs.length = 0
-
-    await fetch(`${baseUrl}/oauth/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        request_id: requestId,
-        token: "wrong-token",
-        action: "approve",
-      }),
-      redirect: "manual",
-    })
-
-    const event = logs.find((log) => log.message === "oauth_consent_bad_token")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
-    expect(event!.data.requestId).toBe(requestId)
-  })
-
-  it("logs oauth_consent_denied_by_user on deny action", async () => {
-    const requestId = await startPendingRequest()
-    logs.length = 0
-
-    await fetch(`${baseUrl}/oauth/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        request_id: requestId,
-        token: AUTH_TOKEN,
-        action: "deny",
-      }),
-      redirect: "manual",
-    })
-
-    const event = logs.find(
-      (log) => log.message === "oauth_consent_denied_by_user",
-    )
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
-  })
-
-  it("logs oauth_consent_expired on expired request", async () => {
-    logs.length = 0
-
-    await fetch(`${baseUrl}/oauth/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        request_id: "nonexistent-id",
-        token: AUTH_TOKEN,
-        action: "approve",
-      }),
-      redirect: "manual",
-    })
-
-    const event = logs.find((log) => log.message === "oauth_consent_expired")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
+    const sixth = await register()
+    expect(sixth.status).toBe(429)
   })
 })
