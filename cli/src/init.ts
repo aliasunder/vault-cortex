@@ -368,28 +368,18 @@ const runLocalInit = async (
   return 0
 }
 
-// Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
-// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
-// Docker) → optional E2E vault password → generate token → write .env →
-// optionally start → print connect instructions. Always interactive —
-// the sync-token step can't be defaulted.
+// Remote flow (VPS + Obsidian Sync): PUBLIC_URL → VAULT_NAME → Obsidian Sync
+// token (optionally running the Obsidian login via Docker) → optional E2E
+// vault password → resolve target dir → generate token → write .env →
+// optionally start → print connect instructions. Mode-specific inputs come
+// first and the config-dir question sits last before the write, mirroring the
+// local flow's shape. Always interactive — the sync-token step can't be
+// defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
   const { prompts, docker } = deps
-
-  // expandTilde before resolve: resolve() treats a leading `~` as a literal
-  // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (await prompts.text("Where should I put the config files?", {
-          defaultValue: DEFAULT_TARGET_DIR,
-          placeholder: DEFAULT_TARGET_DIR,
-        })),
-    ),
-  )
 
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
@@ -421,6 +411,18 @@ const runRemoteInit = async (
   const vaultPassword = usesEncryption
     ? await prompts.password("Vault encryption password:")
     : undefined
+
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
+  const targetDir = resolve(
+    expandTilde(
+      flags.dir ??
+        (await prompts.text("Where should I put the config files?", {
+          defaultValue: DEFAULT_TARGET_DIR,
+          placeholder: DEFAULT_TARGET_DIR,
+        })),
+    ),
+  )
 
   const token = generateToken()
 

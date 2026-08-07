@@ -742,6 +742,38 @@ describe("runInit remote flow", () => {
       /^OBSIDIAN_AUTH_TOKEN=$/m,
     )
   })
+
+  it("asks mode-specific inputs first and the config-dir question last, mirroring local", async () => {
+    const configDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      "", // blank sync token (Docker down, no capture offer)
+      false, // no encryption
+      configDir, // config dir — prompted, not passed as a flag
+      [], // no optional settings
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Does your vault use end-to-end encryption?",
+      "Where should I put the config files?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
+    expect(existsSync(join(configDir, ".env"))).toBe(true)
+  })
 })
 
 describe("runInit with a kept existing .env", () => {
