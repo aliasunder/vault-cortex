@@ -205,6 +205,19 @@ describe("readEnvPublicUrl", () => {
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
 
+  it("strips trailing slashes so consumers can append paths cleanly", () => {
+    // A hand-edited `https://host/` must not become `https://host//mcp` in
+    // the connect message — mirror askPublicUrl's prompt-side normalization.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
   it("returns undefined when no .env exists", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 

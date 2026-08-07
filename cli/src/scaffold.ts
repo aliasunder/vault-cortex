@@ -94,7 +94,11 @@ export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   // A whitespace-only line matches the regex and trims to "" — normalize to
   // undefined so the non-empty contract holds ("" is never a legitimate URL).
   const publicUrlValue = match?.[1].trim()
-  return publicUrlValue || undefined
+  // Strip trailing slashes (mirroring askPublicUrl's prompt-side
+  // normalization): consumers append paths to this base, and a hand-edited
+  // `https://host/` would otherwise print broken `//mcp` connect URLs.
+  const normalizedPublicUrl = publicUrlValue?.replace(/\/+$/, "")
+  return normalizedPublicUrl || undefined
 }
 
 /**
