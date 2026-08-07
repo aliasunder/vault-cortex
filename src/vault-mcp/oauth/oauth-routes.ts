@@ -1,7 +1,7 @@
 /** OAuth HTTP routes — SDK auth router + consent form handler. */
 
 import express, { Router } from "express"
-import type { Request, Response } from "express"
+import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
@@ -55,6 +55,25 @@ export const createOAuthRoutes = ({
     windowMs: 60 * 1000,
     max: 5,
     keyGenerator: extractClientIp,
+    // A tripped limiter is silent by default — express-rate-limit just
+    // sends the 429 — yet it's the brute-force signal the limit exists
+    // to catch. Log the offender, then send the SDK's per-endpoint 429
+    // message exactly as the default handler would. The path comes from
+    // originalUrl with the query string stripped: authorize carries
+    // client_id/state in its query, which doesn't belong in logs.
+    handler: (
+      req: Request,
+      res: Response,
+      _next: NextFunction,
+      options: { statusCode: number; message: unknown },
+    ) => {
+      const requestPath = req.originalUrl.split("?")[0] ?? req.originalUrl
+      routeLogger.warn("oauth_rate_limited", {
+        clientIp: extractClientIp(req),
+        path: requestPath,
+      })
+      res.status(options.statusCode).send(options.message)
+    },
     validate: false as const,
   }
 

@@ -403,22 +403,25 @@ describe("OAuth consent audit logging", () => {
 
 describe("OAuth endpoint rate limiting", () => {
   let dir: string
+  let logs: LogCall[]
   let server: Server
   let baseUrl: string
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      logger,
+      logger: testLogger,
     })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      logger,
+      logger: testLogger,
     })
     const app = express()
     app.use(router)
@@ -459,6 +462,24 @@ describe("OAuth endpoint rate limiting", () => {
     }
     const sixth = await register()
     expect(sixth.status).toBe(429)
+  })
+
+  it("logs oauth_rate_limited with the offending client IP when the limit trips", async () => {
+    for (let i = 0; i < 5; i++) {
+      await register("203.0.113.9")
+    }
+    logs.length = 0
+    const sixth = await register("203.0.113.9")
+    expect(sixth.status).toBe(429)
+    const event = logs.find((log) => log.message === "oauth_rate_limited")
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_rate_limited",
+      data: expect.objectContaining({
+        clientIp: "203.0.113.9",
+        path: "/register",
+      }),
+    })
   })
 
   it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {
