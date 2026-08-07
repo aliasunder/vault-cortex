@@ -743,14 +743,14 @@ describe("runInit remote flow", () => {
     )
   })
 
-  it("asks mode-specific inputs first and the config-dir question last, mirroring local", async () => {
+  it("asks the config dir first, then the mode-specific inputs", async () => {
     const configDir = makeTargetDir()
     const scripted = createScriptedPrompts([
+      configDir, // config dir — prompted, not passed as a flag
       "https://vault.example.com", // public URL
       "MyVault", // vault name
       "", // blank sync token (Docker down, no capture offer)
       false, // no encryption
-      configDir, // config dir — prompted, not passed as a flag
       [], // no optional settings
     ])
 
@@ -765,14 +765,90 @@ describe("runInit remote flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
+      "Where should I put the config files?",
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
-      "Where should I put the config files?",
       "Any optional settings to change? (press enter to skip)",
     ])
     expect(existsSync(join(configDir, ".env"))).toBe(true)
+  })
+})
+
+describe("runInit re-init guard", () => {
+  it("backs out of remote init before any mode-specific question when the dir already holds a deployment", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      false, // existing deployment found — do not re-run setup (default)
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The guard must fire before the first mode-specific question — the
+    // confirm is the only prompt the whole run asked.
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message: "Re-run setup for this directory anyway?",
+        initialValue: false,
+      },
+    ])
+    expect(scripted.logs).toContain(
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+    )
+    expect(scripted.outros).toEqual(["Done."])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
+  })
+
+  it("backs out of local init after the dir prompt when it already holds a deployment", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      false, // existing deployment found — do not re-run setup (default)
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The guard fires on the dir answer — no settings or start questions follow.
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      "Where should I put the config files?",
+      "Re-run setup for this directory anyway?",
+    ])
+    expect(scripted.logs).toContain(
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+    )
+    expect(scripted.outros).toEqual(["Done."])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
   })
 })
 
@@ -782,6 +858,7 @@ describe("runInit with a kept existing .env", () => {
     "local",
     vaultDir,
     targetDir,
+    true, // existing deployment found — re-run setup anyway
     false, // .env differs — keep the existing file
   ]
 
@@ -924,6 +1001,7 @@ describe("runInit remote with a kept existing .env", () => {
       return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts([
+      true, // existing deployment found — re-run setup anyway
       "https://prompted.example.com", // public URL prompt — differs from disk
       "MyVault", // vault name
       false, // don't generate the token now (declined auto-capture)
@@ -1087,6 +1165,7 @@ describe("runInit guided optional settings", () => {
       "local",
       vaultDir,
       targetDir,
+      true, // existing deployment found — re-run setup anyway
       false, // .env differs — keep the existing file
     ])
 

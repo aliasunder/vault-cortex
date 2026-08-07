@@ -187,6 +187,33 @@ const confirmOverwrite =
   (name: string): Promise<boolean> =>
     prompts.confirm(`${name} already exists and differs — overwrite?`, false)
 
+/**
+ * Re-init guard, fired the moment the target dir is known (prompt answer or
+ * --dir flag): an existing .env there means a live deployment, so the flow
+ * checks intent before any further questions are spent — re-running init over
+ * a deployment is usually an accident, and settings changes belong to
+ * `configure`. Declining (the default) backs out with pointers; accepting
+ * continues, still protected by the per-file overwrite confirms at write time.
+ */
+const confirmReinitOverExistingEnv = async (
+  targetDir: string,
+  prompts: Prompts,
+): Promise<boolean> => {
+  if (!existsSync(join(targetDir, ".env"))) return true
+  prompts.log(`Found an existing deployment in ${targetDir}.`)
+  const reinitAnyway = await prompts.confirm(
+    "Re-run setup for this directory anyway?",
+    false,
+  )
+  if (reinitAnyway) return true
+  // No outro here: declining still exits 0, and the runInit wrapper owns the
+  // closing outro (mirroring configure's declined-restart path).
+  prompts.log(
+    `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+  )
+  return false
+}
+
 const reportWrites = (
   params: { targetDir: string; results: FileWriteResult[] },
   prompts: Prompts,
@@ -307,6 +334,16 @@ const runLocalInit = async (
     ),
   )
 
+  // --yes skips the guard: it's non-interactive by contract, and its own
+  // conflict policy (refuse to overwrite, exit 1) already protects the dir.
+  if (!flags.yes) {
+    const continueReinit = await confirmReinitOverExistingEnv(
+      targetDir,
+      prompts,
+    )
+    if (!continueReinit) return 0
+  }
+
   const token = generateToken()
 
   // Guided optional settings: the chooser reads current values from the
@@ -368,18 +405,31 @@ const runLocalInit = async (
   return 0
 }
 
-// Remote flow (VPS + Obsidian Sync): PUBLIC_URL → VAULT_NAME → Obsidian Sync
-// token (optionally running the Obsidian login via Docker) → optional E2E
-// vault password → resolve target dir → generate token → write .env →
-// optionally start → print connect instructions. Mode-specific inputs come
-// first and the config-dir question sits last before the write, mirroring the
-// local flow's shape. Always interactive — the sync-token step can't be
-// defaulted.
+// Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
+// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
+// Docker) → optional E2E vault password → generate token → write .env →
+// optionally start → print connect instructions. Always interactive —
+// the sync-token step can't be defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
   const { prompts, docker } = deps
+
+  // expandTilde before resolve: resolve() treats a leading `~` as a literal
+  // path segment, so a quoted "~/path" would create a directory named "~".
+  const targetDir = resolve(
+    expandTilde(
+      flags.dir ??
+        (await prompts.text("Where should I put the config files?", {
+          defaultValue: DEFAULT_TARGET_DIR,
+          placeholder: DEFAULT_TARGET_DIR,
+        })),
+    ),
+  )
+
+  const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
+  if (!continueReinit) return 0
 
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
@@ -411,18 +461,6 @@ const runRemoteInit = async (
   const vaultPassword = usesEncryption
     ? await prompts.password("Vault encryption password:")
     : undefined
-
-  // expandTilde before resolve: resolve() treats a leading `~` as a literal
-  // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (await prompts.text("Where should I put the config files?", {
-          defaultValue: DEFAULT_TARGET_DIR,
-          placeholder: DEFAULT_TARGET_DIR,
-        })),
-    ),
-  )
 
   const token = generateToken()
 
