@@ -446,4 +446,58 @@ describe("OAuth endpoint rate limiting", () => {
     const sixth = await register()
     expect(sixth.status).toBe(429)
   })
+
+  // Each flow endpoint mounts its own limiter with its own counter, so the
+  // per-endpoint tests below exercise four independent limiters — register
+  // passing does not prove authorize/token/revoke are limited. The requests
+  // are deliberately invalid: the limiter runs before request validation,
+  // so invalid requests still count toward the window, and the pre-limit
+  // status is each endpoint's own validation error.
+  it("rate-limits /authorize after 5 requests from one client IP", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+      expect(response.status).toBe(400)
+    }
+    const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+    expect(sixth.status).toBe(429)
+  })
+
+  it("rate-limits /token after 5 requests from one client IP", async () => {
+    const requestToken = () =>
+      fetch(`${baseUrl}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "authorization_code" }),
+      })
+    for (let i = 0; i < 5; i++) {
+      const response = await requestToken()
+      expect(response.status).toBe(400)
+    }
+    const sixth = await requestToken()
+    expect(sixth.status).toBe(429)
+  })
+
+  it("rate-limits /revoke after 5 requests from one client IP", async () => {
+    const revoke = () =>
+      fetch(`${baseUrl}/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token: "nonexistent-token" }),
+      })
+    for (let i = 0; i < 5; i++) {
+      const response = await revoke()
+      expect(response.status).toBe(400)
+    }
+    const sixth = await revoke()
+    expect(sixth.status).toBe(429)
+  })
+
+  it("leaves /.well-known discovery metadata unlimited past 5 requests", async () => {
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch(
+        `${baseUrl}/.well-known/oauth-authorization-server`,
+      )
+      expect(response.status).toBe(200)
+    }
+  })
 })
