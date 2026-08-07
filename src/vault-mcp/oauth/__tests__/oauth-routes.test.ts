@@ -78,7 +78,10 @@ describe("OAuth consent token submission", () => {
   // the provider (the HTTP /register and /authorize routes are rate-limited;
   // /oauth/decide, the route under test, is not).
   const startPendingRequest = async (): Promise<string> => {
-    const client = await oauth.provider.clientsStore!.registerClient!({
+    const clientsStore = oauth.provider.clientsStore
+    if (!clientsStore?.registerClient)
+      throw new Error("clientsStore.registerClient not available")
+    const client = await clientsStore.registerClient({
       client_name: "Test Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
@@ -137,11 +140,11 @@ describe("OAuth consent token submission", () => {
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
     const locationHeader = response.headers.get("location")
-    expect(locationHeader).not.toBeNull()
-    const location = new URL(locationHeader!)
+    if (!locationHeader) throw new Error("expected Location header on 302")
+    const location = new URL(locationHeader)
     const code = location.searchParams.get("code")
-    expect(typeof code).toBe("string")
-    expect(code!.length).toBeGreaterThan(0)
+    if (!code) throw new Error("expected code query param in redirect")
+    expect(code.length).toBeGreaterThan(0)
     expect(location.searchParams.get("state")).toBe("test-state")
   })
 
@@ -260,7 +263,10 @@ describe("OAuth consent audit logging", () => {
   })
 
   const startPendingRequest = async (): Promise<string> => {
-    const client = await oauth.provider.clientsStore!.registerClient!({
+    const clientsStore = oauth.provider.clientsStore
+    if (!clientsStore?.registerClient)
+      throw new Error("clientsStore.registerClient not available")
+    const client = await clientsStore.registerClient({
       client_name: "Audit Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
@@ -303,10 +309,14 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_completed")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
-    expect(event!.data.clientIp).toBeDefined()
+    expect(event).toMatchObject({
+      level: "info",
+      message: "oauth_consent_completed",
+      data: expect.objectContaining({
+        requestId,
+        clientIp: expect.any(String),
+      }),
+    })
   })
 
   it("logs oauth_consent_bad_token on invalid token submission", async () => {
@@ -325,9 +335,11 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_bad_token")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
-    expect(event!.data.requestId).toBe(requestId)
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_consent_bad_token",
+      data: expect.objectContaining({ requestId }),
+    })
   })
 
   it("logs oauth_consent_denied_by_user on deny action", async () => {
@@ -348,9 +360,11 @@ describe("OAuth consent audit logging", () => {
     const event = logs.find(
       (log) => log.message === "oauth_consent_denied_by_user",
     )
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
+    expect(event).toMatchObject({
+      level: "info",
+      message: "oauth_consent_denied_by_user",
+      data: expect.objectContaining({ requestId }),
+    })
   })
 
   it("logs oauth_consent_expired on expired request", async () => {
@@ -368,8 +382,13 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_expired")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_consent_expired",
+      data: expect.objectContaining({
+        requestId: "nonexistent-id",
+      }),
+    })
   })
 })
 
