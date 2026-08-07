@@ -69,8 +69,11 @@ export const readEnvVaultPath = (envFilePath: string): string | undefined => {
 
 /**
  * Returns true when the .env file has an active (uncommented) PUBLIC_URL line.
- * Used by upgrade to detect .env files from the old compose-based CLI, where
- * PUBLIC_URL was provided by docker-compose defaults rather than the .env.
+ * It's the FALSE result that carries the signal: the old compose-based CLI's
+ * generated .env never held a PUBLIC_URL line (the compose file's environment
+ * defaults supplied it), so a local .env without one predates the docker-run
+ * migration — callers use the negation to ask the user to add the line
+ * instead of starting a server missing a required variable.
  */
 export const hasEnvPublicUrl = (envFilePath: string): boolean => {
   if (!existsSync(envFilePath)) return false

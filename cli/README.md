@@ -25,6 +25,8 @@ manages the container so you don't have to.
   restart to apply them
 - [`upgrade`](#upgrade) — pull the latest image and re-create the container;
   your data stays
+- [`start`](#start) — start the server with your saved settings, e.g. after
+  `down`
 - [`restart`](#restart) — re-create the container so your `.env` edits take
   effect; no image pull
 - [`logs`](#logs) — show the server's logs, live or after the fact
@@ -115,6 +117,22 @@ include Compose files you can use directly. If you set up with Compose, stick
 with Compose for updates too (`docker compose pull && docker compose up -d`)
 — the CLI and Compose manage the container independently.
 
+## start
+
+Start the server with your saved settings and verify health:
+
+```bash
+npx vault-cortex@latest start
+```
+
+This is the command the CLI's own guidance points to whenever the server
+isn't running — after [`down`](#down), or an `init` where the server wasn't
+started. It's the same cycle as [`restart`](#restart) under the name you'd
+look for: any existing container is replaced, and Docker pulls the server
+image automatically on a first start.
+
+Use `--dir <path>` if your config isn't in `./vault-cortex`.
+
 ## restart
 
 Re-create the container from your `.env` and verify health:
@@ -159,7 +177,7 @@ npx vault-cortex@latest down
 
 Safe by design: your vault, search index, and `.env` settings all live
 outside the container, so nothing is lost. Start again any time with
-[`restart`](#restart). Running `down` when nothing is running is fine — it
+[`start`](#start). Running `down` when nothing is running is fine — it
 just tells you there's nothing to stop.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.

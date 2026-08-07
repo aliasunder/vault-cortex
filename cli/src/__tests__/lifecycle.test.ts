@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
-import { runDown, runLogs, runRestart } from "../lifecycle.js"
+import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
@@ -168,7 +168,7 @@ describe("runDown", () => {
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
     ])
     expect(scripted.outros).toEqual([
-      `Start again with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `Start again with: npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
@@ -249,7 +249,7 @@ describe("runLogs", () => {
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      "No vault-cortex container — start it with `npx vault-cortex@latest restart`.",
+      "No vault-cortex container — start it with `npx vault-cortex@latest start`.",
     ])
   })
 
@@ -312,6 +312,43 @@ describe("runLogs", () => {
     )
 
     expect(exitCode).toBe(130)
+  })
+})
+
+describe("runStart", () => {
+  it("runs the full re-create cycle with start-phrased messaging", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    // The health-check spinner proves the cycle actually ran — the labels
+    // alone could pass on an early return.
+    expect(scripted.spinnerMessages).toContain(
+      "stop: Server is up — health check passed.",
+    )
+    expect(scripted.logs).toContain("Started with the settings from .env.")
+    expect(scripted.outros).toEqual(["Start complete."])
+  })
+
+  it("exits 1 when no .env exists in the target directory", async () => {
+    const targetDir = join(tmpdir(), "vault-cli-start-missing")
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 })
 

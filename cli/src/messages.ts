@@ -79,8 +79,14 @@ export const buildDockerNotInstalledMessage = (params: {
 const upgradeCommand = (targetDir: string): string =>
   `npx vault-cortex@latest upgrade --dir "${targetDir}"`
 
+// Start guidance prints `start`, not `upgrade` — telling a user who has never
+// started anything to run "upgrade" reads as updating something they don't
+// have. `start` runs the same re-create cycle and pulls the image on demand.
+export const startCommand = (targetDir: string): string =>
+  `npx vault-cortex@latest start --dir "${targetDir}"`
+
 const startServerLine = (targetDir: string): string =>
-  `Start the server:\n  ${upgradeCommand(targetDir)}`
+  `Start the server:\n  ${startCommand(targetDir)}`
 
 /** Remote start line: running, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
@@ -91,7 +97,7 @@ const remoteStartLine = (params: {
   const { targetDir, started, obsidianTokenMissing } = params
   if (started) return "The server is running."
   if (obsidianTokenMissing) {
-    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${upgradeCommand(targetDir)}`
+    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
   }
   return startServerLine(targetDir)
 }

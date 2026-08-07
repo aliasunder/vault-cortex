@@ -8,6 +8,7 @@ import {
   buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
+  startCommand,
 } from "./messages.js"
 import { pollHealth, type DockerRunner } from "./docker.js"
 import { reportPublicUrlProbe } from "./lifecycle.js"
@@ -244,13 +245,13 @@ const offerDockerRun = async (
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
   if (daemonStatus !== "running") {
-    const upgradeHint = `npx vault-cortex@latest upgrade --dir "${targetDir}"`
+    const startHint = startCommand(targetDir)
     prompts.warn(
       daemonStatus === "not-installed"
         ? buildDockerNotInstalledMessage({
-            nextStep: `\nThen start the server with:\n  ${upgradeHint}`,
+            nextStep: `\nThen start the server with:\n  ${startHint}`,
           })
-        : buildDaemonNotRunningMessage(`, then run:\n  ${upgradeHint}`),
+        : buildDaemonNotRunningMessage(`, then run:\n  ${startHint}`),
     )
     return false
   }

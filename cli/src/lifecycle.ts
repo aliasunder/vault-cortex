@@ -277,7 +277,7 @@ export const runDown = async (
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
   prompts.outro(
-    `Start again with: npx vault-cortex@latest restart --dir "${initialized.targetDir}"`,
+    `Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
   )
   return 0
 }
@@ -301,7 +301,7 @@ export const runLogs = async (
 
   if (!docker.containerExists()) {
     prompts.error(
-      "No vault-cortex container — start it with `npx vault-cortex@latest restart`.",
+      "No vault-cortex container — start it with `npx vault-cortex@latest start`.",
     )
     return 1
   }
@@ -309,6 +309,52 @@ export const runLogs = async (
   return await docker.streamLogs({
     follow: Boolean(flags.follow),
     since: flags.since,
+  })
+}
+
+/**
+ * Shared start/restart cycle: re-create the container from the .env on disk
+ * and verify health. One implementation, two command names — the labels are
+ * the only divergence, phrased for the intent each name serves.
+ */
+const runRecreateFromEnv = async (
+  flags: RestartFlags,
+  deps: RestartDeps,
+  labels: { introTitle: string; successLog: string; outroMessage: string },
+): Promise<number> => {
+  const { prompts, docker, fetchFn } = deps
+
+  prompts.intro(labels.introTitle)
+
+  const deployment = resolveDeployment(flags.dir, prompts)
+  if (!deployment) return 1
+  if (!ensureDaemonRunning(docker, prompts)) return 1
+
+  const exitCode = await recreateContainer(
+    { deployment, healthTimeoutMs: deps.healthTimeoutMs },
+    { prompts, docker, fetchFn },
+  )
+  if (exitCode !== 0) return exitCode
+
+  prompts.log(labels.successLog)
+  prompts.outro(labels.outroMessage)
+  return 0
+}
+
+/**
+ * Starts the server from the saved .env — the command name users reach for
+ * when nothing is running yet (after `down`, or an init that skipped the
+ * start offer). Same cycle as restart: if a container is already running it
+ * is safely replaced, and `docker run` pulls the image when it's missing.
+ */
+export const runStart = async (
+  flags: RestartFlags,
+  deps: RestartDeps,
+): Promise<number> => {
+  return runRecreateFromEnv(flags, deps, {
+    introTitle: "vault-cortex start",
+    successLog: "Started with the settings from .env.",
+    outroMessage: "Start complete.",
   })
 }
 
@@ -321,21 +367,9 @@ export const runRestart = async (
   flags: RestartFlags,
   deps: RestartDeps,
 ): Promise<number> => {
-  const { prompts, docker, fetchFn } = deps
-
-  prompts.intro("vault-cortex restart")
-
-  const deployment = resolveDeployment(flags.dir, prompts)
-  if (!deployment) return 1
-  if (!ensureDaemonRunning(docker, prompts)) return 1
-
-  const exitCode = await recreateContainer(
-    { deployment, healthTimeoutMs: deps.healthTimeoutMs },
-    { prompts, docker, fetchFn },
-  )
-  if (exitCode !== 0) return exitCode
-
-  prompts.log("Applied the current .env settings.")
-  prompts.outro("Restart complete.")
-  return 0
+  return runRecreateFromEnv(flags, deps, {
+    introTitle: "vault-cortex restart",
+    successLog: "Applied the current .env settings.",
+    outroMessage: "Restart complete.",
+  })
 }

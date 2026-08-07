@@ -474,7 +474,7 @@ describe("runInit interactive local flow", () => {
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
       buildDockerNotInstalledMessage({
-        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
       }),
     ])
   })
@@ -578,7 +578,7 @@ describe("runInit remote flow", () => {
     ])
     expect(scripted.warnings).toEqual([
       buildDockerNotInstalledMessage({
-        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest upgrade --dir "${targetDir}"`,
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
       }),
     ])
   })
