@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { Server } from "node:http"
-import type { AddressInfo } from "node:net"
 import type { Response } from "express"
 import express from "express"
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
@@ -40,6 +39,19 @@ const REDIRECT_URI = "http://localhost:9999/callback"
 /** Pulls the hidden request_id out of the rendered consent HTML. */
 const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/
 
+/**
+ * Resolves a listening server's TCP port. A bound HTTP server always
+ * reports an object-form address, so string/null narrows to a throw
+ * instead of a type assertion.
+ */
+const getListeningPort = (server: Server): number => {
+  const serverAddress = server.address()
+  if (!serverAddress || typeof serverAddress === "string") {
+    throw new Error("expected a TCP address from a listening server")
+  }
+  return serverAddress.port
+}
+
 describe("OAuth consent token submission", () => {
   let dir: string
   let oauth: OAuthProvider
@@ -65,8 +77,7 @@ describe("OAuth consent token submission", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -193,8 +204,7 @@ describe("OAuth consent body validation", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -253,8 +263,7 @@ describe("OAuth consent audit logging", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -416,8 +425,7 @@ describe("OAuth endpoint rate limiting", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -425,10 +433,16 @@ describe("OAuth endpoint rate limiting", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  const register = () =>
+  // Without forwardedClientIp all requests share the loopback peer; with it,
+  // the RFC 7239 Forwarded header drives extractClientIp, so distinct values
+  // are distinct rate-limit identities.
+  const register = (forwardedClientIp?: string) =>
     fetch(`${baseUrl}/register`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(forwardedClientIp ? { forwarded: `for=${forwardedClientIp}` } : {}),
+      },
       body: JSON.stringify({
         client_name: "Rate Limit Client",
         redirect_uris: [REDIRECT_URI],
@@ -445,6 +459,17 @@ describe("OAuth endpoint rate limiting", () => {
     }
     const sixth = await register()
     expect(sixth.status).toBe(429)
+  })
+
+  it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("203.0.113.7")
+      expect(response.status).toBe(201)
+    }
+    const sixthFromSameClient = await register("203.0.113.7")
+    expect(sixthFromSameClient.status).toBe(429)
+    const firstFromOtherClient = await register("203.0.113.8")
+    expect(firstFromOtherClient.status).toBe(201)
   })
 
   // Each flow endpoint mounts its own limiter with its own counter, so the
