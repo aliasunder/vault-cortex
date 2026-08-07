@@ -46,8 +46,8 @@ export const createOAuthRoutes = ({
   // per-endpoint defaults are far looser (authorize 100/15 min, token +
   // revoke 50/15 min, register 20/hr); for a single-user server a
   // complete OAuth flow touches each endpoint at most twice per minute,
-  // so 5/min absorbs reconnect storms (observed worst case: 4
-  // registrations in 6 minutes) while shutting down brute force.
+  // so 5/min absorbs client reconnect storms while shutting down brute
+  // force.
   // windowMs/max are the exact keys the SDK sets before spreading this
   // config — overriding them (rather than `limit`) leaves no dual-key
   // ambiguity about which value wins.
