@@ -11,10 +11,12 @@ import { describe, expect, it } from "vitest"
 
 import { captureObsidianToken, runGetSyncToken } from "../get-sync-token.js"
 import type { DockerRunner } from "../docker.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDaemonOnly,
   dockerDown,
+  dockerNotInstalled,
 } from "./command-stubs.js"
 
 /**
@@ -82,7 +84,7 @@ describe("captureObsidianToken", () => {
     expect(token).toBeUndefined()
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -101,7 +103,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login finished, but no token was captured — the " +
         "token file was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -124,7 +126,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings[0]).toBe(
       "The Obsidian login finished, but no token was captured — the " +
         "token file was missing, empty, or unreadable. You can retry with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     )
   })
 
@@ -149,7 +151,7 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings).toEqual([
       "Docker run failed — spawn docker ENOENT",
       "The Obsidian login did not complete — you can run it later with:\n" +
-        "  npx vault-cortex get-sync-token",
+        "  npx vault-cortex@latest get-sync-token",
     ])
   })
 
@@ -223,6 +225,22 @@ describe("runGetSyncToken subcommand", () => {
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime and try again.",
     )
+  })
+
+  // Message content per platform is pinned test-owned in messages.test.ts —
+  // this asserts the not-installed state routes to the install guidance.
+  it("exits 1 with install guidance when no container runtime is installed", async () => {
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runGetSyncToken(
+      {},
+      { prompts: scripted.prompts, docker: dockerNotInstalled },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      buildDockerNotInstalledMessage({ nextStep: "\nThen try again." }),
+    ])
   })
 
   it("exits 1 when token capture fails", async () => {

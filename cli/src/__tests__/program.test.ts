@@ -11,6 +11,7 @@ const buildCapturingProgram = () => {
   const initCalls: InitFlags[] = []
   const configureCalls: ConfigureFlags[] = []
   const upgradeCalls: UpgradeFlags[] = []
+  const startCalls: RestartFlags[] = []
   const restartCalls: RestartFlags[] = []
   const logsCalls: LogsFlags[] = []
   const downCalls: DownFlags[] = []
@@ -27,6 +28,10 @@ const buildCapturingProgram = () => {
     },
     runUpgrade: async (flags) => {
       upgradeCalls.push(flags)
+      return 0
+    },
+    runStart: async (flags) => {
+      startCalls.push(flags)
       return 0
     },
     runRestart: async (flags) => {
@@ -55,6 +60,7 @@ const buildCapturingProgram = () => {
     initCalls,
     configureCalls,
     upgradeCalls,
+    startCalls,
     restartCalls,
     logsCalls,
     downCalls,
@@ -148,6 +154,19 @@ describe("buildProgram upgrade", () => {
     await program.parseAsync(["upgrade"], { from: "user" })
 
     expect(upgradeCalls).toEqual([{}])
+  })
+})
+
+describe("buildProgram start", () => {
+  it("passes --dir through to runStart without touching runRestart", async () => {
+    const { program, startCalls, restartCalls } = buildCapturingProgram()
+
+    await program.parseAsync(["start", "--dir", "/opt/vault-cortex"], {
+      from: "user",
+    })
+
+    expect(startCalls).toEqual([{ dir: "/opt/vault-cortex" }])
+    expect(restartCalls).toEqual([])
   })
 })
 

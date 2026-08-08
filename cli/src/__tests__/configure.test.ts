@@ -8,6 +8,7 @@ import type { DockerRunParams, DockerRunner } from "../docker.js"
 import {
   createScriptedPrompts,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
   fetchOk,
@@ -58,7 +59,7 @@ describe("runConfigure preconditions", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 })
@@ -105,11 +106,37 @@ describe("runConfigure with picked settings", () => {
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
     ])
     expect(scripted.warnings).toEqual([
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
       "Enable the memory layer (About Me/ folder + memory tools)?",
+    ])
+  })
+
+  it("saves the changes and names the missing runtime when Docker is not installed", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
+    )
+    expect(scripted.warnings).toEqual([
+      `No container runtime found — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 
@@ -135,7 +162,7 @@ describe("runConfigure with picked settings", () => {
     expect(dockerRunCalls).toEqual([])
     expect(scripted.logs).toEqual([
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
-      `Apply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
     expect(scripted.outros).toEqual(["Done."])
   })
@@ -237,7 +264,7 @@ describe("runConfigure with picked settings", () => {
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=false\n",
     )
     expect(scripted.warnings).toEqual([
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 
@@ -265,7 +292,7 @@ describe("runConfigure with picked settings", () => {
     expect(envLines).toContain("PUBLIC_URL=https://vault.example.com")
     expect(scripted.warnings).toEqual([
       "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
   })
 

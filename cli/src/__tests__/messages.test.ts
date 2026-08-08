@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "../messages.js"
@@ -79,9 +81,10 @@ describe("buildLocalConnectMessage", () => {
       started: false,
     })
 
-    expect(message).toContain("Start the server:")
+    // Bound to the start line specifically — the update-guidance block also
+    // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `npx vault-cortex upgrade --dir "${localDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`,
     )
   })
 
@@ -127,7 +130,7 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `npx vault-cortex upgrade --dir "${localDefaults.targetDir}"`,
+      `npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`,
     )
   })
 
@@ -149,6 +152,21 @@ describe("buildLocalConnectMessage", () => {
 
     expect(message).toContain("Smoke test:")
     expect(message).toContain("curl http://localhost:8000/healthz")
+  })
+
+  it("omits the smoke test once the server is started", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      started: true,
+    })
+
+    // The CLI just health-checked this exact URL. The curl auth guidance must
+    // survive (the omission removes one block, not the section), and the
+    // triple-newline check catches a stray blank line from the assembly.
+    expect(message).not.toContain("Smoke test:")
+    expect(message).not.toContain("curl http://localhost:8000/healthz")
+    expect(message).toContain('curl -H "Authorization: Bearer <token>"')
+    expect(message).not.toMatch(/\n\n\n/)
   })
 })
 
@@ -199,9 +217,9 @@ describe("buildRemoteConnectMessage", () => {
       obsidianTokenMissing: true,
     })
 
-    expect(message).toContain("Fill in OBSIDIAN_AUTH_TOKEN")
-    expect(message).toContain(`${remoteDefaults.targetDir}/.env`)
-    expect(message).toContain("npx vault-cortex upgrade")
+    expect(message).toContain(
+      `Fill in OBSIDIAN_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env, then start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
+    )
   })
 
   it("shows the start command when not started and obsidian token present", () => {
@@ -211,9 +229,10 @@ describe("buildRemoteConnectMessage", () => {
       obsidianTokenMissing: false,
     })
 
-    expect(message).toContain("Start the server:")
+    // Bound to the start line specifically — the update-guidance block also
+    // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `npx vault-cortex upgrade --dir "${remoteDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
     )
   })
 
@@ -273,7 +292,7 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(
-      `npx vault-cortex upgrade --dir "${remoteDefaults.targetDir}"`,
+      `npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`,
     )
   })
 
@@ -301,5 +320,77 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Smoke test:")
     expect(message).toContain("curl https://vault.example.com/healthz")
+    expect(message).not.toContain("works from any device")
+  })
+
+  it("rewords the health check as the any-device check once started", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      started: true,
+    })
+
+    // Unlike local, the command survives a confirmed start: the CLI verified
+    // localhost on the VPS, while the public URL exercises ingress — a
+    // genuinely different check, so only the first-time framing goes.
+    expect(message).toContain(
+      "Health check — works from any device that can reach the URL:\n" +
+        "  curl https://vault.example.com/healthz",
+    )
+    expect(message).not.toContain("Smoke test:")
+  })
+})
+
+describe("buildDaemonNotRunningMessage", () => {
+  it("appends the caller's next step verbatim to the start guidance", () => {
+    expect(buildDaemonNotRunningMessage(" and try again.")).toBe(
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime and try again.",
+    )
+  })
+})
+
+describe("buildDockerNotInstalledMessage", () => {
+  it("points macOS at the Docker Desktop docs", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Desktop: https://docs.docker.com/get-docker/",
+    )
+  })
+
+  it("points Linux at the Docker Engine install docs", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Engine: https://docs.docker.com/engine/install/",
+    )
+  })
+
+  it("points Windows at the Docker Desktop docs", () => {
+    expect(
+      buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Desktop: https://docs.docker.com/get-docker/",
+    )
+  })
+
+  it("appends the caller's next step verbatim after the install line", () => {
+    expect(
+      buildDockerNotInstalledMessage({
+        nextStep: "\nThen try again.",
+        platform: "linux",
+      }),
+    ).toBe(
+      "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        "Install Docker Engine: https://docs.docker.com/engine/install/\n" +
+        "Then try again.",
+    )
   })
 })

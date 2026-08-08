@@ -11,10 +11,12 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runInit } from "../init.js"
 import type { DockerRunner } from "../docker.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDaemonOnly,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
 } from "./command-stubs.js"
@@ -448,6 +450,35 @@ describe("runInit interactive local flow", () => {
     expect(scripted.warnings[0]).toContain("Container runtime not running")
   })
 
+  // Message content per platform is pinned test-owned in messages.test.ts —
+  // this asserts the not-installed state routes to the install guidance.
+  it("warns with install guidance and skips the start offer when Docker is not installed", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      [], // no optional settings
+    ])
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain("Start the server now?")
+    expect(scripted.warnings).toEqual([
+      buildDockerNotInstalledMessage({
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      }),
+    ])
+  })
+
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
     const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
     const targetDir = makeTargetDir()
@@ -515,6 +546,129 @@ describe("runInit remote flow", () => {
     expect(scripted.prints[0]).toContain(
       "Adjust optional settings (memory layer and folder, file tools,\nsemantic search, port, timezone, sync direction):",
     )
+  })
+
+  it("skips the token auto-capture offer when Docker is not installed", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      "sync-token-xyz", // paste prompt directly — no auto-capture offer
+      false, // no end-to-end encryption
+      [], // no optional settings
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerNotInstalled,
+        fetchFn: fetchNever,
+      },
+    )
+
+    // No "Generate the token now?" (capture needs Docker) and no "Start the
+    // server now?" (the install warning replaces the start offer).
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
+    expect(scripted.warnings).toEqual([
+      buildDockerNotInstalledMessage({
+        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      }),
+    ])
+  })
+
+  it("probes the public URL after a confirmed start and reports success", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Order proves the probe ran after the container health poll.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up (first run may take a moment)",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
+    ])
+  })
+
+  it("keeps a successful start at exit 0 when the public URL does not answer", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    // Localhost (the container check) answers; the public URL is unreachable
+    // — the state every remote init is in before HTTPS/ingress is set up.
+    const fetchPublicUrlDown: typeof fetch = async (input) => {
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchPublicUrlDown,
+      },
+    )
+
+    // Exit 0 with the probe provably fired — the probe is informational,
+    // never a gate — and the connect message still reports the running server.
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up (first run may take a moment)",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: No answer from https://vault.example.com/healthz yet.",
+    ])
+    expect(scripted.warnings).toEqual([
+      "The server is up, but its public URL didn't answer from this machine.\n" +
+        "That's expected until HTTPS (or direct port) access is set up — and\n" +
+        "some networks keep a server from reaching its own public address even\n" +
+        "when other devices can. Once access is set up, check from any device:\n" +
+        "  curl https://vault.example.com/healthz",
+    ])
+    expect(scripted.prints[0]).toContain("The server is running.")
   })
 
   it("skips paste prompt when auto-capture succeeds", async () => {
@@ -588,14 +742,125 @@ describe("runInit remote flow", () => {
       /^OBSIDIAN_AUTH_TOKEN=$/m,
     )
   })
+
+  it("asks the config dir first, then the mode-specific inputs", async () => {
+    const configDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      configDir, // config dir — prompted, not passed as a flag
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      "", // blank sync token (Docker down, no capture offer)
+      false, // no encryption
+      [], // no optional settings
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      "Where should I put the config files?",
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
+    expect(existsSync(join(configDir, ".env"))).toBe(true)
+  })
+})
+
+describe("runInit re-init guard", () => {
+  it("backs out of remote init before any mode-specific question when the dir already holds a deployment", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      false, // existing deployment found — do not re-run setup (default)
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The guard must fire before the first mode-specific question — the
+    // confirm is the only prompt the whole run asked.
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message: "Re-run setup for this directory anyway?",
+        initialValue: false,
+      },
+    ])
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+    ])
+    expect(scripted.outros).toEqual(["Done."])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
+  })
+
+  it("backs out of local init after the dir prompt when it already holds a deployment", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      false, // existing deployment found — do not re-run setup (default)
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The guard fires on the dir answer — no settings or start questions follow.
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      "Where should I put the config files?",
+      "Re-run setup for this directory anyway?",
+    ])
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+    ])
+    expect(scripted.outros).toEqual(["Done."])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
+      "MCP_AUTH_TOKEN=existing\n",
+    )
+  })
 })
 
 describe("runInit with a kept existing .env", () => {
-  // No chooser answer here: an existing .env skips the settings prompts.
   const keepEnvAnswers = (vaultDir: string, targetDir: string) => [
     "local",
     vaultDir,
     targetDir,
+    true, // existing deployment found — re-run setup anyway
+    [], // settings chooser — consented re-runs get the full setup
     false, // .env differs — keep the existing file
   ]
 
@@ -716,6 +981,55 @@ describe("runInit remote encryption password", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
       "VAULT_PASSWORD=hunter2\n",
     )
+  })
+})
+
+describe("runInit remote with a kept existing .env", () => {
+  it("probes and displays the persisted PUBLIC_URL, not the prompted one", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    // The kept file is what the server reads — its URL must win over the
+    // prompt for both the probe and the connect message (mirrors PORT).
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\n" +
+        "OBSIDIAN_AUTH_TOKEN=persisted-tok\n" +
+        "VAULT_NAME=MyVault\n" +
+        "PUBLIC_URL=https://persisted.example.com\n",
+    )
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      true, // existing deployment found — re-run setup anyway
+      "https://prompted.example.com", // public URL prompt — differs from disk
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // settings chooser — consented re-runs get the full setup
+      false, // .env differs — keep the existing file
+      true, // start the server now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://persisted.example.com/healthz",
+    ])
+    expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp")
+    expect(scripted.prints[0]).not.toContain("prompted.example.com")
   })
 })
 
@@ -843,17 +1157,17 @@ describe("runInit guided optional settings", () => {
     )
   })
 
-  it("skips the chooser and points at configure when an .env already exists", async () => {
+  it("offers the settings chooser on a consented re-init over an existing .env", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
-    // No chooser answer scripted — asking it would throw on the missing
-    // answer, so completion proves the prompt was skipped.
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
+      true, // existing deployment found — re-run setup anyway
+      [], // settings chooser — offered because the re-run was consented
       false, // .env differs — keep the existing file
     ])
 
@@ -867,15 +1181,54 @@ describe("runInit guided optional settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain(
+    // "Yes, re-run setup" means the full setup — the chooser included, in
+    // its usual position, with no extra questions around it.
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      "Where should I put the config files?",
+      "Re-run setup for this directory anyway?",
       "Any optional settings to change? (press enter to skip)",
-    )
-    expect(scripted.logs).toContain(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex configure".',
-    )
+      ".env already exists and differs — overwrite?",
+    ])
+    // Keeping at the conflict prompt still protects the file (the write
+    // report states the discard); no configure-pointer log remains.
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=existing\n",
     )
+  })
+
+  it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      true, // existing deployment found — re-run setup anyway
+      ["TZ"], // pick the timezone setting in the chooser
+      "America/Toronto", // its value
+      true, // .env differs — overwrite with the regenerated file
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    // The chooser's answer landed in the overwritten file as a live line
+    // (line-exact: a commented-out `# TZ=...` must not pass) — the
+    // motivation for offering the chooser on consented re-inits.
+    expect(envContent.split("\n")).toContain("TZ=America/Toronto")
+    expect(envContent).not.toContain("MCP_AUTH_TOKEN=existing")
   })
 
   it("writes the chosen SYNC_MODE in the remote flow", async () => {

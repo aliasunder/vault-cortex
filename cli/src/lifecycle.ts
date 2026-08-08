@@ -1,10 +1,20 @@
 import { join, resolve } from "node:path"
 
-import { CONTAINER_NAME, pollHealth, type DockerRunner } from "./docker.js"
+import {
+  CONTAINER_NAME,
+  pollHealth,
+  probeHealth,
+  type DockerRunner,
+} from "./docker.js"
+import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
+} from "./messages.js"
 import {
   detectMode,
   hasEnvPublicUrl,
   readEnvPort,
+  readEnvPublicUrl,
   readEnvVaultPath,
   type Mode,
 } from "./scaffold.js"
@@ -51,6 +61,8 @@ export type Deployment = {
   port: number
   /** Present only in local mode. */
   vaultPath?: string
+  /** The .env's PUBLIC_URL, when set. */
+  publicUrl?: string
 }
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
@@ -70,7 +82,7 @@ export const requireInitializedDir = (
   const mode = detectMode(envFilePath)
   if (!mode) {
     prompts.error(
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     )
     return undefined
   }
@@ -107,7 +119,8 @@ export const resolveDeployment = (
     return undefined
   }
 
-  return { mode, targetDir, envFilePath, port, vaultPath }
+  const publicUrl = readEnvPublicUrl(envFilePath)
+  return { mode, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 
 /**
@@ -118,12 +131,61 @@ export const ensureDaemonRunning = (
   docker: DockerRunner,
   prompts: Prompts,
 ): boolean => {
-  if (docker.isDaemonRunning()) return true
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus === "running") return true
   prompts.error(
-    "Container runtime not running — start Docker Desktop, Colima,\n" +
-      "OrbStack, or another Docker-compatible runtime.",
+    daemonStatus === "not-installed"
+      ? buildDockerNotInstalledMessage({ nextStep: "" })
+      : buildDaemonNotRunningMessage("."),
   )
   return false
+}
+
+/**
+ * Whether the post-start public-URL probe should run — and, when it should,
+ * proof that publicUrl is set. Local's PUBLIC_URL is the derived localhost
+ * URL, so probing it would only duplicate the health check the start cycle
+ * just ran.
+ */
+const shouldRunPostStartProbe = (
+  deployment: Deployment,
+): deployment is Deployment & { publicUrl: string } => {
+  return deployment.mode === "remote" && deployment.publicUrl !== undefined
+}
+
+/**
+ * One-shot informational probe of the public /healthz after a confirmed
+ * container start. Never a gate: a failure warns and the command still
+ * succeeds — before HTTPS/ingress access is set up an unreachable public URL
+ * is the expected state, and this machine's result doesn't prove the same
+ * for other devices (a VPS may not reach its own public address). Returning
+ * void keeps the informational contract structural.
+ */
+export const reportPublicUrlProbe = async (
+  publicUrl: string,
+  deps: { prompts: Prompts; fetchFn: typeof fetch },
+): Promise<void> => {
+  const { prompts, fetchFn } = deps
+  // A hand-edited .env value may carry a trailing slash; strip it so the
+  // probe URL is `${base}/healthz`, never `${base}//healthz`.
+  const healthUrl = `${publicUrl.replace(/\/+$/, "")}/healthz`
+  const spinner = prompts.spinner()
+  spinner.start(`Checking the public URL (${healthUrl})`)
+  const publicUrlResponded = await probeHealth({ url: healthUrl }, fetchFn)
+  if (publicUrlResponded) {
+    spinner.stop(
+      `Public URL responds — ${healthUrl} answered from this machine.`,
+    )
+    return
+  }
+  spinner.stop(`No answer from ${healthUrl} yet.`)
+  prompts.warn(
+    "The server is up, but its public URL didn't answer from this machine.\n" +
+      "That's expected until HTTPS (or direct port) access is set up — and\n" +
+      "some networks keep a server from reaching its own public address even\n" +
+      "when other devices can. Once access is set up, check from any device:\n" +
+      `  curl ${healthUrl}`,
+  )
 }
 
 /**
@@ -178,6 +240,12 @@ export const recreateContainer = async (
     return 1
   }
   spinner.stop("Server is up — health check passed.")
+
+  // Informational only — the container is confirmed healthy above, so the
+  // public-URL result never changes the exit code.
+  if (shouldRunPostStartProbe(deployment)) {
+    await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
+  }
   return 0
 }
 
@@ -217,7 +285,7 @@ export const runDown = async (
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
   prompts.outro(
-    `Start again with: npx vault-cortex restart --dir "${initialized.targetDir}"`,
+    `Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
   )
   return 0
 }
@@ -241,7 +309,7 @@ export const runLogs = async (
 
   if (!docker.containerExists()) {
     prompts.error(
-      "No vault-cortex container — start it with `npx vault-cortex restart`.",
+      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
     )
     return 1
   }
@@ -253,17 +321,18 @@ export const runLogs = async (
 }
 
 /**
- * Re-creates the container from the .env on disk and verifies health.
- * Unlike `docker restart`, this applies .env edits (the env-file is only
- * read at container creation); unlike upgrade, it never pulls an image.
+ * Shared start/restart cycle: re-create the container from the .env on disk
+ * and verify health. One implementation, two command names — the labels are
+ * the only divergence, phrased for the intent each name serves.
  */
-export const runRestart = async (
+const runRecreateFromEnv = async (
   flags: RestartFlags,
   deps: RestartDeps,
+  labels: { introTitle: string; successLog: string; outroMessage: string },
 ): Promise<number> => {
   const { prompts, docker, fetchFn } = deps
 
-  prompts.intro("vault-cortex restart")
+  prompts.intro(labels.introTitle)
 
   const deployment = resolveDeployment(flags.dir, prompts)
   if (!deployment) return 1
@@ -275,7 +344,41 @@ export const runRestart = async (
   )
   if (exitCode !== 0) return exitCode
 
-  prompts.log("Applied the current .env settings.")
-  prompts.outro("Restart complete.")
+  prompts.log(labels.successLog)
+  prompts.outro(labels.outroMessage)
   return 0
+}
+
+/**
+ * Starts the server from the saved .env — the command name users reach for
+ * when nothing is running yet (after `down`, or an init that skipped the
+ * start offer). Same cycle as restart: if a container is already running it
+ * is safely replaced, and `docker run` pulls the image when it's missing.
+ */
+export const runStart = async (
+  flags: RestartFlags,
+  deps: RestartDeps,
+): Promise<number> => {
+  return runRecreateFromEnv(flags, deps, {
+    introTitle: "vault-cortex start",
+    successLog: "Started with the settings from .env.",
+    outroMessage: "Start complete.",
+  })
+}
+
+/**
+ * Re-creates the container from the .env on disk and verifies health.
+ * Unlike `docker restart`, this applies .env edits (the env-file is only
+ * read at container creation); unlike upgrade, it never replaces an image
+ * you already have (`docker run` still pulls when none exists locally).
+ */
+export const runRestart = async (
+  flags: RestartFlags,
+  deps: RestartDeps,
+): Promise<number> => {
+  return runRecreateFromEnv(flags, deps, {
+    introTitle: "vault-cortex restart",
+    successLog: "Applied the current .env settings.",
+    outroMessage: "Restart complete.",
+  })
 }

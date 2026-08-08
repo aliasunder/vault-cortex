@@ -11,6 +11,7 @@ export type ProgramOptions = {
   runInit: (flags: InitFlags) => Promise<number>
   runConfigure: (flags: ConfigureFlags) => Promise<number>
   runUpgrade: (flags: UpgradeFlags) => Promise<number>
+  runStart: (flags: RestartFlags) => Promise<number>
   runRestart: (flags: RestartFlags) => Promise<number>
   runLogs: (flags: LogsFlags) => Promise<number>
   runDown: (flags: DownFlags) => Promise<number>
@@ -71,6 +72,19 @@ export const buildProgram = (options: ProgramOptions): Command => {
     )
     .action(async (flags: UpgradeFlags) => {
       process.exitCode = await options.runUpgrade(flags)
+    })
+
+  program
+    .command("start")
+    .description(
+      "Start the server with the saved settings and verify health (same cycle as restart)",
+    )
+    .option(
+      "--dir <path>",
+      "directory containing .env (default: ./vault-cortex)",
+    )
+    .action(async (flags: RestartFlags) => {
+      process.exitCode = await options.runStart(flags)
     })
 
   program

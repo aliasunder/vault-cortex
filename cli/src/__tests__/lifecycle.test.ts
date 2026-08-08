@@ -4,10 +4,12 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
-import { runDown, runLogs, runRestart } from "../lifecycle.js"
+import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDown,
+  dockerNotInstalled,
   dockerReady,
   fetchNever,
   fetchOk,
@@ -49,7 +51,7 @@ describe("runDown", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 
@@ -67,6 +69,24 @@ describe("runDown", () => {
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
+    ])
+  })
+
+  // Message content per platform is pinned test-owned in messages.test.ts —
+  // this asserts the not-installed state routes to the install guidance.
+  it("exits 1 with install guidance when no container runtime is installed", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNotInstalled },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      buildDockerNotInstalledMessage({ nextStep: "" }),
     ])
   })
 
@@ -148,7 +168,7 @@ describe("runDown", () => {
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
     ])
     expect(scripted.outros).toEqual([
-      `Start again with: npx vault-cortex restart --dir "${targetDir}"`,
+      `Start again with: npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
@@ -186,7 +206,7 @@ describe("runLogs", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 
@@ -229,7 +249,7 @@ describe("runLogs", () => {
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      "No vault-cortex container — start it with `npx vault-cortex restart`.",
+      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
@@ -295,6 +315,63 @@ describe("runLogs", () => {
   })
 })
 
+describe("runStart", () => {
+  it("runs the full re-create cycle with start-phrased messaging", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    // The health-check spinner proves the cycle actually ran — the labels
+    // alone could pass on an early return.
+    expect(scripted.spinnerMessages).toContain(
+      "stop: Server is up — health check passed.",
+    )
+    expect(scripted.logs).toEqual([
+      "Starting container...",
+      "Started with the settings from .env.",
+    ])
+    expect(scripted.outros).toEqual(["Start complete."])
+  })
+
+  it("exits 1 when Docker daemon is not running", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
+  })
+
+  it("exits 1 when no .env exists in the target directory", async () => {
+    const targetDir = join(tmpdir(), "vault-cli-start-missing")
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
+  })
+})
+
 describe("runRestart", () => {
   it("exits 1 when no .env exists in the target directory", async () => {
     const targetDir = join(tmpdir(), "vault-cli-restart-missing")
@@ -307,7 +384,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
     ])
   })
 
@@ -450,6 +527,74 @@ describe("runRestart", () => {
           vaultPath: undefined,
         },
       ],
+    ])
+  })
+
+  it("probes the public URL after a confirmed remote start", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Order proves the probe ran after the container health poll.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+  })
+
+  it("keeps a successful remote restart at exit 0 when the public URL does not answer", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    // Localhost (the container check) answers; the public URL is unreachable
+    // — the state every remote deployment is in before HTTPS is set up.
+    const fetchPublicUrlDown: typeof fetch = async (input) => {
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchPublicUrlDown,
+      },
+    )
+
+    // Exit 0 with the probe provably fired — informational, never a gate.
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: No answer from https://vault.example.com/healthz yet.",
+    ])
+    expect(scripted.warnings).toEqual([
+      "The server is up, but its public URL didn't answer from this machine.\n" +
+        "That's expected until HTTPS (or direct port) access is set up — and\n" +
+        "some networks keep a server from reaching its own public address even\n" +
+        "when other devices can. Once access is set up, check from any device:\n" +
+        "  curl https://vault.example.com/healthz",
     ])
   })
 

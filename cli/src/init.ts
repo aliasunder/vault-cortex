@@ -4,10 +4,14 @@ import { join, resolve } from "node:path"
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
 import { captureObsidianToken } from "./get-sync-token.js"
 import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
+  startCommand,
 } from "./messages.js"
 import { pollHealth, type DockerRunner } from "./docker.js"
+import { reportPublicUrlProbe } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -16,6 +20,7 @@ import {
 import {
   buildFilesToWrite,
   readEnvPort,
+  readEnvPublicUrl,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -183,6 +188,33 @@ const confirmOverwrite =
   (name: string): Promise<boolean> =>
     prompts.confirm(`${name} already exists and differs — overwrite?`, false)
 
+/**
+ * Re-init guard, fired the moment the target dir is known (prompt answer or
+ * --dir flag): an existing .env there means a live deployment, so the flow
+ * checks intent before any further questions are spent — re-running init over
+ * a deployment is usually an accident, and settings changes belong to
+ * `configure`. Declining (the default) backs out with pointers; accepting
+ * continues, still protected by the per-file overwrite confirms at write time.
+ */
+const confirmReinitOverExistingEnv = async (
+  targetDir: string,
+  prompts: Prompts,
+): Promise<boolean> => {
+  if (!existsSync(join(targetDir, ".env"))) return true
+  prompts.log(`Found an existing deployment in ${targetDir}.`)
+  const reinitAnyway = await prompts.confirm(
+    "Re-run setup for this directory anyway?",
+    false,
+  )
+  if (reinitAnyway) return true
+  // No outro here: declining still exits 0, and the runInit wrapper owns the
+  // closing outro (mirroring configure's declined-restart path).
+  prompts.log(
+    `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+  )
+  return false
+}
+
 const reportWrites = (
   params: { targetDir: string; results: FileWriteResult[] },
   prompts: Prompts,
@@ -211,11 +243,15 @@ const offerDockerRun = async (
 ): Promise<boolean> => {
   const { targetDir, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
-  if (!docker.isDaemonRunning()) {
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus !== "running") {
+    const startHint = startCommand(targetDir)
     prompts.warn(
-      "Container runtime not running — start Docker Desktop, Colima,\n" +
-        "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        `  npx vault-cortex upgrade --dir "${targetDir}"`,
+      daemonStatus === "not-installed"
+        ? buildDockerNotInstalledMessage({
+            nextStep: `\nThen start the server with:\n  ${startHint}`,
+          })
+        : buildDaemonNotRunningMessage(`, then run:\n  ${startHint}`),
     )
     return false
   }
@@ -299,27 +335,32 @@ const runLocalInit = async (
     ),
   )
 
+  // --yes skips the guard: it's non-interactive by contract, and its own
+  // conflict policy (refuse to overwrite, exit 1) already protects the dir.
+  if (!flags.yes) {
+    const continueReinit = await confirmReinitOverExistingEnv(
+      targetDir,
+      prompts,
+    )
+    if (!continueReinit) return 0
+  }
+
   const token = generateToken()
 
   // Guided optional settings: the chooser reads current values from the
   // generated defaults; enter with nothing picked keeps them all. --yes
-  // skips the chooser (non-interactive by contract), and so does an existing
-  // .env — the conflict prompt defaults to keeping it, which would discard
-  // the answers; settings on an existing deployment are configure's job.
+  // skips the chooser (non-interactive by contract). An existing .env does
+  // NOT skip it: every interactive path here passed the re-init guard, so the
+  // user asked for a full re-run — the answers land in the regenerated file
+  // when they overwrite at the conflict prompt (keeping it discards them,
+  // which the write report states). In-place edits stay configure's job.
   const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
-  const envAlreadyExists = existsSync(join(targetDir, ".env"))
-  const offerSettingsChooser = !flags.yes && !envAlreadyExists
-  if (!flags.yes && envAlreadyExists) {
-    prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex configure".',
-    )
-  }
-  const optionalOverrides = offerSettingsChooser
-    ? await askOptionalSettings(
+  const optionalOverrides = flags.yes
+    ? {}
+    : await askOptionalSettings(
         { mode: "local", envContent: defaultEnvContent },
         prompts,
       )
-    : {}
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
@@ -383,15 +424,21 @@ const runRemoteInit = async (
     ),
   )
 
+  const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
+  if (!continueReinit) return 0
+
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
   // Auto-capture the Obsidian Sync token via a Docker volume mount when
   // the daemon is reachable. Falls back to a paste prompt when capture
-  // fails or the user declines.
-  const capturedToken = docker.isDaemonRunning()
-    ? await offerSyncTokenCapture(prompts, docker)
-    : undefined
+  // fails or the user declines. Both non-running states stay silent here —
+  // the paste fallback is fully functional without Docker, and the start
+  // offer surfaces the differentiated runtime guidance later in the flow.
+  const capturedToken =
+    docker.daemonStatus() === "running"
+      ? await offerSyncTokenCapture(prompts, docker)
+      : undefined
   // Masked prompt: the sync token is a credential and must not echo into
   // the terminal or scrollback. An empty submission still means "fill in
   // .env later" — clack's password prompt accepts blank input.
@@ -414,8 +461,10 @@ const runRemoteInit = async (
   const token = generateToken()
 
   // Guided optional settings, mirroring the local flow — remote also offers
-  // SYNC_MODE. Remote init is always interactive (no --yes), so only an
-  // existing .env skips the chooser here.
+  // SYNC_MODE. Remote init is always interactive (no --yes), and any existing
+  // .env passed the re-init guard — a consented re-run gets the full setup,
+  // chooser included (see the local flow's comment for the overwrite/keep
+  // semantics).
   const defaultEnvContent = buildRemoteEnv({
     mcpAuthToken: token,
     publicUrl,
@@ -423,18 +472,10 @@ const runRemoteInit = async (
     vaultName,
     vaultPassword,
   })
-  const envAlreadyExists = existsSync(join(targetDir, ".env"))
-  if (envAlreadyExists) {
-    prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex configure".',
-    )
-  }
-  const optionalOverrides = envAlreadyExists
-    ? {}
-    : await askOptionalSettings(
-        { mode: "remote", envContent: defaultEnvContent },
-        prompts,
-      )
+  const optionalOverrides = await askOptionalSettings(
+    { mode: "remote", envContent: defaultEnvContent },
+    prompts,
+  )
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
@@ -455,6 +496,12 @@ const runRemoteInit = async (
     envResult?.status === "created" || envResult?.status === "overwritten"
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
+  // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
+  // existing file may hold a different URL than this run's prompt, and the
+  // server only reads the file. The prompted value is the fallback for a kept
+  // legacy .env that predates PUBLIC_URL.
+  const effectivePublicUrl =
+    readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
@@ -462,11 +509,19 @@ const runRemoteInit = async (
     obsidianAuthToken === ""
       ? false
       : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+  // The container check above hit localhost on this machine; the public URL
+  // is the ingress path clients actually use — probe it too, informationally.
+  if (started) {
+    await reportPublicUrlProbe(effectivePublicUrl, {
+      prompts,
+      fetchFn: deps.fetchFn,
+    })
+  }
   prompts.print(
     buildRemoteConnectMessage({
       targetDir,
       token,
-      publicUrl,
+      publicUrl: effectivePublicUrl,
       started,
       obsidianTokenMissing: obsidianAuthToken === "",
       tokenWritten,

@@ -4,9 +4,11 @@ import {
   buildDockerLogsArgs,
   buildDockerRunArgs,
   buildObsidianLoginArgs,
+  classifyDaemonStatus,
   CONTAINER_NAME,
   LOCAL_IMAGE,
   pollHealth,
+  probeHealth,
   REMOTE_IMAGE,
 } from "../docker.js"
 
@@ -339,5 +341,100 @@ describe("buildDockerLogsArgs", () => {
       "2h",
       CONTAINER_NAME,
     ])
+  })
+})
+
+describe("classifyDaemonStatus", () => {
+  it("classifies a zero exit as running", () => {
+    expect(classifyDaemonStatus({ status: 0 })).toBe("running")
+  })
+
+  it("classifies a non-zero exit as not-running", () => {
+    expect(classifyDaemonStatus({ status: 1 })).toBe("not-running")
+  })
+
+  it("classifies a missing docker binary (ENOENT) as not-installed", () => {
+    const spawnError = Object.assign(new Error("spawn docker ENOENT"), {
+      code: "ENOENT",
+    })
+
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
+      "not-installed",
+    )
+  })
+
+  it("classifies a spawn timeout as not-running, not not-installed", () => {
+    // A timeout also yields status null — only the ENOENT code may mean
+    // "not installed"; a wedged daemon must get start guidance, not install.
+    const spawnError = Object.assign(new Error("spawnSync docker ETIMEDOUT"), {
+      code: "ETIMEDOUT",
+    })
+
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
+      "not-running",
+    )
+  })
+})
+
+describe("probeHealth", () => {
+  it("returns true when the endpoint responds ok", async () => {
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => okResponse,
+    )
+
+    expect(probeResult).toBe(true)
+  })
+
+  it("returns false on a non-2xx response", async () => {
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => failResponse,
+    )
+
+    expect(probeResult).toBe(false)
+  })
+
+  it("returns false when the fetch throws", async () => {
+    const failingFetch: typeof fetch = async () => {
+      throw new Error("ECONNREFUSED")
+    }
+
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      failingFetch,
+    )
+
+    expect(probeResult).toBe(false)
+  })
+
+  it("passes an abort signal so a black-holed request cannot hang", async () => {
+    const seenSignals: (AbortSignal | null | undefined)[] = []
+    const recordingFetch: typeof fetch = async (_input, init) => {
+      seenSignals.push(init?.signal)
+      return okResponse
+    }
+
+    await probeHealth({ url: "http://example.test/healthz" }, recordingFetch)
+
+    expect(seenSignals).toHaveLength(1)
+    expect(seenSignals[0]).toBeInstanceOf(AbortSignal)
+  })
+})
+
+describe("pollHealth deadline accuracy", () => {
+  it("never sleeps past the deadline after a failed attempt", async () => {
+    // timeoutMs 30 with intervalMs 1000: an uncapped pause would resolve
+    // after ~1s; the deadline-capped pause resolves in well under 500ms.
+    // Real timers with a generous margin — no scheduling internals mocked.
+    const startedAt = Date.now()
+    const healthy = await pollHealth(
+      { url: "http://example.test/healthz", timeoutMs: 30, intervalMs: 1000 },
+      async () => failResponse,
+    )
+    const elapsedMs = Date.now() - startedAt
+
+    expect(healthy).toBe(false)
+    expect(elapsedMs).toBeLessThan(500)
   })
 })

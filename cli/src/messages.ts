@@ -33,13 +33,60 @@ const sectionRule = (label: string): string =>
     `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
   )
 
+/**
+ * Daemon-stopped guidance shared by every command that needs the container
+ * runtime. `nextStep` finishes the message per command — appended verbatim
+ * (".", " and try again.", or a ", then run:" continuation).
+ */
+export const buildDaemonNotRunningMessage = (nextStep: string): string =>
+  "Container runtime not running — start Docker Desktop, Colima,\n" +
+  `OrbStack, or another Docker-compatible runtime${nextStep}`
+
+/**
+ * Per-platform install pointer — a docs link only, no install method
+ * suggestions: the CLI doesn't install anything, so the official docs (which
+ * cover every method) are the hand-off. Peers are named in the message above
+ * this line.
+ */
+const dockerInstallLine = (platform: NodeJS.Platform): string => {
+  if (platform === "darwin" || platform === "win32") {
+    return "Install Docker Desktop: https://docs.docker.com/get-docker/"
+  }
+  return "Install Docker Engine: https://docs.docker.com/engine/install/"
+}
+
+/**
+ * "No runtime at all" guidance — distinct from the daemon-stopped message so
+ * the user isn't told to start something that isn't installed. platform is a
+ * defaulted param (mirroring buildObsidianLoginArgs) so each branch stays
+ * testable; `nextStep` is appended verbatim, as in
+ * buildDaemonNotRunningMessage.
+ */
+export const buildDockerNotInstalledMessage = (params: {
+  nextStep: string
+  platform?: NodeJS.Platform
+}): string => {
+  const { nextStep, platform = process.platform } = params
+  return (
+    "No container runtime found — the server runs in Docker, so you need\n" +
+    "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+    `${dockerInstallLine(platform)}${nextStep}`
+  )
+}
+
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
 const upgradeCommand = (targetDir: string): string =>
-  `npx vault-cortex upgrade --dir "${targetDir}"`
+  `npx vault-cortex@latest upgrade --dir "${targetDir}"`
+
+// Start guidance prints `start`, not `upgrade` — telling a user who has never
+// started anything to run "upgrade" reads as updating something they don't
+// have. `start` runs the same re-create cycle and pulls the image on demand.
+export const startCommand = (targetDir: string): string =>
+  `npx vault-cortex@latest start --dir "${targetDir}"`
 
 const startServerLine = (targetDir: string): string =>
-  `Start the server:\n  ${upgradeCommand(targetDir)}`
+  `Start the server:\n  ${startCommand(targetDir)}`
 
 /** Remote start line: running, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
@@ -50,7 +97,7 @@ const remoteStartLine = (params: {
   const { targetDir, started, obsidianTokenMissing } = params
   if (started) return "The server is running."
   if (obsidianTokenMissing) {
-    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${upgradeCommand(targetDir)}`
+    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
   }
   return startServerLine(targetDir)
 }
@@ -107,6 +154,23 @@ const smokeTest = (healthUrl: string): string =>
   `Smoke test:
   curl ${healthUrl}`
 
+/**
+ * Remote health-check block. Started: the CLI verified localhost on the VPS,
+ * but the public URL is a different check (ingress — DNS, TLS, proxy), so the
+ * command stays, reworded as the works-from-any-device check. Not started:
+ * the plain smoke test to run after starting.
+ */
+const remoteHealthCheckBlock = (
+  healthUrl: string,
+  started: boolean,
+): string => {
+  if (started) {
+    return `Health check — works from any device that can reach the URL:
+  curl ${healthUrl}`
+  }
+  return smokeTest(healthUrl)
+}
+
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
   ${upgradeCommand(targetDir)}`
@@ -132,6 +196,16 @@ export const buildLocalConnectMessage = (params: {
     : startServerLine(targetDir)
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
+
+  // Once the server is confirmed up, the smoke test is dropped — the CLI just
+  // verified this exact URL, so re-printing it reads as leftover homework.
+  // Assembled as a filtered list so the omission leaves no stray blank line.
+  const nonOauthBlocks = [
+    curlGuidance(`${baseUrl}/mcp`),
+    started ? undefined : smokeTest(`${baseUrl}/healthz`),
+  ]
+    .filter(Boolean)
+    .join("\n\n")
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation. Local is always
@@ -161,18 +235,16 @@ it with mcp-remote:
 
 ${sectionRule("Non-OAuth")}
 
-${curlGuidance(`${baseUrl}/mcp`)}
-
-${smokeTest(`${baseUrl}/healthz`)}
+${nonOauthBlocks}
 
 ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, file tools,
 semantic search, port, timezone):
-  npx vault-cortex configure --dir "${targetDir}"
+  npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex restart" (plain
+first if needed), then apply with "npx vault-cortex@latest restart" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
@@ -248,16 +320,16 @@ ${sectionRule("Non-OAuth")}
 
 ${curlGuidance(`${publicUrl}/mcp`)}
 
-${smokeTest(`${publicUrl}/healthz`)}
+${remoteHealthCheckBlock(`${publicUrl}/healthz`, started)}
 
 ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, file tools,
 semantic search, port, timezone, sync direction):
-  npx vault-cortex configure --dir "${targetDir}"
+  npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex restart" (plain
+first if needed), then apply with "npx vault-cortex@latest restart" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
