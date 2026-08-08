@@ -51,16 +51,17 @@ What it does:
 2. Offers the most common optional settings — memory layer and folder,
    file tools, semantic search, port, timezone (plus sync direction for
    remote) — press enter to keep the defaults, or pick the ones you want to
-   change. Skipped when the target directory already has a `.env` (use
-   [`configure`](#configure) instead)
+   change
 3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
 4. Optionally starts the container and waits for the health check
 5. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
-Existing files are never overwritten without asking. During a remote setup,
-init offers to run [`get-sync-token`](#get-sync-token) for you when Docker is
-available.
+Re-running init where a setup already exists asks first — declining leaves
+everything unchanged and points you at [`configure`](#configure), the right
+tool for changing settings in place. Existing files are never overwritten
+without asking. During a remote setup, init offers to run
+[`get-sync-token`](#get-sync-token) for you when Docker is available.
 
 Flags:
 
