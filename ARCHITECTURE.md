@@ -478,6 +478,9 @@ healthchecks.
 ```text
 1. Client → POST /mcp (no token)                          → 401 → client starts OAuth
 2. Client → GET /.well-known/oauth-protected-resource     → discover auth server
+   (also served at the RFC 9728 path-suffixed URL
+   /.well-known/oauth-protected-resource/mcp — same document,
+   with resource: <origin>/mcp)
 3. Client → GET /.well-known/oauth-authorization-server   → discover endpoints
 4. Client → POST /register                                → dynamic client registration
 5. Client → GET /authorize?...&code_challenge=...         → consent page in browser
@@ -500,7 +503,7 @@ sequenceDiagram
     Note over C,E: First-time OAuth Authorization
     C->>AG: POST /mcp (no token — initial probe)
     AG-->>C: 401 Unauthorized (identity source missing — Lambda not invoked)
-    Note over C: 401 → client enters OAuth flow,<br/>falls back to default discovery location
+    Note over C: 401 → client enters OAuth flow<br/>(both the RFC 9728 path-suffixed URL<br/>…/oauth-protected-resource/mcp and the<br/>root discovery location are served)
     C->>AG: GET /.well-known/oauth-protected-resource
     Note over AG: Open route — no authorizer
     AG->>E: Forward

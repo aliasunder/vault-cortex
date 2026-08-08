@@ -3,6 +3,8 @@
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
+import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
@@ -64,13 +66,43 @@ export const createOAuthRoutes = ({
     validate: false as const,
   }
 
+  const scopesSupported = ["vault"]
+
+  // RFC 9728 §3.1: a protected-resource metadata document's `resource` must
+  // equal the resource identifier its well-known URL was derived from —
+  // clients derive /.well-known/oauth-protected-resource/mcp from the
+  // <origin>/mcp MCP endpoint, so this document advertises <origin>/mcp,
+  // not a byte-copy of the root document. The SDK router below registers
+  // only ONE metadata path (root here, since issuer = resource origin);
+  // steering it to the suffixed path via `resourceServerUrl` would MOVE the
+  // route and break every client that discovers via the root form, so the
+  // suffixed variant is served as an additive second mount instead. The
+  // absolute-path URL resolution deliberately keeps only serverUrl's origin,
+  // matching where the /mcp route is actually mounted.
+  const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
+    resource: new URL("/mcp", serverUrl).href,
+    authorization_servers: [serverUrl.href],
+    scopes_supported: scopesSupported,
+    resource_documentation: new URL(serviceDocumentationUrl).href,
+  }
+
+  // Mounted before mcpAuthRouter so the suffixed path never depends on the
+  // SDK's nested-router fall-through; the root path can't match this mount,
+  // so the SDK keeps sole ownership of the root variant. metadataHandler is
+  // the SDK's own discovery handler — CORS, OPTIONS, and 405 behavior stay
+  // identical across both routes.
+  router.use(
+    "/.well-known/oauth-protected-resource/mcp",
+    metadataHandler(mcpResourceMetadata),
+  )
+
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(
     mcpAuthRouter({
       provider,
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
-      scopesSupported: ["vault"],
+      scopesSupported,
       authorizationOptions: { rateLimit },
       clientRegistrationOptions: { rateLimit },
       revocationOptions: { rateLimit },

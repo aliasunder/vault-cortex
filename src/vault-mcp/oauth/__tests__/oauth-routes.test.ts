@@ -6,6 +6,7 @@ import type { Server } from "node:http"
 import type { Response } from "express"
 import express from "express"
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
+import { OAuthProtectedResourceMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
@@ -542,6 +543,126 @@ describe("OAuth endpoint rate limiting", () => {
     for (let i = 0; i < 6; i++) {
       const response = await fetch(
         `${baseUrl}/.well-known/oauth-authorization-server`,
+      )
+      expect(response.status).toBe(200)
+    }
+  })
+})
+
+describe("OAuth protected resource metadata", () => {
+  let dir: string
+  let server: Server
+  let baseUrl: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "oauth-metadata-test-"))
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      logger,
+    })
+    const app = express()
+    app.use(router)
+    server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  // Test-owned expected document (drift-catching — not imported from
+  // production): the values are the harness inputs above after URL
+  // normalization, which appends a trailing slash to origin-only URLs.
+  const ROOT_DOCUMENT = {
+    resource: "http://localhost:8000/",
+    authorization_servers: ["http://localhost:8000/"],
+    scopes_supported: ["vault"],
+    resource_documentation: "https://example.com/",
+  }
+  const SUFFIXED_RESOURCE = "http://localhost:8000/mcp"
+
+  // Also the guard against a future `resourceServerUrl` pass to
+  // mcpAuthRouter: that would MOVE the SDK's metadata route to the suffixed
+  // path and this root fetch would 404.
+  it("serves the root discovery document unchanged", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource`,
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(ROOT_DOCUMENT)
+  })
+
+  it("serves the RFC 9728 path-suffixed document with the /mcp resource identifier", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ...ROOT_DOCUMENT,
+      resource: SUFFIXED_RESOURCE,
+    })
+  })
+
+  // Relational guard that survives SDK bumps: if a future SDK adds a field
+  // to the root document, this fails until the suffixed document gains it.
+  it("keeps the suffixed document identical to the live root document except for resource", async () => {
+    const rootResponse = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource`,
+    )
+    const suffixedResponse = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+    )
+    const rootDocument = OAuthProtectedResourceMetadataSchema.parse(
+      await rootResponse.json(),
+    )
+    const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(
+      await suffixedResponse.json(),
+    )
+    expect(suffixedDocument).toEqual({
+      ...rootDocument,
+      resource: SUFFIXED_RESOURCE,
+    })
+  })
+
+  it("serves the suffixed route with CORS enabled for browser-based clients", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+    )
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+  })
+
+  it("rejects non-GET methods on the suffixed route with 405 and an Allow header", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+      { method: "POST" },
+    )
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, OPTIONS")
+  })
+
+  it("answers OPTIONS preflight on the suffixed route", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+      { method: "OPTIONS" },
+    )
+    expect(response.status).toBe(204)
+  })
+
+  it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch(
+        `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
       )
       expect(response.status).toBe(200)
     }
