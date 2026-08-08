@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
-import { join } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { getDocumentProxy, renderPageAsImage, extractText } from "unpdf"
@@ -10,6 +11,14 @@ import { buildMinimalPdf } from "../../vault-mcp/mcp-core/__tests__/pdf-fixture.
 // are true integration tests — while letting the configuration test assert
 // the exact options handed to pdfjs.
 vi.mock("unpdf", { spy: true })
+
+/** Test-owned expectation for the engine's asset roots — derived here with
+ *  the same resolution mechanism production uses, so the configuration test
+ *  asserts exact paths without reading them back out of the mock call log,
+ *  and catches production ever resolving somewhere else. */
+const expectedPdfjsRoot = dirname(
+  createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+)
 
 /** The fixture as the Uint8Array shape production hands to the engine. */
 const fixtureBytes = (): Uint8Array => {
@@ -84,8 +93,8 @@ describe("createPdfDocumentProxy", () => {
     expect(getDocumentProxy).toHaveBeenCalledWith(expect.any(Uint8Array), {
       useSystemFonts: false,
       disableFontFace: true,
-      standardFontDataUrl: expect.stringMatching(/standard_fonts\/$/),
-      cMapUrl: expect.stringMatching(/cmaps\/$/),
+      standardFontDataUrl: join(expectedPdfjsRoot, "standard_fonts/"),
+      cMapUrl: join(expectedPdfjsRoot, "cmaps/"),
       cMapPacked: true,
       CanvasFactory: expect.any(Function),
     })
@@ -113,24 +122,21 @@ describe("createPdfDocumentProxy", () => {
     expect(proxy.numPages).toBe(1)
   })
 
-  it("resolves font and cMap paths that exist on disk", async () => {
-    // Grounds the resolved directories in reality: pdfjs fetches individual
-    // files by concatenation, so the paths must point at pdfjs-dist's real
-    // asset layout — this fails if a pdfjs-dist upgrade moves them.
-    const proxy = await createPdfDocumentProxy(fixtureBytes())
-    onTestFinished(async () => {
-      await proxy.loadingTask.destroy()
-    })
-
-    const proxyOptions = vi.mocked(getDocumentProxy).mock.calls.at(-1)?.[1]
-    if (!proxyOptions?.standardFontDataUrl || !proxyOptions.cMapUrl) {
-      throw new Error("expected font options on the getDocumentProxy call")
-    }
+  it("pdfjs-dist ships the font and cMap assets at the expected locations", () => {
+    // Grounds the asset roots in reality: pdfjs fetches individual files by
+    // concatenation, so the directories the configuration test pins must
+    // match pdfjs-dist's real layout — this fails if an upgrade moves them.
     expect(
       existsSync(
-        join(proxyOptions.standardFontDataUrl, "LiberationSans-Regular.ttf"),
+        join(
+          expectedPdfjsRoot,
+          "standard_fonts/",
+          "LiberationSans-Regular.ttf",
+        ),
       ),
     ).toBe(true)
-    expect(existsSync(join(proxyOptions.cMapUrl, "78-H.bcmap"))).toBe(true)
+    expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(
+      true,
+    )
   })
 })
