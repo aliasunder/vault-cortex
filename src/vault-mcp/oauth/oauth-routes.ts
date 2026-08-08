@@ -32,9 +32,10 @@ export const createOAuthRoutes = ({
   // /register, /revoke — each mounts its own limiter), far tighter than
   // the SDK's per-endpoint defaults: a complete OAuth flow touches each
   // endpoint at most twice per minute, so 5/min absorbs reconnect storms
-  // while shutting down brute force. windowMs/max (not `limit`) override
-  // the exact keys the SDK sets before spreading this config, so there
-  // is no ambiguity about which value wins.
+  // while shutting down brute force. windowMs/max mirror the exact keys
+  // the SDK sets before spreading this config, so the spread replaces
+  // them outright. Don't rename `max` to `limit` (its modern alias):
+  // the options would then carry both keys, with no guarantee ours wins.
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
