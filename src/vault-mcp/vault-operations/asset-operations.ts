@@ -13,7 +13,7 @@ import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
-import { createPdfDocumentProxy } from "../../utils/pdf-engine.js"
+import { canvasImport, createPdfDocumentProxy } from "../../utils/pdf-engine.js"
 import type { Logger } from "../../logger.js"
 
 /**
@@ -188,7 +188,7 @@ const renderPdfPages = async (
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
       const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
-        canvasImport: () => import("@napi-rs/canvas"),
+        canvasImport,
         scale: PDF_RENDER_SCALE,
       })
       const pngBuffer = Buffer.from(pngArrayBuffer)
@@ -481,7 +481,10 @@ const readAssetContent = async (
       })
       return buildPagedTextResult({ text, path, startLine, limit })
     } finally {
-      proxy.cleanup()
+      // destroy() is the disposal call — it tears down the document, worker
+      // transport, and parsed data; cleanup() alone keeps the document alive
+      // and leaves release to GC, which grows the heap under bursts of reads.
+      await proxy.loadingTask.destroy()
     }
   }
   throw new Error(

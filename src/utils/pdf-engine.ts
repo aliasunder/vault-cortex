@@ -52,7 +52,11 @@ type PdfEngine = Readonly<{
   CanvasFactory: PdfCanvasFactory
 }>
 
-const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
+/** The one canvas-module importer every PDF surface shares — proxies (via
+ *  CanvasFactory), page rendering, and tests must all wire the same backend,
+ *  or output canvases could silently come from a different canvas package
+ *  than the document's intermediate canvases. */
+export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
   import("@napi-rs/canvas")
 
 /** Resolves pdfjs-dist's bundled font and cMap directories as plain paths
@@ -91,7 +95,16 @@ let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const ensurePdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
-    pdfEnginePromise = initializePdfEngine()
+    const initAttempt = initializePdfEngine()
+    // Memoize only a fulfilled init: a transient failure (e.g. the native
+    // canvas binding hitting a resource limit) must not poison every later
+    // PDF read for the process lifetime. The rejection itself still reaches
+    // each caller through the returned promise — this observer only drops
+    // the memo so the next call retries.
+    initAttempt.catch(() => {
+      pdfEnginePromise = undefined
+    })
+    pdfEnginePromise = initAttempt
   }
   return pdfEnginePromise
 }

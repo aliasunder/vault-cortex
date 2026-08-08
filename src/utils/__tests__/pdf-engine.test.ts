@@ -92,6 +92,28 @@ describe("createPdfDocumentProxy", () => {
     })
   })
 
+  it("retries initialization after a failed first attempt", async () => {
+    // Fresh module registry so this test's engine instance starts with a
+    // cold memo — the file's other tests have already initialized theirs.
+    vi.resetModules()
+    const freshUnpdf = await import("unpdf")
+    const freshEngine = await import("../pdf-engine.js")
+    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(
+      new Error("transient init failure"),
+    )
+
+    await expect(
+      freshEngine.createPdfDocumentProxy(fixtureBytes()),
+    ).rejects.toThrow("transient init failure")
+
+    // A cached rejection would surface the same error here instead.
+    const proxy = await freshEngine.createPdfDocumentProxy(fixtureBytes())
+    onTestFinished(async () => {
+      await proxy.loadingTask.destroy()
+    })
+    expect(proxy.numPages).toBe(1)
+  })
+
   it("resolves font and cMap paths that exist on disk", async () => {
     // Grounds the resolved directories in reality: pdfjs fetches individual
     // files by concatenation, so the paths must point at pdfjs-dist's real

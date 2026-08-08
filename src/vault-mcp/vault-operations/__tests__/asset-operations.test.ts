@@ -9,18 +9,18 @@ vi.mock("../vault-filesystem.js", () => ({
 }))
 
 const {
-  mockCleanup,
+  mockDestroy,
   mockCreatePdfDocumentProxy,
   mockGetMeta,
   mockExtractTextItems,
   mockExtractLinks,
   mockRenderPageAsImage,
 } = vi.hoisted(() => {
-  const mockCleanup = vi.fn()
+  const mockDestroy = vi.fn()
   return {
-    mockCleanup,
+    mockDestroy,
     mockCreatePdfDocumentProxy: vi.fn(() => ({
-      cleanup: mockCleanup,
+      loadingTask: { destroy: mockDestroy },
       numPages: 1,
     })),
     mockGetMeta: vi.fn(),
@@ -39,6 +39,7 @@ vi.mock("unpdf", () => ({
 
 vi.mock("../../../utils/pdf-engine.js", () => ({
   createPdfDocumentProxy: mockCreatePdfDocumentProxy,
+  canvasImport: vi.fn(),
 }))
 
 vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
@@ -385,7 +386,7 @@ describe("readAssetContent — PDF extraction", () => {
     // this, a failing assertion leaves subsequent tests with a rejecting mock.
     onTestFinished(() => {
       mockCreatePdfDocumentProxy.mockResolvedValue({
-        cleanup: mockCleanup,
+        loadingTask: { destroy: mockDestroy },
         numPages: 1,
       })
     })
@@ -398,8 +399,8 @@ describe("readAssetContent — PDF extraction", () => {
     ).rejects.toThrow("Invalid PDF structure")
   })
 
-  it("cleans up the document proxy after successful extraction", async () => {
-    mockCleanup.mockClear()
+  it("destroys the document proxy after successful extraction", async () => {
+    mockDestroy.mockClear()
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
       bytes: 1_000,
@@ -419,11 +420,11 @@ describe("readAssetContent — PDF extraction", () => {
       logger,
     )
 
-    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(mockDestroy).toHaveBeenCalledOnce()
   })
 
-  it("cleans up the document proxy even when extraction throws", async () => {
-    mockCleanup.mockClear()
+  it("destroys the document proxy even when extraction throws", async () => {
+    mockDestroy.mockClear()
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
       bytes: 1_000,
@@ -441,7 +442,7 @@ describe("readAssetContent — PDF extraction", () => {
       ),
     ).rejects.toThrow("PDF has no extractable text")
 
-    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(mockDestroy).toHaveBeenCalledOnce()
   })
 
   it("closes a code fence at end of page when no sans-serif transition follows", async () => {
@@ -557,7 +558,7 @@ const setupPdfMocks = (params: { numPages: number; title?: string }) => {
     extension: ".pdf",
   })
   mockCreatePdfDocumentProxy.mockResolvedValue({
-    cleanup: mockCleanup,
+    loadingTask: { destroy: mockDestroy },
     numPages: params.numPages,
   })
   mockGetMeta.mockResolvedValue({
@@ -573,10 +574,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
   beforeEach(() => {
     mockRenderPageAsImage.mockReset()
     mockedFitImage.mockReset()
-    mockCleanup.mockClear()
+    mockDestroy.mockClear()
     mockCreatePdfDocumentProxy.mockReset()
     mockCreatePdfDocumentProxy.mockResolvedValue({
-      cleanup: mockCleanup,
+      loadingTask: { destroy: mockDestroy },
       numPages: 1,
     })
     mockGetMeta.mockReset()
@@ -708,7 +709,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("renders through the configured document proxy, not raw bytes", async () => {
     setupPdfMocks({ numPages: 1, title: "Proxy Flow" })
-    const configuredProxy = { cleanup: mockCleanup, numPages: 1 }
+    const configuredProxy = {
+      loadingTask: { destroy: mockDestroy },
+      numPages: 1,
+    }
     mockCreatePdfDocumentProxy.mockResolvedValue(configuredProxy)
     mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
@@ -726,7 +730,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     })
   })
 
-  it("cleans up the proxy after successful page rendering", async () => {
+  it("destroys the proxy after successful page rendering", async () => {
     setupPdfMocks({ numPages: 1 })
     mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
@@ -736,10 +740,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(mockDestroy).toHaveBeenCalledOnce()
   })
 
-  it("cleans up the proxy even when all pages fail", async () => {
+  it("destroys the proxy even when all pages fail", async () => {
     setupPdfMocks({ numPages: 1 })
     mockRenderPageAsImage.mockRejectedValue(new Error("render failed"))
 
@@ -750,7 +754,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       ),
     ).rejects.toThrow("PDF page rendering failed")
 
-    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(mockDestroy).toHaveBeenCalledOnce()
   })
 
   it("does not change text extraction when raw is false", async () => {
