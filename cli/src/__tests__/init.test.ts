@@ -1224,9 +1224,10 @@ describe("runInit guided optional settings", () => {
 
     expect(exitCode).toBe(0)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
-    // The chooser's answer landed in the overwritten file — the motivation
-    // for offering it on consented re-inits.
-    expect(envContent).toContain("TZ=America/Toronto\n")
+    // The chooser's answer landed in the overwritten file as a live line
+    // (line-exact: a commented-out `# TZ=...` must not pass) — the
+    // motivation for offering the chooser on consented re-inits.
+    expect(envContent.split("\n")).toContain("TZ=America/Toronto")
     expect(envContent).not.toContain("MCP_AUTH_TOKEN=existing")
   })
 
