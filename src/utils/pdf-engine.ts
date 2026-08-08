@@ -112,7 +112,8 @@ const ensurePdfEngine = (): Promise<PdfEngine> => {
  * Creates a fully-configured pdfjs document proxy from raw PDF bytes — the
  * one entry point every PDF read (text extraction and page rendering) goes
  * through, so the font-independence guarantees above hold everywhere. The
- * caller owns the proxy lifecycle (`cleanup()` / `loadingTask.destroy()`).
+ * caller owns the proxy lifecycle (`proxy.loadingTask.destroy()` — the
+ * disposal call; `cleanup()` alone keeps the document alive).
  */
 export const createPdfDocumentProxy = async (
   pdfData: Uint8Array,
