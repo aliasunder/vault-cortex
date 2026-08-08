@@ -142,13 +142,15 @@ export const ensureDaemonRunning = (
 }
 
 /**
- * The URL the post-start probe should check, or undefined when the probe
- * shouldn't run: local's PUBLIC_URL is the derived localhost URL, so probing
- * it would only duplicate the health check the start cycle just ran.
+ * Whether the post-start public-URL probe should run — and, when it should,
+ * proof that publicUrl is set. Local's PUBLIC_URL is the derived localhost
+ * URL, so probing it would only duplicate the health check the start cycle
+ * just ran.
  */
-const postStartProbeUrl = (deployment: Deployment): string | undefined => {
-  if (deployment.mode !== "remote") return undefined
-  return deployment.publicUrl
+const shouldRunPostStartProbe = (
+  deployment: Deployment,
+): deployment is Deployment & { publicUrl: string } => {
+  return deployment.mode === "remote" && deployment.publicUrl !== undefined
 }
 
 /**
@@ -241,9 +243,8 @@ export const recreateContainer = async (
 
   // Informational only — the container is confirmed healthy above, so the
   // public-URL result never changes the exit code.
-  const probeUrl = postStartProbeUrl(deployment)
-  if (probeUrl) {
-    await reportPublicUrlProbe(probeUrl, { prompts, fetchFn })
+  if (shouldRunPostStartProbe(deployment)) {
+    await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   }
   return 0
 }
