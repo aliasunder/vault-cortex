@@ -853,12 +853,12 @@ describe("runInit re-init guard", () => {
 })
 
 describe("runInit with a kept existing .env", () => {
-  // No chooser answer here: an existing .env skips the settings prompts.
   const keepEnvAnswers = (vaultDir: string, targetDir: string) => [
     "local",
     vaultDir,
     targetDir,
     true, // existing deployment found — re-run setup anyway
+    [], // settings chooser — consented re-runs get the full setup
     false, // .env differs — keep the existing file
   ]
 
@@ -1007,6 +1007,7 @@ describe("runInit remote with a kept existing .env", () => {
       false, // don't generate the token now (declined auto-capture)
       "sync-token-xyz", // paste fallback
       false, // no end-to-end encryption
+      [], // settings chooser — consented re-runs get the full setup
       false, // .env differs — keep the existing file
       true, // start the server now
     ])
@@ -1154,18 +1155,17 @@ describe("runInit guided optional settings", () => {
     )
   })
 
-  it("skips the chooser and points at configure when an .env already exists", async () => {
+  it("offers the settings chooser on a consented re-init over an existing .env", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
-    // No chooser answer scripted — asking it would throw on the missing
-    // answer, so completion proves the prompt was skipped.
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       true, // existing deployment found — re-run setup anyway
+      [], // settings chooser — offered because the re-run was consented
       false, // .env differs — keep the existing file
     ])
 
@@ -1179,15 +1179,47 @@ describe("runInit guided optional settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain(
+    // "Yes, re-run setup" means the full setup — the chooser included.
+    expect(scripted.asked).toContain(
       "Any optional settings to change? (press enter to skip)",
     )
-    expect(scripted.logs).toContain(
-      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
-    )
+    // Keeping at the conflict prompt still protects the file (the write
+    // report states the discard); no configure-pointer log remains.
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=existing\n",
     )
+  })
+
+  it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      true, // existing deployment found — re-run setup anyway
+      ["TZ"], // pick the timezone setting in the chooser
+      "America/Toronto", // its value
+      true, // .env differs — overwrite with the regenerated file
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerDown,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    // The chooser's answer landed in the overwritten file — the motivation
+    // for offering it on consented re-inits.
+    expect(envContent).toContain("TZ=America/Toronto\n")
+    expect(envContent).not.toContain("MCP_AUTH_TOKEN=existing")
   })
 
   it("writes the chosen SYNC_MODE in the remote flow", async () => {

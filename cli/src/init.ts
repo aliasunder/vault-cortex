@@ -349,23 +349,18 @@ const runLocalInit = async (
 
   // Guided optional settings: the chooser reads current values from the
   // generated defaults; enter with nothing picked keeps them all. --yes
-  // skips the chooser (non-interactive by contract), and so does an existing
-  // .env — the conflict prompt defaults to keeping it, which would discard
-  // the answers; settings on an existing deployment are configure's job.
+  // skips the chooser (non-interactive by contract). An existing .env does
+  // NOT skip it: every interactive path here passed the re-init guard, so the
+  // user asked for a full re-run — the answers land in the regenerated file
+  // when they overwrite at the conflict prompt (keeping it discards them,
+  // which the write report states). In-place edits stay configure's job.
   const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
-  const envAlreadyExists = existsSync(join(targetDir, ".env"))
-  const offerSettingsChooser = !flags.yes && !envAlreadyExists
-  if (!flags.yes && envAlreadyExists) {
-    prompts.log(
-      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
-    )
-  }
-  const optionalOverrides = offerSettingsChooser
-    ? await askOptionalSettings(
+  const optionalOverrides = flags.yes
+    ? {}
+    : await askOptionalSettings(
         { mode: "local", envContent: defaultEnvContent },
         prompts,
       )
-    : {}
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
@@ -466,8 +461,10 @@ const runRemoteInit = async (
   const token = generateToken()
 
   // Guided optional settings, mirroring the local flow — remote also offers
-  // SYNC_MODE. Remote init is always interactive (no --yes), so only an
-  // existing .env skips the chooser here.
+  // SYNC_MODE. Remote init is always interactive (no --yes), and any existing
+  // .env passed the re-init guard — a consented re-run gets the full setup,
+  // chooser included (see the local flow's comment for the overwrite/keep
+  // semantics).
   const defaultEnvContent = buildRemoteEnv({
     mcpAuthToken: token,
     publicUrl,
@@ -475,18 +472,10 @@ const runRemoteInit = async (
     vaultName,
     vaultPassword,
   })
-  const envAlreadyExists = existsSync(join(targetDir, ".env"))
-  if (envAlreadyExists) {
-    prompts.log(
-      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
-    )
-  }
-  const optionalOverrides = envAlreadyExists
-    ? {}
-    : await askOptionalSettings(
-        { mode: "remote", envContent: defaultEnvContent },
-        prompts,
-      )
+  const optionalOverrides = await askOptionalSettings(
+    { mode: "remote", envContent: defaultEnvContent },
+    prompts,
+  )
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
