@@ -1,9 +1,9 @@
 /** OAuth HTTP routes — SDK auth router + consent form handler. */
 
 import express, { Router } from "express"
-import type { Request, Response } from "express"
+import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
-import { safeEqual } from "../../auth.js"
+import { extractClientIp, safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -28,21 +28,39 @@ export const createOAuthRoutes = ({
     oauthProvider
   const router = Router()
 
-  // API Gateway sends the real client IP in the RFC 7239 Forwarded header,
-  // but Express only reads X-Forwarded-For. Extract from Forwarded first,
-  // falling back to req.ip. Used by both rate limiting and audit logging
-  // so both identify the same client.
-  const extractClientIp = (req: Request): string => {
-    const forwarded = req.headers["forwarded"]
-    if (forwarded) {
-      const match = /for="?([^";,]+)"?/i.exec(forwarded)
-      if (match?.[1]) return match[1]
-    }
-    return req.ip ?? "unknown"
-  }
-
+  // 5 req/min per client IP on each flow endpoint (/authorize, /token,
+  // /register, /revoke — each mounts its own limiter), far tighter than
+  // the SDK's per-endpoint defaults: a complete OAuth flow touches each
+  // endpoint at most twice per minute, so 5/min absorbs reconnect storms
+  // while shutting down brute force. windowMs/max mirror the exact keys
+  // the SDK sets before spreading this config, so the spread replaces
+  // them outright. Don't rename `max` to `limit` (its modern alias):
+  // the options would then carry both keys, with no guarantee ours wins.
   const rateLimit = {
+    windowMs: 60 * 1000,
+    max: 5,
+    // Bucket by the Forwarded-header client IP: behind API Gateway the
+    // library default (req.ip) would merge every client into a single
+    // gateway-egress bucket.
     keyGenerator: extractClientIp,
+    // The default handler sends the 429 silently — log the offender, then
+    // send the SDK's per-endpoint message unchanged. The query string is
+    // stripped from the logged path (authorize carries client_id/state).
+    handler: (
+      req: Request,
+      res: Response,
+      _next: NextFunction,
+      options: { statusCode: number; message: unknown },
+    ) => {
+      const requestPath =
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ??
+        req.originalUrl
+      routeLogger.warn("oauth_rate_limited", {
+        clientIp: extractClientIp(req),
+        path: requestPath,
+      })
+      res.status(options.statusCode).send(options.message)
+    },
     validate: false as const,
   }
 
