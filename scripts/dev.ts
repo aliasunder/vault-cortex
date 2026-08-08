@@ -164,14 +164,14 @@ switch (sub) {
     // pulls that would succeed anonymously.
     const ghcrToken = env.GHCR_TOKEN
     if (ghcrToken) {
-      console.log(`> docker login ghcr.io -u ${ghcrUser} (on ${ip})`)
+      console.log("> docker login ghcr.io (on the instance)")
       execSync(
         `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
         { input: ghcrToken, stdio: ["pipe", "pipe", "pipe"], env },
       )
     } else {
       console.log(
-        `> GHCR_TOKEN not set — clearing any stored GHCR credential on ${ip} (public images pull anonymously)`,
+        "> GHCR_TOKEN not set — clearing any stored GHCR credential on the instance (public images pull anonymously)",
       )
       run(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`)
     }
