@@ -422,6 +422,8 @@ const readAssetContent = async (
       // Sequential — the unpdf worker can't handle concurrent calls
       // on the same proxy (structuredClone error on Node 24).
       const meta = await getMeta(proxy)
+      // Title can be null in PDF metadata — normalize to undefined
+      const pdfTitle = meta.info?.Title ?? undefined
 
       if (raw) {
         // Page rendering mode — proxy.numPages is a direct getter on
@@ -452,7 +454,7 @@ const readAssetContent = async (
         return {
           kind: "pages",
           pages,
-          title: meta.info?.Title ?? undefined,
+          title: pdfTitle,
           totalPages,
           pagesRendered: pages.length,
           path,
@@ -473,9 +475,8 @@ const readAssetContent = async (
         )
       }
 
-      // Title can be null in PDF metadata — normalize to undefined
       const text = reconstructPdfMarkdown({
-        title: meta.info?.Title ?? undefined,
+        title: pdfTitle,
         totalPages,
         items,
         pdfLinks: linkResult.links ?? [],
