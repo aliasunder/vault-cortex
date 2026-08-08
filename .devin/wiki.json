@@ -14,7 +14,7 @@
     },
     {
       "title": "Getting Started",
-      "purpose": "Quickstart paths from README.md and deploy/ — local Docker, remote with Obsidian Sync, AWS reference — plus MCP client configuration and the npx vault-cortex init CLI as the fastest path."
+      "purpose": "Quickstart paths from README.md and deploy/ — local Docker, remote with Obsidian Sync, AWS reference — plus MCP client configuration and the npx vault-cortex@latest init CLI as the fastest path."
     },
     {
       "title": "CLI",
