@@ -104,7 +104,7 @@ describe("createPdfDocumentProxy", () => {
 
     await expect(
       freshEngine.createPdfDocumentProxy(fixtureBytes()),
-    ).rejects.toThrow("transient init failure")
+    ).rejects.toThrow(/^transient init failure$/)
 
     // A cached rejection would surface the same error here instead.
     const proxy = await freshEngine.createPdfDocumentProxy(fixtureBytes())

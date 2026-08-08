@@ -95,16 +95,15 @@ let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const ensurePdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
-    const initAttempt = initializePdfEngine()
     // Memoize only a fulfilled init: a transient failure (e.g. the native
     // canvas binding hitting a resource limit) must not poison every later
-    // PDF read for the process lifetime. The rejection itself still reaches
-    // each caller through the returned promise — this observer only drops
-    // the memo so the next call retries.
-    initAttempt.catch(() => {
+    // PDF read for the process lifetime. The catch drops the memo so the
+    // next call retries, then re-throws so every caller sharing this
+    // promise still observes the rejection.
+    pdfEnginePromise = initializePdfEngine().catch((error: unknown) => {
       pdfEnginePromise = undefined
+      throw error
     })
-    pdfEnginePromise = initAttempt
   }
   return pdfEnginePromise
 }

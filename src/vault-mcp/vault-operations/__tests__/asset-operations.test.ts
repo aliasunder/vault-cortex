@@ -10,6 +10,7 @@ vi.mock("../vault-filesystem.js", () => ({
 
 const {
   mockDestroy,
+  mockCanvasImport,
   mockCreatePdfDocumentProxy,
   mockGetMeta,
   mockExtractTextItems,
@@ -19,6 +20,7 @@ const {
   const mockDestroy = vi.fn()
   return {
     mockDestroy,
+    mockCanvasImport: vi.fn(),
     mockCreatePdfDocumentProxy: vi.fn(() => ({
       loadingTask: { destroy: mockDestroy },
       numPages: 1,
@@ -39,7 +41,7 @@ vi.mock("unpdf", () => ({
 
 vi.mock("../../../utils/pdf-engine.js", () => ({
   createPdfDocumentProxy: mockCreatePdfDocumentProxy,
-  canvasImport: vi.fn(),
+  canvasImport: mockCanvasImport,
 }))
 
 vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
@@ -725,7 +727,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     // The proxy carries the font/canvas configuration — rendering from raw
     // bytes instead would silently rebuild an unconfigured document.
     expect(mockRenderPageAsImage).toHaveBeenCalledWith(configuredProxy, 1, {
-      canvasImport: expect.any(Function),
+      canvasImport: mockCanvasImport,
       scale: 2,
     })
   })
