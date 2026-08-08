@@ -61,7 +61,7 @@ export type Deployment = {
   port: number
   /** Present only in local mode. */
   vaultPath?: string
-  /** Present only in remote mode — drives the post-start public-URL probe. */
+  /** The .env's PUBLIC_URL, when set. */
   publicUrl?: string
 }
 
@@ -119,11 +119,7 @@ export const resolveDeployment = (
     return undefined
   }
 
-  // Local's PUBLIC_URL is the derived localhost URL — probing it would
-  // duplicate the health check recreateContainer just ran, so remote-only.
-  const publicUrl =
-    mode === "remote" ? readEnvPublicUrl(envFilePath) : undefined
-
+  const publicUrl = readEnvPublicUrl(envFilePath)
   return { mode, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 
@@ -143,6 +139,16 @@ export const ensureDaemonRunning = (
       : buildDaemonNotRunningMessage("."),
   )
   return false
+}
+
+/**
+ * The URL the post-start probe should check, or undefined when the probe
+ * shouldn't run: local's PUBLIC_URL is the derived localhost URL, so probing
+ * it would only duplicate the health check the start cycle just ran.
+ */
+const postStartProbeUrl = (deployment: Deployment): string | undefined => {
+  if (deployment.mode !== "remote") return undefined
+  return deployment.publicUrl
 }
 
 /**
@@ -235,8 +241,9 @@ export const recreateContainer = async (
 
   // Informational only — the container is confirmed healthy above, so the
   // public-URL result never changes the exit code.
-  if (deployment.mode === "remote" && deployment.publicUrl) {
-    await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
+  const probeUrl = postStartProbeUrl(deployment)
+  if (probeUrl) {
+    await reportPublicUrlProbe(probeUrl, { prompts, fetchFn })
   }
   return 0
 }
