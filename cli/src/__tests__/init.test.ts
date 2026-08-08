@@ -1183,7 +1183,7 @@ describe("runInit guided optional settings", () => {
       "Any optional settings to change? (press enter to skip)",
     )
     expect(scripted.logs).toContain(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex@latest configure".',
+      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
     )
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=existing\n",

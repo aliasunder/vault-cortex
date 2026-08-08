@@ -357,7 +357,7 @@ const runLocalInit = async (
   const offerSettingsChooser = !flags.yes && !envAlreadyExists
   if (!flags.yes && envAlreadyExists) {
     prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex@latest configure".',
+      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
     )
   }
   const optionalOverrides = offerSettingsChooser
@@ -478,7 +478,7 @@ const runRemoteInit = async (
   const envAlreadyExists = existsSync(join(targetDir, ".env"))
   if (envAlreadyExists) {
     prompts.log(
-      'Found an existing .env — settings prompts skipped. Adjust settings with "npx vault-cortex@latest configure".',
+      'Settings prompts skipped for the existing .env — adjust settings with "npx vault-cortex@latest configure".',
     )
   }
   const optionalOverrides = envAlreadyExists
