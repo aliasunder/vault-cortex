@@ -70,10 +70,9 @@ describe("createPdfDocumentProxy", () => {
       await proxy.loadingTask.destroy()
     })
 
-    const { totalPages, text } = await extractText(proxy)
+    const result = await extractText(proxy)
 
-    expect(totalPages).toBe(1)
-    expect(text).toEqual(["Hello PDF"])
+    expect(result).toMatchObject({ totalPages: 1, text: ["Hello PDF"] })
   })
 
   it("configures the proxy for font-independent rendering", async () => {
