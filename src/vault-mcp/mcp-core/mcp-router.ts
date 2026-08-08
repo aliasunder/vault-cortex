@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
+import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
@@ -20,6 +21,7 @@ type McpRouterOptions = {
   search: SearchIndex
   provider: OAuthServerProvider
   config: VaultConfig
+  serverUrl: URL
 }
 
 /**
@@ -43,9 +45,18 @@ export const createMcpRouter = ({
   search,
   provider,
   config,
+  serverUrl,
 }: McpRouterOptions): Router => {
   const router = Router()
-  const bearerAuth = requireBearerAuth({ verifier: provider })
+  // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
+  // parameter so clients can start discovery straight from the rejection —
+  // pointed at the RFC 9728 path-suffixed URL for the /mcp resource.
+  const bearerAuth = requireBearerAuth({
+    verifier: provider,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
+      new URL("/mcp", serverUrl),
+    ),
+  })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
   router.post("/mcp", bearerAuth, async (req: Request, res: Response) => {

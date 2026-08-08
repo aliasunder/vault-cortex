@@ -167,6 +167,7 @@ const setupHarness = async (
       search,
       provider,
       config: opts.config ?? DEFAULT_CONFIG,
+      serverUrl: new URL("http://localhost:8000"),
     }),
   )
 
@@ -241,13 +242,19 @@ afterEach(() => {
 })
 
 describe("createMcpRouter — construction", () => {
-  it("wires the OAuth provider into requireBearerAuth as the verifier", async () => {
+  it("wires the OAuth provider and the path-suffixed metadata URL into requireBearerAuth", async () => {
     const harness = await setupHarness()
 
     expect(requireBearerAuth).toHaveBeenCalledTimes(1)
     const bearerAuthArg = vi.mocked(requireBearerAuth).mock.calls[0]![0]
+    // The mocked requireBearerAuth swallows the real WWW-Authenticate
+    // behavior, so the contract under test is the options the router hands
+    // the SDK — resourceMetadataUrl becomes the resource_metadata parameter
+    // the SDK stamps on every 401 (RFC 9728 discovery from the rejection).
     expect(bearerAuthArg).toEqual({
       verifier: harness.provider,
+      resourceMetadataUrl:
+        "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
     })
   })
 })
