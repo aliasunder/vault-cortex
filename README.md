@@ -422,6 +422,16 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 [Skill source →](https://github.com/aliasunder/agent-skills/tree/main/skills/obsidian-vault)
 
+## Companion: vault-onboarding skill
+
+Starting from scratch? The **vault-onboarding** skill bootstraps the collaboration system this server powers — memory files, session protocols, task boards, and per-client instruction files — through a conversational interview. It works standalone with native file tools; connected to vault-cortex, the generated setup unlocks remote access, hybrid search, and semantic memory recall.
+
+```bash
+npx skills add aliasunder/vault-onboarding
+```
+
+[Skill source →](https://github.com/aliasunder/vault-onboarding)
+
 ## Roadmap
 
 | Phase  | What                                                                                                                      | Status    |

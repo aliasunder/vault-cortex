@@ -21,7 +21,8 @@
     "hybrid-search",
     "semantic-search",
     "ai-memory",
-    "attachments",
+    "pkm",
+    "personal-knowledge-management",
     "pdf",
     "claude",
     "docker"
