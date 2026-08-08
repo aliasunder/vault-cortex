@@ -73,7 +73,7 @@ Or run the Docker image directly:
 docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-**4. Authenticate to GHCR** (once per machine):
+**4. Authenticate to GHCR** (once per machine — only needed for pushing images from your machine with `npm run deploy:dev`; skip it if you deploy exclusively through CI, which authenticates with its built-in `GITHUB_TOKEN`):
 
 ```bash
 echo "<your-github-pat>" | docker login ghcr.io -u <your-github-username> --password-stdin
