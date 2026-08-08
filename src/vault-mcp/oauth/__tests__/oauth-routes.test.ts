@@ -651,12 +651,22 @@ describe("OAuth protected resource metadata", () => {
     expect(response.headers.get("allow")).toBe("GET, OPTIONS")
   })
 
-  it("answers OPTIONS preflight on the suffixed route", async () => {
+  it("answers a browser CORS preflight on the suffixed route", async () => {
     const response = await fetch(
       `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-      { method: "OPTIONS" },
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://claude.ai",
+          "Access-Control-Request-Method": "GET",
+        },
+      },
     )
     expect(response.status).toBe(204)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    expect(response.headers.get("access-control-allow-methods")).toBe(
+      "GET,HEAD,PUT,PATCH,POST,DELETE",
+    )
   })
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
