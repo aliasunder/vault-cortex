@@ -81,9 +81,10 @@ describe("buildLocalConnectMessage", () => {
       started: false,
     })
 
-    expect(message).toContain("Start the server:")
+    // Bound to the start line specifically — the update-guidance block also
+    // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`,
     )
   })
 
@@ -216,9 +217,9 @@ describe("buildRemoteConnectMessage", () => {
       obsidianTokenMissing: true,
     })
 
-    expect(message).toContain("Fill in OBSIDIAN_AUTH_TOKEN")
-    expect(message).toContain(`${remoteDefaults.targetDir}/.env`)
-    expect(message).toContain("npx vault-cortex@latest upgrade")
+    expect(message).toContain(
+      `Fill in OBSIDIAN_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env, then start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
+    )
   })
 
   it("shows the start command when not started and obsidian token present", () => {
@@ -228,9 +229,10 @@ describe("buildRemoteConnectMessage", () => {
       obsidianTokenMissing: false,
     })
 
-    expect(message).toContain("Start the server:")
+    // Bound to the start line specifically — the update-guidance block also
+    // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
     )
   })
 

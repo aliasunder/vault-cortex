@@ -249,7 +249,7 @@ describe("runLogs", () => {
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      "No vault-cortex container — start it with `npx vault-cortex@latest start`.",
+      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
@@ -332,8 +332,28 @@ describe("runStart", () => {
     expect(scripted.spinnerMessages).toContain(
       "stop: Server is up — health check passed.",
     )
-    expect(scripted.logs).toContain("Started with the settings from .env.")
+    expect(scripted.logs).toEqual([
+      "Starting container...",
+      "Started with the settings from .env.",
+    ])
     expect(scripted.outros).toEqual(["Start complete."])
+  })
+
+  it("exits 1 when Docker daemon is not running", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runStart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
   })
 
   it("exits 1 when no .env exists in the target directory", async () => {

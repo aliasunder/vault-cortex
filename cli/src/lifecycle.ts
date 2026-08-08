@@ -301,7 +301,7 @@ export const runLogs = async (
 
   if (!docker.containerExists()) {
     prompts.error(
-      "No vault-cortex container — start it with `npx vault-cortex@latest start`.",
+      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
     )
     return 1
   }
@@ -361,7 +361,8 @@ export const runStart = async (
 /**
  * Re-creates the container from the .env on disk and verifies health.
  * Unlike `docker restart`, this applies .env edits (the env-file is only
- * read at container creation); unlike upgrade, it never pulls an image.
+ * read at container creation); unlike upgrade, it never replaces an image
+ * you already have (`docker run` still pulls when none exists locally).
  */
 export const runRestart = async (
   flags: RestartFlags,

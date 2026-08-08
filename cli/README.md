@@ -144,7 +144,7 @@ npx vault-cortex@latest restart
 
 Use it after editing `.env` — settings are only read when the container is
 created, so a plain `docker restart` won't pick them up, but this will. Unlike
-[`upgrade`](#upgrade), it never pulls a new image: you get the same server
+[`upgrade`](#upgrade), it never updates the server image: you get the same
 version back, with your current settings applied.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.

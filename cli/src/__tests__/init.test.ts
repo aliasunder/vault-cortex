@@ -804,9 +804,10 @@ describe("runInit re-init guard", () => {
         initialValue: false,
       },
     ])
-    expect(scripted.logs).toContain(
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
-    )
+    ])
     expect(scripted.outros).toEqual(["Done."])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=existing\n",
@@ -842,9 +843,10 @@ describe("runInit re-init guard", () => {
       "Where should I put the config files?",
       "Re-run setup for this directory anyway?",
     ])
-    expect(scripted.logs).toContain(
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
-    )
+    ])
     expect(scripted.outros).toEqual(["Done."])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=existing\n",
@@ -1179,10 +1181,16 @@ describe("runInit guided optional settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    // "Yes, re-run setup" means the full setup — the chooser included.
-    expect(scripted.asked).toContain(
+    // "Yes, re-run setup" means the full setup — the chooser included, in
+    // its usual position, with no extra questions around it.
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      "Where should I put the config files?",
+      "Re-run setup for this directory anyway?",
       "Any optional settings to change? (press enter to skip)",
-    )
+      ".env already exists and differs — overwrite?",
+    ])
     // Keeping at the conflict prompt still protects the file (the write
     // report states the discard); no configure-pointer log remains.
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(

@@ -218,6 +218,17 @@ describe("readEnvPublicUrl", () => {
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
 
+  it("strips a run of trailing slashes, not just one", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
   it("returns undefined when no .env exists", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 
