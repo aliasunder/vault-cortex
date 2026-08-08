@@ -158,18 +158,23 @@ switch (sub) {
       `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
     )
     waitForDocker(ip, id)
+    // A public GHCR image pulls anonymously — GHCR_TOKEN is only needed when
+    // the package is private (a fork's first push defaults to private).
+    // Without one, clear any stored credential so a stale token can't 401
+    // pulls that would succeed anonymously.
     const ghcrToken = env.GHCR_TOKEN
-    if (!ghcrToken) {
-      console.error(
-        `✕  GHCR_TOKEN not set in ${ENV_PATH}. Needed for docker login on the instance.`,
+    if (ghcrToken) {
+      console.log(`> docker login ghcr.io -u ${ghcrUser} (on ${ip})`)
+      execSync(
+        `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+        { input: ghcrToken, stdio: ["pipe", "pipe", "pipe"], env },
       )
-      process.exit(1)
+    } else {
+      console.log(
+        `> GHCR_TOKEN not set — clearing any stored GHCR credential on ${ip} (public images pull anonymously)`,
+      )
+      run(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`)
     }
-    console.log(`> docker login ghcr.io -u ${ghcrUser} (on ${ip})`)
-    execSync(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
-      { input: ghcrToken, stdio: ["pipe", "pipe", "pipe"], env },
-    )
     run(
       `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
     )

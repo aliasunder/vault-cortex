@@ -14,7 +14,7 @@ SST manages the AWS infrastructure declared in `sst.config.ts`, with each develo
 
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
-- A GitHub PAT with `read:packages` + `write:packages` scopes (for pushing and pulling Docker images from GitHub Container Registry)
+- A GitHub PAT with `read:packages` + `write:packages` scopes — only for pushing images from your machine with `npm run deploy:dev` (GitHub Actions uses its built-in `GITHUB_TOKEN` instead, and a public GHCR package pulls anonymously)
 - A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
 - An [Obsidian](https://obsidian.md) vault (the data this server exposes)
 - An [Obsidian Sync](https://obsidian.md/sync) subscription (the remote deploy bundles a sync process that mirrors the vault between this VM and your Obsidian apps)
@@ -56,7 +56,7 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | --------------------- | --------------------------------------------------------------------------------------------- |
 | `PUBLIC_URL`          | API Gateway URL (from `sst deploy` output) — or your [custom domain](#custom-domain-optional) |
 | `GHCR_USER`           | Your GitHub username                                                                          |
-| `GHCR_TOKEN`          | The GitHub PAT from prerequisites                                                             |
+| `GHCR_TOKEN`          | Optional — only if your GHCR package is private (used to log the instance in for pulls)       |
 | `VAULT_NAME`          | Your Obsidian vault name (exact, case-sensitive)                                              |
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                                              |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                                               |
@@ -76,7 +76,7 @@ docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:
 **4. Authenticate to GHCR** (once per machine):
 
 ```bash
-echo "<your-GHCR_TOKEN>" | docker login ghcr.io -u <your-github-username> --password-stdin
+echo "<your-github-pat>" | docker login ghcr.io -u <your-github-username> --password-stdin
 ```
 
 ## Deploy
@@ -342,22 +342,22 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
-| Secret                   | Purpose                                                                                                                                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                         |
-| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                   |
-| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                   |
-| `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL. |
-| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                       |
-| `GHCR_TOKEN`             | Personal access token (classic) with `write:packages` + `read:packages`. Used by `docker login` both at build-push and on-instance pull. Persists across runs; rotate when stale.                                 |
-| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.            |
-| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                       |
-| `OBSIDIAN_AUTH_TOKEN`    | Output of `npx vault-cortex@latest get-sync-token` — see [One-time setup](#one-time-setup).                                                                                                                       |
-| `VAULT_PASSWORD`         | Optional. Only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                                |
-| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                |
-| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                            |
-| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                      |
-| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                 |
+| Secret                   | Purpose                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                                                                                                                           |
+| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                                                                                                                     |
+| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                                                                                                                     |
+| `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                                                                                                   |
+| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                                                                                         |
+| `GHCR_TOKEN`             | Optional. Only needed when your GHCR package is private (a fork's first push defaults to private): a classic PAT with `read:packages`, used to log the instance in for pulls. Image pushes use the built-in `GITHUB_TOKEN`; when unset, the deploy clears any stored credential and the instance pulls anonymously. |
+| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.                                                                                                              |
+| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                                                                                                                         |
+| `OBSIDIAN_AUTH_TOKEN`    | Output of `npx vault-cortex@latest get-sync-token` — see [One-time setup](#one-time-setup).                                                                                                                                                                                                                         |
+| `VAULT_PASSWORD`         | Optional. Only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                                                                                                                                  |
+| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                                                                                                                  |
+| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                                              |
+| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                                                                                                                        |
+| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                                                                                                                   |
 
 Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
 

@@ -127,13 +127,15 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
+      # The built-in GITHUB_TOKEN pushes to the repo-linked GHCR package
+      # (packages: write above) — no PAT to expire or rotate.
       - name: Log in to GHCR (build push)
         if: ${{ !inputs.skip_build }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
-          username: ${{ vars.GHCR_USER }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Labels rather than index annotations: a single-platform push may not
       # produce an image index to annotate, and the :test tag needs no GHCR
@@ -172,7 +174,7 @@ jobs:
             sleep 5
           done
 
-      - name: Bootstrap deploy directory and GHCR login on instance
+      - name: Bootstrap deploy directory and GHCR auth on instance
         env:
           IP: ${{ steps.ssh.outputs.host }}
           GHCR_USER: ${{ vars.GHCR_USER }}
@@ -180,8 +182,17 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
             'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'
-          printf '%s' "$GHCR_TOKEN" | ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
-            "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          # A public GHCR image pulls anonymously — GHCR_TOKEN is only needed
+          # when the package is private (a fork's first push defaults to
+          # private). Without one, clear any stored credential so a stale
+          # token can't 401 pulls that would succeed anonymously.
+          if [ -n "$GHCR_TOKEN" ]; then
+            printf '%s' "$GHCR_TOKEN" | ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
+              "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          else
+            ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
+              'docker logout ghcr.io || true'
+          fi
 
       - name: Write Lightsail .env from secrets
         env:
