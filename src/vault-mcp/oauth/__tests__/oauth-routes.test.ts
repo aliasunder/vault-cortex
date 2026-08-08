@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { Server } from "node:http"
-import type { AddressInfo } from "node:net"
 import type { Response } from "express"
 import express from "express"
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
@@ -40,6 +39,19 @@ const REDIRECT_URI = "http://localhost:9999/callback"
 /** Pulls the hidden request_id out of the rendered consent HTML. */
 const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/
 
+/**
+ * Resolves a listening server's TCP port. A bound HTTP server always
+ * reports an object-form address, so string/null narrows to a throw
+ * instead of a type assertion.
+ */
+const getListeningPort = (server: Server): number => {
+  const serverAddress = server.address()
+  if (!serverAddress || typeof serverAddress === "string") {
+    throw new Error("expected a TCP address from a listening server")
+  }
+  return serverAddress.port
+}
+
 describe("OAuth consent token submission", () => {
   let dir: string
   let oauth: OAuthProvider
@@ -65,8 +77,7 @@ describe("OAuth consent token submission", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -78,7 +89,10 @@ describe("OAuth consent token submission", () => {
   // the provider (the HTTP /register and /authorize routes are rate-limited;
   // /oauth/decide, the route under test, is not).
   const startPendingRequest = async (): Promise<string> => {
-    const client = await oauth.provider.clientsStore!.registerClient!({
+    const clientsStore = oauth.provider.clientsStore
+    if (!clientsStore?.registerClient)
+      throw new Error("clientsStore.registerClient not available")
+    const client = await clientsStore.registerClient({
       client_name: "Test Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
@@ -137,11 +151,11 @@ describe("OAuth consent token submission", () => {
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
     const locationHeader = response.headers.get("location")
-    expect(locationHeader).not.toBeNull()
-    const location = new URL(locationHeader!)
+    if (!locationHeader) throw new Error("expected Location header on 302")
+    const location = new URL(locationHeader)
     const code = location.searchParams.get("code")
-    expect(typeof code).toBe("string")
-    expect(code!.length).toBeGreaterThan(0)
+    if (!code) throw new Error("expected code query param in redirect")
+    expect(code.length).toBeGreaterThan(0)
     expect(location.searchParams.get("state")).toBe("test-state")
   })
 
@@ -190,8 +204,7 @@ describe("OAuth consent body validation", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -250,8 +263,7 @@ describe("OAuth consent audit logging", () => {
     server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, () => resolve(listening))
     })
-    const { port } = server.address() as AddressInfo
-    baseUrl = `http://localhost:${port}`
+    baseUrl = `http://localhost:${getListeningPort(server)}`
   })
 
   afterEach(async () => {
@@ -260,7 +272,10 @@ describe("OAuth consent audit logging", () => {
   })
 
   const startPendingRequest = async (): Promise<string> => {
-    const client = await oauth.provider.clientsStore!.registerClient!({
+    const clientsStore = oauth.provider.clientsStore
+    if (!clientsStore?.registerClient)
+      throw new Error("clientsStore.registerClient not available")
+    const client = await clientsStore.registerClient({
       client_name: "Audit Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
@@ -303,10 +318,14 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_completed")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
-    expect(event!.data.clientIp).toBeDefined()
+    expect(event).toMatchObject({
+      level: "info",
+      message: "oauth_consent_completed",
+      data: expect.objectContaining({
+        requestId,
+        clientIp: expect.any(String),
+      }),
+    })
   })
 
   it("logs oauth_consent_bad_token on invalid token submission", async () => {
@@ -325,9 +344,11 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_bad_token")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
-    expect(event!.data.requestId).toBe(requestId)
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_consent_bad_token",
+      data: expect.objectContaining({ requestId }),
+    })
   })
 
   it("logs oauth_consent_denied_by_user on deny action", async () => {
@@ -348,9 +369,11 @@ describe("OAuth consent audit logging", () => {
     const event = logs.find(
       (log) => log.message === "oauth_consent_denied_by_user",
     )
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
-    expect(event!.data.requestId).toBe(requestId)
+    expect(event).toMatchObject({
+      level: "info",
+      message: "oauth_consent_denied_by_user",
+      data: expect.objectContaining({ requestId }),
+    })
   })
 
   it("logs oauth_consent_expired on expired request", async () => {
@@ -368,7 +391,159 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_expired")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("warn")
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_consent_expired",
+      data: expect.objectContaining({
+        requestId: "nonexistent-id",
+      }),
+    })
+  })
+})
+
+describe("OAuth endpoint rate limiting", () => {
+  let dir: string
+  let logs: LogCall[]
+  let server: Server
+  let baseUrl: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger: testLogger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      logger: testLogger,
+    })
+    const app = express()
+    app.use(router)
+    server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  // Without forwardedClientIp all requests share the loopback peer; with it,
+  // the RFC 7239 Forwarded header drives extractClientIp, so distinct values
+  // are distinct rate-limit identities.
+  const register = (forwardedClientIp?: string) =>
+    fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(forwardedClientIp ? { forwarded: `for=${forwardedClientIp}` } : {}),
+      },
+      body: JSON.stringify({
+        client_name: "Rate Limit Client",
+        redirect_uris: [REDIRECT_URI],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("serves 5 requests in a minute from one client IP, then returns 429", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register()
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register()
+    expect(sixth.status).toBe(429)
+  })
+
+  it("logs oauth_rate_limited with the offending client IP when the limit trips", async () => {
+    for (let i = 0; i < 5; i++) {
+      await register("203.0.113.9")
+    }
+    logs.length = 0
+    const sixth = await register("203.0.113.9")
+    expect(sixth.status).toBe(429)
+    const event = logs.find((log) => log.message === "oauth_rate_limited")
+    expect(event).toMatchObject({
+      level: "warn",
+      message: "oauth_rate_limited",
+      data: expect.objectContaining({
+        clientIp: "203.0.113.9",
+        path: "/register",
+      }),
+    })
+  })
+
+  it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("203.0.113.7")
+      expect(response.status).toBe(201)
+    }
+    const sixthFromSameClient = await register("203.0.113.7")
+    expect(sixthFromSameClient.status).toBe(429)
+    const firstFromOtherClient = await register("203.0.113.8")
+    expect(firstFromOtherClient.status).toBe(201)
+  })
+
+  // Each flow endpoint mounts its own limiter with its own counter, so the
+  // per-endpoint tests below exercise four independent limiters — register
+  // passing does not prove authorize/token/revoke are limited. The requests
+  // are deliberately invalid: the limiter runs before request validation,
+  // so invalid requests still count toward the window, and the pre-limit
+  // status is each endpoint's own validation error.
+  it("rate-limits /authorize after 5 requests from one client IP", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+      expect(response.status).toBe(400)
+    }
+    const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+    expect(sixth.status).toBe(429)
+  })
+
+  it("rate-limits /token after 5 requests from one client IP", async () => {
+    const requestToken = () =>
+      fetch(`${baseUrl}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "authorization_code" }),
+      })
+    for (let i = 0; i < 5; i++) {
+      const response = await requestToken()
+      expect(response.status).toBe(400)
+    }
+    const sixth = await requestToken()
+    expect(sixth.status).toBe(429)
+  })
+
+  it("rate-limits /revoke after 5 requests from one client IP", async () => {
+    const revoke = () =>
+      fetch(`${baseUrl}/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token: "nonexistent-token" }),
+      })
+    for (let i = 0; i < 5; i++) {
+      const response = await revoke()
+      expect(response.status).toBe(400)
+    }
+    const sixth = await revoke()
+    expect(sixth.status).toBe(429)
+  })
+
+  it("leaves /.well-known discovery metadata unlimited past 5 requests", async () => {
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch(
+        `${baseUrl}/.well-known/oauth-authorization-server`,
+      )
+      expect(response.status).toBe(200)
+    }
   })
 })

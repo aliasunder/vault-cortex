@@ -21,9 +21,17 @@ export type DockerLogsParams = {
   since?: string
 }
 
+/**
+ * Container-runtime reachability: "running" (daemon answered), "not-running"
+ * (binary exists but the daemon didn't answer), or "not-installed" (no docker
+ * binary on PATH) — the split decides whether guidance says "start it" or
+ * "install one".
+ */
+export type DaemonStatus = "running" | "not-running" | "not-installed"
+
 export type DockerRunner = {
-  /** True when the Docker daemon is reachable. */
-  isDaemonRunning: () => boolean
+  /** Whether the container runtime is reachable, stopped, or absent. */
+  daemonStatus: () => DaemonStatus
   /** Runs `docker run -d` with mode-specific flags. */
   dockerRun: (params: DockerRunParams) => boolean
   /** Pulls the latest image from the registry. */
@@ -169,9 +177,28 @@ export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
   ]
 }
 
+/**
+ * Classifies a `docker info` spawnSync result. ENOENT on the spawn itself
+ * means the `docker` binary is absent (not installed); any other failure —
+ * non-zero exit, timeout, signal kill — means the binary exists but the
+ * daemon isn't answering. `status` alone can't make that call: it is null
+ * for ENOENT *and* for timeouts, so the split keys on the error code.
+ */
+export const classifyDaemonStatus = (spawnResult: {
+  status: number | null
+  error?: Error
+}): DaemonStatus => {
+  if (spawnResult.status === 0) return "running"
+  const spawnErrorCode =
+    spawnResult.error && "code" in spawnResult.error
+      ? spawnResult.error.code
+      : undefined
+  return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
+}
+
 export const createDockerRunner = (): DockerRunner => ({
-  isDaemonRunning: () =>
-    spawnSync("docker", ["info"], { timeout: 5_000 }).status === 0,
+  daemonStatus: () =>
+    classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the
@@ -230,6 +257,32 @@ export const createDockerRunner = (): DockerRunner => ({
     ).status === 0,
 })
 
+/** Default bound on a single health request (shared by probe and poll). */
+const PROBE_TIMEOUT_MS = 10_000
+
+/**
+ * One-shot health probe: true on an HTTP 2xx, false on any error, non-2xx,
+ * or timeout — false IS the handled outcome for a boolean probe, so the
+ * catch maps rather than logs. Unlike the localhost poll target (which fails
+ * fast with ECONNREFUSED), a public URL behind a dropped firewall rule can
+ * black-hole the TCP handshake for minutes — the abort timeout bounds every
+ * caller.
+ */
+export const probeHealth = async (
+  params: { url: string; timeoutMs?: number },
+  fetchFn: typeof fetch,
+): Promise<boolean> => {
+  const { url, timeoutMs = PROBE_TIMEOUT_MS } = params
+  try {
+    const response = await fetchFn(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 /**
  * Polls the health endpoint until it responds OK or the timeout elapses.
  * The first `docker run` pulls the image, so the default window is generous.
@@ -245,18 +298,20 @@ export const pollHealth = async (
   const { url, timeoutMs = 120_000, intervalMs = 2_000 } = params
   const deadline = Date.now() + timeoutMs
 
-  const isHealthy = async (): Promise<boolean> => {
-    try {
-      const response = await fetchFn(url)
-      return response.ok
-    } catch {
-      return false
-    }
-  }
-
+  // Each attempt is bounded by the per-request cap AND the remaining budget
+  // (a bare remaining-budget bound would let one black-holed request consume
+  // the whole window with no retries), and the pause never sleeps past the
+  // deadline — so the loop can't overshoot timeoutMs and the caller's
+  // "did not respond within N minutes" message stays accurate.
   while (Date.now() < deadline) {
-    if (await isHealthy()) return true
-    await new Promise((resolvePause) => setTimeout(resolvePause, intervalMs))
+    const attemptTimeoutMs = Math.min(PROBE_TIMEOUT_MS, deadline - Date.now())
+    if (await probeHealth({ url, timeoutMs: attemptTimeoutMs }, fetchFn)) {
+      return true
+    }
+    const pauseMs = Math.min(intervalMs, deadline - Date.now())
+    if (pauseMs > 0) {
+      await new Promise((resolvePause) => setTimeout(resolvePause, pauseMs))
+    }
   }
   return false
 }

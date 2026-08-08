@@ -63,6 +63,36 @@
 
 
 
+
+## [0.35.1] — 2026-08-08
+
+### Features
+
+- **cli:** Auto-verify what we can, guide what we can't — health-check messaging, Docker detection, @latest (#411)
+
+### Bug Fixes
+
+- **oauth:** Enforce the documented 5 req/min rate limit on flow endpoints (#417)
+- **security:** Bump js-yaml override to 4.3.1 (#416)
+
+### Documentation
+
+- Update SECURITY.md scope and container hardening (#408)
+- Update CHANGELOG.md for v0.35.0
+
+### CI / Infrastructure
+
+- Push GHCR images with the built-in GITHUB_TOKEN; make instance GHCR auth optional (#419)
+
+### Maintenance
+
+- **deps:** Bump nanoid to 3.3.18 for GHSA-2v37-7h3g-55p8 (#418)
+- **deps-dev:** Bump the development group across 1 directory with 6 updates (#413)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.3 to 4.37.6 (#414)
+- **deps:** Bump docker/login-action from 4.5.2 to 4.6.0 (#415)
+- **deps:** Bump obsidian-headless from 0.0.13 to 0.0.14 in /obsidian-headless (#412)
+- Bump umm-actually to v0.3.3 (#407)
+
 ## [0.35.0] — 2026-08-04
 
 ### Features

@@ -72,10 +72,16 @@ export const runConfigure = async (
     )
   }
 
-  const restartHint = `Apply the new settings with: npx vault-cortex restart --dir "${targetDir}"`
-  if (!docker.isDaemonRunning()) {
+  const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
+  const daemonStatus = docker.daemonStatus()
+  if (daemonStatus !== "running") {
+    // Settings are already saved — the runtime state only affects the restart
+    // offer, so both non-running states degrade to the hint; restart itself
+    // prints the full install/start guidance when run.
     prompts.warn(
-      `Container runtime not running — settings saved.\n${restartHint}`,
+      daemonStatus === "not-installed"
+        ? `No container runtime found — settings saved.\n${restartHint}`
+        : `Container runtime not running — settings saved.\n${restartHint}`,
     )
     prompts.outro("Done.")
     return 0
@@ -98,7 +104,7 @@ export const runConfigure = async (
     // The edit already succeeded — don't let the failed restart read as a
     // failed configure.
     prompts.warn(
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     )
     return 1
   }

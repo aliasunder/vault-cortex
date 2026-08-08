@@ -14,6 +14,7 @@ import {
   detectMode,
   patchEnvObsidianToken,
   readEnvPort,
+  readEnvPublicUrl,
   readEnvVaultPath,
   writeFiles,
 } from "../scaffold.js"
@@ -189,6 +190,77 @@ describe("readEnvVaultPath", () => {
     )
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
+  })
+})
+
+describe("readEnvPublicUrl", () => {
+  it("returns the value of an uncommented PUBLIC_URL line", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("strips trailing slashes so consumers can append paths cleanly", () => {
+    // A hand-edited `https://host/` must not become `https://host//mcp` in
+    // the connect message — mirror askPublicUrl's prompt-side normalization.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("strips a run of trailing slashes, not just one", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("returns undefined when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvPublicUrl(missingPath)).toBeUndefined()
+  })
+
+  it("returns undefined when PUBLIC_URL is only a comment", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PUBLIC_URL=https://x\n")
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
+
+  it("returns undefined for an empty PUBLIC_URL= line", () => {
+    // Contrast with hasEnvPublicUrl, which deliberately matches the empty
+    // line for old-compose detection — the value reader must not.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=\n")
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
+
+  it("returns undefined for a whitespace-only PUBLIC_URL= line", () => {
+    // The regex matches the spaces; the trim must not leak "" past the
+    // non-empty contract.
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=   \n")
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
   })
 })
 

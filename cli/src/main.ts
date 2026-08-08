@@ -2,7 +2,7 @@ import { runConfigure } from "./configure.js"
 import { createDockerRunner } from "./docker.js"
 import { runGetSyncToken } from "./get-sync-token.js"
 import { runInit } from "./init.js"
-import { runDown, runLogs, runRestart } from "./lifecycle.js"
+import { runDown, runLogs, runRestart, runStart } from "./lifecycle.js"
 import { buildProgram } from "./program.js"
 import { createPrompts } from "./prompts.js"
 import { runUpgrade } from "./upgrade.js"
@@ -24,6 +24,12 @@ export const run = async (version: string): Promise<void> => {
       }),
     runUpgrade: (flags) =>
       runUpgrade(flags, {
+        prompts: createPrompts(),
+        docker: createDockerRunner(),
+        fetchFn: fetch,
+      }),
+    runStart: (flags) =>
+      runStart(flags, {
         prompts: createPrompts(),
         docker: createDockerRunner(),
         fetchFn: fetch,

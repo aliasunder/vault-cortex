@@ -25,6 +25,8 @@ manages the container so you don't have to.
   restart to apply them
 - [`upgrade`](#upgrade) — pull the latest image and re-create the container;
   your data stays
+- [`start`](#start) — start the server with your saved settings, e.g. after
+  `down`
 - [`restart`](#restart) — re-create the container so your `.env` edits take
   effect; no image pull
 - [`logs`](#logs) — show the server's logs, live or after the fact
@@ -49,16 +51,17 @@ What it does:
 2. Offers the most common optional settings — memory layer and folder,
    file tools, semantic search, port, timezone (plus sync direction for
    remote) — press enter to keep the defaults, or pick the ones you want to
-   change. Skipped when the target directory already has a `.env` (use
-   [`configure`](#configure) instead)
+   change
 3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
 4. Optionally starts the container and waits for the health check
 5. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
-Existing files are never overwritten without asking. During a remote setup,
-init offers to run [`get-sync-token`](#get-sync-token) for you when Docker is
-available.
+Re-running init where a setup already exists asks first — declining leaves
+everything unchanged and points you at [`configure`](#configure), the right
+tool for changing settings in place. Existing files are never overwritten
+without asking. During a remote setup, init offers to run
+[`get-sync-token`](#get-sync-token) for you when Docker is available.
 
 Flags:
 
@@ -115,6 +118,22 @@ include Compose files you can use directly. If you set up with Compose, stick
 with Compose for updates too (`docker compose pull && docker compose up -d`)
 — the CLI and Compose manage the container independently.
 
+## start
+
+Start the server with your saved settings and verify health:
+
+```bash
+npx vault-cortex@latest start
+```
+
+This is the command the CLI's own guidance points to whenever the server
+isn't running — after [`down`](#down), or an `init` where the server wasn't
+started. It's the same cycle as [`restart`](#restart) under the name you'd
+look for: any existing container is replaced, and Docker pulls the server
+image automatically on a first start.
+
+Use `--dir <path>` if your config isn't in `./vault-cortex`.
+
 ## restart
 
 Re-create the container from your `.env` and verify health:
@@ -125,7 +144,7 @@ npx vault-cortex@latest restart
 
 Use it after editing `.env` — settings are only read when the container is
 created, so a plain `docker restart` won't pick them up, but this will. Unlike
-[`upgrade`](#upgrade), it never pulls a new image: you get the same server
+[`upgrade`](#upgrade), it never updates the server image: you get the same
 version back, with your current settings applied.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
@@ -159,7 +178,7 @@ npx vault-cortex@latest down
 
 Safe by design: your vault, search index, and `.env` settings all live
 outside the container, so nothing is lost. Start again any time with
-[`restart`](#restart). Running `down` when nothing is running is fine — it
+[`start`](#start). Running `down` when nothing is running is fine — it
 just tells you there's nothing to stop.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
@@ -190,7 +209,8 @@ is available.
 - Node.js >= 20.12 (only for this CLI — the server itself runs in Docker)
 - [Docker](https://docs.docker.com/get-docker/) or a Docker-compatible
   runtime (e.g. OrbStack, Colima, Podman) to run the server — the CLI
-  manages the container through the `docker` command
+  manages the container through the `docker` command (on Linux, see
+  [Docker Engine](https://docs.docker.com/engine/install/))
 
 ## Docs
 

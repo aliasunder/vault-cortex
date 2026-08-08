@@ -561,7 +561,9 @@ active sessions.
 `/revoke`) are rate-limited at 5 req/min per client IP. A custom key
 generator extracts the real client IP from API Gateway's `Forwarded` header
 (express-rate-limit's built-in validators are disabled — they assume
-direct-to-server traffic, not reverse-proxy deployments).
+direct-to-server traffic, not reverse-proxy deployments). A tripped limiter
+emits an `oauth_rate_limited` warn log with the client IP and endpoint path
+before returning the 429.
 
 **Rotating `MCP_AUTH_TOKEN`:** Update the SST secret AND the Lightsail `.env`, then redeploy
 both. Existing JWTs signed with the old key become invalid immediately.
