@@ -85,6 +85,7 @@
     "express": "5.2.1",
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
+    "pdfjs-dist": "6.2.108",
     "picomatch": "4.0.5",
     "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",

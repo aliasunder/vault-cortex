@@ -1,11 +1,11 @@
 import {
-  getDocumentProxy,
   getMeta,
   extractTextItems,
   extractLinks,
   renderPageAsImage,
 } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
+import type { PDFDocumentProxy } from "unpdf/pdfjs"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { pageTextByLines } from "../obsidian-markdown/lines.js"
@@ -13,6 +13,7 @@ import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
+import { createPdfDocumentProxy } from "../../utils/pdf-engine.js"
 import type { Logger } from "../../logger.js"
 
 /**
@@ -164,13 +165,13 @@ const PDF_RENDER_SCALE = 2.0
  *  Individual page failures are logged and skipped — the caller checks whether
  *  any pages succeeded. Sequential because the unpdf worker can't handle
  *  concurrent calls on the same proxy (structuredClone error on Node 24).
- *  Takes raw PDF bytes, not a proxy — renderPageAsImage must create its own
- *  proxy so pdfjs-dist's internal CanvasFactory is wired to @napi-rs/canvas
- *  (a proxy created without CanvasFactory falls back to a stub that throws
- *  on pages needing intermediate canvases for transparency/patterns/masks). */
+ *  Takes the shared proxy — created by createPdfDocumentProxy, it carries the
+ *  @napi-rs/canvas CanvasFactory wiring pdfjs needs for intermediate canvases
+ *  (transparency/patterns/masks), and reusing it skips re-parsing the
+ *  document for every page. */
 const renderPdfPages = async (
   params: {
-    pdfData: Uint8Array
+    proxy: PDFDocumentProxy
     pagesToRender: number
     perPageBudget: number
   },
@@ -186,14 +187,10 @@ const renderPdfPages = async (
 
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
-      const pngArrayBuffer = await renderPageAsImage(
-        params.pdfData,
-        pageNumber,
-        {
-          canvasImport: () => import("@napi-rs/canvas"),
-          scale: PDF_RENDER_SCALE,
-        },
-      )
+      const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
+        canvasImport: () => import("@napi-rs/canvas"),
+        scale: PDF_RENDER_SCALE,
+      })
       const pngBuffer = Buffer.from(pngArrayBuffer)
       const fitted = await fitImageToByteBudget({
         buffer: pngBuffer,
@@ -419,7 +416,7 @@ const readAssetContent = async (
       asset.buffer.byteOffset,
       asset.buffer.byteLength,
     )
-    const proxy = await getDocumentProxy(pdfData)
+    const proxy = await createPdfDocumentProxy(pdfData)
     try {
       // Sequential — the unpdf worker can't handle concurrent calls
       // on the same proxy (structuredClone error on Node 24).
@@ -441,7 +438,7 @@ const readAssetContent = async (
           params.maxImageOutputBytes / pagesToRender,
         )
         const pages = await renderPdfPages(
-          { pdfData, pagesToRender, perPageBudget },
+          { proxy, pagesToRender, perPageBudget },
           logger,
         )
         if (pages.length === 0) {

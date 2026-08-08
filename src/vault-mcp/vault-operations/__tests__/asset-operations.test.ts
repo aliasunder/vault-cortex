@@ -10,7 +10,7 @@ vi.mock("../vault-filesystem.js", () => ({
 
 const {
   mockCleanup,
-  mockGetDocumentProxy,
+  mockCreatePdfDocumentProxy,
   mockGetMeta,
   mockExtractTextItems,
   mockExtractLinks,
@@ -19,7 +19,10 @@ const {
   const mockCleanup = vi.fn()
   return {
     mockCleanup,
-    mockGetDocumentProxy: vi.fn(() => ({ cleanup: mockCleanup, numPages: 1 })),
+    mockCreatePdfDocumentProxy: vi.fn(() => ({
+      cleanup: mockCleanup,
+      numPages: 1,
+    })),
     mockGetMeta: vi.fn(),
     mockExtractTextItems: vi.fn(),
     mockExtractLinks: vi.fn(),
@@ -28,11 +31,14 @@ const {
 })
 
 vi.mock("unpdf", () => ({
-  getDocumentProxy: mockGetDocumentProxy,
   getMeta: mockGetMeta,
   extractTextItems: mockExtractTextItems,
   extractLinks: mockExtractLinks,
   renderPageAsImage: mockRenderPageAsImage,
+}))
+
+vi.mock("../../../utils/pdf-engine.js", () => ({
+  createPdfDocumentProxy: mockCreatePdfDocumentProxy,
 }))
 
 vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
@@ -372,11 +378,13 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 14,
       extension: ".pdf",
     })
-    mockGetDocumentProxy.mockRejectedValue(new Error("Invalid PDF structure"))
+    mockCreatePdfDocumentProxy.mockRejectedValue(
+      new Error("Invalid PDF structure"),
+    )
     // Restore the default mock regardless of assertion outcome — without
     // this, a failing assertion leaves subsequent tests with a rejecting mock.
     onTestFinished(() => {
-      mockGetDocumentProxy.mockResolvedValue({
+      mockCreatePdfDocumentProxy.mockResolvedValue({
         cleanup: mockCleanup,
         numPages: 1,
       })
@@ -548,7 +556,7 @@ const setupPdfMocks = (params: { numPages: number; title?: string }) => {
     bytes: 50_000,
     extension: ".pdf",
   })
-  mockGetDocumentProxy.mockResolvedValue({
+  mockCreatePdfDocumentProxy.mockResolvedValue({
     cleanup: mockCleanup,
     numPages: params.numPages,
   })
@@ -566,8 +574,8 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     mockRenderPageAsImage.mockReset()
     mockedFitImage.mockReset()
     mockCleanup.mockClear()
-    mockGetDocumentProxy.mockReset()
-    mockGetDocumentProxy.mockResolvedValue({
+    mockCreatePdfDocumentProxy.mockReset()
+    mockCreatePdfDocumentProxy.mockResolvedValue({
       cleanup: mockCleanup,
       numPages: 1,
     })
@@ -698,6 +706,26 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     )
   })
 
+  it("renders through the configured document proxy, not raw bytes", async () => {
+    setupPdfMocks({ numPages: 1, title: "Proxy Flow" })
+    const configuredProxy = { cleanup: mockCleanup, numPages: 1 }
+    mockCreatePdfDocumentProxy.mockResolvedValue(configuredProxy)
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockedFitImage.mockResolvedValue(buildFittedImage())
+
+    await assetOperations.readAssetContent(
+      { ...defaultParams, path: "flow.pdf", raw: true },
+      logger,
+    )
+
+    // The proxy carries the font/canvas configuration — rendering from raw
+    // bytes instead would silently rebuild an unconfigured document.
+    expect(mockRenderPageAsImage).toHaveBeenCalledWith(configuredProxy, 1, {
+      canvasImport: expect.any(Function),
+      scale: 2,
+    })
+  })
+
   it("cleans up the proxy after successful page rendering", async () => {
     setupPdfMocks({ numPages: 1 })
     mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
@@ -723,27 +751,6 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     ).rejects.toThrow("PDF page rendering failed")
 
     expect(mockCleanup).toHaveBeenCalledOnce()
-  })
-
-  it("passes canvasImport and scale to renderPageAsImage", async () => {
-    setupPdfMocks({ numPages: 1 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
-    mockedFitImage.mockResolvedValue(buildFittedImage())
-
-    await assetOperations.readAssetContent(
-      { ...defaultParams, path: "opts.pdf", raw: true },
-      logger,
-    )
-
-    expect(mockRenderPageAsImage).toHaveBeenCalledOnce()
-    expect(mockRenderPageAsImage).toHaveBeenCalledWith(
-      expect.any(Uint8Array),
-      1,
-      expect.objectContaining({
-        canvasImport: expect.any(Function),
-        scale: 2.0,
-      }),
-    )
   })
 
   it("does not change text extraction when raw is false", async () => {
