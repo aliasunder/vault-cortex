@@ -143,8 +143,9 @@ curl -H "Authorization: Bearer <your-token>" http://localhost:8000/mcp
 curl http://localhost:8000/healthz
 # → {"ok":true}
 
-# OAuth discovery (no auth required):
+# OAuth discovery (no auth required — root and RFC 9728 path-suffixed forms):
 curl http://localhost:8000/.well-known/oauth-protected-resource
+curl http://localhost:8000/.well-known/oauth-protected-resource/mcp
 ```
 
 ## Updating
