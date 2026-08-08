@@ -26,21 +26,22 @@ export const parseBearer = (header: string | undefined): string | null => {
   return match?.[1]?.trim() || null
 }
 
+/** Bare or quoted `for=` value; capture stops at `"`, `;`, or `,`. */
+const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
+
 /**
- * Real client IP for logging and rate limiting. API Gateway conveys the
- * client IP in the RFC 7239 Forwarded header, which Express never reads —
- * behind the gateway, req.ip resolves to a gateway egress node (verified
- * live against AWS's published API_GATEWAY ranges), so every consumer of
- * a client IP must extract from Forwarded first and fall back to req.ip.
- * With duplicate Forwarded headers Node joins values with ", " and the
- * first `for=` element is the original client per RFC 7239.
+ * Real client IP for logging and rate limiting. API Gateway sends it in
+ * the RFC 7239 Forwarded header, which Express never reads — behind the
+ * gateway, req.ip is the gateway's own egress node. The first `for=`
+ * element is the original client (proxies append); req.ip is the
+ * fallback for proxies that don't send Forwarded.
  */
 export const extractClientIp = (
   req: Pick<Request, "headers" | "ip">,
 ): string => {
   const forwarded = req.headers["forwarded"]
   if (forwarded) {
-    const match = /for="?([^";,]+)"?/i.exec(forwarded)
+    const match = FORWARDED_FOR_CLIENT.exec(forwarded)
     if (match?.[1]) return match[1]
   }
   return req.ip ?? "unknown"
