@@ -28,26 +28,23 @@ export const createOAuthRoutes = ({
     oauthProvider
   const router = Router()
 
-  // Explicit 5 req/min per client IP on each flow endpoint (/authorize,
-  // /token, /register, /revoke — each mounts its own limiter). The SDK's
-  // per-endpoint defaults are far looser (authorize 100/15 min, token +
-  // revoke 50/15 min, register 20/hr); for a single-user server a
-  // complete OAuth flow touches each endpoint at most twice per minute,
-  // so 5/min absorbs client reconnect storms while shutting down brute
-  // force.
-  // windowMs/max are the exact keys the SDK sets before spreading this
-  // config — overriding them (rather than `limit`) leaves no dual-key
-  // ambiguity about which value wins.
+  // 5 req/min per client IP on each flow endpoint (/authorize, /token,
+  // /register, /revoke — each mounts its own limiter), far tighter than
+  // the SDK's per-endpoint defaults: a complete OAuth flow touches each
+  // endpoint at most twice per minute, so 5/min absorbs reconnect storms
+  // while shutting down brute force. windowMs/max (not `limit`) override
+  // the exact keys the SDK sets before spreading this config, so there
+  // is no ambiguity about which value wins.
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
+    // Bucket by the Forwarded-header client IP: behind API Gateway the
+    // library default (req.ip) would merge every client into a single
+    // gateway-egress bucket.
     keyGenerator: extractClientIp,
-    // A tripped limiter is silent by default — express-rate-limit just
-    // sends the 429 — yet it's the brute-force signal the limit exists
-    // to catch. Log the offender, then send the SDK's per-endpoint 429
-    // message exactly as the default handler would. The path comes from
-    // originalUrl with the query string stripped: authorize carries
-    // client_id/state in its query, which doesn't belong in logs.
+    // The default handler sends the 429 silently — log the offender, then
+    // send the SDK's per-endpoint message unchanged. The query string is
+    // stripped from the logged path (authorize carries client_id/state).
     handler: (
       req: Request,
       res: Response,
