@@ -11,6 +11,7 @@ import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { pageTextByLines } from "../obsidian-markdown/lines.js"
 import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
+import { describeError } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import { canvasImport, createPdfDocumentProxy } from "../../utils/pdf-engine.js"
@@ -200,7 +201,7 @@ const renderPdfPages = async (
     } catch (error) {
       logger.warn("pdf_page_render_failed", {
         page: pageNumber,
-        error: String(error),
+        error: describeError(error),
       })
     }
   }
