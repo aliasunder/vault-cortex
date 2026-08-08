@@ -419,6 +419,21 @@ describe("createMcpRouter — POST /mcp", () => {
         method: "POST",
       })
     })
+
+    it("logs the RFC 7239 Forwarded client IP over x-forwarded-for", async () => {
+      const harness = await setupHarness()
+      const response = await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
+        body: JSON.stringify(initializeBody),
+      })
+      await response.arrayBuffer()
+      expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
+        sessionId: undefined,
+        clientIp: "198.51.100.9",
+        method: "POST",
+      })
+    })
   })
 
   it("logs a warn with the real status when the transport rejects the initialize request without creating a session", async () => {

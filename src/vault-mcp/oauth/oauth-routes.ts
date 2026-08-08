@@ -3,7 +3,7 @@
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
-import { safeEqual } from "../../auth.js"
+import { extractClientIp, safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -27,19 +27,6 @@ export const createOAuthRoutes = ({
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
     oauthProvider
   const router = Router()
-
-  // API Gateway sends the real client IP in the RFC 7239 Forwarded header,
-  // but Express only reads X-Forwarded-For. Extract from Forwarded first,
-  // falling back to req.ip. Used by both rate limiting and audit logging
-  // so both identify the same client.
-  const extractClientIp = (req: Request): string => {
-    const forwarded = req.headers["forwarded"]
-    if (forwarded) {
-      const match = /for="?([^";,]+)"?/i.exec(forwarded)
-      if (match?.[1]) return match[1]
-    }
-    return req.ip ?? "unknown"
-  }
 
   // Explicit 5 req/min per client IP on each flow endpoint (/authorize,
   // /token, /register, /revoke — each mounts its own limiter). The SDK's
