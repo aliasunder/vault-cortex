@@ -54,7 +54,9 @@ export const createOAuthRoutes = ({
       _next: NextFunction,
       options: { statusCode: number; message: unknown },
     ) => {
-      const requestPath = req.originalUrl.split("?")[0] ?? req.originalUrl
+      const requestPath =
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ??
+        req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req),
         path: requestPath,
