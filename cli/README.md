@@ -15,7 +15,7 @@ and data files — see the
 The server runs as a Docker container; this CLI scaffolds the config and
 manages the container so you don't have to.
 
-![npx vault-cortex init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif)
+![npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif)
 
 ## Commands
 
@@ -34,7 +34,7 @@ manages the container so you don't have to.
 - [`get-sync-token`](#get-sync-token) — generate an Obsidian Sync auth token
   for remote setups
 
-Run `npx vault-cortex <command> --help` for all flags.
+Run `npx vault-cortex@latest <command> --help` for all flags.
 
 ## init
 
