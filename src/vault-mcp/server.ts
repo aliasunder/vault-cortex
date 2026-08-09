@@ -135,6 +135,7 @@ const startServer = async (): Promise<void> => {
     createMcpRouter({
       vaultPath,
       search,
+      serverUrl,
       provider: oauthProvider.provider,
       config,
     }),
