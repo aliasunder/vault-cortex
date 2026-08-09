@@ -65,7 +65,7 @@
     },
     {
       "title": "Non-Markdown Files",
-      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read and browsed: asset-operations.ts as the use-case layer behind the file tools, the canvas.ts linearizer (JSON Canvas to readable markdown), the image byte-budget fitting utility (fit-image-to-byte-budget.ts), and the non_md_files table in the search index. Derive supported formats and size limits from the source at index time.",
+      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read and browsed: asset-operations.ts as the use-case layer behind the file tools, the canvas.ts linearizer (JSON Canvas to readable markdown), the image byte-budget fitting utility (fit-image-to-byte-budget.ts), the pdfjs bootstrap (utils/pdf-engine.ts), and the non_md_files table in the search index. Derive supported formats and size limits from the source at index time.",
       "parent": "Architecture"
     },
     {
