@@ -93,7 +93,7 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
 // in-flight promise. Mutation justified: memoization is inherently stateful.
 let pdfEnginePromise: Promise<PdfEngine> | undefined
 
-const ensurePdfEngine = (): Promise<PdfEngine> => {
+const getPdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
     // Memoize only a fulfilled init: a transient failure (e.g. the native
     // canvas binding hitting a resource limit) must not poison every later
@@ -118,7 +118,7 @@ const ensurePdfEngine = (): Promise<PdfEngine> => {
 export const createPdfDocumentProxy = async (
   pdfData: Uint8Array,
 ): Promise<PDFDocumentProxy> => {
-  const engine = await ensurePdfEngine()
+  const engine = await getPdfEngine()
   return getDocumentProxy(pdfData, {
     useSystemFonts: false,
     disableFontFace: true,
