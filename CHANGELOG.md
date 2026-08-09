@@ -64,6 +64,23 @@
 
 
 
+
+## [0.35.2] — 2026-08-09
+
+### Features
+
+- **oauth:** Advertise the RFC 9728 metadata URL on 401 responses (#423)
+- **oauth:** Serve RFC 9728 path-suffixed discovery route for /mcp (#422)
+
+### Bug Fixes
+
+- Render PDF pages with self-contained fonts so text survives fontless containers (#421)
+
+### Documentation
+
+- Refresh wiki.json, complete @latest sweep, reconcile npm keywords (#420)
+- Update CHANGELOG.md for v0.35.1
+
 ## [0.35.1] — 2026-08-08
 
 ### Features
