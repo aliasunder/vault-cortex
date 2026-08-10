@@ -84,15 +84,22 @@ export const startFileWatcher = (
       search.upsertNonMdFile(relativePath, fileStat.size)
 
       if (filePath.endsWith(".canvas")) {
-        const content = await readFile(filePath, "utf8")
-        search.upsertFileContent(
-          {
-            filePath: relativePath,
-            rawContent: content,
-            fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-          },
-          logger,
-        )
+        try {
+          const content = await readFile(filePath, "utf8")
+          search.upsertFileContent(
+            {
+              filePath: relativePath,
+              rawContent: content,
+              fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+            },
+            logger,
+          )
+        } catch (error) {
+          logger.warn("canvas content indexing failed", {
+            path: relativePath,
+            error: describeError(error),
+          })
+        }
       }
 
       logger.debug("indexed non-md file", { path: relativePath })
