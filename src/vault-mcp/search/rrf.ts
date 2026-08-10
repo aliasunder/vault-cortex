@@ -4,30 +4,34 @@
  *  lists into a single relevance score per unique identifier.
  *
  *  Algorithm:
- *  1. For each result in each list, compute 1 / (k + rank) where rank is
- *     1-indexed and k (default 60) dampens the influence of low ranks
- *  2. Sum scores per id across all lists — an id in multiple lists gets a
- *     higher combined score than one appearing in only one list
+ *  1. For each result in each list, compute 1 / (dampingConstant + rank)
+ *     where rank is 1-indexed and dampingConstant (default 60) dampens
+ *     the influence of low ranks
+ *  2. Sum scores per identifier across all lists — an identifier in
+ *     multiple lists gets a higher combined score than one appearing in
+ *     only one list
  *  3. Add top-rank bonuses: +0.05 for rank 1, +0.02 for ranks 2–3 in any
  *     list, rewarding results that any system placed highly
  *  4. Sort by combined score descending
  *
  *  Inspired by qmd: https://github.com/tobi/qmd#score-normalization--fusion */
 export const computeRrfScores = (params: {
-  rankedLists: ReadonlyArray<readonly { id: string }[]>
-  k?: number
-}): { id: string; score: number }[] => {
-  const k = params.k ?? 60
+  rankedLists: ReadonlyArray<readonly { identifier: string }[]>
+  dampingConstant?: number
+}): { identifier: string; score: number }[] => {
+  const dampingConstant = params.dampingConstant ?? 60
 
-  const scoresById = new Map<string, number>()
+  const scoresByIdentifier = new Map<string, number>()
 
-  const accumulateScores = (rankedItems: readonly { id: string }[]): void => {
+  const accumulateScores = (
+    rankedItems: readonly { identifier: string }[],
+  ): void => {
     for (const [index, item] of rankedItems.entries()) {
       const rank = index + 1
-      const rrfScore = 1 / (k + rank)
+      const rrfScore = 1 / (dampingConstant + rank)
       const bonus = rank === 1 ? 0.05 : rank <= 3 ? 0.02 : 0
-      const previousScore = scoresById.get(item.id) ?? 0
-      scoresById.set(item.id, previousScore + rrfScore + bonus)
+      const previousScore = scoresByIdentifier.get(item.identifier) ?? 0
+      scoresByIdentifier.set(item.identifier, previousScore + rrfScore + bonus)
     }
   }
 
@@ -35,10 +39,10 @@ export const computeRrfScores = (params: {
     accumulateScores(rankedList)
   }
 
-  return [...scoresById.entries()]
+  return [...scoresByIdentifier.entries()]
     .sort(([, scoreA], [, scoreB]) => scoreB - scoreA)
-    .map(([id, score]) => ({
-      id,
+    .map(([identifier, score]) => ({
+      identifier,
       score: Number(score.toPrecision(4)),
     }))
 }

@@ -398,15 +398,15 @@ export const hybridSearch = async (
     // Merge note FTS + file content FTS via 2-list RRF
     const fallbackRrf = computeRrfScores({
       rankedLists: [
-        ftsResults.map((result) => ({ id: result.path })),
-        fileContentResults.map((result) => ({ id: result.path })),
+        ftsResults.map((result) => ({ identifier: result.path })),
+        fileContentResults.map((result) => ({ identifier: result.path })),
       ],
     })
     const fileContentByPath = new Map(
       fileContentResults.map((result) => [result.path, result]),
     )
     const fallbackMerged: SearchResult[] = []
-    for (const { id: path, score } of fallbackRrf) {
+    for (const { identifier: path, score } of fallbackRrf) {
       const noteFts = ftsResults.find((result) => result.path === path)
       if (noteFts) {
         fallbackMerged.push({ ...noteFts, score })
@@ -429,10 +429,10 @@ export const hybridSearch = async (
 
   // Compute RRF scores from all ranked lists (notes FTS + vector + file content)
   const rankedLists = [
-    ftsResults.map((result) => ({ id: result.path })),
-    vectorHits.map((hit) => ({ id: hit.path })),
+    ftsResults.map((result) => ({ identifier: result.path })),
+    vectorHits.map((hit) => ({ identifier: hit.path })),
     ...(fileContentResults.length > 0
-      ? [fileContentResults.map((result) => ({ id: result.path }))]
+      ? [fileContentResults.map((result) => ({ identifier: result.path }))]
       : []),
   ]
   const rrfScores = computeRrfScores({ rankedLists })
@@ -448,7 +448,7 @@ export const hybridSearch = async (
 
   // Build the merged result set, ordered by RRF score
   const mergedResults: SearchResult[] = []
-  for (const { id: path, score } of rrfScores) {
+  for (const { identifier: path, score } of rrfScores) {
     const ftsResult = ftsResultsByPath.get(path)
     if (ftsResult) {
       // Path found via note FTS — use its metadata and snippet, replace score
@@ -834,8 +834,8 @@ export const memoryRecall = async (
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
     rankedLists: [
-      ftsRows.map((row) => ({ id: String(row.id) })),
-      vectorRows.map((row) => ({ id: String(row.id) })),
+      ftsRows.map((row) => ({ identifier: String(row.id) })),
+      vectorRows.map((row) => ({ identifier: String(row.id) })),
     ],
   })
   const rowsById = new Map<string, MemoryEntryRow>([
@@ -850,7 +850,7 @@ export const memoryRecall = async (
   // Lexical hits always pass; only the lowest-fused vector-only candidates
   // fall off once the rerank window cap is reached.
   const candidates: MemoryRecallCandidate[] = []
-  for (const { id: entryId, score } of fusedScores) {
+  for (const { identifier: entryId, score } of fusedScores) {
     const row = rowsById.get(entryId)
     if (!row) continue
     const ftsHit = ftsIds.has(entryId)
