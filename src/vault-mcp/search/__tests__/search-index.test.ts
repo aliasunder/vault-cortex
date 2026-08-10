@@ -1753,16 +1753,16 @@ describe("searchByProperty", () => {
 })
 
 describe("markdown path requirement", () => {
-  it("getBacklinks rejects a path without the .md extension", () => {
+  it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
+      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
     )
   })
 
-  it("getOutgoingLinks rejects a path without the .md extension", () => {
+  it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
     expect(() =>
       index.getOutgoingLinks({ path: "Projects/Plan" }, logger),
-    ).toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).toThrow('path must end in ".md" or ".canvas" (received "Projects/Plan")')
   })
 })
 
@@ -5069,6 +5069,309 @@ This is a note with many words that should be truncated when using a small snipp
       expect(reranked).toBe(false)
       // The reranker should not have been called — mergedResults.length <= 1
       expect(mockReranker.rerankPairs).not.toHaveBeenCalled()
+    })
+  })
+})
+
+// ── Canvas file content + link graph ──────────────────────────
+
+describe("canvas file content and links", () => {
+  const CANVAS_WITH_FILE_NODES = JSON.stringify({
+    nodes: [
+      {
+        id: "t1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        text: "Architecture overview with deployment details",
+      },
+      {
+        id: "f1",
+        type: "file",
+        x: 300,
+        y: 0,
+        width: 400,
+        height: 200,
+        file: "Projects/vault-cortex.md",
+      },
+      {
+        id: "f2",
+        type: "file",
+        x: 300,
+        y: 250,
+        width: 400,
+        height: 200,
+        file: "Notes/design-doc.md",
+      },
+    ],
+    edges: [],
+  })
+
+  const CANVAS_TEXT_WITH_WIKILINKS = JSON.stringify({
+    nodes: [
+      {
+        id: "t1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        text: "See [[Projects/vault-cortex]] for details",
+      },
+    ],
+    edges: [],
+  })
+
+  describe("with fileToolsEnabled", () => {
+    it("upsertFileContent indexes canvas content into file_content_fts", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toBeDefined()
+      expect(canvasResult?.kind).toBe("file")
+      expect(canvasResult?.extension).toBe(".canvas")
+    })
+
+    it("canvas file-node references appear as backlinks", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nMain project note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Diagrams/arch.canvas",
+      ])
+    })
+
+    it("canvas outgoing links show file-node targets", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      const targetPaths = outgoing.map((link) => link.path)
+      expect(targetPaths).toContain("Projects/vault-cortex.md")
+      expect(targetPaths).toContain("Notes/design-doc.md")
+    })
+
+    it("canvas outgoing link to non-existent file shows exists: false", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      const brokenLink = outgoing.find(
+        (link) => link.path === "Notes/design-doc.md",
+      )
+      expect(brokenLink?.exists).toBe(false)
+    })
+
+    it("removeFileContent cleans up FTS and links", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      fileIndex.removeFileContent("Diagrams/arch.canvas")
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks).toHaveLength(0)
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toBeUndefined()
+    })
+  })
+
+  describe("without fileToolsEnabled", () => {
+    it("canvas links are extracted even without fileToolsEnabled", () => {
+      index.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      index.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const backlinks = index.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Diagrams/arch.canvas",
+      ])
+    })
+
+    it("canvas content is NOT indexed into FTS without fileToolsEnabled", async () => {
+      index.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await index.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toBeUndefined()
+    })
+  })
+
+  describe("mandatory negative: text-node wikilinks", () => {
+    it("text-node wikilinks do NOT create backlinks", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/text-only.canvas", 200)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/text-only.canvas",
+          rawContent: CANVAS_TEXT_WITH_WIKILINKS,
+          fileStat: testStat(5000, 200),
+        },
+        logger,
+      )
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks).toHaveLength(0)
+    })
+  })
+
+  describe("canvas backlinks target acceptance", () => {
+    it("getBacklinks accepts .canvas path as target", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Notes/overview.md",
+          rawContent:
+            "# Overview\n\nSee [[Diagrams/arch.canvas]] for the diagram.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Notes/overview.md",
+      ])
     })
   })
 })

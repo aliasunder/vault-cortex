@@ -13,12 +13,14 @@ import {
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
+  fileContentRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
   dayToEpochMsRange,
 } from "./search-helpers.js"
+import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
   VectorHit,
   SearchResult,
@@ -84,6 +86,14 @@ export type SearchQueryContext = {
       MemoryEntryVectorHitRow
     > | null
     readonly selectEntryByIdStmt: Database.Statement<[number], MemoryEntryRow>
+  } | null
+  /** Null when FILE_TOOLS_ENABLED is off — hybridSearch skips the file
+   *  content FTS leg. */
+  readonly fileContentFts: {
+    readonly searchStmt: Database.Statement<
+      [number, string, number],
+      FileContentFtsRow
+    >
   } | null
 }
 
@@ -309,6 +319,30 @@ export const fullTextSearch = (
   }
 }
 
+// ── File content FTS (internal) ────────────────────────────────
+
+/** Runs the file_content_fts query (canvas content, etc.) and applies the
+ *  folder filter in TypeScript — returns [] when the feature is disabled. */
+const runFileContentFts = (
+  context: SearchQueryContext,
+  query: string,
+  snippetTokens: number,
+  limit: number,
+  folder?: string,
+): FileContentFtsRow[] => {
+  if (!context.fileContentFts) return []
+  const sanitizedQuery = sanitizeFtsQuery(query)
+  if (!sanitizedQuery) return []
+  const results = context.fileContentFts.searchStmt.all(
+    snippetTokens,
+    sanitizedQuery,
+    limit,
+  )
+  if (!folder) return results
+  const normalizedFolder = stripTrailingSlashes(folder) + "/"
+  return results.filter((row) => row.path.startsWith(normalizedFolder))
+}
+
 // ── Hybrid search ──────────────────────────────────────────────
 
 /** Hybrid search — combines FTS5 keyword search with sqlite-vec vector
@@ -334,6 +368,15 @@ export const hybridSearch = async (
     logger,
   )
 
+  // Run file content FTS leg (canvas, etc.) — gated behind fileContentFts
+  const fileContentResults = runFileContentFts(
+    context,
+    params.query,
+    snippetTokens,
+    candidateLimit,
+    params.filters?.folder,
+  )
+
   // Attempt vector search — returns [] on any failure
   const vectorHits = await vectorSearch(
     context,
@@ -343,34 +386,80 @@ export const hybridSearch = async (
 
   // FTS-only fallback when no vectors are available
   if (vectorHits.length === 0) {
-    const fallbackResults = ftsResults.slice(0, userLimit)
+    if (fileContentResults.length === 0) {
+      const fallbackResults = ftsResults.slice(0, userLimit)
+      logger.info("hybrid search", {
+        query: params.query,
+        searchMode: "fts",
+        resultCount: fallbackResults.length,
+      })
+      return { results: fallbackResults, search_mode: "fts", reranked: false }
+    }
+    // Merge note FTS + file content FTS via 2-list RRF
+    const fallbackRrf = computeRrfScores({
+      rankedLists: [
+        ftsResults.map((result) => ({ id: result.path })),
+        fileContentResults.map((result) => ({ id: result.path })),
+      ],
+    })
+    const fileContentByPath = new Map(
+      fileContentResults.map((result) => [result.path, result]),
+    )
+    const fallbackMerged: SearchResult[] = []
+    for (const { id: path, score } of fallbackRrf) {
+      const noteFts = ftsResults.find((result) => result.path === path)
+      if (noteFts) {
+        fallbackMerged.push({ ...noteFts, score })
+        continue
+      }
+      const fileResult = fileContentByPath.get(path)
+      if (fileResult) {
+        fallbackMerged.push(fileContentRowToSearchResult(fileResult, score))
+      }
+    }
+    const fallbackSliced = fallbackMerged.slice(0, userLimit)
     logger.info("hybrid search", {
       query: params.query,
       searchMode: "fts",
-      resultCount: fallbackResults.length,
+      resultCount: fallbackSliced.length,
+      fileContentResults: fileContentResults.length,
     })
-    return { results: fallbackResults, search_mode: "fts", reranked: false }
+    return { results: fallbackSliced, search_mode: "fts", reranked: false }
   }
 
-  // Compute RRF scores from both ranked lists
-  const rrfScores = computeRrfScores({
-    ftsRanked: ftsResults,
-    vectorRanked: vectorHits,
-  })
+  // Compute RRF scores from all ranked lists (notes FTS + vector + file content)
+  const rankedLists = [
+    ftsResults.map((result) => ({ id: result.path })),
+    vectorHits.map((hit) => ({ id: hit.path })),
+    ...(fileContentResults.length > 0
+      ? [fileContentResults.map((result) => ({ id: result.path }))]
+      : []),
+  ]
+  const rrfScores = computeRrfScores({ rankedLists })
 
-  // Index FTS results and vector hits by path for O(1) lookup
+  // Index FTS results, vector hits, and file content by path for O(1) lookup
   const ftsResultsByPath = new Map(
     ftsResults.map((result) => [result.path, result]),
   )
   const vectorHitsByPath = new Map(vectorHits.map((hit) => [hit.path, hit]))
+  const fileContentByPath = new Map(
+    fileContentResults.map((result) => [result.path, result]),
+  )
 
   // Build the merged result set, ordered by RRF score
   const mergedResults: SearchResult[] = []
-  for (const { path, score } of rrfScores) {
+  for (const { id: path, score } of rrfScores) {
     const ftsResult = ftsResultsByPath.get(path)
     if (ftsResult) {
-      // Path found via FTS — use its metadata and snippet, replace score
+      // Path found via note FTS — use its metadata and snippet, replace score
       mergedResults.push({ ...ftsResult, score })
+      continue
+    }
+
+    // Check file content results before falling through to vector-only
+    const fileResult = fileContentByPath.get(path)
+    if (fileResult) {
+      mergedResults.push(fileContentRowToSearchResult(fileResult, score))
       continue
     }
 
@@ -422,6 +511,7 @@ export const hybridSearch = async (
     reranked,
     ftsResults: ftsResults.length,
     vectorHits: vectorHits.length,
+    fileContentResults: fileContentResults.length,
     mergedResults: mergedResults.length,
     returnedResults: Math.min(finalResults.length, userLimit),
   })
@@ -743,8 +833,10 @@ export const memoryRecall = async (
 
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
-    ftsRanked: ftsRows.map((row) => ({ path: String(row.id) })),
-    vectorRanked: vectorRows.map((row) => ({ path: String(row.id) })),
+    rankedLists: [
+      ftsRows.map((row) => ({ id: String(row.id) })),
+      vectorRows.map((row) => ({ id: String(row.id) })),
+    ],
   })
   const rowsById = new Map<string, MemoryEntryRow>([
     ...ftsRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
@@ -758,7 +850,7 @@ export const memoryRecall = async (
   // Lexical hits always pass; only the lowest-fused vector-only candidates
   // fall off once the rerank window cap is reached.
   const candidates: MemoryRecallCandidate[] = []
-  for (const { path: entryId, score } of fusedScores) {
+  for (const { id: entryId, score } of fusedScores) {
     const row = rowsById.get(entryId)
     if (!row) continue
     const ftsHit = ftsIds.has(entryId)
@@ -1517,19 +1609,25 @@ export const searchByProperty = (
 
 // ── Link queries ───────────────────────────────────────────────
 
-/** Returns notes that link TO the given path (incoming links / backlinks). */
+/** Returns notes and files that link TO the given path (incoming links /
+ *  backlinks). Canvas file-node references are included — a canvas that
+ *  embeds a note via a `file`-type node appears as a backlink source. */
 export const getBacklinks = (
   context: SearchQueryContext,
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
-  assertPathHasExtension(params.path, ".md")
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   const sql = `
-    SELECT n.path, n.title, n.bytes
+    SELECT l.source as path,
+           COALESCE(n.title, f.basename) as title,
+           COALESCE(n.bytes, f.bytes, 0) as bytes
     FROM links l
-    JOIN notes n ON n.path = l.source
+    LEFT JOIN notes n ON n.path = l.source
+    LEFT JOIN non_md_files f ON f.path = l.source
     WHERE l.target = ?
-    ORDER BY n.title
+      AND (n.path IS NOT NULL OR f.path IS NOT NULL)
+    ORDER BY COALESCE(n.title, f.basename)
   `
   const rows = context.db
     .prepare<unknown[], { path: string; title: string; bytes: number }>(sql)
@@ -1549,13 +1647,14 @@ export const getBacklinks = (
 /** Returns notes and files that the given path links TO (outgoing links).
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
- *  defaulting to "note" for unresolved (broken) links. */
+ *  defaulting to "note" for unresolved (broken) links. Accepts both
+ *  .md and .canvas paths — canvas file-node references appear as outgoing. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
   params: { path: string },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
-  assertPathHasExtension(params.path, ".md")
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `

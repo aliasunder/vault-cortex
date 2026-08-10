@@ -28,4 +28,22 @@ describe("assertPathHasExtension", () => {
       ),
     ).not.toThrow()
   })
+
+  it("accepts a path matching any extension in an array", () => {
+    expect(() =>
+      assertPathHasExtension("Diagrams/Map.canvas", [".md", ".canvas"]),
+    ).not.toThrow()
+  })
+
+  it("accepts the first extension in an array", () => {
+    expect(() =>
+      assertPathHasExtension("Notes/Plan.md", [".md", ".canvas"]),
+    ).not.toThrow()
+  })
+
+  it("rejects a path matching no extension in an array", () => {
+    expect(() =>
+      assertPathHasExtension("Photos/pic.png", [".md", ".canvas"]),
+    ).toThrow('path must end in ".md" or ".canvas" (received "Photos/pic.png")')
+  })
 })

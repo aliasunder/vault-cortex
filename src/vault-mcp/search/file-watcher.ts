@@ -82,6 +82,19 @@ export const startFileWatcher = (
       // that follows will remove any existing row.
       if (!fileStat) return
       search.upsertNonMdFile(relativePath, fileStat.size)
+
+      if (filePath.endsWith(".canvas")) {
+        const content = await readFile(filePath, "utf8")
+        search.upsertFileContent(
+          {
+            filePath: relativePath,
+            rawContent: content,
+            fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+          },
+          logger,
+        )
+      }
+
       logger.debug("indexed non-md file", { path: relativePath })
       return
     }
@@ -141,6 +154,9 @@ export const startFileWatcher = (
 
     if (!filePath.endsWith(".md")) {
       search.removeNonMdFile(relativePath)
+      if (filePath.endsWith(".canvas")) {
+        search.removeFileContent(relativePath)
+      }
       logger.debug("removed non-md file from index", { path: relativePath })
       return
     }

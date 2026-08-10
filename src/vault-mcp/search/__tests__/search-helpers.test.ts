@@ -313,6 +313,7 @@ describe("noteRowToSearchResult", () => {
       tags: ["project", "alpha"],
       folder: "Projects/Alpha",
       type: "note",
+      kind: "note",
       created: "2024-01-01",
       modified: mtimeToIso(1700000000000),
       bytes: 1024,
