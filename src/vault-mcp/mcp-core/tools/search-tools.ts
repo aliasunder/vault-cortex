@@ -570,9 +570,11 @@ When to use: Understanding what references a note or canvas, assessing its conne
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
 
 Parameters:
-- path: exact vault-relative path including .md or .canvas extension, case-sensitive. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.
+- path: exact vault-relative path including .md or .canvas extension, case-sensitive.
 
-Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).`,
+Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).
+
+Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
       inputSchema: {
         path: z
           .string()
@@ -624,9 +626,11 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds). A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
+- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.`,
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
+
+Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
         path: z
           .string()

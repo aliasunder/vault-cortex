@@ -162,7 +162,7 @@ export const startFileWatcher = (
     if (!filePath.endsWith(".md")) {
       search.removeNonMdFile(relativePath)
       if (filePath.endsWith(".canvas")) {
-        search.removeFileContent(relativePath)
+        search.removeFileContent({ filePath: relativePath }, logger)
       }
       logger.debug("removed non-md file from index", { path: relativePath })
       return

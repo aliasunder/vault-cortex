@@ -959,31 +959,33 @@ export const createSearchIndex = (
     const linearizedContent = linearizeCanvas(params.rawContent)
     const canvasLinks = extractCanvasFileLinks(params.rawContent)
 
-    // FTS indexing — gated behind fileToolsEnabled
-    if (
-      upsertFileContentStmt &&
-      deleteFileContentFtsStmt &&
-      insertFileContentFtsStmt
-    ) {
-      const title = basename(params.filePath, posix.extname(params.filePath))
-      const folder = posix.dirname(params.filePath)
-      upsertFileContentStmt.run(
-        params.filePath,
-        title,
-        linearizedContent,
-        folder,
-        Math.round(params.fileStat.mtimeMs),
-        params.fileStat.size,
-      )
-      deleteFileContentFtsStmt.run(params.filePath)
-      insertFileContentFtsStmt.run(params.filePath, title, linearizedContent)
-    }
+    db.transaction(() => {
+      // FTS indexing — gated behind fileToolsEnabled
+      if (
+        upsertFileContentStmt &&
+        deleteFileContentFtsStmt &&
+        insertFileContentFtsStmt
+      ) {
+        const title = basename(params.filePath, posix.extname(params.filePath))
+        const folder = posix.dirname(params.filePath)
+        upsertFileContentStmt.run(
+          params.filePath,
+          title,
+          linearizedContent,
+          folder,
+          Math.round(params.fileStat.mtimeMs),
+          params.fileStat.size,
+        )
+        deleteFileContentFtsStmt.run(params.filePath)
+        insertFileContentFtsStmt.run(params.filePath, title, linearizedContent)
+      }
 
-    // Link extraction — unconditional (graph integrity)
-    deleteLinksStmt.run(params.filePath)
-    for (const linkTarget of canvasLinks) {
-      insertLinkStmt.run(params.filePath, linkTarget)
-    }
+      // Link extraction — unconditional (graph integrity)
+      deleteLinksStmt.run(params.filePath)
+      for (const linkTarget of canvasLinks) {
+        insertLinkStmt.run(params.filePath, linkTarget)
+      }
+    })()
 
     logger.debug("indexed file content", {
       path: params.filePath,
@@ -993,12 +995,18 @@ export const createSearchIndex = (
   }
 
   /** Removes a file's content from FTS and its links from the graph. */
-  const removeFileContent = (filePath: string): void => {
-    if (deleteFileContentStmt && deleteFileContentFtsStmt) {
-      deleteFileContentFtsStmt.run(filePath)
-      deleteFileContentStmt.run(filePath)
-    }
-    deleteLinksStmt.run(filePath)
+  const removeFileContent = (
+    params: { filePath: string },
+    logger: Logger,
+  ): void => {
+    db.transaction(() => {
+      if (deleteFileContentStmt && deleteFileContentFtsStmt) {
+        deleteFileContentFtsStmt.run(params.filePath)
+        deleteFileContentStmt.run(params.filePath)
+      }
+      deleteLinksStmt.run(params.filePath)
+    })()
+    logger.debug("removed file content", { path: params.filePath })
   }
 
   // ── Memory-entry indexing ──────────────────────────────────────
@@ -1591,7 +1599,11 @@ export const createSearchIndex = (
               modifiedAtMs: fileStat.mtimeMs,
               sizeBytes: fileStat.size,
             }
-          } catch {
+          } catch (error) {
+            logger.warn("skipped unreadable canvas file during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
             return null
           }
         }),
@@ -1688,17 +1700,24 @@ export const createSearchIndex = (
       // deletes old links before inserting, so canvas links append cleanly
       // after the note link pass above.
       for (const canvas of canvasContents) {
-        upsertFileContent(
-          {
-            filePath: canvas.relativePath,
-            rawContent: canvas.content,
-            fileStat: {
-              mtimeMs: canvas.modifiedAtMs,
-              size: canvas.sizeBytes,
+        try {
+          upsertFileContent(
+            {
+              filePath: canvas.relativePath,
+              rawContent: canvas.content,
+              fileStat: {
+                mtimeMs: canvas.modifiedAtMs,
+                size: canvas.sizeBytes,
+              },
             },
-          },
-          logger,
-        )
+            logger,
+          )
+        } catch (error) {
+          logger.warn("skipped malformed canvas file during rebuild", {
+            path: canvas.relativePath,
+            error: describeError(error),
+          })
+        }
       }
     })()
 

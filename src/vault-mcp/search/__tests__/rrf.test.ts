@@ -131,21 +131,28 @@ describe("computeRrfScores", () => {
   })
 
   it("scores an identifier in all 3 lists higher than one in 2", () => {
+    // b.md ranks first in the first two lists; a.md ranks first only in the
+    // third list — so an implementation that ignores the third list would
+    // incorrectly rank b.md above a.md.
     const result = computeRrfScores({
       rankedLists: [
-        [{ identifier: "a.md" }, { identifier: "b.md" }],
-        [{ identifier: "a.md" }, { identifier: "b.md" }],
+        [{ identifier: "b.md" }, { identifier: "a.md" }],
+        [{ identifier: "b.md" }, { identifier: "a.md" }],
         [{ identifier: "a.md" }],
       ],
     })
 
-    // a.md: rank 1 in all 3 lists → 3 * (1/61 + 0.05)
-    // b.md: rank 2 in 2 lists → 2 * (1/62 + 0.02)
-    expect(result[0]?.identifier).toBe("a.md")
-    expect(result[1]?.identifier).toBe("b.md")
-    const scoreA = result[0]?.score ?? 0
-    const scoreB = result[1]?.score ?? 0
-    expect(scoreA).toBeGreaterThan(scoreB)
+    // a.md: rank 1 in list 3 (1/61 + 0.05) + rank 2 in lists 1,2 (2 * (1/62 + 0.02))
+    // b.md: rank 1 in lists 1,2 (2 * (1/61 + 0.05))
+    // Compute from raw values to avoid toPrecision(4) drift on intermediates
+    const expectedScoreA = Number(
+      (1 / 61 + 0.05 + 2 * (1 / 62 + 0.02)).toPrecision(4),
+    )
+    const expectedScoreB = Number((2 * (1 / 61 + 0.05)).toPrecision(4))
+    expect(result).toEqual([
+      { identifier: "a.md", score: expectedScoreA },
+      { identifier: "b.md", score: expectedScoreB },
+    ])
   })
 
   it("ignores empty lists among N without affecting scores", () => {

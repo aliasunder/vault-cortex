@@ -5256,7 +5256,7 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      fileIndex.removeFileContent("Diagrams/arch.canvas")
+      fileIndex.removeFileContent({ filePath: "Diagrams/arch.canvas" }, logger)
       const backlinks = fileIndex.getBacklinks(
         { path: "Projects/vault-cortex.md" },
         logger,
