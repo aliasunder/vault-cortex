@@ -402,12 +402,15 @@ export const hybridSearch = async (
         fileContentResults.map((result) => ({ identifier: result.path })),
       ],
     })
+    const ftsResultsByPath = new Map(
+      ftsResults.map((result) => [result.path, result]),
+    )
     const fileContentByPath = new Map(
       fileContentResults.map((result) => [result.path, result]),
     )
     const fallbackMerged: SearchResult[] = []
     for (const { identifier: path, score } of fallbackRrf) {
-      const noteFts = ftsResults.find((result) => result.path === path)
+      const noteFts = ftsResultsByPath.get(path)
       if (noteFts) {
         fallbackMerged.push({ ...noteFts, score })
         continue
