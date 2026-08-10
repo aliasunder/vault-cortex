@@ -5206,8 +5206,10 @@ describe("canvas file content and links", () => {
         logger,
       )
       const targetPaths = outgoing.map((link) => link.path)
-      expect(targetPaths).toContain("Projects/vault-cortex.md")
-      expect(targetPaths).toContain("Notes/design-doc.md")
+      expect(targetPaths).toEqual([
+        "Notes/design-doc.md",
+        "Projects/vault-cortex.md",
+      ])
     })
 
     it("canvas outgoing link to non-existent file shows exists: false", () => {
