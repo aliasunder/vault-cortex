@@ -633,12 +633,10 @@ export const createSearchIndex = (
           mtime: number
           bytes: number
           snippet: string
-          score: number
         }
       >(
         `SELECT fc.path, fc.title, fc.folder, fc.mtime, fc.bytes,
-                snippet(file_content_fts, 2, '', '', '...', ?) as snippet,
-                rank * -1 as score
+                snippet(file_content_fts, 2, '', '', '...', ?) as snippet
          FROM file_content_fts
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
@@ -956,7 +954,6 @@ export const createSearchIndex = (
   ): void => {
     if (!params.filePath.endsWith(".canvas")) return
 
-    const linearizedContent = linearizeCanvas(params.rawContent)
     const canvasLinks = extractCanvasFileLinks(params.rawContent)
 
     db.transaction(() => {
@@ -966,6 +963,7 @@ export const createSearchIndex = (
         deleteFileContentFtsStmt &&
         insertFileContentFtsStmt
       ) {
+        const linearizedContent = linearizeCanvas(params.rawContent)
         const title = basename(params.filePath, posix.extname(params.filePath))
         const folder = posix.dirname(params.filePath)
         upsertFileContentStmt.run(

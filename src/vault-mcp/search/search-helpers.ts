@@ -203,7 +203,6 @@ export type FileContentFtsRow = {
   mtime: number
   bytes: number
   snippet: string
-  score: number
 }
 
 /** Builds a SearchResult from a file_content FTS row. File results carry no
