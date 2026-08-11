@@ -11,9 +11,7 @@ describe("extractPdfText", () => {
       pdfBuffer.byteLength,
     )
     const text = await extractPdfText(pdfData)
-    expect(text).toContain("Hello PDF")
-    expect(text).toContain("Title:")
-    expect(text).toContain("Pages: 1")
+    expect(text).toBe("Title: (untitled) | Pages: 1\n\nHello PDF")
   })
 
   it("returns empty string for a PDF with no extractable text", async () => {

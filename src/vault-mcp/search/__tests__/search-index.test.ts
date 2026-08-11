@@ -14,7 +14,10 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import { createSearchIndex } from "../search-index.js"
+import {
+  createSearchIndex,
+  INDEXABLE_TEXT_EXTENSIONS,
+} from "../search-index.js"
 import type {
   NoteMetadata,
   OutgoingLinkEntry,
@@ -5073,6 +5076,25 @@ This is a note with many words that should be truncated when using a small snipp
   })
 })
 
+// ── File content indexing constants ──────────────────────────
+
+describe("INDEXABLE_TEXT_EXTENSIONS", () => {
+  it("contains the expected set of extensions for FTS indexing", () => {
+    expect([...INDEXABLE_TEXT_EXTENSIONS].sort()).toEqual([
+      ".base",
+      ".csv",
+      ".json",
+      ".log",
+      ".pdf",
+      ".svg",
+      ".txt",
+      ".xml",
+      ".yaml",
+      ".yml",
+    ])
+  })
+})
+
 // ── Canvas file content + link graph ──────────────────────────
 
 describe("canvas file content and links", () => {
@@ -5440,12 +5462,15 @@ describe("canvas file content and links", () => {
         { query: "searchable deployment" },
         logger,
       )
-      const jsonResult = results.find(
-        (result) => result.path === "data/export.json",
+      expect(results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "data/export.json",
+            kind: "file",
+            extension: ".json",
+          }),
+        ]),
       )
-      expect(jsonResult).toBeDefined()
-      expect(jsonResult?.kind).toBe("file")
-      expect(jsonResult?.extension).toBe(".json")
       // No graph links created — link extraction is canvas-only
       const backlinks = fileIndex.getBacklinks(
         { path: "Notes/architecture.md" },
@@ -5486,8 +5511,13 @@ describe("canvas file content and links", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
       })
-      // 200KB of repeated content — well over the 100KB cap
-      const largeContent = "searchable unique phrase ".repeat(8_000)
+      // Unique phrase at the start (within 100KB cap), filler to push past
+      // the cap, then a different unique phrase at the end (beyond 100KB).
+      // Truncation means the start phrase is searchable but the end is not.
+      const startPhrase = "alphanumeric beginning marker"
+      const filler = "x ".repeat(55_000) // ~110KB of filler
+      const endPhrase = "zyxwvut ending marker"
+      const largeContent = `${startPhrase}\n${filler}\n${endPhrase}`
       fileIndex.upsertNonMdFile("data/big.csv", largeContent.length)
       fileIndex.upsertFileContent(
         {
@@ -5497,13 +5527,48 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      // The file is indexed (truncated content is still searchable)
-      const { results } = await fileIndex.hybridSearch(
-        { query: "searchable unique phrase" },
+      // Content before the cap IS searchable
+      const { results: foundResults } = await fileIndex.hybridSearch(
+        { query: "alphanumeric beginning marker" },
         logger,
       )
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("data/big.csv")
+      expect(foundResults).toHaveLength(1)
+      expect(foundResults[0]?.path).toBe("data/big.csv")
+      // Content beyond the cap is NOT searchable — proves truncation
+      const { results: truncatedResults } = await fileIndex.hybridSearch(
+        { query: "zyxwvut ending marker" },
+        logger,
+      )
+      expect(truncatedResults).toHaveLength(0)
+    })
+
+    it("removeFileContent clears non-canvas file content from FTS", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("logs/app.log", 300)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "logs/app.log",
+          rawContent: "removable diagnostics content",
+          fileStat: testStat(300),
+        },
+        logger,
+      )
+      // Verify it was indexed first — without this, the removal assertion
+      // could pass by the content never being indexed (silent no-op).
+      const { results: beforeResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
+      expect(beforeResults).toHaveLength(1)
+      // Remove and verify it's gone
+      fileIndex.removeFileContent({ filePath: "logs/app.log" }, logger)
+      const { results: afterResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
+      expect(afterResults).toHaveLength(0)
     })
   })
 
