@@ -371,7 +371,7 @@ describe("readAssetContent — PDF extraction", () => {
       'unsupported file type ".mp3": "audio/song.mp3" exists ' +
         "(10000 bytes). Readable types: images " +
         "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
-        "(.svg/.json/.txt/.csv/.xml/.log/.base)",
+        "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
     )
   })
 

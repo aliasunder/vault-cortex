@@ -47,6 +47,8 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
   ".csv",
   ".xml",
   ".log",
+  ".yaml",
+  ".yml",
   ".base",
 ])
 
@@ -333,7 +335,7 @@ const readAssetContent = async (
     `unsupported file type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
       `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
-      `(.svg/.json/.txt/.csv/.xml/.log/.base)`,
+      `(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)`,
   )
 }
 
