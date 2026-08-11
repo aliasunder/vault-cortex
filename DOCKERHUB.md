@@ -65,8 +65,8 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
-- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
-- **Text and data files** — SVG, JSON, CSV, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written; big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
+- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; PDF content is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
+- **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written; their content is full-text searchable too. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
 - **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
