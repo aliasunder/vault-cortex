@@ -370,7 +370,8 @@ export const hybridSearch = async (
 
   // Skip file content search when note-specific filters are active —
   // canvas files have no tags, type, related, properties, or created date,
-  // so they can't satisfy these constraints and would leak through unfiltered.
+  // and runFileContentFts only applies folder filtering (not modified date),
+  // so any of these six filters would be bypassed by file content results.
   const hasNoteSpecificFilters = Boolean(
     params.filters?.tags ||
     params.filters?.type ||
