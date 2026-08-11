@@ -96,7 +96,8 @@ export const startFileWatcher = (
               buffer.byteOffset,
               buffer.byteLength,
             )
-            contentToIndex = await extractPdfText(pdfData)
+            const pdfResult = await extractPdfText(pdfData)
+            contentToIndex = pdfResult.text
           } else {
             contentToIndex = await readFile(filePath, "utf8")
           }

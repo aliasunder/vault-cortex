@@ -986,13 +986,12 @@ export const createSearchIndex = (
       ? linearizeCanvas(params.rawContent)
       : params.rawContent
 
-    // Truncate content exceeding the FTS cap
+    // Truncate content exceeding the FTS cap — character-level slice
+    // avoids splitting multi-byte UTF-8 sequences at the boundary.
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
-      ? Buffer.from(contentToIndex, "utf8")
-          .subarray(0, MAX_INDEXED_CONTENT_BYTES)
-          .toString("utf8")
+      ? contentToIndex.slice(0, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
     if (needsTruncation) {
       logger.debug("truncated file content for FTS indexing", {
@@ -1683,7 +1682,8 @@ export const createSearchIndex = (
               buffer.byteOffset,
               buffer.byteLength,
             )
-            const content = await extractPdfText(pdfData)
+            const pdfResult = await extractPdfText(pdfData)
+            const content = pdfResult.text
             return {
               relativePath: file.relativePath,
               content,

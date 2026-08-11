@@ -305,6 +305,69 @@ describe("file-watcher", () => {
   })
 })
 
+describe("file-watcher — file content indexing", () => {
+  it(
+    "indexes a text file into file content FTS",
+    { timeout: 15000 },
+    async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+
+      await startFileWatcher(vault, fileIndex, {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      })
+
+      await writeFile(
+        join(vault, "notes.txt"),
+        "deployment checklist for production release",
+        "utf8",
+      )
+
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const { results } = await fileIndex.hybridSearch(
+        { query: "deployment checklist" },
+        logger,
+      )
+      const textResult = results.find((result) => result.path === "notes.txt")
+      expect(textResult?.kind).toBe("file")
+      expect(textResult?.extension).toBe(".txt")
+    },
+  )
+
+  it("removes text file content on delete", { timeout: 15000 }, async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+    const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+
+    await startFileWatcher(vault, fileIndex, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
+
+    await writeFile(
+      join(vault, "temp.csv"),
+      "id,name\n1,ephemeral-data-row",
+      "utf8",
+    )
+    await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+    await unlink(join(vault, "temp.csv"))
+    await waitFor(() => removeSpy.mock.calls.length > 0)
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "ephemeral-data-row" },
+      logger,
+    )
+    expect(results).toHaveLength(0)
+  })
+})
+
 describe("startFileWatcher — chokidar watch options", () => {
   type FakeWatcher = {
     on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher

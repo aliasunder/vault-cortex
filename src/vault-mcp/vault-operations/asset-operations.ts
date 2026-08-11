@@ -321,15 +321,21 @@ const readAssetContent = async (
       }
     }
 
-    const text = await extractPdfText(pdfData)
-    if (!text) {
+    const pdfResult = await extractPdfText(pdfData)
+    if (!pdfResult.text) {
       throw new Error(
         `PDF has no extractable text: "${path}" exists ` +
-          `(${asset.bytes} bytes) but contains no text content — ` +
-          `it may be a scanned document or image-only PDF`,
+          `(${asset.bytes} bytes, ${pdfResult.totalPages} pages) but ` +
+          `contains no text content — it may be a scanned document or ` +
+          `image-only PDF`,
       )
     }
-    return buildPagedTextResult({ text, path, startLine, limit })
+    return buildPagedTextResult({
+      text: pdfResult.text,
+      path,
+      startLine,
+      limit,
+    })
   }
   throw new Error(
     `unsupported file type "${asset.extension}": "${path}" exists ` +

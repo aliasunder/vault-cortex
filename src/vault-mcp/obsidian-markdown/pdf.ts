@@ -131,14 +131,24 @@ const reconstructPdfMarkdown = (params: {
   return outputLines.join("\n")
 }
 
+/** Result of PDF text extraction — text is the markdown rendition,
+ *  totalPages is preserved so callers can include it in error messages
+ *  (e.g. scanned-PDF diagnostics that guide users toward raw mode). */
+export type PdfTextResult = Readonly<{
+  text: string
+  totalPages: number
+}>
+
 /**
  * Extracts structured text from a PDF buffer — creates a pdfjs proxy,
  * extracts text items and metadata, reconstructs a markdown rendition
  * with headings, code blocks, and links, then disposes the proxy.
- * Returns an empty string when the PDF has no extractable text
- * (scanned/image-only documents).
+ * Returns empty text when the PDF has no extractable content
+ * (scanned/image-only documents); totalPages is always populated.
  */
-export const extractPdfText = async (pdfData: Uint8Array): Promise<string> => {
+export const extractPdfText = async (
+  pdfData: Uint8Array,
+): Promise<PdfTextResult> => {
   const proxy = await createPdfDocumentProxy(pdfData)
   try {
     const meta = await getMeta(proxy)
@@ -147,14 +157,17 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<string> => {
     const linkResult = await extractLinks(proxy)
 
     const hasContent = items.flat().some((item) => item.str.trim().length > 0)
-    if (!hasContent) return ""
+    if (!hasContent) return { text: "", totalPages }
 
-    return reconstructPdfMarkdown({
-      title: pdfTitle,
+    return {
+      text: reconstructPdfMarkdown({
+        title: pdfTitle,
+        totalPages,
+        items,
+        pdfLinks: linkResult.links ?? [],
+      }),
       totalPages,
-      items,
-      pdfLinks: linkResult.links ?? [],
-    })
+    }
   } finally {
     await proxy.loadingTask.destroy()
   }

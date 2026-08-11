@@ -10,11 +10,12 @@ describe("extractPdfText", () => {
       pdfBuffer.byteOffset,
       pdfBuffer.byteLength,
     )
-    const text = await extractPdfText(pdfData)
-    expect(text).toBe("Title: (untitled) | Pages: 1\n\nHello PDF")
+    const result = await extractPdfText(pdfData)
+    expect(result.text).toBe("Title: (untitled) | Pages: 1\n\nHello PDF")
+    expect(result.totalPages).toBe(1)
   })
 
-  it("returns empty string for a PDF with no extractable text", async () => {
+  it("returns empty text with page count for a PDF with no extractable text", async () => {
     // Minimal PDF with an empty content stream (no text operators)
     const emptyStreamPdf = buildEmptyStreamPdf()
     const pdfData = new Uint8Array(
@@ -22,8 +23,9 @@ describe("extractPdfText", () => {
       emptyStreamPdf.byteOffset,
       emptyStreamPdf.byteLength,
     )
-    const text = await extractPdfText(pdfData)
-    expect(text).toBe("")
+    const result = await extractPdfText(pdfData)
+    expect(result.text).toBe("")
+    expect(result.totalPages).toBe(1)
   })
 })
 

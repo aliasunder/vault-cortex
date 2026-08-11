@@ -300,7 +300,7 @@ describe("readAssetContent — PDF extraction", () => {
       ),
     ).rejects.toThrow(
       'PDF has no extractable text: "scans/receipt.pdf" exists ' +
-        "(5000000 bytes) but contains no text content " +
+        "(5000000 bytes, 12 pages) but contains no text content " +
         "— it may be a scanned document or image-only PDF",
     )
   })
@@ -323,7 +323,7 @@ describe("readAssetContent — PDF extraction", () => {
       ),
     ).rejects.toThrow(
       'PDF has no extractable text: "empty.pdf" exists ' +
-        "(1000 bytes) but contains no text content " +
+        "(1000 bytes, 1 pages) but contains no text content " +
         "— it may be a scanned document or image-only PDF",
     )
   })
