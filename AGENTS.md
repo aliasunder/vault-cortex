@@ -127,7 +127,7 @@ src/
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
       pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
-      pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → string) + markdown reconstruction
+      pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads

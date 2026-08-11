@@ -128,7 +128,7 @@ Errors:
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.
 
-Search coverage: vault_search indexes markdown notes; find files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
+Search coverage: vault_search indexes markdown notes plus canvas, PDF, and supported text-format content; find other files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
       inputSchema: {
         path: z
           .string()

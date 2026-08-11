@@ -58,6 +58,21 @@ export const INDEXABLE_TEXT_EXTENSIONS = new Set([
  *  pathological FTS rows from large CSVs or verbose JSONs. */
 const MAX_INDEXED_CONTENT_BYTES = 102_400
 
+/** Truncates a string to fit within a UTF-8 byte limit without splitting
+ *  multi-byte characters — iterates Unicode code points and accumulates
+ *  each code point's UTF-8 byte length, stopping before the cap. */
+const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
+  let usedBytes = 0
+  let endIndex = 0
+  for (const character of content) {
+    const characterBytes = Buffer.byteLength(character, "utf8")
+    if (usedBytes + characterBytes > maxBytes) break
+    usedBytes += characterBytes
+    endIndex += character.length
+  }
+  return content.slice(0, endIndex)
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 /** A note path with its best-chunk distance from a vector KNN query. */
@@ -986,12 +1001,13 @@ export const createSearchIndex = (
       ? linearizeCanvas(params.rawContent)
       : params.rawContent
 
-    // Truncate content exceeding the FTS cap — character-level slice
-    // avoids splitting multi-byte UTF-8 sequences at the boundary.
+    // Truncate content exceeding the FTS cap — iterates Unicode code points
+    // and accumulates UTF-8 byte length so the cap is enforced in bytes
+    // without splitting multi-byte characters at the boundary.
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
-      ? contentToIndex.slice(0, MAX_INDEXED_CONTENT_BYTES)
+      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
     if (needsTruncation) {
       logger.debug("truncated file content for FTS indexing", {
