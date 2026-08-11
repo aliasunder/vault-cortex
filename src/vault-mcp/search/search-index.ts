@@ -1635,13 +1635,10 @@ export const createSearchIndex = (
     const pdfFiles = allNonMdFiles.filter((file) =>
       file.relativePath.endsWith(".pdf"),
     )
+    // PDF is in INDEXABLE_TEXT_EXTENSIONS but needs extractPdfText, not readFile("utf8")
     const textFiles = allNonMdFiles.filter((file) => {
       const extension = posix.extname(file.relativePath)
-      return (
-        extension !== ".canvas" &&
-        extension !== ".pdf" &&
-        INDEXABLE_TEXT_EXTENSIONS.has(extension)
-      )
+      return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
     })
 
     // Read canvas files for content indexing + link extraction.

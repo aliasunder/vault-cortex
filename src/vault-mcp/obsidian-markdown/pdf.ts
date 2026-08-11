@@ -47,6 +47,7 @@ const buildHeadingLevels = (
   ].sort((a, b) => b - a)
   if (sortedSizes.length <= 1) return new Map()
 
+  // Drop the smallest (body text) and cap at 3 heading levels.
   const headingSizes = sortedSizes.slice(0, -1).slice(0, 3)
   return new Map(headingSizes.map((size, index) => [size, index + 1]))
 }
