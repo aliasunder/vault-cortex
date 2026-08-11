@@ -65,6 +65,17 @@
 
 
 
+
+## [0.36.0] — 2026-08-11
+
+### Features
+
+- **search:** Canvas file content FTS + graph parity (#424)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.35.2
+
 ## [0.35.2] — 2026-08-09
 
 ### Features
