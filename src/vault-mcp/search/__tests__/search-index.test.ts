@@ -5388,13 +5388,13 @@ describe("canvas file content and links", () => {
   })
 
   describe("non-canvas files", () => {
-    it("upsertFileContent ignores non-canvas files", async () => {
+    it("indexes non-canvas text file content into FTS without link extraction", async () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
       })
-      // Use canvas-shaped JSON as the content of a non-canvas file —
-      // if the guard is removed, extractCanvasFileLinks would find the
-      // file-node link and linearizeCanvas would produce searchable text.
+      // Canvas-shaped JSON as .json file content — verifies that
+      // non-canvas files get FTS indexed but don't produce graph links
+      // (even when the content contains file references).
       const canvasLikeContent = JSON.stringify({
         nodes: [
           {
@@ -5435,7 +5435,7 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      // Should not appear in FTS — the early return skips non-canvas files
+      // JSON content IS indexed into FTS — searchable as raw text
       const { results } = await fileIndex.hybridSearch(
         { query: "searchable deployment" },
         logger,
@@ -5443,13 +5443,67 @@ describe("canvas file content and links", () => {
       const jsonResult = results.find(
         (result) => result.path === "data/export.json",
       )
-      expect(jsonResult).toBeUndefined()
-      // Should not create any links — verify via backlinks to the note
+      expect(jsonResult).toBeDefined()
+      expect(jsonResult?.kind).toBe("file")
+      expect(jsonResult?.extension).toBe(".json")
+      // No graph links created — link extraction is canvas-only
       const backlinks = fileIndex.getBacklinks(
         { path: "Notes/architecture.md" },
         logger,
       )
       expect(backlinks).toEqual([])
+    })
+
+    it("indexes plain text file content", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("logs/server.log", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "logs/server.log",
+          rawContent: "Connection established to database cluster alpha",
+          fileStat: testStat(500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "database cluster alpha" },
+        logger,
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0]).toEqual(
+        expect.objectContaining({
+          path: "logs/server.log",
+          kind: "file",
+          extension: ".log",
+          title: "server",
+        }),
+      )
+    })
+
+    it("truncates content exceeding MAX_INDEXED_CONTENT_BYTES", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // 200KB of repeated content — well over the 100KB cap
+      const largeContent = "searchable unique phrase ".repeat(8_000)
+      fileIndex.upsertNonMdFile("data/big.csv", largeContent.length)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "data/big.csv",
+          rawContent: largeContent,
+          fileStat: testStat(largeContent.length),
+        },
+        logger,
+      )
+      // The file is indexed (truncated content is still searchable)
+      const { results } = await fileIndex.hybridSearch(
+        { query: "searchable unique phrase" },
+        logger,
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0]?.path).toBe("data/big.csv")
     })
   })
 
