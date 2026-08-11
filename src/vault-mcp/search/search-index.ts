@@ -1613,21 +1613,22 @@ export const createSearchIndex = (
 
     const markdownFiles = visibleFilesOfKind("note")
 
+    // Identify all non-md files once — reused for stat, content indexing,
+    // and read-strategy splitting below.
+    const allNonMdFiles = visibleFilesOfKind("file")
+
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
     const nonMarkdownFileSizes = (
       await Promise.all(
-        visibleFilesOfKind("file").map(async (file) => {
+        allNonMdFiles.map(async (file) => {
           const fileStat = await statOrNull(file.absolutePath)
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }
         }),
       )
     ).filter((entry) => entry !== null)
-
-    // Identify all files that need content indexing, split by read strategy.
-    const allNonMdFiles = visibleFilesOfKind("file")
     const canvasFiles = allNonMdFiles.filter((file) =>
       file.relativePath.endsWith(".canvas"),
     )
