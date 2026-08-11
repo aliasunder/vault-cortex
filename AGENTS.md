@@ -112,7 +112,6 @@ src/
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
-    pdf-engine.ts                      # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -127,6 +126,8 @@ src/
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
+      pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
+      pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → string) + markdown reconstruction
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
