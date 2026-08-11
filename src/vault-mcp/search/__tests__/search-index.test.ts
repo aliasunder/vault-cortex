@@ -5145,10 +5145,18 @@ describe("canvas file content and links", () => {
       const canvasResult = results.find(
         (result) => result.path === "Diagrams/arch.canvas",
       )
-      expect(canvasResult).toMatchObject({
+      expect(canvasResult).toEqual({
         path: "Diagrams/arch.canvas",
+        title: "arch",
+        snippet: expect.any(String),
+        score: 0.06639,
+        tags: [],
+        folder: "Diagrams",
+        type: null,
         kind: "file",
         extension: ".canvas",
+        modified: isoFromMillis(5000),
+        bytes: 500,
       })
     })
 
