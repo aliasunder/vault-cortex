@@ -5145,9 +5145,11 @@ describe("canvas file content and links", () => {
       const canvasResult = results.find(
         (result) => result.path === "Diagrams/arch.canvas",
       )
-      expect(canvasResult).toBeDefined()
-      expect(canvasResult?.kind).toBe("file")
-      expect(canvasResult?.extension).toBe(".canvas")
+      expect(canvasResult).toMatchObject({
+        path: "Diagrams/arch.canvas",
+        kind: "file",
+        extension: ".canvas",
+      })
     })
 
     it("canvas file-node references appear as backlinks", () => {
@@ -5261,7 +5263,7 @@ describe("canvas file content and links", () => {
         { path: "Projects/vault-cortex.md" },
         logger,
       )
-      expect(backlinks).toHaveLength(0)
+      expect(backlinks).toEqual([])
       const { results } = await fileIndex.hybridSearch(
         { query: "architecture deployment" },
         logger,
@@ -5348,7 +5350,7 @@ describe("canvas file content and links", () => {
         { path: "Projects/vault-cortex.md" },
         logger,
       )
-      expect(backlinks).toHaveLength(0)
+      expect(backlinks).toEqual([])
     })
   })
 
@@ -5374,6 +5376,139 @@ describe("canvas file content and links", () => {
       expect(backlinks.map((backlink) => backlink.path)).toEqual([
         "Notes/overview.md",
       ])
+    })
+  })
+
+  describe("non-canvas files", () => {
+    it("upsertFileContent ignores non-canvas files", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // Use canvas-shaped JSON as the content of a non-canvas file —
+      // if the guard is removed, extractCanvasFileLinks would find the
+      // file-node link and linearizeCanvas would produce searchable text.
+      const canvasLikeContent = JSON.stringify({
+        nodes: [
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "Searchable deployment content",
+          },
+          {
+            id: "f1",
+            type: "file",
+            x: 300,
+            y: 0,
+            width: 400,
+            height: 200,
+            file: "Notes/architecture.md",
+          },
+        ],
+        edges: [],
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Notes/architecture.md",
+          rawContent: "# Architecture\n\nOverview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("data/export.json", 200)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "data/export.json",
+          rawContent: canvasLikeContent,
+          fileStat: testStat(5000, 200),
+        },
+        logger,
+      )
+      // Should not appear in FTS — the early return skips non-canvas files
+      const { results } = await fileIndex.hybridSearch(
+        { query: "searchable deployment" },
+        logger,
+      )
+      const jsonResult = results.find(
+        (result) => result.path === "data/export.json",
+      )
+      expect(jsonResult).toBeUndefined()
+      // Should not create any links — verify via backlinks to the note
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Notes/architecture.md" },
+        logger,
+      )
+      expect(backlinks).toEqual([])
+    })
+  })
+
+  describe("note-specific filter suppression", () => {
+    it("hybridSearch excludes file content results when a tag filter is active", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // Seed a note that matches the tag filter
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/plan.md",
+          rawContent:
+            "---\ntags: [project]\n---\n# Plan\n\nArchitecture overview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      // Seed a canvas with matching text content
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      // Search with a tag filter — canvas has no tags, so it must be excluded
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture", filters: { tags: ["project"] } },
+        logger,
+      )
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("Projects/plan.md")
+      expect(paths).not.toContain("Diagrams/arch.canvas")
+    })
+
+    it("hybridSearch excludes file content results when a type filter is active", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/plan.md",
+          rawContent:
+            "---\ntype: reference\n---\n# Plan\n\nArchitecture overview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture", filters: { type: "reference" } },
+        logger,
+      )
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("Projects/plan.md")
+      expect(paths).not.toContain("Diagrams/arch.canvas")
     })
   })
 })

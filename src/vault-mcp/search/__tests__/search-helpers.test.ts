@@ -8,6 +8,7 @@ import {
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
+  fileContentRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
@@ -380,6 +381,64 @@ describe("noteRowToSearchResult", () => {
         includeLeadingCallout: true,
       }),
     ).toThrow("expected LeadingCallout from JSON column")
+  })
+})
+
+// ── fileContentRowToSearchResult ──────────────────────────────────────
+
+describe("fileContentRowToSearchResult", () => {
+  it("builds a SearchResult with kind file and extracted extension", () => {
+    const result = fileContentRowToSearchResult(
+      {
+        path: "Diagrams/architecture.canvas",
+        title: "architecture",
+        folder: "Diagrams",
+        mtime: 1700000000000,
+        bytes: 2048,
+        snippet: "Architecture overview with deployment details",
+      },
+      0.85,
+    )
+    expect(result).toEqual({
+      path: "Diagrams/architecture.canvas",
+      title: "architecture",
+      snippet: "Architecture overview with deployment details",
+      score: 0.85,
+      tags: [],
+      folder: "Diagrams",
+      type: null,
+      kind: "file",
+      extension: ".canvas",
+      modified: mtimeToIso(1700000000000),
+      bytes: 2048,
+    })
+  })
+
+  it("sets extension to undefined for a path with no extension", () => {
+    const result = fileContentRowToSearchResult(
+      {
+        path: "assets/Makefile",
+        title: "Makefile",
+        folder: "assets",
+        mtime: 1700000000000,
+        bytes: 512,
+        snippet: "build target",
+      },
+      0.5,
+    )
+    expect(result).toEqual({
+      path: "assets/Makefile",
+      title: "Makefile",
+      snippet: "build target",
+      score: 0.5,
+      tags: [],
+      folder: "assets",
+      type: null,
+      kind: "file",
+      extension: undefined,
+      modified: mtimeToIso(1700000000000),
+      bytes: 512,
+    })
   })
 })
 
