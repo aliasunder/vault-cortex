@@ -8,6 +8,10 @@ import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import {
+  linearizeCanvas,
+  extractCanvasFileLinks,
+} from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -52,6 +56,8 @@ export type SearchResult = {
   modified: string
   bytes: number
   leading_callout?: LeadingCallout
+  kind: "note" | "file"
+  extension?: string | undefined
 }
 
 export type HybridSearchResult = {
@@ -291,9 +297,13 @@ export const createSearchIndex = (
      *  granularity for vault_memory_recall; undefined (memory disabled)
      *  skips the entry tables entirely. */
     memoryDir?: string | undefined
+    /** When true, creates file_content + file_content_fts tables for
+     *  full-text search of non-markdown file content (e.g. canvas). */
+    fileToolsEnabled?: boolean | undefined
   },
 ) => {
   const memoryDir = options?.memoryDir
+  const fileToolsEnabled = options?.fileToolsEnabled ?? false
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -448,6 +458,26 @@ export const createSearchIndex = (
     }
   }
 
+  // ── File content tables (gated behind fileToolsEnabled) ──────
+  // Non-markdown file content (e.g. linearized canvas text) stored in a
+  // separate table from notes — different schema, no tags/properties/type.
+  if (fileToolsEnabled) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_content (
+        path    TEXT PRIMARY KEY,
+        title   TEXT NOT NULL,
+        content TEXT NOT NULL,
+        folder  TEXT NOT NULL,
+        mtime   INTEGER NOT NULL,
+        bytes   INTEGER NOT NULL
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
+        path UNINDEXED, title, content, tokenize='porter unicode61'
+      );
+    `)
+  }
+
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
   // database from before the `leading_callout` column was added would lack it
   // (and the upsert below would throw). Add it idempotently when absent. The
@@ -575,6 +605,45 @@ export const createSearchIndex = (
   >(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
+  // ── File content prepared statements (conditional on fileToolsEnabled) ──
+  const upsertFileContentStmt = fileToolsEnabled
+    ? db.prepare(
+        `INSERT OR REPLACE INTO file_content (path, title, content, folder, mtime, bytes)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+    : null
+  const deleteFileContentStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
+    : null
+  const deleteFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
+    : null
+  const insertFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare(
+        `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
+      )
+    : null
+  const searchFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare<
+        [number, string, number],
+        {
+          path: string
+          title: string
+          folder: string
+          mtime: number
+          bytes: number
+          snippet: string
+        }
+      >(
+        `SELECT fc.path, fc.title, fc.folder, fc.mtime, fc.bytes,
+                snippet(file_content_fts, 2, '', '', '...', ?) as snippet
+         FROM file_content_fts
+         JOIN file_content fc ON fc.path = file_content_fts.path
+         WHERE file_content_fts MATCH ?
+         ORDER BY rank LIMIT ?`,
+      )
+    : null
+
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
     ? db.prepare(
@@ -867,6 +936,75 @@ export const createSearchIndex = (
    *  includes them. Same behavior as removeNote for deleted .md files. */
   const removeNonMdFile = (filePath: string): void => {
     deleteNonMdFileStmt.run(filePath)
+  }
+
+  // ── File content indexing ─────────────────────────────────────
+
+  /** Indexes non-markdown file content for FTS and extracts graph links.
+   *  PR1 dispatches on `.canvas`; future PRs add PDF + text. FTS indexing
+   *  is gated behind `fileToolsEnabled`; link extraction is unconditional
+   *  (graph integrity is a core feature). */
+  const upsertFileContent = (
+    params: {
+      filePath: string
+      rawContent: string
+      fileStat: { mtimeMs: number; size: number }
+    },
+    logger: Logger,
+  ): void => {
+    if (!params.filePath.endsWith(".canvas")) return
+
+    const canvasLinks = extractCanvasFileLinks(params.rawContent)
+
+    db.transaction(() => {
+      // FTS indexing — gated behind fileToolsEnabled
+      if (
+        upsertFileContentStmt &&
+        deleteFileContentFtsStmt &&
+        insertFileContentFtsStmt
+      ) {
+        const linearizedContent = linearizeCanvas(params.rawContent)
+        const title = basename(params.filePath, posix.extname(params.filePath))
+        const folder = posix.dirname(params.filePath)
+        upsertFileContentStmt.run(
+          params.filePath,
+          title,
+          linearizedContent,
+          folder,
+          Math.round(params.fileStat.mtimeMs),
+          params.fileStat.size,
+        )
+        deleteFileContentFtsStmt.run(params.filePath)
+        insertFileContentFtsStmt.run(params.filePath, title, linearizedContent)
+      }
+
+      // Link extraction — unconditional (graph integrity)
+      deleteLinksStmt.run(params.filePath)
+      for (const linkTarget of canvasLinks) {
+        insertLinkStmt.run(params.filePath, linkTarget)
+      }
+    })()
+
+    logger.debug("indexed file content", {
+      path: params.filePath,
+      links: canvasLinks.length,
+      fts: Boolean(upsertFileContentStmt),
+    })
+  }
+
+  /** Removes a file's content from FTS and its links from the graph. */
+  const removeFileContent = (
+    params: { filePath: string },
+    logger: Logger,
+  ): void => {
+    db.transaction(() => {
+      if (deleteFileContentStmt && deleteFileContentFtsStmt) {
+        deleteFileContentFtsStmt.run(params.filePath)
+        deleteFileContentStmt.run(params.filePath)
+      }
+      deleteLinksStmt.run(params.filePath)
+    })()
+    logger.debug("removed file content", { path: params.filePath })
   }
 
   // ── Memory-entry indexing ──────────────────────────────────────
@@ -1372,6 +1510,10 @@ export const createSearchIndex = (
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
     db.exec("DELETE FROM tasks")
+    if (fileToolsEnabled) {
+      db.exec("DELETE FROM file_content_fts")
+      db.exec("DELETE FROM file_content")
+    }
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
     // Deleted notes are cleaned up in Pass 3 before embedding starts.
@@ -1433,6 +1575,35 @@ export const createSearchIndex = (
           const fileStat = await statOrNull(file.absolutePath)
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }
+        }),
+      )
+    ).filter((entry) => entry !== null)
+
+    // Read canvas files for content indexing + link extraction.
+    const canvasFiles = visibleFilesOfKind("file").filter((file) =>
+      file.relativePath.endsWith(".canvas"),
+    )
+    const canvasContents = (
+      await Promise.all(
+        canvasFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable canvas file during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
         }),
       )
     ).filter((entry) => entry !== null)
@@ -1520,6 +1691,30 @@ export const createSearchIndex = (
               resolvedNonMdPath ?? rawTarget,
             )
           }
+        }
+      }
+
+      // Canvas content indexing: FTS + link extraction. upsertFileContent
+      // deletes old links before inserting, so canvas links append cleanly
+      // after the note link pass above.
+      for (const canvas of canvasContents) {
+        try {
+          upsertFileContent(
+            {
+              filePath: canvas.relativePath,
+              rawContent: canvas.content,
+              fileStat: {
+                mtimeMs: canvas.modifiedAtMs,
+                size: canvas.sizeBytes,
+              },
+            },
+            logger,
+          )
+        } catch (error) {
+          logger.warn("skipped malformed canvas file during rebuild", {
+            path: canvas.relativePath,
+            error: describeError(error),
+          })
         }
       }
     })()
@@ -1653,6 +1848,9 @@ export const createSearchIndex = (
             selectEntryByIdStmt: selectMemoryEntryByIdStmt,
           }
         : null,
+    fileContentFts: searchFileContentFtsStmt
+      ? { searchStmt: searchFileContentFtsStmt }
+      : null,
   }
 
   /** Binds the query context as the first argument of a query function,
@@ -1677,6 +1875,8 @@ export const createSearchIndex = (
     rebuildFromVault,
     upsertNonMdFile,
     removeNonMdFile,
+    upsertFileContent,
+    removeFileContent,
     setDailyNotesFolder,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(queries.hybridSearch),

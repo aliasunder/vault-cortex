@@ -1,5 +1,6 @@
 // ── Pure helpers for search-index ──────────────────────────────
 
+import { posix } from "node:path"
 import { DateTime } from "luxon"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import type {
@@ -183,6 +184,7 @@ export const noteRowToSearchResult = (params: {
   tags: parseStringArray(params.row.tags),
   folder: params.row.folder,
   type: params.row.type,
+  kind: "note",
   ...(params.row.created !== null ? { created: params.row.created } : {}),
   modified: mtimeToIso(params.row.mtime),
   bytes: params.row.bytes ?? 0,
@@ -191,6 +193,35 @@ export const noteRowToSearchResult = (params: {
         leading_callout: parseLeadingCalloutJson(params.row.leading_callout),
       }
     : {}),
+})
+
+/** Raw row shape from a file_content_fts JOIN file_content query. */
+export type FileContentFtsRow = {
+  path: string
+  title: string
+  folder: string
+  mtime: number
+  bytes: number
+  snippet: string
+}
+
+/** Builds a SearchResult from a file_content FTS row. File results carry no
+ *  tags, type, created, or leading_callout — those are note-specific metadata. */
+export const fileContentRowToSearchResult = (
+  row: FileContentFtsRow,
+  score: number,
+): SearchResult => ({
+  path: row.path,
+  title: row.title,
+  snippet: row.snippet,
+  score,
+  tags: [],
+  folder: row.folder,
+  type: null,
+  kind: "file",
+  extension: posix.extname(row.path) || undefined,
+  modified: mtimeToIso(row.mtime),
+  bytes: row.bytes,
 })
 
 // ── Filters ────────────────────────────────────────────────────
