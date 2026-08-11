@@ -368,14 +368,26 @@ export const hybridSearch = async (
     logger,
   )
 
-  // Run file content FTS leg (canvas, etc.) — gated behind fileContentFts
-  const fileContentResults = runFileContentFts(
-    context,
-    params.query,
-    snippetTokens,
-    candidateLimit,
-    params.filters?.folder,
+  // Skip file content search when note-specific filters are active —
+  // canvas files have no tags, type, related, properties, or created date,
+  // so they can't satisfy these constraints and would leak through unfiltered.
+  const hasNoteSpecificFilters = Boolean(
+    params.filters?.tags ||
+    params.filters?.type ||
+    params.filters?.related ||
+    params.filters?.properties ||
+    params.filters?.created ||
+    params.filters?.modified,
   )
+  const fileContentResults = hasNoteSpecificFilters
+    ? []
+    : runFileContentFts(
+        context,
+        params.query,
+        snippetTokens,
+        candidateLimit,
+        params.filters?.folder,
+      )
 
   // Attempt vector search — returns [] on any failure
   const vectorHits = await vectorSearch(
