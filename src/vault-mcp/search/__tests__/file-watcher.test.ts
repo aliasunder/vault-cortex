@@ -366,6 +366,31 @@ describe("file-watcher — file content indexing", () => {
     )
     expect(results).toHaveLength(0)
   })
+
+  it("indexes a PDF file via extractPdfText", { timeout: 15000 }, async () => {
+    const { buildMinimalPdf } =
+      await import("../../mcp-core/__tests__/pdf-fixture.js")
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+
+    await startFileWatcher(vault, fileIndex, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
+
+    await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
+    await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "Hello PDF" },
+      logger,
+    )
+    const pdfResult = results.find((result) => result.path === "doc.pdf")
+    expect(pdfResult?.kind).toBe("file")
+    expect(pdfResult?.extension).toBe(".pdf")
+  })
 })
 
 describe("startFileWatcher — chokidar watch options", () => {
