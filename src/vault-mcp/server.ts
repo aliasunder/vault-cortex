@@ -90,6 +90,7 @@ const startServer = async (): Promise<void> => {
       : undefined
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
+    fileToolsEnabled: config.fileToolsEnabled,
   })
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
