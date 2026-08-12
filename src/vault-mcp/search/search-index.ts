@@ -1017,6 +1017,10 @@ export const createSearchIndex = (
       })
     }
 
+    const canvasLinks = isCanvas
+      ? extractCanvasFileLinks(params.rawContent)
+      : []
+
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
       if (
@@ -1040,7 +1044,6 @@ export const createSearchIndex = (
 
       // Link extraction — canvas only, unconditional (graph integrity)
       if (isCanvas) {
-        const canvasLinks = extractCanvasFileLinks(params.rawContent)
         deleteLinksStmt.run(params.filePath)
         for (const linkTarget of canvasLinks) {
           insertLinkStmt.run(params.filePath, linkTarget)
@@ -1050,6 +1053,7 @@ export const createSearchIndex = (
 
     logger.debug("indexed file content", {
       path: params.filePath,
+      links: canvasLinks.length,
       fts: Boolean(upsertFileContentStmt),
     })
   }
@@ -1688,37 +1692,45 @@ export const createSearchIndex = (
     ).filter((entry) => entry !== null)
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
+    const extractPdfContent = async (file: {
+      absolutePath: string
+      relativePath: string
+    }): Promise<{
+      relativePath: string
+      content: string
+      modifiedAtMs: number
+      sizeBytes: number
+    } | null> => {
+      try {
+        const [buffer, fileStat] = await Promise.all([
+          readFile(file.absolutePath),
+          stat(file.absolutePath),
+        ])
+        const pdfData = new Uint8Array(
+          buffer.buffer,
+          buffer.byteOffset,
+          buffer.byteLength,
+        )
+        const pdfResult = await extractPdfText(pdfData)
+        return {
+          relativePath: file.relativePath,
+          content: pdfResult.text,
+          modifiedAtMs: fileStat.mtimeMs,
+          sizeBytes: fileStat.size,
+        }
+      } catch (error) {
+        logger.warn("skipped unreadable PDF during rebuild", {
+          path: file.relativePath,
+          error: describeError(error),
+        })
+        return null
+      }
+    }
     const pdfContents = (
       await mapWithConcurrency({
         items: pdfFiles,
         concurrency: 4,
-        mapper: async (file) => {
-          try {
-            const [buffer, fileStat] = await Promise.all([
-              readFile(file.absolutePath),
-              stat(file.absolutePath),
-            ])
-            const pdfData = new Uint8Array(
-              buffer.buffer,
-              buffer.byteOffset,
-              buffer.byteLength,
-            )
-            const pdfResult = await extractPdfText(pdfData)
-            const content = pdfResult.text
-            return {
-              relativePath: file.relativePath,
-              content,
-              modifiedAtMs: fileStat.mtimeMs,
-              sizeBytes: fileStat.size,
-            }
-          } catch (error) {
-            logger.warn("skipped unreadable PDF during rebuild", {
-              path: file.relativePath,
-              error: describeError(error),
-            })
-            return null
-          }
-        },
+        mapper: extractPdfContent,
       })
     ).filter((entry) => entry !== null)
 
