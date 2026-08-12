@@ -270,7 +270,7 @@ Link queries use a `links` table populated during indexing:
 
    `raw: true` switches to page-image mode: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
 
-   **Font independence:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. Without this, unpdf's defaults silently degrade to system-font rendering, which drops all text glyphs where no fonts exist while vector graphics still draw.
+   **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. Without this, unpdf's defaults silently degrade to system-font rendering, which drops all text glyphs where no fonts exist while vector graphics still draw.
 
 5. **Unknown types** return an error naming the readable set.
 
