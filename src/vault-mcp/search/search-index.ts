@@ -1726,13 +1726,12 @@ export const createSearchIndex = (
         return null
       }
     }
-    const pdfContents = (
-      await mapWithConcurrency({
-        items: pdfFiles,
-        concurrency: 4,
-        mapper: extractPdfContent,
-      })
-    ).filter((entry) => entry !== null)
+    const pdfResults = await mapWithConcurrency({
+      items: pdfFiles,
+      concurrency: 4,
+      mapper: extractPdfContent,
+    })
+    const pdfContents = pdfResults.filter((entry) => entry !== null)
 
     // Read text files for content indexing (raw UTF-8).
     const textFileContents = (
