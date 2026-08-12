@@ -1591,7 +1591,8 @@ describe("file tool handlers", () => {
 
   it("returns structured markdown from a valid PDF", async () => {
     const { vault, readAsset } = await setupAssetHarness()
-    const { buildMinimalPdf } = await import("./pdf-fixture.js")
+    const { buildMinimalPdf } =
+      await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
     expect(result).toEqual({
@@ -1615,7 +1616,7 @@ describe("file tool handlers", () => {
       content: [
         {
           type: "text",
-          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.base)',
+          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)',
         },
       ],
     })

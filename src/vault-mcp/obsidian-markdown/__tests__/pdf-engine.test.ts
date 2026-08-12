@@ -5,7 +5,7 @@ import { describe, it, expect, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { getDocumentProxy, renderPageAsImage, extractText } from "unpdf"
 import { createPdfDocumentProxy } from "../pdf-engine.js"
-import { buildMinimalPdf } from "../../vault-mcp/mcp-core/__tests__/pdf-fixture.js"
+import { buildMinimalPdf } from "./pdf-fixture.js"
 
 // Spy mode keeps the real unpdf implementation — the rendering tests below
 // are true integration tests — while letting the configuration test assert

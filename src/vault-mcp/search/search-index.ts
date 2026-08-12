@@ -24,9 +24,11 @@ import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
+import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
   isString,
   coerceToArray,
@@ -34,6 +36,42 @@ import {
   escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
+
+// ── File content indexing constants ─────────────────────────────
+
+/** Extensions whose content is indexed into file_content_fts for vault_search.
+ *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
+export const INDEXABLE_TEXT_EXTENSIONS = new Set([
+  ".pdf",
+  ".txt",
+  ".csv",
+  ".json",
+  ".xml",
+  ".svg",
+  ".log",
+  ".yaml",
+  ".yml",
+  ".base",
+])
+
+/** Cap on rendered content indexed into file_content_fts — prevents
+ *  pathological FTS rows from large CSVs or verbose JSONs. */
+const MAX_INDEXED_CONTENT_BYTES = 102_400
+
+/** Truncates a string to fit within a UTF-8 byte limit without splitting
+ *  multi-byte characters — iterates Unicode code points and accumulates
+ *  each code point's UTF-8 byte length, stopping before the cap. */
+const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
+  let usedBytes = 0
+  let endIndex = 0
+  for (const character of content) {
+    const characterBytes = Buffer.byteLength(character, "utf8")
+    if (usedBytes + characterBytes > maxBytes) break
+    usedBytes += characterBytes
+    endIndex += character.length
+  }
+  return content.slice(0, endIndex)
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -941,9 +979,11 @@ export const createSearchIndex = (
   // ── File content indexing ─────────────────────────────────────
 
   /** Indexes non-markdown file content for FTS and extracts graph links.
-   *  PR1 dispatches on `.canvas`; future PRs add PDF + text. FTS indexing
-   *  is gated behind `fileToolsEnabled`; link extraction is unconditional
-   *  (graph integrity is a core feature). */
+   *  Canvas files pass raw JSON — linearized here for FTS and parsed for
+   *  link extraction. Other file types pass pre-rendered text (PDF text,
+   *  raw UTF-8) — inserted into FTS as-is, no link extraction. FTS
+   *  indexing is gated behind `fileToolsEnabled`; canvas link extraction
+   *  is unconditional (graph integrity is a core feature). */
   const upsertFileContent = (
     params: {
       filePath: string
@@ -952,9 +992,34 @@ export const createSearchIndex = (
     },
     logger: Logger,
   ): void => {
-    if (!params.filePath.endsWith(".canvas")) return
+    const extension = posix.extname(params.filePath)
+    const isCanvas = extension === ".canvas"
 
-    const canvasLinks = extractCanvasFileLinks(params.rawContent)
+    // Canvas: linearize for FTS, raw JSON for link extraction.
+    // Other types: rawContent is already the rendered text.
+    const contentToIndex = isCanvas
+      ? linearizeCanvas(params.rawContent)
+      : params.rawContent
+
+    // Truncate content exceeding the FTS cap — iterates Unicode code points
+    // and accumulates UTF-8 byte length so the cap is enforced in bytes
+    // without splitting multi-byte characters at the boundary.
+    const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
+    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
+    const truncatedContent = needsTruncation
+      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+      : contentToIndex
+    if (needsTruncation) {
+      logger.debug("truncated file content for FTS indexing", {
+        path: params.filePath,
+        originalBytes: contentBytes,
+        cappedBytes: MAX_INDEXED_CONTENT_BYTES,
+      })
+    }
+
+    const canvasLinks = isCanvas
+      ? extractCanvasFileLinks(params.rawContent)
+      : []
 
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
@@ -963,25 +1028,26 @@ export const createSearchIndex = (
         deleteFileContentFtsStmt &&
         insertFileContentFtsStmt
       ) {
-        const linearizedContent = linearizeCanvas(params.rawContent)
-        const title = basename(params.filePath, posix.extname(params.filePath))
+        const title = basename(params.filePath, extension)
         const folder = posix.dirname(params.filePath)
         upsertFileContentStmt.run(
           params.filePath,
           title,
-          linearizedContent,
+          truncatedContent,
           folder,
           Math.round(params.fileStat.mtimeMs),
           params.fileStat.size,
         )
         deleteFileContentFtsStmt.run(params.filePath)
-        insertFileContentFtsStmt.run(params.filePath, title, linearizedContent)
+        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent)
       }
 
-      // Link extraction — unconditional (graph integrity)
-      deleteLinksStmt.run(params.filePath)
-      for (const linkTarget of canvasLinks) {
-        insertLinkStmt.run(params.filePath, linkTarget)
+      // Link extraction — canvas only, unconditional (graph integrity)
+      if (isCanvas) {
+        deleteLinksStmt.run(params.filePath)
+        for (const linkTarget of canvasLinks) {
+          insertLinkStmt.run(params.filePath, linkTarget)
+        }
       }
     })()
 
@@ -1566,23 +1632,40 @@ export const createSearchIndex = (
 
     const markdownFiles = visibleFilesOfKind("note")
 
+    // Identify all non-md files once — reused for stat, content indexing,
+    // and read-strategy splitting below.
+    const allNonMdFiles = visibleFilesOfKind("file")
+
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
     const nonMarkdownFileSizes = (
       await Promise.all(
-        visibleFilesOfKind("file").map(async (file) => {
+        allNonMdFiles.map(async (file) => {
           const fileStat = await statOrNull(file.absolutePath)
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }
         }),
       )
     ).filter((entry) => entry !== null)
-
-    // Read canvas files for content indexing + link extraction.
-    const canvasFiles = visibleFilesOfKind("file").filter((file) =>
+    const canvasFiles = allNonMdFiles.filter((file) =>
       file.relativePath.endsWith(".canvas"),
     )
+    // PDF and text files are only read when file content FTS is enabled —
+    // without the tables, the extraction is wasted I/O.
+    const pdfFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
+      : []
+    const textFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => {
+          const extension = posix.extname(file.relativePath)
+          return (
+            extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+          )
+        })
+      : []
+
+    // Read canvas files for content indexing + link extraction.
     const canvasContents = (
       await Promise.all(
         canvasFiles.map(async (file) => {
@@ -1599,6 +1682,74 @@ export const createSearchIndex = (
             }
           } catch (error) {
             logger.warn("skipped unreadable canvas file during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
+        }),
+      )
+    ).filter((entry) => entry !== null)
+
+    // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
+    const extractPdfContent = async (file: {
+      absolutePath: string
+      relativePath: string
+    }): Promise<{
+      relativePath: string
+      content: string
+      modifiedAtMs: number
+      sizeBytes: number
+    } | null> => {
+      try {
+        const [buffer, fileStat] = await Promise.all([
+          readFile(file.absolutePath),
+          stat(file.absolutePath),
+        ])
+        const pdfData = new Uint8Array(
+          buffer.buffer,
+          buffer.byteOffset,
+          buffer.byteLength,
+        )
+        const pdfResult = await extractPdfText(pdfData)
+        return {
+          relativePath: file.relativePath,
+          content: pdfResult.text,
+          modifiedAtMs: fileStat.mtimeMs,
+          sizeBytes: fileStat.size,
+        }
+      } catch (error) {
+        logger.warn("skipped unreadable PDF during rebuild", {
+          path: file.relativePath,
+          error: describeError(error),
+        })
+        return null
+      }
+    }
+    const pdfResults = await mapWithConcurrency({
+      items: pdfFiles,
+      concurrency: 4,
+      mapper: extractPdfContent,
+    })
+    const pdfContents = pdfResults.filter((entry) => entry !== null)
+
+    // Read text files for content indexing (raw UTF-8).
+    const textFileContents = (
+      await Promise.all(
+        textFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable text file during rebuild", {
               path: file.relativePath,
               error: describeError(error),
             })
@@ -1694,25 +1845,30 @@ export const createSearchIndex = (
         }
       }
 
-      // Canvas content indexing: FTS + link extraction. upsertFileContent
-      // deletes old links before inserting, so canvas links append cleanly
-      // after the note link pass above.
-      for (const canvas of canvasContents) {
+      // File content indexing: canvas (FTS + link extraction), PDF and text
+      // (FTS only). upsertFileContent deletes old canvas links before
+      // inserting, so canvas links append cleanly after the note link pass.
+      const allFileContents = [
+        ...canvasContents,
+        ...pdfContents,
+        ...textFileContents,
+      ]
+      for (const fileEntry of allFileContents) {
         try {
           upsertFileContent(
             {
-              filePath: canvas.relativePath,
-              rawContent: canvas.content,
+              filePath: fileEntry.relativePath,
+              rawContent: fileEntry.content,
               fileStat: {
-                mtimeMs: canvas.modifiedAtMs,
-                size: canvas.sizeBytes,
+                mtimeMs: fileEntry.modifiedAtMs,
+                size: fileEntry.sizeBytes,
               },
             },
             logger,
           )
         } catch (error) {
-          logger.warn("skipped malformed canvas file during rebuild", {
-            path: canvas.relativePath,
+          logger.warn("skipped malformed file during rebuild", {
+            path: fileEntry.relativePath,
             error: describeError(error),
           })
         }
@@ -1895,6 +2051,7 @@ export const createSearchIndex = (
     brokenLinkCount: bindQueryContext(queries.brokenLinkCount),
     modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
     vaultStats: bindQueryContext(queries.vaultStats),
+    fileContentIndexingEnabled: fileToolsEnabled,
   }
 }
 

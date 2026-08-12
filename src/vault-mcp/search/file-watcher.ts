@@ -5,8 +5,10 @@
 import { watch } from "chokidar"
 import { DateTime } from "luxon"
 import { readFile, realpath, stat } from "node:fs/promises"
-import { join, relative, resolve as resolvePath } from "node:path"
+import { extname, join, relative, resolve as resolvePath } from "node:path"
+import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
+import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { readdirOrNull, statOrNull } from "../../utils/fs.js"
@@ -83,19 +85,38 @@ export const startFileWatcher = (
       if (!fileStat) return
       search.upsertNonMdFile(relativePath, fileStat.size)
 
-      if (filePath.endsWith(".canvas")) {
+      // Canvas files are always read — link extraction is unconditional.
+      // PDF and text files are only read when file content FTS is enabled.
+      const extension = extname(filePath)
+      const isCanvas = extension === ".canvas"
+      const isIndexableNonCanvas =
+        search.fileContentIndexingEnabled &&
+        INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      if (isCanvas || isIndexableNonCanvas) {
         try {
-          const content = await readFile(filePath, "utf8")
+          let contentToIndex: string
+          if (extension === ".pdf") {
+            const buffer = await readFile(filePath)
+            const pdfData = new Uint8Array(
+              buffer.buffer,
+              buffer.byteOffset,
+              buffer.byteLength,
+            )
+            const pdfResult = await extractPdfText(pdfData)
+            contentToIndex = pdfResult.text
+          } else {
+            contentToIndex = await readFile(filePath, "utf8")
+          }
           search.upsertFileContent(
             {
               filePath: relativePath,
-              rawContent: content,
+              rawContent: contentToIndex,
               fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
             },
             logger,
           )
         } catch (error) {
-          logger.warn("canvas content indexing failed", {
+          logger.warn("file content indexing failed", {
             path: relativePath,
             error: describeError(error),
           })
@@ -161,7 +182,12 @@ export const startFileWatcher = (
 
     if (!filePath.endsWith(".md")) {
       search.removeNonMdFile(relativePath)
-      if (filePath.endsWith(".canvas")) {
+      const deletedExtension = extname(filePath)
+      const isDeletedCanvas = deletedExtension === ".canvas"
+      const isDeletedIndexable =
+        search.fileContentIndexingEnabled &&
+        INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+      if (isDeletedCanvas || isDeletedIndexable) {
         search.removeFileContent({ filePath: relativePath }, logger)
       }
       logger.debug("removed non-md file from index", { path: relativePath })

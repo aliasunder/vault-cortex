@@ -112,7 +112,6 @@ src/
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
-    pdf-engine.ts                      # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -127,6 +126,8 @@ src/
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
+      pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
+      pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
@@ -186,6 +187,14 @@ on**, not just its topic:
   the format is markdown, JSON, or YAML. `lines.ts` is the single home of the
   CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
   threads it, so they can't disagree about where a fence opens.
+  **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
+  that performs side effects — it resolves `pdfjs-dist` package paths from disk
+  via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
+  lives here because it is PDF domain logic: the bootstrap that configures pdfjs
+  so `pdf.ts`'s extraction pipeline works — same relationship as if canvas.ts
+  needed a JSON parser configuration step. The two PDF modules are a unit and
+  belong together in the parser layer.
+  `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
   **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
   signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
   `[priority:: high]`). Mutation functions must strip both formats when removing
