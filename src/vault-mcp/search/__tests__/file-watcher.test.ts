@@ -369,7 +369,7 @@ describe("file-watcher — file content indexing", () => {
 
   it("indexes a PDF file via extractPdfText", { timeout: 15000 }, async () => {
     const { buildMinimalPdf } =
-      await import("../../mcp-core/__tests__/pdf-fixture.js")
+      await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
     })
