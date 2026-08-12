@@ -2,33 +2,6 @@ import { describe, it, expect } from "vitest"
 import { extractPdfText } from "../pdf.js"
 import { buildMinimalPdf } from "../../mcp-core/__tests__/pdf-fixture.js"
 
-describe("extractPdfText", () => {
-  it("extracts text from a valid PDF", async () => {
-    const pdfBuffer = buildMinimalPdf()
-    const pdfData = new Uint8Array(
-      pdfBuffer.buffer,
-      pdfBuffer.byteOffset,
-      pdfBuffer.byteLength,
-    )
-    const result = await extractPdfText(pdfData)
-    expect(result.text).toBe("Title: (untitled) | Pages: 1\n\nHello PDF")
-    expect(result.totalPages).toBe(1)
-  })
-
-  it("returns empty text with page count for a PDF with no extractable text", async () => {
-    // Minimal PDF with an empty content stream (no text operators)
-    const emptyStreamPdf = buildEmptyStreamPdf()
-    const pdfData = new Uint8Array(
-      emptyStreamPdf.buffer,
-      emptyStreamPdf.byteOffset,
-      emptyStreamPdf.byteLength,
-    )
-    const result = await extractPdfText(pdfData)
-    expect(result.text).toBe("")
-    expect(result.totalPages).toBe(1)
-  })
-})
-
 /** Builds a minimal valid PDF with an empty content stream — no text
  *  operators, so extractTextItems returns items with no content. */
 const buildEmptyStreamPdf = (): Buffer => {
@@ -84,3 +57,29 @@ const buildEmptyStreamPdf = (): Buffer => {
 
   return Buffer.from(body + trailer, "ascii")
 }
+
+describe("extractPdfText", () => {
+  it("extracts text from a valid PDF", async () => {
+    const pdfBuffer = buildMinimalPdf()
+    const pdfData = new Uint8Array(
+      pdfBuffer.buffer,
+      pdfBuffer.byteOffset,
+      pdfBuffer.byteLength,
+    )
+    const result = await extractPdfText(pdfData)
+    expect(result.text).toBe("Title: (untitled) | Pages: 1\n\nHello PDF")
+    expect(result.totalPages).toBe(1)
+  })
+
+  it("returns empty text with page count for a PDF with no extractable text", async () => {
+    const emptyStreamPdf = buildEmptyStreamPdf()
+    const pdfData = new Uint8Array(
+      emptyStreamPdf.buffer,
+      emptyStreamPdf.byteOffset,
+      emptyStreamPdf.byteLength,
+    )
+    const result = await extractPdfText(pdfData)
+    expect(result.text).toBe("")
+    expect(result.totalPages).toBe(1)
+  })
+})

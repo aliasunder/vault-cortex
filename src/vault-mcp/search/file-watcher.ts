@@ -85,8 +85,14 @@ export const startFileWatcher = (
       if (!fileStat) return
       search.upsertNonMdFile(relativePath, fileStat.size)
 
+      // Canvas files are always read — link extraction is unconditional.
+      // PDF and text files are only read when file content FTS is enabled.
       const extension = extname(filePath)
-      if (extension === ".canvas" || INDEXABLE_TEXT_EXTENSIONS.has(extension)) {
+      const isCanvas = extension === ".canvas"
+      const isIndexableNonCanvas =
+        search.fileContentIndexingEnabled &&
+        INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      if (isCanvas || isIndexableNonCanvas) {
         try {
           let contentToIndex: string
           if (extension === ".pdf") {
@@ -177,10 +183,11 @@ export const startFileWatcher = (
     if (!filePath.endsWith(".md")) {
       search.removeNonMdFile(relativePath)
       const deletedExtension = extname(filePath)
-      if (
-        deletedExtension === ".canvas" ||
+      const isDeletedCanvas = deletedExtension === ".canvas"
+      const isDeletedIndexable =
+        search.fileContentIndexingEnabled &&
         INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
-      ) {
+      if (isDeletedCanvas || isDeletedIndexable) {
         search.removeFileContent({ filePath: relativePath }, logger)
       }
       logger.debug("removed non-md file from index", { path: relativePath })

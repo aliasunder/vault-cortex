@@ -1647,14 +1647,19 @@ export const createSearchIndex = (
     const canvasFiles = allNonMdFiles.filter((file) =>
       file.relativePath.endsWith(".canvas"),
     )
-    const pdfFiles = allNonMdFiles.filter((file) =>
-      file.relativePath.endsWith(".pdf"),
-    )
-    // PDF is in INDEXABLE_TEXT_EXTENSIONS but needs extractPdfText, not readFile("utf8")
-    const textFiles = allNonMdFiles.filter((file) => {
-      const extension = posix.extname(file.relativePath)
-      return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-    })
+    // PDF and text files are only read when file content FTS is enabled —
+    // without the tables, the extraction is wasted I/O.
+    const pdfFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
+      : []
+    const textFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => {
+          const extension = posix.extname(file.relativePath)
+          return (
+            extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+          )
+        })
+      : []
 
     // Read canvas files for content indexing + link extraction.
     const canvasContents = (
@@ -2035,6 +2040,7 @@ export const createSearchIndex = (
     brokenLinkCount: bindQueryContext(queries.brokenLinkCount),
     modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
     vaultStats: bindQueryContext(queries.vaultStats),
+    fileContentIndexingEnabled: fileToolsEnabled,
   }
 }
 

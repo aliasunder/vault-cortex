@@ -187,6 +187,13 @@ on**, not just its topic:
   the format is markdown, JSON, or YAML. `lines.ts` is the single home of the
   CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
   threads it, so they can't disagree about where a fence opens.
+  **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
+  that performs side effects — it resolves `pdfjs-dist` package paths from disk
+  via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
+  lives here because it is PDF domain logic (not generic — fails the `utils/`
+  admission bar), and its dependency profile is compatible with the folder's
+  lint rules (`node:module` and `node:path` are allowed; `node:fs` is not).
+  `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
   **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
   signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
   `[priority:: high]`). Mutation functions must strip both formats when removing
