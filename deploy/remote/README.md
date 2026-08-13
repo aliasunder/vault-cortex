@@ -380,10 +380,15 @@ in `.obsidian/daily-notes.json`, and in remote mode the server only receives
 that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to `core-plugin-data`, so the
-  right category syncs automatically. Set `SYNC_CONFIGS=none` in `.env` to
-  disable.
+  right category syncs automatically. It takes a comma-separated list of
+  Obsidian's settings categories (`app`, `appearance`, `appearance-data`,
+  `hotkey`, `core-plugin`, `core-plugin-data`, `community-plugin`,
+  `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
 - **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
   enabled per device. Obsidian only pushes categories you enable there.
+
+If the file hasn't arrived when the server boots (first sync still running),
+it's picked up automatically once it lands — no restart needed.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
