@@ -52,15 +52,13 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault, throwing on traversal attempts and
- *  on hidden paths (any dot-prefixed segment, e.g. ".obsidian/", ".trash/").
- *  The hidden-path check runs on the resolved vault-relative path so "./a.md"
- *  and "a/../b.md" normalize instead of false-positive rejecting, and fires
- *  before any filesystem access — it rejects on path shape alone and reveals
- *  nothing about what exists. Obsidian itself ignores dot-prefixed paths, so
- *  every client-facing operation routing through here matches that. The
- *  internal ".obsidian/" config readers (daily-notes, task-format-config)
- *  deliberately bypass this via direct readFile. */
+/** Resolves a note path within the vault, throwing on traversal and on
+ *  hidden paths (any dot-prefixed segment — matching Obsidian, which
+ *  ignores them). The hidden check runs on the resolved vault-relative path
+ *  ("./a.md" and "a/../b.md" normalize instead of false-rejecting) and
+ *  fires before any fs access, so it reveals nothing about what exists.
+ *  The internal ".obsidian/" config readers (daily-notes,
+ *  task-format-config) deliberately bypass this via direct readFile. */
 export const resolveSafePath = (
   vaultPath: string,
   notePath: string,
