@@ -2032,7 +2032,9 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("hidden path blocked")
+    ).rejects.toThrow(
+      'hidden path blocked: "notes/../.obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+    )
   })
 
   it("accepts a './'-prefixed path to a visible note", async () => {
