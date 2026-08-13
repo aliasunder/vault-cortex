@@ -258,6 +258,7 @@ Parameters:
 - section scopes the match — an identical entry under a different heading is not found. Section matching is case-insensitive, with or without the "(newest first)" suffix.
 
 Errors:
+- "memory file must not start with a dot" — a dot-prefixed name would target a hidden file; memory files are always visible notes.
 - "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with vault_delete_span or a manual edit.
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
