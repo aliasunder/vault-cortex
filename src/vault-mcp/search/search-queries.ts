@@ -1703,8 +1703,9 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const folder = params.dailyNotesFolder ?? null
-  const folderPrefix = folder !== null ? `${folder}/` : null
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${params.dailyNotesFolder}/`
+    : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1713,8 +1714,8 @@ export const getOutgoingLinks = (
     bytes: row.bytes ?? null,
     daily_note_forward_ref:
       row.exists_flag === 0 &&
-      folderPrefix !== null &&
-      row.path.startsWith(folderPrefix),
+      dailyNotesFolderPrefix !== null &&
+      row.path.startsWith(dailyNotesFolderPrefix),
   }))
   logger.info("get outgoing links", {
     path: params.path,
@@ -1781,9 +1782,9 @@ export const brokenLinkCount = (
   params: { dailyNotesFolder?: string | null },
   logger: Logger,
 ): BrokenLinkResult => {
-  const folder = params.dailyNotesFolder ?? null
+  const excludedFolder = params.dailyNotesFolder ?? null
 
-  if (folder === null) {
+  if (excludedFolder === null) {
     const row = context.db
       .prepare<unknown[], { count: number }>(
         `SELECT COUNT(DISTINCT target) as count
@@ -1798,7 +1799,7 @@ export const brokenLinkCount = (
     return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const folderPrefix = `${folder}/`
+  const excludedFolderPrefix = `${excludedFolder}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target
@@ -1809,16 +1810,16 @@ export const brokenLinkCount = (
     .all()
 
   const count = brokenTargets.filter(
-    (row) => !row.target.startsWith(folderPrefix),
+    (row) => !row.target.startsWith(excludedFolderPrefix),
   ).length
   const excludedCount = brokenTargets.length - count
 
   logger.info("broken link count", {
     count,
-    dailyNotesFolder: folder,
+    dailyNotesFolder: excludedFolder,
     excludedForwardRefs: excludedCount,
   })
-  return { count, excludedFolder: folder, excludedCount }
+  return { count, excludedFolder, excludedCount }
 }
 
 /** Returns notes whose filesystem mtime falls within a calendar date
