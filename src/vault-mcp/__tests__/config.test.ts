@@ -120,6 +120,102 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("DAILY_NOTES_FOLDER", () => {
+    it("defaults to undefined when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.dailyNotesFolder).toBeUndefined()
+    })
+
+    it.each([
+      { name: "treats empty string as unset", input: "" },
+      { name: "treats blank whitespace as unset", input: "   " },
+    ])("$name", ({ input }) => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: input })
+      expect(config.dailyNotesFolder).toBeUndefined()
+    })
+
+    it("uses the provided value", () => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
+      expect(config.dailyNotesFolder).toBe("Journal")
+    })
+
+    it("accepts nested folder paths", () => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal/Daily" })
+      expect(config.dailyNotesFolder).toBe("Journal/Daily")
+    })
+
+    it("trims whitespace and strips trailing slashes", () => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "  Journal/  " })
+      expect(config.dailyNotesFolder).toBe("Journal")
+    })
+
+    it("rejects path traversal", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "../escape" })).toThrow(
+        "path traversal (..) not allowed",
+      )
+    })
+
+    it("rejects absolute paths", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "/etc/notes" })).toThrow(
+        "absolute paths not allowed",
+      )
+    })
+  })
+
+  describe("DAILY_NOTES_FORMAT", () => {
+    it("defaults to undefined when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.dailyNotesFormat).toBeUndefined()
+    })
+
+    it.each([
+      { name: "treats empty string as unset", input: "" },
+      { name: "treats blank whitespace as unset", input: "   " },
+    ])("$name", ({ input }) => {
+      const config = loadConfig({ DAILY_NOTES_FORMAT: input })
+      expect(config.dailyNotesFormat).toBeUndefined()
+    })
+
+    it("preserves the raw moment format string (no Luxon conversion)", () => {
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
+      expect(config.dailyNotesFormat).toBe("DD-MM-YYYY")
+    })
+
+    it("accepts a nested-folder format (YYYY/MM/DD)", () => {
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
+      expect(config.dailyNotesFormat).toBe("YYYY/MM/DD")
+    })
+
+    it("accepts a format with a [literal] escape", () => {
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Daily]" })
+      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD [Daily]")
+    })
+
+    it("rejects raw path traversal", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "../YYYY" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)',
+      )
+    })
+
+    it("rejects a format that renders to path traversal ([.][.])", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[.][.]" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)',
+      )
+    })
+
+    it("rejects a leading path separator", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "/YYYY-MM-DD" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not start with a path separator',
+      )
+    })
+
+    it("rejects a format that renders to an empty filename", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[ ]" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',
+      )
+    })
+  })
+
   describe("PROTECTED_PATHS (comma-separated)", () => {
     it("overrides the default entirely", () => {
       const config = loadConfig({ PROTECTED_PATHS: "Secrets,Archive" })
