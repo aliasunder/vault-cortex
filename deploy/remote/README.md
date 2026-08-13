@@ -262,8 +262,10 @@ curl http://localhost:8000/healthz
 
 # One log stream for both processes — MCP server lines are structured
 # JSON; init-chain lines carry an [obsidian-sync] prefix and the ongoing
-# sync output is plain text (filter with: docker logs vault-cortex 2>&1 | grep -v '^{'):
-docker logs vault-cortex
+# sync output is plain text:
+npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
+docker logs vault-cortex       # Compose or docker run
+# Sync output only: docker logs vault-cortex 2>&1 | grep -v '^{'
 ```
 
 Once [HTTPS access](#https-access) is set up, the same health check works
@@ -271,13 +273,24 @@ from any device: `curl <PUBLIC_URL>/healthz`.
 
 ## Monitoring
 
-```bash
-# Follow the container logs (sync + MCP server):
-docker logs -f vault-cortex
+**Set up with the CLI?**
 
-# Container status — "healthy" tracks the MCP server's /healthz:
-docker ps
+```bash
+# Follow the container logs (sync + MCP server) until ctrl-C:
+npx vault-cortex@latest logs --follow
+
+# Or just recent history:
+npx vault-cortex@latest logs --since 10m
 ```
+
+**Set up with Compose or `docker run`?**
+
+```bash
+docker logs -f vault-cortex
+```
+
+Whichever method you use, `docker ps` shows container status — "healthy"
+tracks the MCP server's `/healthz`.
 
 ## Updating
 
@@ -328,22 +341,30 @@ docker restart vault-cortex
 ```
 
 > **Changed `.env`?** A restart does **not** re-read `.env` — the container
-> has to be re-created. Set up with the CLI? Run `npx vault-cortex@latest upgrade`
-> (re-creates the container and also pulls the latest image). Using Compose?
-> Run `docker compose up -d` — it re-creates services whose configuration
-> changed.
+> has to be re-created. Set up with the CLI? Run
+> [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
+> `docker restart`, it re-creates the container, so your edits take effect
+> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
+> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> re-creates services whose configuration changed. Using `docker run`?
+> Remove the container (`docker rm -f vault-cortex`) and re-run the
+> `docker run` command from [Setup](#setup).
 
 The container also restarts automatically on crash (`restart: unless-stopped`
 policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
-**Set up with the CLI (or `docker run`)?**
+**Set up with the CLI?**
 
 ```bash
-# Stop (data persists in Docker volumes):
-docker stop vault-cortex
+# Stop and remove the container (data persists in Docker volumes):
+npx vault-cortex@latest down
 ```
+
+Start again any time with `npx vault-cortex@latest start` — your saved
+settings are reused ([`down`](../../cli/#down) · [`start`](../../cli/#start)
+in the CLI reference).
 
 **Set up with Docker Compose?**
 
@@ -353,6 +374,13 @@ docker compose down
 
 # Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
 docker compose down -v
+```
+
+**Set up with `docker run`?**
+
+```bash
+# Stop (data persists in Docker volumes):
+docker stop vault-cortex
 ```
 
 ## Memory
@@ -402,6 +430,11 @@ vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
 (same tokens as Obsidian's date format setting) in `.env`. You can set one
 or both — a set value always wins over the config file. Without either
 source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
+
+`.env` edits take effect when the container is re-created: set up with the
+CLI, run `npx vault-cortex@latest restart`; with Compose, `docker compose up -d`;
+with `docker run`, re-create the container as described in the
+**Changed `.env`?** note under [Restart](#restart).
 
 ## Configuration
 
