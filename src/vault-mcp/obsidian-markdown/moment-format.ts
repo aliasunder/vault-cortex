@@ -42,9 +42,9 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
   return momentFormat
     .split(MOMENT_ESCAPE_RE)
     .map((segment, segmentIndex) => {
-      // split() on a regex with a capturing group keeps each captured match
-      // in the result array, so segments strictly alternate: format span
-      // (even index), captured [literal] contents (odd index), and so on.
+      // Odd indices are the contents of [literal] escapes: splitting on a
+      // regex with a capturing group keeps each captured match in the result
+      // array, so segments alternate format span / literal contents.
       const isLiteralContent = segmentIndex % 2 === 1
       // Luxon wraps literal text in single quotes and escapes an embedded
       // quote by doubling it ("it's" → 'it''s').
