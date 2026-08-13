@@ -55,7 +55,7 @@
     },
     {
       "title": "Memory Layer",
-      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, daily-notes.ts with moment-format.ts, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
+      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, daily-notes.ts with obsidian-markdown/moment-format.ts, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
       "parent": "Architecture"
     },
     {

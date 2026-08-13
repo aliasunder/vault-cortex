@@ -3,7 +3,7 @@
 import { z } from "zod"
 import envVar from "env-var"
 import { DateTime } from "luxon"
-import { momentToLuxonFormat } from "./vault-operations/moment-format.js"
+import { momentToLuxonFormat } from "./obsidian-markdown/moment-format.js"
 
 // ── Validation ─────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
-import { momentToLuxonFormat } from "./moment-format.js"
+import { momentToLuxonFormat } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 

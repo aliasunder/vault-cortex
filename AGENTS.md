@@ -130,13 +130,13 @@ src/
       pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
       pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
       plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
+      moment-format.ts                 # Moment.js → Luxon format-string conversion (pure, zero imports)
     vault-operations/                  # Vault content read/write/patch (filesystem I/O)
       vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver (env overrides > daily-notes.json)
-      moment-format.ts                 # Moment.js → Luxon format-string conversion (pure, zero imports)
       task-updater.ts                  # Task state mutations (status, priority, lane moves)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
