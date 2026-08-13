@@ -241,7 +241,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
 - **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; PDF content is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
 - **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written; the first 100 KB of content is full-text searchable. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
-- **Browse** — list any folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
+- **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
 
@@ -351,6 +351,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note. Exclusive creates use `link()` (POSIX no-clobber) to close the TOCTOU window on note moves.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
+- **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 

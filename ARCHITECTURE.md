@@ -274,7 +274,7 @@ Link queries use a `links` table populated during indexing:
 
 5. **Unknown types** return an error naming the readable set.
 
-The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal guard as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB).
+The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB).
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Canvas, PDF, and text files (.txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base) are indexed for full-text search in the `file_content` + `file_content_fts` tables — see Canvas entry above for the canvas-specific link graph integration. PDF text is extracted via `obsidian-markdown/pdf.ts` (structured markdown reconstruction) — this works on PDFs with embedded text content; scanned or image-only PDFs produce no indexable text and are silently skipped. Text files are indexed as raw UTF-8 content. Content exceeding 100 KiB is truncated before FTS insertion.
 
@@ -742,16 +742,27 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on traversal (`../../etc/passwd`).
+  filesystem access. Throws on traversal (`../../etc/passwd`) and on
+  hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
+  checked on the resolved relative path so `a/../.obsidian/x` is caught
+  while `notes/./plan.md` passes. The predicate
+  (`utils/has-hidden-path-segment.ts`) is shared with the listing
+  filter, file watcher, and index rebuild — one definition of "hidden",
+  every layer ("one rule, every layer", like `assertPathHasExtension`).
+  The internal `.obsidian/` config readers (`daily-notes.ts`,
+  `task-format-config.ts`) deliberately bypass this guard via direct
+  `readFile`.
 - **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
   backslashes and collapses `../` _before_ the protected-path prefix
   check, so `X/../About Me/Principles.md` cannot evade protection.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
-- **Memory file separator rejection** (`memory-store.ts`):
+- **Memory file name rejection** (`memory-store.ts`):
   `memoryFilePath()` rejects `/` and `\` in memory file names — a name
-  like `../../outside` cannot escape the memory directory.
+  like `../../outside` cannot escape the memory directory — and leading
+  dots, which would create hidden files (memory paths are built via
+  `join`, bypassing `resolveSafePath`'s hidden-path guard).
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`,
   `Daily Notes`) blocks deleting notes in, moving notes out of, and
   moving notes into configured folders, checked after normalization.

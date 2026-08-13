@@ -7,7 +7,14 @@ import {
   vi,
   onTestFinished,
 } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -82,6 +89,22 @@ afterEach(async () => {
 })
 
 describe("getMemory", () => {
+  // A pre-existing hidden file on disk (created outside the server) must not
+  // leak through the concatenate-all read — the enumeration filter, not just
+  // the explicit-name rejection, is what excludes it.
+  it("excludes a pre-existing hidden memory file from the all-files read", async () => {
+    await writeFile(
+      join(vault, "About Me", ".secret.md"),
+      "# Hidden\n\nleaked-fixture-content\n",
+      "utf8",
+    )
+    const result = await getMemory({ vaultPath: vault }, logger)
+    expect(result).not.toContain("leaked-fixture-content")
+    // The visible files still come back — proves the read ran normally.
+    expect(result).toContain("# Opinions")
+    expect(result).toContain("# Principles")
+  })
+
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
     expect(result).toContain("# Opinions")
@@ -199,9 +222,45 @@ describe("getMemory", () => {
       'memory file must be a bare name without path separators: "../Outside"',
     )
   })
+
+  // A dot-prefixed name would create a file hidden from Obsidian, listings,
+  // and the index — memory paths bypass resolveSafePath's hidden-path guard,
+  // so the name gate is the only defense.
+  it("rejects a dot-prefixed file name instead of reading a hidden file", async () => {
+    // A real hidden memory file on disk — the guard, not a missing file,
+    // must be what rejects the read.
+    await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    await expect(
+      getMemory({ vaultPath: vault, file: ".secret" }, logger),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+  })
 })
 
 describe("updateMemory", () => {
+  // Guards the dot-prefix rejection through the WRITE surface — a refactor of
+  // updateMemory's file access that bypassed memoryFilePath would silently
+  // start creating hidden files while the getMemory test stayed green.
+  it("rejects a dot-prefixed file name instead of creating a hidden file", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: ".secret",
+          section: "Notes (newest first)",
+          entry: "hidden entry",
+          date: "2026-05-08",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+    const memoryDirEntries = await readdir(join(vault, "About Me"))
+    expect(memoryDirEntries).not.toContain(".secret.md")
+  })
+
   it("inserts entry at top of section by default", async () => {
     await updateMemory(
       {
@@ -1260,6 +1319,24 @@ describe("updateMemory near-duplicate section guard", () => {
 })
 
 describe("deleteMemory", () => {
+  // Same guard through the DELETE surface (see the updateMemory dot test).
+  it("rejects a dot-prefixed file name", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: ".secret",
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          entry: "hidden entry",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+  })
+
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
       {
@@ -1448,6 +1525,15 @@ title: Dupe
 })
 
 describe("listMemoryFiles", () => {
+  it("excludes a pre-existing hidden memory file from the outlines", async () => {
+    await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual([
+      "Opinions",
+      "Principles",
+    ])
+  })
+
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines).toHaveLength(2)
@@ -1642,6 +1728,12 @@ describe("listMemoryFileNames", () => {
 
   it("ignores non-markdown files", async () => {
     await writeFile(join(vault, "About Me/notes.txt"), "ignore me", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("excludes a pre-existing hidden memory file", async () => {
+    await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })

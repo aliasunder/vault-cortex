@@ -115,6 +115,7 @@ When to use: whenever a note references a file you need to actually see or read 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
 - "file not found" — nothing exists at that path; discover valid paths via vault_list_files
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not readable, matching Obsidian
 - "file too large" — the file exceeds the server's read cap (MAX_FILE_BYTES, default 50 MiB)
 - "text output too large" — a text file or PDF renders past the output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
@@ -238,8 +239,9 @@ Parameters:
 - limit: maximum entries returned (default 50). extension_counts and total always reflect the full filtered set, not just the returned page.
 
 Errors:
-- A folder containing no files — or a folder that doesn't exist — returns an empty listing, not an error.
+- A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Files of supported types are readable via vault_read_file; vault_search covers markdown notes.`,
       inputSchema: {

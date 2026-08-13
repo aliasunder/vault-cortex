@@ -78,6 +78,7 @@ Errors:
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
 - 'path must end in ".md"' — the path names a non-markdown file${config.fileToolsEnabled ? "; read files (images, .canvas, data files) with vault_read_file instead" : ""}
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
@@ -325,6 +326,7 @@ Limitation: Writes the entire body. Do not use for surgical edits to large files
 
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not writable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
 
@@ -425,6 +427,7 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 
@@ -531,6 +534,7 @@ Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "old_text cannot be empty" — old_text must be at least one character
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
 
@@ -624,6 +628,7 @@ Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
@@ -710,6 +715,7 @@ Parameters:
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
       inputSchema: {
@@ -766,6 +772,7 @@ Behavior: With prune_empty_folders, pruning is best-effort and runs after the de
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
 
@@ -842,6 +849,7 @@ Errors:
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "path must end in …" — old_path or new_path is missing the .md extension; both paths must end in .md.
 - "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
+- "hidden path blocked" — old_path or new_path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; notes cannot be moved from or into hidden paths, matching Obsidian.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is deleted only after the destination and all backlinks are written, so a failure never loses data. The error message names what failed and the resulting state: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish).
 
@@ -946,6 +954,7 @@ Prefer vault_write_note when creating a new note, or replacing the body (with ov
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
 - "path traversal blocked" — path escapes vault root
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).

@@ -770,4 +770,27 @@ describe("task-updater", () => {
       )
     })
   })
+
+  describe("hidden paths", () => {
+    it("rejects a task note inside a hidden folder and leaves it unchanged", async () => {
+      const vault = await createVault()
+      // The note exists on disk so a removed guard would let the update
+      // succeed — the test then fails on the mutation, not a missing file.
+      await writeTestNote(vault, ".trash/tasks.md", SIMPLE_NOTE)
+      await expect(
+        taskUpdater.updateTask(
+          {
+            vaultPath: vault,
+            path: ".trash/tasks.md",
+            line: 5,
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'hidden path blocked: ".trash/tasks.md" targets a hidden file or folder',
+      )
+      expect(await readTestNote(vault, ".trash/tasks.md")).toBe(SIMPLE_NOTE)
+    })
+  })
 })

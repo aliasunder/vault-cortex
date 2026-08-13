@@ -1882,3 +1882,182 @@ describe("statAssets", () => {
     expect(statted).toEqual([{ path: "kept.png", bytes: 4 }])
   })
 })
+
+describe("hidden paths", () => {
+  // Fixtures are created ON DISK so that if the guard were removed, every
+  // call below would succeed — the tests then fail because the operation
+  // resolved, never via a coincidental "not found" (wrong-error pass).
+  const createHiddenFixtures = async () => {
+    await mkdir(join(vault, ".obsidian", "plugins", "some-plugin"), {
+      recursive: true,
+    })
+    await writeFile(
+      join(vault, ".obsidian", "plugins", "some-plugin", "data.json"),
+      '{"apiKey":"fake-fixture-secret"}',
+      "utf8",
+    )
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "secret.md"), "# Secret\n", "utf8")
+  }
+
+  it("readNote rejects a note inside a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readNote({ vaultPath: vault, path: ".trash/secret.md" }, logger),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("readNoteOutline rejects a note inside a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("readNoteSection rejects a note inside a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readNoteSection(
+        { vaultPath: vault, path: ".trash/secret.md", heading: "Secret" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("readNoteProperties rejects a note inside a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readNoteProperties(
+        { vaultPath: vault, path: ".trash/secret.md" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("readAsset rejects a plugin data file inside .obsidian", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readAsset(
+        {
+          vaultPath: vault,
+          path: ".obsidian/plugins/some-plugin/data.json",
+          maxBytes: 1024,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+    )
+  })
+
+  it("writeNote rejects a hidden path and creates nothing on disk", async () => {
+    await expect(
+      writeNote(
+        { vaultPath: vault, path: ".secret/new.md", body: "# New\n" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".secret/new.md" targets a hidden file or folder',
+    )
+    const entries = await readdir(vault)
+    expect(entries).not.toContain(".secret")
+  })
+
+  it("updateProperties rejects a note inside a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      updateProperties(
+        { vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("deleteNote rejects a note inside a hidden folder and leaves it on disk", async () => {
+    await createHiddenFixtures()
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: ".trash/secret.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readFile(join(vault, ".trash", "secret.md"), "utf8")).toBe(
+      "# Secret\n",
+    )
+  })
+
+  it("listNotes rejects an explicitly hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      listNotes({ vaultPath: vault, folder: ".obsidian" }, logger),
+    ).rejects.toThrow(
+      'hidden path blocked: ".obsidian" targets a hidden file or folder',
+    )
+  })
+
+  it("listAssets rejects an explicitly hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      listAssets({ vaultPath: vault, folder: ".obsidian" }, logger),
+    ).rejects.toThrow(
+      'hidden path blocked: ".obsidian" targets a hidden file or folder',
+    )
+  })
+
+  it("rejects a traversal-normalized path that lands in a hidden folder", async () => {
+    await createHiddenFixtures()
+    await expect(
+      readAsset(
+        {
+          vaultPath: vault,
+          path: "notes/../.obsidian/plugins/some-plugin/data.json",
+          maxBytes: 1024,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: "notes/../.obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+    )
+  })
+
+  it("accepts a './'-prefixed path to a visible note", async () => {
+    await mkdir(join(vault, "notes"), { recursive: true })
+    await writeFile(join(vault, "notes", "plan.md"), "# Plan\n", "utf8")
+    const note = await readNote(
+      { vaultPath: vault, path: "notes/./plan.md" },
+      logger,
+    )
+    expect(note).toBe("# Plan\n")
+  })
+
+  it("accepts an interior-dot folder name as visible", async () => {
+    await mkdir(join(vault, "notes", "version.2"), { recursive: true })
+    await writeFile(
+      join(vault, "notes", "version.2", "file.md"),
+      "# V2\n",
+      "utf8",
+    )
+    const note = await readNote(
+      { vaultPath: vault, path: "notes/version.2/file.md" },
+      logger,
+    )
+    expect(note).toBe("# V2\n")
+  })
+})
