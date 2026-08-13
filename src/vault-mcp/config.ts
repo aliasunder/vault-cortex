@@ -135,18 +135,23 @@ export const loadConfig = (
     ? validateDailyNotesFormat(dailyNotesFormatRaw)
     : undefined
 
+  // Smart defaults track the env-configured daily notes folder (the
+  // vault's daily-notes.json can't cascade here — config load is
+  // synchronous env parsing; the file is read lazily at call time).
+  const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
+
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPaths = protectedPathsRaw
     ? splitCommaSeparatedFolders(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
-    : [memoryDir, "Daily Notes"]
+    : [memoryDir, dailyNotesFolderOrDefault]
 
   const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
     ? splitCommaSeparatedFolders(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
         (folder) => vaultFolderName.parse(folder),
       )
-    : ["Daily Notes", "Templates", memoryDir]
+    : [dailyNotesFolderOrDefault, "Templates", memoryDir]
 
   const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
     ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())

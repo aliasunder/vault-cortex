@@ -148,8 +148,8 @@ All settings are environment variables with sensible defaults.
 | `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`. |
 | `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) — useful for remote deployments where Obsidian Sync has attachment syncing disabled. |
 | `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR, Daily Notes` | Folders that `vault_delete_note` refuses to touch |
-| `ORPHAN_EXCLUDE_FOLDERS` | — | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR, DAILY_NOTES_FOLDER` | Folders that `vault_delete_note` refuses to touch |
+| `ORPHAN_EXCLUDE_FOLDERS` | — | `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR` | Folders excluded from orphan detection |
 | `DAILY_NOTES_FOLDER` | — | from vault config | Overrides the daily notes folder. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `DAILY_NOTES_FORMAT` | — | from vault config | Overrides the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |

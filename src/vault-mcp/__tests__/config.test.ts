@@ -139,6 +139,28 @@ describe("loadConfig", () => {
       expect(config.dailyNotesFolder).toBe("Journal")
     })
 
+    it("cascades into protectedPaths when PROTECTED_PATHS is not set", () => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
+      expect(config.protectedPaths).toEqual(["About Me", "Journal"])
+    })
+
+    it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
+      expect(config.orphanExcludeFolders).toEqual([
+        "Journal",
+        "Templates",
+        "About Me",
+      ])
+    })
+
+    it("does not cascade when PROTECTED_PATHS is explicitly set", () => {
+      const config = loadConfig({
+        DAILY_NOTES_FOLDER: "Journal",
+        PROTECTED_PATHS: "Secrets,Archive",
+      })
+      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
+    })
+
     it("accepts nested folder paths", () => {
       const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal/Daily" })
       expect(config.dailyNotesFolder).toBe("Journal/Daily")

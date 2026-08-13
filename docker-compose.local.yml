@@ -37,9 +37,9 @@ services:
       MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
       # Left empty = the server applies smart defaults
-      # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
-      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes"
-      #   ORPHAN_EXCLUDE_FOLDERS    default: "Daily Notes, Templates, <MEMORY_DIR>"
+      # (<MEMORY_DIR>/<DAILY_NOTES_FOLDER> below are the resolved values, defaults "About Me" / "Daily Notes"):
+      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
+      #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
       #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json ("Daily Notes")
       #   DAILY_NOTES_FORMAT        default: read from the vault's .obsidian/daily-notes.json ("YYYY-MM-DD")
