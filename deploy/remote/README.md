@@ -407,8 +407,8 @@ required. These optional settings are worth knowing about:
 | `MEMORY_ENABLED`     | `true`             | Set `false` to disable the structured memory layer                                                    |
 | `FILE_TOOLS_ENABLED` | `true`             | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
 | `SYNC_CONFIGS`       | `core-plugin-data` | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
-| `DAILY_NOTES_FOLDER` | from vault config  | Overrides the daily notes folder (see [Daily notes](#daily-notes))                                    |
-| `DAILY_NOTES_FORMAT` | from vault config  | Overrides the daily note filename format (see [Daily notes](#daily-notes))                            |
+| `DAILY_NOTES_FOLDER` | from vault config  | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
+| `DAILY_NOTES_FORMAT` | from vault config  | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.
