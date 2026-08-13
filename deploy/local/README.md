@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ What happens on first start:
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
 > at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
-> generated `.env` after `init` and apply with `npx vault-cortex@latest upgrade`. See
+> generated `.env` after `init` and apply with `npx vault-cortex@latest restart`. See
 > [Windows (Docker Desktop)](#windows-docker-desktop) below.
 
 <details>
@@ -146,6 +146,21 @@ curl http://localhost:8000/healthz
 # OAuth discovery (no auth required — root and RFC 9728 path-suffixed forms):
 curl http://localhost:8000/.well-known/oauth-protected-resource
 curl http://localhost:8000/.well-known/oauth-protected-resource/mcp
+
+# Server logs (structured JSON lines):
+npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
+docker logs vault-cortex       # Compose or docker run
+```
+
+## Monitoring
+
+```bash
+# Follow the server logs until ctrl-C:
+npx vault-cortex@latest logs --follow   # set up with the CLI
+docker logs -f vault-cortex             # Compose or docker run
+
+# Container status — "healthy" tracks the server's /healthz:
+docker ps
 ```
 
 ## Updating
@@ -171,24 +186,48 @@ and the `--dir` flag.
 docker compose pull && docker compose up -d
 ```
 
-## Stop
+## Restart
 
-**Set up with the CLI?**
+The server runs startup tasks on every boot: it rebuilds the search index,
+creates memory template files if the memory folder doesn't exist, and starts
+the file watcher. Restarting the container re-runs this flow (useful when
+testing bootstrap behavior). The command is the same for both setup methods,
+since both name the container `vault-cortex`:
 
 ```bash
-# Stop (data persists in Docker volumes):
+docker restart vault-cortex
+```
+
+> **Changed `.env`?** A restart does **not** re-read `.env` — the container
+> has to be re-created. Set up with the CLI? Run
+> [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
+> `docker restart`, it re-creates the container, so your edits take effect
+> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
+> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> re-creates services whose configuration changed.
+
+The container also restarts automatically on crash (`restart: unless-stopped`
+policy), Docker daemon restart, or system reboot.
+
+## Stop
+
+```bash
+# Stop and remove the container (data persists in Docker volumes):
+npx vault-cortex@latest down   # set up with the CLI
+docker compose down            # Compose
+
+# Stop and delete all volumes (index rebuilds on next start):
+docker compose down -v         # Compose
+
+# Stop without removing (any setup method; docker start resumes):
 docker stop vault-cortex
 ```
 
-**Set up with Docker Compose?**
-
-```bash
-# Stop (data persists in Docker volumes):
-docker compose down
-
-# Stop and delete all volumes (index rebuilds on next start):
-docker compose down -v
-```
+**Set up with the CLI?** Start again any time with
+`npx vault-cortex@latest start` — your saved settings are reused
+([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
+reference). Otherwise resume with `docker compose up -d` or
+`docker start vault-cortex`.
 
 ## Windows (Docker Desktop)
 
@@ -241,8 +280,9 @@ Sync has attachment syncing disabled and no files exist on disk.
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, file tools, timezone), see
-the [Configuration](../../README.md#configuration) section in the main README.
+(memory folder, protected paths, orphan exclusions, file tools, daily notes
+folder and format, timezone), see the
+[Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting
 
