@@ -372,19 +372,40 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Daily notes
+
+`vault_get_daily_note` resolves paths from your vault's daily notes settings
+(`.obsidian/daily-notes.json`). In remote mode that file only reaches the
+server when vault configuration syncing is on — which takes both switches:
+
+- **Server side** — `SYNC_CONFIGS` defaults to `core-plugin-data`, so the
+  right category syncs automatically. Set `SYNC_CONFIGS=none` in `.env` to
+  disable.
+- **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
+  enabled per device. Obsidian only pushes categories you enable there.
+
+If the settings can't sync — or you use the Periodic Notes plugin, whose
+settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` and
+`DAILY_NOTES_FORMAT` in `.env`; they override the config file per field.
+Without either source, the server uses Obsidian's defaults (`Daily Notes`
+folder, `YYYY-MM-DD` format).
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting              | Default   | What it does                                                                                          |
-| -------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `TZ`                 | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
-| `VAULT_PASSWORD`     | —         | Set this if your vault has end-to-end encryption enabled                                              |
-| `EMBEDDING_ENABLED`  | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
-| `RERANK_MODE`        | `blended` | Set `none` to skip reranking for lower latency                                                        |
-| `MEMORY_ENABLED`     | `true`    | Set `false` to disable the structured memory layer                                                    |
-| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| Setting              | Default            | What it does                                                                                          |
+| -------------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `TZ`                 | `UTC`              | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
+| `VAULT_PASSWORD`     | —                  | Set this if your vault has end-to-end encryption enabled                                              |
+| `EMBEDDING_ENABLED`  | `true`             | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
+| `RERANK_MODE`        | `blended`          | Set `none` to skip reranking for lower latency                                                        |
+| `MEMORY_ENABLED`     | `true`             | Set `false` to disable the structured memory layer                                                    |
+| `FILE_TOOLS_ENABLED` | `true`             | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| `SYNC_CONFIGS`       | `core-plugin-data` | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
+| `DAILY_NOTES_FOLDER` | from vault config  | Overrides the daily notes folder (see [Daily notes](#daily-notes))                                    |
+| `DAILY_NOTES_FORMAT` | from vault config  | Overrides the daily note filename format (see [Daily notes](#daily-notes))                            |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

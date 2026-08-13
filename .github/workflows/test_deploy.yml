@@ -211,6 +211,8 @@ jobs:
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
           SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
           SYNC_CONFIGS: ${{ vars.SYNC_CONFIGS }}
+          DAILY_NOTES_FOLDER: ${{ vars.DAILY_NOTES_FOLDER }}
+          DAILY_NOTES_FORMAT: ${{ vars.DAILY_NOTES_FORMAT }}
           TZ: ${{ vars.TZ }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_DIR: ${{ vars.LOG_DIR }}
@@ -248,6 +250,8 @@ jobs:
           if [ -n "$ORPHAN_EXCLUDE_FOLDERS" ]; then echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SERVICE_DOCUMENTATION_URL" ]; then echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SYNC_CONFIGS" ]; then echo "SYNC_CONFIGS=$SYNC_CONFIGS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$DAILY_NOTES_FOLDER" ]; then echo "DAILY_NOTES_FOLDER=$DAILY_NOTES_FOLDER" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$DAILY_NOTES_FORMAT" ]; then echo "DAILY_NOTES_FORMAT=$DAILY_NOTES_FORMAT" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:

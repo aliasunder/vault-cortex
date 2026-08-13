@@ -330,6 +330,8 @@ All settings are environment variables with sensible defaults.
 | `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                                                       |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                                              |
 | `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                                                                                                                                                                                                         |
+| `DAILY_NOTES_FOLDER`        | —           | from vault config                    | Overrides the daily notes folder. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](#daily-notes).                                                                                              |
+| `DAILY_NOTES_FORMAT`        | —           | from vault config                    | Overrides the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](#daily-notes).                            |
 | `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                         |
 | `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                                                                                                                                                       |
 | `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                                                            |
@@ -343,6 +345,15 @@ All settings are environment variables with sensible defaults.
 **Smart defaults:** Setting `MEMORY_DIR` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. You only set those explicitly for a fully custom list. When `MEMORY_ENABLED` is `false`, the memory layer is fully disabled — memory tools are hidden and the memory folder is not auto-created. When `FILE_TOOLS_ENABLED` is `false`, file tools are hidden entirely — useful when Obsidian Sync has attachment syncing disabled and no files exist on disk.
 
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
+
+### Daily notes
+
+`vault_get_daily_note` and the daily-review prompt resolve daily note paths using, per field: the `DAILY_NOTES_FOLDER` / `DAILY_NOTES_FORMAT` env overrides → the vault's `.obsidian/daily-notes.json` → Obsidian's defaults (`Daily Notes` folder, `YYYY-MM-DD` format). The format takes the same tokens as Obsidian's daily note date format setting (`YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …).
+
+- **Local mode** reads `.obsidian/daily-notes.json` straight from your bind-mounted vault — custom settings work with no extra setup.
+- **Remote mode**: the config file only reaches the server when vault configuration syncing is on. Two switches control that: `SYNC_CONFIGS` (defaults to `core-plugin-data`; set `none` to disable) and the push side on your desktop — Obsidian Settings → Sync → **Vault configuration sync**, enabled per device. If the file hasn't arrived yet when the server boots (first sync still running), the server retries on every call and picks it up the moment it lands — no restart needed.
+- **Periodic Notes plugin users**: vault-cortex reads the core Daily Notes plugin's config, which the Periodic Notes plugin doesn't update. Set the env overrides to match your Periodic Notes settings (or hand-edit `.obsidian/daily-notes.json` in your vault to match).
+- **Tip**: if your daily notes live in a custom folder, add it to `PROTECTED_PATHS` — the default only protects `Daily Notes`.
 
 ## Data Integrity
 

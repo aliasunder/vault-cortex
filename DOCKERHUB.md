@@ -75,48 +75,48 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 
 ## Tools
 
-| Category        | Tool                         | Description                                                                            |
+| Category | Tool | Description |
 | --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
-| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                             |
-|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                 |
-|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace, insert)                               |
-|                 | `vault_replace_in_note`      | Find-and-replace text in a note                                                        |
-|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                             |
-|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                            |
-|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                               |
-|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                |
-| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                    |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                              |
-|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                 |
-|                 | `vault_recent_notes`         | Recently modified or created notes                                                     |
-|                 | `vault_list_tags`            | All tags with usage counts                                                             |
-| **Tasks**       | `vault_list_tasks`           | Vault-wide task index — Kanban-aware, 6 date fields, priority, folder/heading scope    |
-|                 | `vault_update_task`          | One-call status, priority, and lane changes — auto-detects done lanes on Kanban boards |
-| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                         |
-|                 | `vault_update_memory`        | Append a dated entry to a memory section                                               |
-|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                 |
-|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                    |
-|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first              |
-| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                   |
-|                 | `vault_list_property_values` | Distinct values for a property key                                                     |
-|                 | `vault_search_by_property`   | Find notes by property key-value                                                       |
-|                 | `vault_update_properties`    | Add or update properties without touching the body                                     |
-| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                          |
-|                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
-|                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
-| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
-|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts              |
-| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
+| **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
+|  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
+|  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace, insert) |
+|  | `vault_replace_in_note` | Find-and-replace text in a note |
+|  | `vault_delete_span` | Delete a block of lines by short anchors, no full re-quote |
+|  | `vault_list_notes` | List notes with optional glob/folder filter |
+|  | `vault_delete_note` | Delete a note (protected paths enforced) |
+|  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
+| **Search** | `vault_search` | Hybrid search with tag/folder/property/date filters |
+|  | `vault_search_by_tag` | Find notes by tag (exact or prefix match) |
+|  | `vault_search_by_folder` | Browse notes in a folder with metadata |
+|  | `vault_recent_notes` | Recently modified or created notes |
+|  | `vault_list_tags` | All tags with usage counts |
+| **Tasks** | `vault_list_tasks` | Vault-wide task index — Kanban-aware, 6 date fields, priority, folder/heading scope |
+|  | `vault_update_task` | One-call status, priority, and lane changes — auto-detects done lanes on Kanban boards |
+| **Memory** | `vault_get_memory` | Read structured memory (file, section, or all) |
+|  | `vault_update_memory` | Append a dated entry to a memory section |
+|  | `vault_delete_memory` | Remove a specific memory entry by date |
+|  | `vault_list_memory_files` | Discover memory files, their sections, and each file's entry policy |
+|  | `vault_memory_recall` | Entry-granular hybrid recall of a topic across memory files, oldest-first |
+| **Properties** | `vault_list_property_keys` | All property keys with sample values |
+|  | `vault_list_property_values` | Distinct values for a property key |
+|  | `vault_search_by_property` | Find notes by property key-value |
+|  | `vault_update_properties` | Add or update properties without touching the body |
+| **Links** | `vault_get_backlinks` | Notes linking to a given path |
+|  | `vault_get_outgoing_links` | Links from a given note |
+|  | `vault_find_orphans` | Notes with no incoming links |
+| **Files** | `vault_read_file` | Read a non-markdown file — images delivered as images, canvases as readable outlines |
+|  | `vault_list_files` | Browse the vault's non-markdown files with sizes and per-extension counts |
+| **Daily Notes** | `vault_get_daily_note` | Today's (or any date's) daily note |
 
 ## Prompts
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
-| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                                                            |
+| Prompt | Arguments | What it does |
 | ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                                                         |
-| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. Hidden when `MEMORY_ENABLED=false`. |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                                                                   |
+| `vault-orientation` | — | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions |
+| `memory-review` | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. Hidden when `MEMORY_ENABLED=false`. |
+| `daily-review` | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up |
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
@@ -126,49 +126,51 @@ Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and wor
 
 Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+formatting/Properties) in your notes, but five get **promoted** treatment — dedicated columns for fast filtering, and top-level fields in every search and discovery result:
 
-| Property  | What you can do                                                                                              |
+| Property | What you can do |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
-| `title`   | Display name in search results; falls back to the filename when missing                                      |
-| `tags`    | Search and filter by tag, including parent-child hierarchies (`project` matches `project/vault-cortex`)      |
-| `type`    | Filter by note type — `meeting`, `person`, `session-log`, or any value your vault uses                       |
-| `created` | Sort by creation date and see when each note was created alongside every search result                       |
+| `title` | Display name in search results; falls back to the filename when missing |
+| `tags` | Search and filter by tag, including parent-child hierarchies (`project` matches `project/vault-cortex`) |
+| `type` | Filter by note type — `meeting`, `person`, `session-log`, or any value your vault uses |
+| `created` | Sort by creation date and see when each note was created alongside every search result |
 | `related` | Filter for notes that cross-reference a specific link — surfaces connections invisible without a graph query |
 
 ## Configuration
 
 All settings are environment variables with sensible defaults.
 
-| Variable                    | Required?   | Default                              | Description                                                                                                                                                                                                                                                    |
+| Variable | Required? | Default | Description |
 | --------------------------- | ----------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`            | Yes         | —                                    | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                                                     |
-| `VAULT_PATH`                | Local only  | —                                    | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                                                        |
-| `PUBLIC_URL`                | Remote only | —                                    | Public URL for OAuth discovery metadata                                                                                                                                                                                                                        |
-| `EMBEDDING_ENABLED`         | —           | `true`                               | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                          |
-| `RERANK_MODE`               | —           | `blended`                            | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                                             |
-| `MEMORY_ENABLED`            | —           | `true`                               | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                                                  |
-| `FILE_TOOLS_ENABLED`        | —           | `true`                               | Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) — useful for remote deployments where Obsidian Sync has attachment syncing disabled.                                                                                                    |
-| `MEMORY_DIR`                | —           | `About Me`                           | Vault folder for structured memory files                                                                                                                                                                                                                       |
-| `PROTECTED_PATHS`           | —           | `MEMORY_DIR, Daily Notes`            | Folders that `vault_delete_note` refuses to touch                                                                                                                                                                                                              |
-| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection                                                                                                                                                                                                                         |
-| `TZ`                        | —           | `UTC`                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                         |
-| `SERVICE_DOCUMENTATION_URL` | —           | GitHub repo URL                      | URL returned in OAuth discovery metadata                                                                                                                                                                                                                       |
-| `LOG_LEVEL`                 | —           | `info`                               | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                                                            |
-| `LOG_DIR`                   | —           | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only.                                                                                                                          |
-| `LOG_RETENTION_DAYS`        | —           | `30`                                 | Days to keep log files before automatic cleanup on startup                                                                                                                                                                                                     |
-| `WINDOWS_MODE`              | —           | `false`                              | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2.                              |
-| `MAX_FILE_BYTES`            | —           | `52428800` (50 MiB)                  | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                                                 |
-| `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                     | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
-| `MAX_PDF_RENDER_PAGES`      | —           | `5`                                  | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each.                                     |
+| `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
+| `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume) |
+| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata |
+| `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
+| `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
+| `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`. |
+| `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) — useful for remote deployments where Obsidian Sync has attachment syncing disabled. |
+| `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR, Daily Notes` | Folders that `vault_delete_note` refuses to touch |
+| `ORPHAN_EXCLUDE_FOLDERS` | — | `Daily Notes, Templates, MEMORY_DIR` | Folders excluded from orphan detection |
+| `DAILY_NOTES_FOLDER` | — | from vault config | Overrides the daily notes folder. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
+| `DAILY_NOTES_FORMAT` | — | from vault config | Overrides the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
+| `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
+| `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
+| `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
+| `LOG_DIR` | — | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only. |
+| `LOG_RETENTION_DAYS` | — | `30` | Days to keep log files before automatic cleanup on startup |
+| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
+| `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |
+| `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
+| `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
 
 ## Deployment Options
 
 Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
 
-| Path          | What                                                              | Guide                                |
+| Path | What | Guide |
 | ------------- | ----------------------------------------------------------------- | ------------------------------------ |
-| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
-| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md)           |
+| **Local** | Your vault on your machine — free, no cloud | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/) |
+| **Remote** | VPS + Obsidian Sync — access from any device | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
+| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md) |
 
 
 ## License
