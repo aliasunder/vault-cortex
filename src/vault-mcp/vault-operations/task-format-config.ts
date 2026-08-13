@@ -29,10 +29,10 @@ const DEFAULTS: TaskFormatConfig = {
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Caches only SUCCESSFUL reads, keyed by vault path — same pattern and
-// rationale as daily-notes.ts: uncached fallbacks are retried, so a plugin
-// config arriving after boot is picked up without a restart.
-let cachedConfig: { vaultPath: string; config: TaskFormatConfig } | null = null
+// Caches only SUCCESSFUL reads — same pattern and rationale as
+// daily-notes.ts: uncached fallbacks are retried, so a plugin config
+// arriving after boot is picked up without a restart.
+let cachedConfig: TaskFormatConfig | null = null
 
 /** Reads the Tasks plugin's format preference from
  *  `.obsidian/plugins/obsidian-tasks-plugin/data.json`. Falls back to
@@ -41,7 +41,7 @@ let cachedConfig: { vaultPath: string; config: TaskFormatConfig } | null = null
 export const readTaskFormatConfig = async (
   vaultPath: string,
 ): Promise<TaskFormatConfig> => {
-  if (cachedConfig?.vaultPath === vaultPath) return cachedConfig.config
+  if (cachedConfig) return cachedConfig
 
   try {
     const configPath = join(
@@ -69,7 +69,7 @@ export const readTaskFormatConfig = async (
           ? parsed.setCancelledDate
           : DEFAULTS.setCancelledDate,
     }
-    cachedConfig = { vaultPath, config: fileConfig }
+    cachedConfig = fileConfig
     return fileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {

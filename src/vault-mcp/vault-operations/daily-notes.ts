@@ -31,12 +31,10 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
 
 // TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
 // createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Caches only SUCCESSFUL reads, keyed by vault path (tests recycle the
-// module across vault tempdirs). Fallbacks are never cached: on a fresh
+// Caches only SUCCESSFUL reads. Fallbacks are never cached: on a fresh
 // remote deploy the config file can arrive after boot (initial sync still
 // running), and retrying each call picks it up without a restart.
-let cachedFileConfig: { vaultPath: string; config: DailyNotesConfig } | null =
-  null
+let cachedFileConfig: DailyNotesConfig | null = null
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns the fallback config (uncached — see cache comment) when the
@@ -44,7 +42,7 @@ let cachedFileConfig: { vaultPath: string; config: DailyNotesConfig } | null =
 const readDailyNotesFileConfig = async (
   vaultPath: string,
 ): Promise<DailyNotesConfig> => {
-  if (cachedFileConfig?.vaultPath === vaultPath) return cachedFileConfig.config
+  if (cachedFileConfig) return cachedFileConfig
 
   try {
     const configFileContent = await readFile(
@@ -64,7 +62,7 @@ const readDailyNotesFileConfig = async (
           ? parsedConfig.format
           : FALLBACK_CONFIG.format,
     }
-    cachedFileConfig = { vaultPath, config: fileConfig }
+    cachedFileConfig = fileConfig
     return fileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
