@@ -223,9 +223,10 @@ docker compose down -v         # Compose
 docker stop vault-cortex
 ```
 
-Start again any time with `npx vault-cortex@latest start` — your saved
-settings are reused ([`down`](../../cli/#down) · [`start`](../../cli/#start)
-in the CLI reference).
+**Set up with the CLI?** Start again any time with
+`npx vault-cortex@latest start` — your saved settings are reused
+([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
+reference). Otherwise resume with `docker compose up -d`.
 
 ## Windows (Docker Desktop)
 
