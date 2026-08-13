@@ -393,9 +393,9 @@ it's picked up automatically once it lands — no restart needed.
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
 vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
-(same tokens as Obsidian's date format setting) in `.env`; they override the
-config file per field. Without either source, the server falls back to the
-`Daily Notes` folder and `YYYY-MM-DD`.
+(same tokens as Obsidian's date format setting) in `.env`. You can set one
+or both — a set value always wins over the config file. Without either
+source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
 
 ## Configuration
 

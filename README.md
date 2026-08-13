@@ -355,7 +355,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 - **Local mode** reads the file straight from your bind-mounted vault — nothing to set up.
 - **Remote mode** receives it through Obsidian Sync's vault configuration syncing. The server pulls it by default (the `SYNC_CONFIGS` setting in `.env`), but you'll likely need to enable the push side: Obsidian Settings → Sync → **Vault configuration sync**, per device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 
-When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …); they override the config file per field. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
+When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …). You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
 
 ## Data Integrity
 
