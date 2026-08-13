@@ -45,9 +45,13 @@ services:
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes" (blocked from vault_delete_note)
       #   ORPHAN_EXCLUDE_FOLDERS    default: "Daily Notes, Templates, <MEMORY_DIR>" (excluded from vault_find_orphans)
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
+      #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json ("Daily Notes")
+      #   DAILY_NOTES_FORMAT        default: read from the vault's .obsidian/daily-notes.json ("YYYY-MM-DD")
       PROTECTED_PATHS: ${PROTECTED_PATHS:-}
       ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
       SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
+      DAILY_NOTES_FOLDER: ${DAILY_NOTES_FOLDER:-}
+      DAILY_NOTES_FORMAT: ${DAILY_NOTES_FORMAT:-}
     volumes:
       - "${VAULT_PATH:?Set VAULT_PATH to your Obsidian vault folder}:/vault:rw"
       - mcp_data:/data

@@ -77,6 +77,14 @@ FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
+# Daily notes folder and filename format. When unset, both are read from the
+# vault's .obsidian/daily-notes.json (falling back to "Daily Notes" and
+# YYYY-MM-DD). Set to override per field — useful when the config file isn't
+# available or you use the Periodic Notes plugin. Format takes the same
+# tokens as Obsidian's daily note date format setting.
+# DAILY_NOTES_FOLDER=Journal
+# DAILY_NOTES_FORMAT=YYYY-MM-DD
+
 # Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
 # If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
 # PROTECTED_PATHS=About Me,Daily Notes
@@ -172,6 +180,15 @@ FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
+# Daily notes folder and filename format. When unset, both are read from the
+# vault's .obsidian/daily-notes.json (falling back to "Daily Notes" and
+# YYYY-MM-DD) — the file reaches the server via SYNC_CONFIGS above. Set to
+# override per field — useful when config sync is off or you use the
+# Periodic Notes plugin. Format takes the same tokens as Obsidian's daily
+# note date format setting.
+# DAILY_NOTES_FOLDER=Journal
+# DAILY_NOTES_FORMAT=YYYY-MM-DD
+
 # Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
 # If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
 # PROTECTED_PATHS=About Me,Daily Notes
@@ -210,6 +227,15 @@ CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 SYNC_MODE=bidirectional
+
+# Obsidian settings categories to sync into the server's .obsidian/ folder,
+# comma-separated (default: core-plugin-data — brings your daily notes
+# folder/format settings to the server). Set to "none" to disable.
+# A category only syncs after your desktop pushes it: Obsidian Settings →
+# Sync → "Vault configuration sync" (per device). Values: app, appearance,
+# appearance-data, hotkey, core-plugin, core-plugin-data, community-plugin,
+# community-plugin-data.
+SYNC_CONFIGS=core-plugin-data
 `
 
 // sync:remote-optional:end
