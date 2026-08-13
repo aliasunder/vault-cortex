@@ -83,4 +83,19 @@ apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
 apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
 apply_sync_config --file-types "$FILE_TYPES"
 apply_sync_config --mode "$SYNC_MODE"
-apply_sync_config --configs "$SYNC_CONFIGS"
+
+# Config-category sync defaults ON (core plugin data — daily-notes and
+# core plugin settings reach the server; pulling is a no-op unless the
+# desktop pushes the category). The default is applied here as well as in
+# the compose files so plain `docker run` (no Compose interpolation)
+# behaves the same. SYNC_CONFIGS=none actively clears the category list
+# ("empty to clear" per ob sync-config --help) instead of skipping —
+# on a persistent config volume, skipping would leave a previously
+# enabled category on across boots.
+if [ "$SYNC_CONFIGS" = "none" ]; then
+  if ! s6-setuidgid obsidian ob sync-config --configs ""; then
+    echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2
+  fi
+else
+  apply_sync_config --configs "${SYNC_CONFIGS:-core-plugin-data}"
+fi

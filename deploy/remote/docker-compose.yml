@@ -31,6 +31,9 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
+      # Obsidian config-category sync (default: core plugin data, so the
+      # vault's daily-notes settings reach the server). "none" disables.
+      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data}
       # --- MCP server ---
       PORT: "8000"
       HOST: "0.0.0.0"

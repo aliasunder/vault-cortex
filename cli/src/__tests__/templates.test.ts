@@ -136,6 +136,21 @@ describe("env var consistency across deploy surfaces", () => {
   )
 })
 
+describe("SYNC_CONFIGS default", () => {
+  it.each(["deploy/remote/docker-compose.yml", "docker-compose.yml"])(
+    "%s defaults SYNC_CONFIGS to core-plugin-data",
+    (composePath) => {
+      // Exact-form pin: the colon interpolation form keeps default-on
+      // semantics (unset OR empty → core-plugin-data); disabling is the
+      // explicit "none" sentinel handled by the init script, never an
+      // empty/unset value.
+      expect(readRepoFile(composePath)).toContain(
+        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data}",
+      )
+    },
+  )
+})
+
 describe("cli dependency pinning", () => {
   it("cli dependencies match the root devDependencies versions (single install for dev, real deps for npx)", () => {
     const cliManifest = JSON.parse(readRepoFile("cli/package.json")) as {

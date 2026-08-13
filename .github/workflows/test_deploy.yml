@@ -210,6 +210,7 @@ jobs:
           PROTECTED_PATHS: ${{ vars.PROTECTED_PATHS }}
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
           SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
+          SYNC_CONFIGS: ${{ vars.SYNC_CONFIGS }}
           TZ: ${{ vars.TZ }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_DIR: ${{ vars.LOG_DIR }}
@@ -246,6 +247,7 @@ jobs:
           if [ -n "$PROTECTED_PATHS" ]; then echo "PROTECTED_PATHS=$PROTECTED_PATHS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$ORPHAN_EXCLUDE_FOLDERS" ]; then echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SERVICE_DOCUMENTATION_URL" ]; then echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$SYNC_CONFIGS" ]; then echo "SYNC_CONFIGS=$SYNC_CONFIGS" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:
