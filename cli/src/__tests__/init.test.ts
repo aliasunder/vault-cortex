@@ -86,7 +86,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
     expect(scripted.prints[0]).toContain(
-      "Adjust optional settings (memory layer and folder, file tools,\nsemantic search, port, timezone):",
+      "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, semantic search, port, timezone):",
     )
   })
 
@@ -544,7 +544,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
     expect(scripted.prints[0]).toContain(
-      "Adjust optional settings (memory layer and folder, file tools,\nsemantic search, port, timezone, sync direction):",
+      "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, semantic search, port, timezone,\nsync direction):",
     )
   })
 
