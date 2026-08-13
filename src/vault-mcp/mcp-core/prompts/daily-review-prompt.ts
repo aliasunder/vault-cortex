@@ -167,7 +167,7 @@ export const registerDailyReviewPrompt = ({
           {
             vaultPath,
             date: dateArg,
-            overrides: {
+            envSettings: {
               folder: config.dailyNotesFolder,
               format: config.dailyNotesFormat,
             },

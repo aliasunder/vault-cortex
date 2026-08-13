@@ -21,7 +21,7 @@ export const registerDailyNoteTools = ({
     TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
-      description: `Read a daily note by date, using the vault's configured Daily Notes folder and date format (DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env overrides when set, otherwise .obsidian/daily-notes.json, otherwise Obsidian defaults — per field). Defaults to today if no date is provided.
+      description: `Read a daily note by date, using the vault's configured Daily Notes folder and date format (DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env settings when set, otherwise .obsidian/daily-notes.json, otherwise Obsidian defaults — per field). Defaults to today if no date is provided.
 
 Example: vault_get_daily_note({ date: "2026-05-13" })
 Example: vault_get_daily_note({}) — returns today's daily note
@@ -29,7 +29,7 @@ Example: vault_get_daily_note({}) — returns today's daily note
 When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. To append content to a daily note section, use the returned path with vault_patch_note. Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).
 
 Parameters:
-- date is ISO YYYY-MM-DD (e.g. "2026-05-13"). Defaults to today in the server's local timezone. Past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet. The path is derived from the server's daily-notes settings (env overrides, then the vault's Daily Notes plugin config, then Obsidian defaults), so callers never need to construct daily note paths manually.
+- date is ISO YYYY-MM-DD (e.g. "2026-05-13"). Defaults to today in the server's local timezone. Past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet. The path is derived from the server's daily-notes settings (env settings, then the vault's Daily Notes plugin config, then Obsidian defaults), so callers never need to construct daily note paths manually.
 
 Errors:
 - "invalid date" — use YYYY-MM-DD format (e.g. "2026-05-13", not "May 13")
@@ -63,7 +63,7 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
             {
               vaultPath,
               date,
-              overrides: {
+              envSettings: {
                 folder: config.dailyNotesFolder,
                 format: config.dailyNotesFormat,
               },

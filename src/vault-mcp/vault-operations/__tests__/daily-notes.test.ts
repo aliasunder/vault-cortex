@@ -286,7 +286,7 @@ describe("getDailyNotePath", () => {
     const path = await getDailyNotePath({
       vaultPath: vaultDir,
       date: "2026-05-13",
-      overrides: { folder: "Override Folder", format: "DD-MM-YYYY" },
+      envSettings: { folder: "Override Folder", format: "DD-MM-YYYY" },
     })
     expect(path).toBe("Override Folder/13-05-2026.md")
   })

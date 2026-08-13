@@ -71,13 +71,14 @@ export type VaultConfig = Readonly<{
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean
   memoryDir: string
-  /** Overrides the daily notes folder from .obsidian/daily-notes.json.
-   *  Per-field precedence: env override → daily-notes.json → Obsidian
+  /** Sets the daily notes folder, taking precedence over
+   *  .obsidian/daily-notes.json.
+   *  Per-field precedence: env setting → daily-notes.json → Obsidian
    *  default ("Daily Notes"). Set via DAILY_NOTES_FOLDER. */
   dailyNotesFolder?: string | undefined
-  /** Overrides the daily notes filename format (moment tokens, matching
-   *  Obsidian's setting) from .obsidian/daily-notes.json. Per-field
-   *  precedence: env override → daily-notes.json → Obsidian default
+  /** Sets the daily notes filename format (moment tokens, matching
+   *  Obsidian's setting), taking precedence over .obsidian/daily-notes.json.
+   *  Per-field precedence: env setting → daily-notes.json → Obsidian default
    *  ("YYYY-MM-DD"). Set via DAILY_NOTES_FORMAT. */
   dailyNotesFormat?: string | undefined
   protectedPaths: readonly string[]
