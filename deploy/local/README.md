@@ -149,7 +149,7 @@ curl http://localhost:8000/.well-known/oauth-protected-resource/mcp
 
 # Server logs (structured JSON lines):
 npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
-docker logs vault-cortex       # Compose
+docker logs vault-cortex       # Compose or docker run
 ```
 
 ## Monitoring
@@ -157,7 +157,7 @@ docker logs vault-cortex       # Compose
 ```bash
 # Follow the server logs until ctrl-C:
 npx vault-cortex@latest logs --follow   # set up with the CLI
-docker logs -f vault-cortex             # Compose
+docker logs -f vault-cortex             # Compose or docker run
 
 # Container status — "healthy" tracks the server's /healthz:
 docker ps
@@ -219,14 +219,15 @@ docker compose down            # Compose
 # Stop and delete all volumes (index rebuilds on next start):
 docker compose down -v         # Compose
 
-# Stop without removing (either setup method; docker start resumes):
+# Stop without removing (any setup method; docker start resumes):
 docker stop vault-cortex
 ```
 
 **Set up with the CLI?** Start again any time with
 `npx vault-cortex@latest start` — your saved settings are reused
 ([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
-reference). Otherwise resume with `docker compose up -d`.
+reference). Otherwise resume with `docker compose up -d` or
+`docker start vault-cortex`.
 
 ## Windows (Docker Desktop)
 
