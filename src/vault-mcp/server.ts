@@ -99,11 +99,9 @@ const startServer = async (): Promise<void> => {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
-  // Residual race: without an override, this startup read can beat the
-  // initial sync, leaving the index's broken-link exclusion on the default
-  // folder until restart — daily-note links then show as broken in link
-  // metadata. Daily-note path resolution is unaffected (tool calls re-read
-  // the config); only this once-seeded exclusion stays stale.
+  // One-time seed: if daily-notes.json hasn't synced yet at boot, the
+  // index's broken-link exclusion stays on the default folder until
+  // restart. Cosmetic only — tool calls re-read the config.
   search.setDailyNotesFolder(dailyNotesConfig.folder)
 
   if (config.memoryEnabled) {
