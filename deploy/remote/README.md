@@ -273,24 +273,14 @@ from any device: `curl <PUBLIC_URL>/healthz`.
 
 ## Monitoring
 
-**Set up with the CLI?**
-
 ```bash
 # Follow the container logs (sync + MCP server) until ctrl-C:
-npx vault-cortex@latest logs --follow
+npx vault-cortex@latest logs --follow   # set up with the CLI
+docker logs -f vault-cortex             # Compose or docker run
 
-# Or just recent history:
-npx vault-cortex@latest logs --since 10m
+# Container status — "healthy" tracks the MCP server's /healthz:
+docker ps
 ```
-
-**Set up with Compose or `docker run`?**
-
-```bash
-docker logs -f vault-cortex
-```
-
-Whichever method you use, `docker ps` shows container status — "healthy"
-tracks the MCP server's `/healthz`.
 
 ## Updating
 
@@ -355,33 +345,21 @@ policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
-**Set up with the CLI?**
-
 ```bash
 # Stop and remove the container (data persists in Docker volumes):
-npx vault-cortex@latest down
+npx vault-cortex@latest down   # set up with the CLI
+docker compose down            # Compose
+
+# Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
+docker compose down -v         # Compose
+
+# Stop without removing (any setup method; docker start resumes):
+docker stop vault-cortex
 ```
 
 Start again any time with `npx vault-cortex@latest start` — your saved
 settings are reused ([`down`](../../cli/#down) · [`start`](../../cli/#start)
 in the CLI reference).
-
-**Set up with Docker Compose?**
-
-```bash
-# Stop (data persists in Docker volumes):
-docker compose down
-
-# Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
-docker compose down -v
-```
-
-**Set up with `docker run`?**
-
-```bash
-# Stop (data persists in Docker volumes):
-docker stop vault-cortex
-```
 
 ## Memory
 

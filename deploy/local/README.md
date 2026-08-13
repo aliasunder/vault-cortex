@@ -154,24 +154,14 @@ docker logs vault-cortex       # Compose
 
 ## Monitoring
 
-**Set up with the CLI?**
-
 ```bash
 # Follow the server logs until ctrl-C:
-npx vault-cortex@latest logs --follow
+npx vault-cortex@latest logs --follow   # set up with the CLI
+docker logs -f vault-cortex             # Compose
 
-# Or just recent history:
-npx vault-cortex@latest logs --since 10m
+# Container status — "healthy" tracks the server's /healthz:
+docker ps
 ```
-
-**Set up with Docker Compose?**
-
-```bash
-docker logs -f vault-cortex
-```
-
-Either way, `docker ps` shows container status — "healthy" tracks the
-server's `/healthz`.
 
 ## Updating
 
@@ -221,26 +211,21 @@ policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
-**Set up with the CLI?**
-
 ```bash
 # Stop and remove the container (data persists in Docker volumes):
-npx vault-cortex@latest down
+npx vault-cortex@latest down   # set up with the CLI
+docker compose down            # Compose
+
+# Stop and delete all volumes (index rebuilds on next start):
+docker compose down -v         # Compose
+
+# Stop without removing (either setup method; docker start resumes):
+docker stop vault-cortex
 ```
 
 Start again any time with `npx vault-cortex@latest start` — your saved
 settings are reused ([`down`](../../cli/#down) · [`start`](../../cli/#start)
 in the CLI reference).
-
-**Set up with Docker Compose?**
-
-```bash
-# Stop (data persists in Docker volumes):
-docker compose down
-
-# Stop and delete all volumes (index rebuilds on next start):
-docker compose down -v
-```
 
 ## Windows (Docker Desktop)
 
