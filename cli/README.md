@@ -85,14 +85,13 @@ Change optional settings on an existing setup:
 npx vault-cortex@latest configure
 ```
 
-Shows the same settings chooser as [`init`](#init) — memory layer and
-folder, daily notes folder and format, file tools, semantic search, port,
-timezone (plus sync direction for remote) — pre-filled with your current
-values, saves your picks to `.env`, and offers to restart the container so
-they take effect. Settings not in the chooser live in `.env` too: edit the
-value there, then run [`restart`](#restart) — that's also how you clear a
-daily notes setting back to your vault's own configuration (comment out or
-delete its line).
+Shows the same settings chooser as [`init`](#init), pre-filled with your
+current values, saves your picks to `.env`, and offers to restart the
+container so they take effect.
+
+Settings not in the chooser live in `.env` too: edit the value there, then
+run [`restart`](#restart). That's also how you clear a daily notes setting
+back to your vault's own configuration — comment out or delete its line.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
