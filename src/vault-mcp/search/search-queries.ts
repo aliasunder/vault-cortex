@@ -65,7 +65,6 @@ export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
 export type SearchQueryContext = {
   readonly db: Database.Database
-  readonly getDailyNotesFolder: () => string | null
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
@@ -1664,10 +1663,13 @@ export const getBacklinks = (
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. Accepts both
- *  .md and .canvas paths — canvas file-node references appear as outgoing. */
+ *  .md and .canvas paths — canvas file-node references appear as outgoing.
+ *  When the caller passes the vault's daily notes folder (resolved fresh
+ *  via readDailyNotesConfig), broken links under it are flagged
+ *  daily_note_forward_ref — expected "create on click" navigation. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
-  params: { path: string },
+  params: { path: string; dailyNotesFolder?: string | null },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
   assertPathHasExtension(params.path, [".md", ".canvas"])
@@ -1701,7 +1703,7 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const folder = context.getDailyNotesFolder()
+  const folder = params.dailyNotesFolder ?? null
   const folderPrefix = folder !== null ? `${folder}/` : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
@@ -1768,17 +1770,18 @@ type BrokenLinkResult = {
 }
 
 /** Counts unique broken link targets — links whose targets exist in
- *  neither the notes table nor the non_md_files table. When a daily
- *  notes folder is configured, broken links under that folder are
- *  excluded — they are forward-references (intentional "create on
- *  click" navigation), not genuinely broken. Returns the count plus
- *  exclusion metadata so callers can communicate what was filtered. */
+ *  neither the notes table nor the non_md_files table. When the caller
+ *  passes the vault's daily notes folder (resolved fresh via
+ *  readDailyNotesConfig), broken links under it are excluded — they are
+ *  forward-references (intentional "create on click" navigation), not
+ *  genuinely broken. Returns the count plus exclusion metadata so
+ *  callers can communicate what was filtered. */
 export const brokenLinkCount = (
   context: SearchQueryContext,
-  _params: Record<string, never>,
+  params: { dailyNotesFolder?: string | null },
   logger: Logger,
 ): BrokenLinkResult => {
-  const folder = context.getDailyNotesFolder()
+  const folder = params.dailyNotesFolder ?? null
 
   if (folder === null) {
     const row = context.db

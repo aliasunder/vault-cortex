@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import {
   safeHandler,
   formatNoteMetadata,
@@ -27,6 +28,7 @@ export { TOOL_NAMES as SEARCH_TOOL_NAMES }
 export const registerSearchTools = ({
   server,
   search,
+  vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
@@ -654,7 +656,16 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
       reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
-        async () => search.getOutgoingLinks({ path }, reqLogger),
+        async () => {
+          const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+            folder: config.dailyNotesFolder,
+            format: config.dailyNotesFormat,
+          })
+          return search.getOutgoingLinks(
+            { path, dailyNotesFolder: dailyNotesConfig.folder },
+            reqLogger,
+          )
+        },
         (outgoingLinks) => {
           reqLogger.info("tool_result", { resultCount: outgoingLinks.length })
           return JSON.stringify({

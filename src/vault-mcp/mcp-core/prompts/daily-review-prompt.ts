@@ -8,7 +8,10 @@
 
 import { DateTime } from "luxon"
 import { z } from "zod"
-import { getDailyNote } from "../../vault-operations/daily-notes.js"
+import {
+  getDailyNote,
+  readDailyNotesConfig,
+} from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import {
@@ -178,8 +181,15 @@ export const registerDailyReviewPrompt = ({
           { date: dateArg, limit: DAILY_RECENT_LIMIT },
           reqLogger,
         )
+        const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+          folder: config.dailyNotesFolder,
+          format: config.dailyNotesFormat,
+        })
         const outgoingLinks = daily.exists
-          ? search.getOutgoingLinks({ path: daily.path }, reqLogger)
+          ? search.getOutgoingLinks(
+              { path: daily.path, dailyNotesFolder: dailyNotesConfig.folder },
+              reqLogger,
+            )
           : []
         const backlinks = daily.exists
           ? search.getBacklinks({ path: daily.path }, reqLogger)
