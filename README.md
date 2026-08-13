@@ -350,6 +350,8 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 `vault_get_daily_note` and the daily-review prompt find your daily notes using the vault's configured folder and filename date format. Each setting comes from the `DAILY_NOTES_FOLDER` / `DAILY_NOTES_FORMAT` env vars, falling back to the vault's `.obsidian/daily-notes.json`, then to `Daily Notes` and `YYYY-MM-DD`. The folder is any vault-relative path (`Journal`, `Planner/Daily`); the format takes the same tokens as Obsidian's daily note date format setting (`YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …).
 
+What this looks like in practice:
+
 - **Local mode** reads `.obsidian/daily-notes.json` straight from your bind-mounted vault — custom settings work with no extra setup.
 - **Remote mode**: the config file reaches the server through Obsidian Sync's vault configuration syncing — the server pulls it by default (`SYNC_CONFIGS`), and your desktop pushes it when **Vault configuration sync** is enabled in Obsidian's Sync settings. Setup details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 - **Periodic Notes plugin users**: vault-cortex reads the core Daily Notes plugin's config, which the Periodic Notes plugin doesn't update. Set `DAILY_NOTES_FOLDER` and `DAILY_NOTES_FORMAT` to match your Periodic Notes settings (or hand-edit `.obsidian/daily-notes.json` in your vault to match).
