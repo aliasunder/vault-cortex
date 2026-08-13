@@ -430,7 +430,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     ])
     expect(overrides).toEqual({})
     expect(scripted.logs).toEqual([
-      "Left unset — the server keeps reading your vault's daily notes settings.",
+      "Left unset — the server reads this setting from your vault's own config.",
     ])
   })
 

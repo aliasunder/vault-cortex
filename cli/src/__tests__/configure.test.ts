@@ -267,7 +267,7 @@ describe("runConfigure with picked settings", () => {
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
     expect(scripted.logs).toEqual([
-      "Left unset — the server keeps reading your vault's daily notes settings.",
+      "Left unset — the server reads this setting from your vault's own config.",
       "No settings selected — nothing changed.",
     ])
   })

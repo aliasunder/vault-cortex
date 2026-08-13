@@ -33,13 +33,7 @@ type OptionalSetting =
   | (OptionalSettingBase & {
       kind: "optionalText"
       question: string
-      /**
-       * Ghost text while the var is unset. Unlike `folder`, there is no
-       * defaultValue: an unset var means the server reads the vault's own
-       * config, so pre-filling a concrete value would write an override that
-       * silently shadows it. Once a value is set, the prompt shows a
-       * keep-current placeholder instead — blank then keeps, never clears.
-       */
+      /** Ghost text while unset — no defaultValue because pre-filling would silently shadow the vault's own config. */
       placeholder: string
     })
   | (OptionalSettingBase & {
@@ -287,14 +281,10 @@ const askFolder = async (
 
 /**
  * Text prompt for a setting whose absence is meaningful — the server falls
- * back to the vault's own config when the var is unset. Blank when unset =
- * skip (write nothing); blank when set keeps the current value (the prompt
- * resolves an empty submit to its defaultValue), and an unchanged value is
- * also returned as undefined so the caller never rewrites the file or offers
- * a restart for a no-op. The placeholder tells the truth for each state:
- * "use your vault's settings" only while unset, "keep the current value"
- * once set. There is no removal path — clearing a set value stays a manual
- * .env edit.
+ * back to the vault's own config when the var is unset. Blank-when-unset
+ * writes nothing; blank-when-set keeps the current value. Returns undefined
+ * on skip or no-op so the caller never rewrites for nothing. No removal
+ * path — clearing is a manual .env edit.
  */
 const askOptionalText = async (
   params: {
@@ -317,7 +307,7 @@ const askOptionalText = async (
   if (answer !== "" && answer !== currentValue) return answer
   if (currentValue === undefined) {
     prompts.log(
-      "Left unset — the server keeps reading your vault's daily notes settings.",
+      "Left unset — the server reads this setting from your vault's own config.",
     )
     return undefined
   }
