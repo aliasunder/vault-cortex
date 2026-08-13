@@ -62,7 +62,7 @@ mechanism-level detail.
 - `resolveSafePath()` also rejects any path with a dot-prefixed segment
   (`.obsidian/`, `.trash/`, dotfiles) before filesystem access — every
   read, write, move, and delete refuses hidden paths, matching Obsidian,
-  which ignores them entirely. This also keeps the third-party API keys
+  which ignores them entirely. This also keeps any third-party API keys
   community plugins store in `.obsidian/plugins/*/data.json` out of a
   compromised MCP token's reach.
 - Keep the search index and OAuth databases **outside the vault** (the
