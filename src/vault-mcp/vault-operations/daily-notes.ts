@@ -14,6 +14,13 @@ type DailyNotesConfig = {
   format: string
 }
 
+/** Per-field overrides (from DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env
+ *  vars) that take precedence over .obsidian/daily-notes.json. */
+export type DailyNotesOverrides = {
+  folder?: string | undefined
+  format?: string | undefined
+}
+
 const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
   folder: "Daily Notes",
   format: "YYYY-MM-DD",
@@ -21,18 +28,21 @@ const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
 
 // TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
 // createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Mutable module-level cache — justified because the config is read from
-// the filesystem once and never changes during the server's lifetime.
-// Avoids re-reading .obsidian/daily-notes.json on every tool call.
-let cachedConfig: DailyNotesConfig | null = null
+// Mutable module-level cache of the last SUCCESSFUL file read. Fallback
+// results (file missing or malformed) are deliberately never cached: on a
+// fresh remote deploy the server boots before the initial Obsidian Sync
+// delivers .obsidian/, so the config file can appear after the first read —
+// retrying each call picks it up without a restart. Once a read succeeds,
+// the value is cached for the process lifetime.
+let cachedFileConfig: DailyNotesConfig | null = null
 
-/** Reads .obsidian/daily-notes.json for the vault's daily note folder
- *  and filename format. Falls back to Obsidian defaults if the file
- *  is missing or malformed. Result is cached after first read. */
-export const readDailyNotesConfig = async (
+/** Reads .obsidian/daily-notes.json, caching only successful reads.
+ *  Returns Obsidian defaults (uncached — see cache comment) when the
+ *  file is missing or malformed. */
+const readDailyNotesFileConfig = async (
   vaultPath: string,
 ): Promise<DailyNotesConfig> => {
-  if (cachedConfig) return cachedConfig
+  if (cachedFileConfig) return cachedFileConfig
 
   try {
     const configFileContent = await readFile(
@@ -40,7 +50,7 @@ export const readDailyNotesConfig = async (
       "utf8",
     )
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
-    cachedConfig = {
+    cachedFileConfig = {
       folder:
         typeof parsedConfig.folder === "string" &&
         parsedConfig.folder.length > 0
@@ -52,16 +62,35 @@ export const readDailyNotesConfig = async (
           ? parsedConfig.format
           : OBSIDIAN_DEFAULTS.format,
     }
+    return cachedFileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
       logger.debug("failed to read daily notes config, using defaults", {
         error: describeError(error),
       })
     }
-    cachedConfig = { ...OBSIDIAN_DEFAULTS }
+    return { ...OBSIDIAN_DEFAULTS }
+  }
+}
+
+/** Resolves the vault's daily note folder and filename format with
+ *  per-field precedence: env override → .obsidian/daily-notes.json →
+ *  Obsidian defaults. When both fields are overridden the config file
+ *  is not read at all. */
+export const readDailyNotesConfig = async (
+  vaultPath: string,
+  overrides?: DailyNotesOverrides,
+): Promise<DailyNotesConfig> => {
+  // Both fields overridden — the file can't contribute anything, skip I/O.
+  if (overrides?.folder && overrides.format) {
+    return { folder: overrides.folder, format: overrides.format }
   }
 
-  return cachedConfig
+  const fileConfig = await readDailyNotesFileConfig(vaultPath)
+  return {
+    folder: overrides?.folder ?? fileConfig.folder,
+    format: overrides?.format ?? fileConfig.format,
+  }
 }
 
 // ── Path resolution + read ──────────────────────────────────────
@@ -69,13 +98,16 @@ export const readDailyNotesConfig = async (
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
 const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Resolves a date to a vault-relative daily note path using the
- *  vault's .obsidian/daily-notes.json config. */
-export const getDailyNotePath = async (
-  vaultPath: string,
-  date?: string,
-): Promise<string> => {
-  const config = await readDailyNotesConfig(vaultPath)
+/** Resolves a date to a vault-relative daily note path using env
+ *  overrides, the vault's .obsidian/daily-notes.json config, and
+ *  Obsidian defaults — in that per-field precedence order. */
+export const getDailyNotePath = async (params: {
+  vaultPath: string
+  date?: string | undefined
+  overrides?: DailyNotesOverrides | undefined
+}): Promise<string> => {
+  const { vaultPath, date, overrides } = params
+  const config = await readDailyNotesConfig(vaultPath, overrides)
   const luxonFormat = momentToLuxonFormat(config.format)
 
   if (date && !STRICT_ISO_DATE_RE.test(date)) {
@@ -104,10 +136,18 @@ type DailyNoteResult = {
 /** Reads a daily note by date. Returns the resolved path, content
  *  (if the note exists), and an exists flag. */
 export const getDailyNote = async (
-  params: { vaultPath: string; date?: string | undefined },
+  params: {
+    vaultPath: string
+    date?: string | undefined
+    overrides?: DailyNotesOverrides | undefined
+  },
   logger: Logger,
 ): Promise<DailyNoteResult> => {
-  const path = await getDailyNotePath(params.vaultPath, params.date)
+  const path = await getDailyNotePath({
+    vaultPath: params.vaultPath,
+    date: params.date,
+    overrides: params.overrides,
+  })
 
   try {
     const content = await vaultFs.readNote(

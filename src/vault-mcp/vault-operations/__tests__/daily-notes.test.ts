@@ -91,6 +91,116 @@ describe("readDailyNotesConfig", () => {
     const second = await readDailyNotesConfig(vaultDir)
     expect(second.folder).toBe("Journal")
   })
+
+  it("retries after ENOENT — a config file appearing later is picked up without a restart", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
+    const beforeFileExists = await readDailyNotesConfig(vaultDir)
+    expect(beforeFileExists).toEqual({
+      folder: "Daily Notes",
+      format: "YYYY-MM-DD",
+    })
+
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+      "utf8",
+    )
+    const afterFileExists = await readDailyNotesConfig(vaultDir)
+    expect(afterFileExists).toEqual({
+      folder: "Journal",
+      format: "DD-MM-YYYY",
+    })
+  })
+
+  it("retries after malformed JSON — a fixed config file is picked up without a restart", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
+    const configFilePath = join(vaultDir, ".obsidian", "daily-notes.json")
+    await writeFile(configFilePath, "not valid json{{{", "utf8")
+    const whileMalformed = await readDailyNotesConfig(vaultDir)
+    expect(whileMalformed).toEqual({
+      folder: "Daily Notes",
+      format: "YYYY-MM-DD",
+    })
+
+    await writeFile(
+      configFilePath,
+      JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+      "utf8",
+    )
+    const afterFix = await readDailyNotesConfig(vaultDir)
+    expect(afterFix).toEqual({ folder: "Journal", format: "DD-MM-YYYY" })
+  })
+
+  describe("overrides precedence", () => {
+    it("folder-only override wins over the file's folder, file keeps format", async () => {
+      const { readDailyNotesConfig } = await import("../daily-notes.js")
+      await writeFile(
+        join(vaultDir, ".obsidian", "daily-notes.json"),
+        JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+        "utf8",
+      )
+      const config = await readDailyNotesConfig(vaultDir, {
+        folder: "Override Folder",
+      })
+      expect(config).toEqual({
+        folder: "Override Folder",
+        format: "DD-MM-YYYY",
+      })
+    })
+
+    it("format-only override wins over the file's format, file keeps folder", async () => {
+      const { readDailyNotesConfig } = await import("../daily-notes.js")
+      await writeFile(
+        join(vaultDir, ".obsidian", "daily-notes.json"),
+        JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+        "utf8",
+      )
+      const config = await readDailyNotesConfig(vaultDir, {
+        format: "YYYY_MM_DD",
+      })
+      expect(config).toEqual({ folder: "Journal", format: "YYYY_MM_DD" })
+    })
+
+    it("both overrides win over a conflicting file", async () => {
+      const { readDailyNotesConfig } = await import("../daily-notes.js")
+      await writeFile(
+        join(vaultDir, ".obsidian", "daily-notes.json"),
+        JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+        "utf8",
+      )
+      const config = await readDailyNotesConfig(vaultDir, {
+        folder: "Override Folder",
+        format: "YYYY_MM_DD",
+      })
+      expect(config).toEqual({
+        folder: "Override Folder",
+        format: "YYYY_MM_DD",
+      })
+    })
+
+    it("both overrides apply without a config file", async () => {
+      const { readDailyNotesConfig } = await import("../daily-notes.js")
+      const config = await readDailyNotesConfig(vaultDir, {
+        folder: "Override Folder",
+        format: "YYYY_MM_DD",
+      })
+      expect(config).toEqual({
+        folder: "Override Folder",
+        format: "YYYY_MM_DD",
+      })
+    })
+
+    it("folder-only override without a config file falls back to the default format", async () => {
+      const { readDailyNotesConfig } = await import("../daily-notes.js")
+      const config = await readDailyNotesConfig(vaultDir, {
+        folder: "Override Folder",
+      })
+      expect(config).toEqual({
+        folder: "Override Folder",
+        format: "YYYY-MM-DD",
+      })
+    })
+  })
 })
 
 // ── getDailyNotePath ─────────────────────────────────────────────
@@ -110,7 +220,10 @@ describe("getDailyNotePath", () => {
 
   it("resolves a specific date with default config", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    const path = await getDailyNotePath(vaultDir, "2026-05-13")
+    const path = await getDailyNotePath({
+      vaultPath: vaultDir,
+      date: "2026-05-13",
+    })
     expect(path).toBe("Daily Notes/2026-05-13.md")
   })
 
@@ -121,13 +234,31 @@ describe("getDailyNotePath", () => {
       JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
       "utf8",
     )
-    const path = await getDailyNotePath(vaultDir, "2026-05-13")
+    const path = await getDailyNotePath({
+      vaultPath: vaultDir,
+      date: "2026-05-13",
+    })
     expect(path).toBe("Journal/13-05-2026.md")
+  })
+
+  it("resolves with env overrides winning over the config file", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD" }),
+      "utf8",
+    )
+    const path = await getDailyNotePath({
+      vaultPath: vaultDir,
+      date: "2026-05-13",
+      overrides: { folder: "Override Folder", format: "DD-MM-YYYY" },
+    })
+    expect(path).toBe("Override Folder/13-05-2026.md")
   })
 
   it("defaults to today when no date provided", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    const path = await getDailyNotePath(vaultDir)
+    const path = await getDailyNotePath({ vaultPath: vaultDir })
     // Use Luxon's local-timezone today (same as the code under test) to
     // avoid UTC/local date mismatch near midnight
     const todayLocal = DateTime.now().toFormat("yyyy-MM-dd")
@@ -136,29 +267,29 @@ describe("getDailyNotePath", () => {
 
   it("throws on invalid date format", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath(vaultDir, "not-a-date")).rejects.toThrow(
-      "invalid date",
-    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" }),
+    ).rejects.toThrow("invalid date")
   })
 
   it("rejects partial ISO dates (year only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath(vaultDir, "2026")).rejects.toThrow(
-      "invalid date",
-    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026" }),
+    ).rejects.toThrow("invalid date")
   })
 
   it("rejects partial ISO dates (year-month only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath(vaultDir, "2026-05")).rejects.toThrow(
-      "invalid date",
-    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" }),
+    ).rejects.toThrow("invalid date")
   })
 
   it("rejects full ISO timestamps", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
     await expect(
-      getDailyNotePath(vaultDir, "2026-05-13T14:30:00Z"),
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" }),
     ).rejects.toThrow("invalid date")
   })
 })
