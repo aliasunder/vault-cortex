@@ -342,20 +342,18 @@ All settings are environment variables with sensible defaults.
 | `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                            | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES`      | —           | `5`                                         | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each.                                     |
 
-**Smart defaults:** Setting `MEMORY_DIR` or `DAILY_NOTES_FOLDER` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` (when `DAILY_NOTES_FOLDER` is unset, `Daily Notes` fills its slot). You only set those explicitly for a fully custom list. When `MEMORY_ENABLED` is `false`, the memory layer is fully disabled — memory tools are hidden and the memory folder is not auto-created. When `FILE_TOOLS_ENABLED` is `false`, file tools are hidden entirely — useful when Obsidian Sync has attachment syncing disabled and no files exist on disk.
+**Smart defaults:** Setting `MEMORY_DIR` or `DAILY_NOTES_FOLDER` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`; when `DAILY_NOTES_FOLDER` is unset, `Daily Notes` fills its slot. A daily notes folder configured only in `daily-notes.json` isn't picked up — add it to `PROTECTED_PATHS` yourself. You only set those explicitly for a fully custom list. When `MEMORY_ENABLED` is `false`, the memory layer is fully disabled — memory tools are hidden and the memory folder is not auto-created. When `FILE_TOOLS_ENABLED` is `false`, file tools are hidden entirely — useful when Obsidian Sync has attachment syncing disabled and no files exist on disk.
 
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
 
 ### Daily notes
 
-`vault_get_daily_note` and the daily-review prompt find your daily notes using the vault's configured folder and filename date format. Each setting comes from the `DAILY_NOTES_FOLDER` / `DAILY_NOTES_FORMAT` env vars, falling back to the vault's `.obsidian/daily-notes.json`, then to `Daily Notes` and `YYYY-MM-DD`. The folder is any vault-relative path (`Journal`, `Planner/Daily`); the format takes the same tokens as Obsidian's daily note date format setting (`YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …).
+`vault_get_daily_note` and the daily-review prompt find your daily notes using the folder and filename date format configured in Obsidian, read from your vault's `.obsidian/daily-notes.json` — so usually there's nothing to set up:
 
-What this looks like in practice:
+- **Local mode** reads the file straight from your bind-mounted vault.
+- **Remote mode** receives it through Obsidian Sync's vault configuration syncing — the server pulls it by default (`SYNC_CONFIGS`), and your desktop pushes it when **Vault configuration sync** is enabled in Obsidian's Sync settings. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 
-- **Local mode** reads `.obsidian/daily-notes.json` straight from your bind-mounted vault — custom settings work with no extra setup.
-- **Remote mode**: the config file reaches the server through Obsidian Sync's vault configuration syncing — the server pulls it by default (`SYNC_CONFIGS`), and your desktop pushes it when **Vault configuration sync** is enabled in Obsidian's Sync settings. Setup details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
-- **Periodic Notes plugin users**: vault-cortex reads the core Daily Notes plugin's config, which the Periodic Notes plugin doesn't update. Set `DAILY_NOTES_FOLDER` and `DAILY_NOTES_FORMAT` to match your Periodic Notes settings (or hand-edit `.obsidian/daily-notes.json` in your vault to match).
-- **Tip**: the `PROTECTED_PATHS` default automatically protects your daily notes folder when it's set via `DAILY_NOTES_FOLDER`, and falls back to protecting `Daily Notes` otherwise. A folder configured only in `daily-notes.json` is not covered — add it to `PROTECTED_PATHS` explicitly.
+When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …); they override the config file per field. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
 
 ## Data Integrity
 
