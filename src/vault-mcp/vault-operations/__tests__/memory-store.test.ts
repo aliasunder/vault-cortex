@@ -7,7 +7,14 @@ import {
   vi,
   onTestFinished,
 } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -216,6 +223,28 @@ describe("getMemory", () => {
 })
 
 describe("updateMemory", () => {
+  // Guards the dot-prefix rejection through the WRITE surface — a refactor of
+  // updateMemory's file access that bypassed memoryFilePath would silently
+  // start creating hidden files while the getMemory test stayed green.
+  it("rejects a dot-prefixed file name instead of creating a hidden file", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: ".secret",
+          section: "Notes (newest first)",
+          entry: "hidden entry",
+          date: "2026-05-08",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+    const memoryDirEntries = await readdir(join(vault, "About Me"))
+    expect(memoryDirEntries).not.toContain(".secret.md")
+  })
+
   it("inserts entry at top of section by default", async () => {
     await updateMemory(
       {
@@ -1274,6 +1303,24 @@ describe("updateMemory near-duplicate section guard", () => {
 })
 
 describe("deleteMemory", () => {
+  // Same guard through the DELETE surface (see the updateMemory dot test).
+  it("rejects a dot-prefixed file name", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: ".secret",
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          entry: "hidden entry",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+  })
+
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
       {
