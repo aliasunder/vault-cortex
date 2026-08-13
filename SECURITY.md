@@ -71,7 +71,7 @@ mechanism-level detail.
   _visible_ vault folder — there it is readable like any other vault
   file.
 - The hidden-path check is lexical: a visible symlink whose target is a
-  hidden path is followed. No tool can create symlinks, so planting one
+  hidden path is followed. No tool can create symlinks, so creating one
   requires filesystem access — which already reads hidden files
   directly — and Obsidian Sync does not propagate symlinks to remote
   deployments.
