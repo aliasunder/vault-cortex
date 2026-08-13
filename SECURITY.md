@@ -73,8 +73,7 @@ mechanism-level detail.
 - The hidden-path check is lexical: a visible symlink whose target is a
   hidden path is followed. Creating such a symlink requires direct
   filesystem access — no tool can create one, and anyone with that
-  access can already read hidden files. Obsidian Sync does not propagate
-  symlinks, so remote deployments never see them.
+  access can already read hidden files.
 
 ### TOCTOU race prevention
 
