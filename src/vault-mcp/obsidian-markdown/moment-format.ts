@@ -39,8 +39,10 @@ const convertMomentTokens = (formatSpan: string): string =>
  *  render differently than Obsidian would — config.ts's probe-render
  *  rejects only structurally unsafe results. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
-  // split() with a capturing group alternates non-literal spans (even
-  // indices) with literal contents (odd indices).
+  // split() on a regex with a capturing group keeps each captured match in
+  // the result array, so segments strictly alternate: format span (even
+  // index), then the captured literal's contents (odd index), and so on —
+  // which is why an odd index means "inside [literal] brackets" below.
   return momentFormat
     .split(MOMENT_ESCAPE_RE)
     .map((segment, segmentIndex) => {
