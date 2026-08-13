@@ -94,6 +94,16 @@ const rewriteUrls = (line: string): string => {
   return result
 }
 
+/** Collapses markdown table padding — renders identically but saves
+ *  hundreds of bytes per row against Docker Hub's 25000-byte cap. Divider
+ *  rows compress too (still valid markdown). Assumes no escaped pipes
+ *  (\|) in cells — the README's tables have none. */
+const compressTableRow = (line: string): string => {
+  if (!line.startsWith("|")) return line
+  const cells = line.split("|").map((cell) => cell.trim())
+  return cells.join(" | ").trim()
+}
+
 const isContentsLine = (line: string): boolean =>
   line.startsWith("**Contents**") || line.startsWith("**Contents** —")
 
@@ -166,6 +176,10 @@ const generate = (): void => {
         compactTableDone = false
       } else if (heading.level === 3) {
         if (skipSection && skipLevel === 2) continue
+        // Compact sections keep only the heading, intro, and tables — an H3
+        // subsection's prose is already dropped below, so dropping the
+        // heading too avoids publishing an empty section title.
+        if (compactSection) continue
       }
     }
 
@@ -206,7 +220,7 @@ const generate = (): void => {
       continue
     }
 
-    output.push(rewriteUrls(line))
+    output.push(compressTableRow(rewriteUrls(line)))
   }
 
   // Collapse runs of 3+ blank lines to 2

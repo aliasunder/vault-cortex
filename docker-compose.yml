@@ -29,6 +29,10 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
+      # Obsidian config-category sync (default: core plugin data, so the
+      # vault's daily-notes settings reach the server). "none" disables;
+      # the category values are listed in .env.example.
+      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}
       # --- MCP server (svc-vault-mcp) ---
       NODE_ENV: production
       PORT: "8000"
@@ -51,13 +55,17 @@ services:
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies smart defaults
-      # (<MEMORY_DIR> below is the resolved MEMORY_DIR value, default "About Me"):
-      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, Daily Notes"
-      #   ORPHAN_EXCLUDE_FOLDERS    default: "Daily Notes, Templates, <MEMORY_DIR>"
+      # (<MEMORY_DIR>/<DAILY_NOTES_FOLDER> below are the resolved values, defaults "About Me" / "Daily Notes"):
+      #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
+      #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
+      #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json, else "Daily Notes"
+      #   DAILY_NOTES_FORMAT        default: read from the vault's .obsidian/daily-notes.json, else "YYYY-MM-DD"
       PROTECTED_PATHS: ${PROTECTED_PATHS:-}
       ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}
       SERVICE_DOCUMENTATION_URL: ${SERVICE_DOCUMENTATION_URL:-}
+      DAILY_NOTES_FOLDER: ${DAILY_NOTES_FOLDER:-}
+      DAILY_NOTES_FORMAT: ${DAILY_NOTES_FORMAT:-}
     volumes:
       - vault_data:/vault
       - mcp_index_data:/data

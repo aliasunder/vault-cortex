@@ -2,6 +2,8 @@
 
 import { z } from "zod"
 import envVar from "env-var"
+import { DateTime } from "luxon"
+import { momentToLuxonFormat } from "./obsidian-markdown/moment-format.js"
 
 // ── Validation ─────────────────────────────────────────────────
 
@@ -31,6 +33,38 @@ const splitCommaSeparatedFolders = (raw: string): string[] =>
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
 
+/** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
+ *  Structural checks only — moment tokens without a Luxon mapping pass
+ *  through and may render differently than in Obsidian, so only
+ *  structurally unsafe results (traversal, separators, empty) are
+ *  rejected. Returns the raw moment string unchanged. */
+const validateDailyNotesFormat = (momentFormat: string): string => {
+  const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
+    momentToLuxonFormat(momentFormat),
+  )
+  if (renderedProbe.trim().length === 0) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" renders to an empty filename`,
+    )
+  }
+  if (momentFormat.includes("..") || renderedProbe.includes("..")) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)`,
+    )
+  }
+  if (momentFormat.startsWith("/") || renderedProbe.startsWith("/")) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" must not start with a path separator`,
+    )
+  }
+  if (momentFormat.endsWith("/") || renderedProbe.endsWith("/")) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
+    )
+  }
+  return momentFormat
+}
+
 // ── Config type ────────────────────────────────────────────────
 
 export type VaultConfig = Readonly<{
@@ -42,6 +76,16 @@ export type VaultConfig = Readonly<{
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean
   memoryDir: string
+  /** Sets the daily notes folder, taking precedence over
+   *  .obsidian/daily-notes.json.
+   *  Per-field precedence: env setting → daily-notes.json → fallback
+   *  ("Daily Notes"). Set via DAILY_NOTES_FOLDER. */
+  dailyNotesFolder?: string | undefined
+  /** Sets the daily notes filename format (moment tokens, matching
+   *  Obsidian's setting), taking precedence over .obsidian/daily-notes.json.
+   *  Per-field precedence: env setting → daily-notes.json → fallback
+   *  ("YYYY-MM-DD"). Set via DAILY_NOTES_FORMAT. */
+  dailyNotesFormat?: string | undefined
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
@@ -87,18 +131,33 @@ export const loadConfig = (
     ? vaultFolderName.parse(memoryDirRaw)
     : "About Me"
 
+  const dailyNotesFolderRaw = env.DAILY_NOTES_FOLDER?.trim()
+  const dailyNotesFolder = dailyNotesFolderRaw
+    ? vaultFolderName.parse(dailyNotesFolderRaw)
+    : undefined
+
+  const dailyNotesFormatRaw = env.DAILY_NOTES_FORMAT?.trim()
+  const dailyNotesFormat = dailyNotesFormatRaw
+    ? validateDailyNotesFormat(dailyNotesFormatRaw)
+    : undefined
+
+  // Smart defaults track the env-configured daily notes folder (the
+  // vault's daily-notes.json can't cascade here — config load is
+  // synchronous env parsing; the file is read lazily at call time).
+  const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
+
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPaths = protectedPathsRaw
     ? splitCommaSeparatedFolders(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
-    : [memoryDir, "Daily Notes"]
+    : [memoryDir, dailyNotesFolderOrDefault]
 
   const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
     ? splitCommaSeparatedFolders(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
         (folder) => vaultFolderName.parse(folder),
       )
-    : ["Daily Notes", "Templates", memoryDir]
+    : [dailyNotesFolderOrDefault, "Templates", memoryDir]
 
   const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
     ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())
@@ -168,6 +227,8 @@ export const loadConfig = (
     memoryEnabled,
     fileToolsEnabled,
     memoryDir,
+    dailyNotesFolder,
+    dailyNotesFormat,
     protectedPaths,
     orphanExcludeFolders,
     serviceDocumentationUrl,

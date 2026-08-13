@@ -545,11 +545,6 @@ export const createSearchIndex = (
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
   }
 
-  // Daily notes folder for forward-ref exclusion — broken links under
-  // this folder are treated as intentional "create on click" navigation.
-  // Set via setDailyNotesFolder from server.ts config; null until then.
-  let dailyNotesFolder: string | null = null
-
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
   // would re-compile on every invocation.
@@ -1985,7 +1980,6 @@ export const createSearchIndex = (
 
   const queryContext: queries.SearchQueryContext = {
     db,
-    getDailyNotesFolder: () => dailyNotesFolder,
     vector: {
       embedder,
       knnSearchStmt,
@@ -2018,13 +2012,6 @@ export const createSearchIndex = (
     return (params, logger) => fn(queryContext, params, logger)
   }
 
-  /** Sets the daily notes folder used by brokenLinkCount and
-   *  getOutgoingLinks to identify forward-reference links. Called
-   *  from server.ts after reading the vault's daily notes config. */
-  const setDailyNotesFolder = (folder: string): void => {
-    dailyNotesFolder = folder
-  }
-
   return {
     upsertNote,
     embedNote,
@@ -2034,7 +2021,6 @@ export const createSearchIndex = (
     removeNonMdFile,
     upsertFileContent,
     removeFileContent,
-    setDailyNotesFolder,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(queries.hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),

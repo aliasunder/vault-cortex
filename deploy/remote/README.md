@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -372,19 +372,53 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Daily notes
+
+`vault_get_daily_note` finds your daily notes using the folder and date
+format set in Obsidian's Daily notes options. Obsidian stores those settings
+in `.obsidian/daily-notes.json`, and in remote mode the server only receives
+that file when settings syncing is turned on in two places:
+
+- **Server side** — `SYNC_CONFIGS` defaults to
+  `core-plugin-data,community-plugin-data`, the two categories the server
+  reads: daily notes settings and community plugin settings (e.g. the Tasks
+  plugin's format). It takes a comma-separated list of Obsidian's settings
+  categories (`app`, `appearance`, `appearance-data`, `hotkey`,
+  `core-plugin`, `core-plugin-data`, `community-plugin`,
+  `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
+- **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
+  enabled per device. Obsidian only pushes categories you enable there.
+
+Some community plugins keep API keys in their settings. Server tools never
+read `.obsidian/`, and the server itself opens only the two config files
+above — synced settings otherwise just sit in the config volume.
+
+If the file hasn't arrived when the server boots (first sync still running),
+it's picked up automatically once it lands — no restart needed.
+
+If the settings can't sync — or you use the Periodic Notes plugin, whose
+settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
+vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
+(same tokens as Obsidian's date format setting) in `.env`. You can set one
+or both — a set value always wins over the config file. Without either
+source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting              | Default   | What it does                                                                                          |
-| -------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `TZ`                 | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
-| `VAULT_PASSWORD`     | —         | Set this if your vault has end-to-end encryption enabled                                              |
-| `EMBEDDING_ENABLED`  | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
-| `RERANK_MODE`        | `blended` | Set `none` to skip reranking for lower latency                                                        |
-| `MEMORY_ENABLED`     | `true`    | Set `false` to disable the structured memory layer                                                    |
-| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| Setting              | Default                       | What it does                                                                                          |
+| -------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `TZ`                 | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
+| `VAULT_PASSWORD`     | —                             | Set this if your vault has end-to-end encryption enabled                                              |
+| `EMBEDDING_ENABLED`  | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
+| `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                        |
+| `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                    |
+| `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
+| `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
+| `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

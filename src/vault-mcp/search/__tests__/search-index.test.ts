@@ -2274,8 +2274,7 @@ describe("getOutgoingLinks", () => {
     expect(broken!.bytes).toBeNull()
   })
 
-  it("flags daily note forward-refs when exclusion is set", () => {
-    index.setDailyNotesFolder("Daily Notes")
+  it("flags daily note forward-refs when the folder is passed", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2287,7 +2286,7 @@ describe("getOutgoingLinks", () => {
     )
 
     const links = index.getOutgoingLinks(
-      { path: "Daily Notes/2026-06-24.md" },
+      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
       logger,
     )
     const forwardRef = links.find(
@@ -2843,7 +2842,6 @@ describe("brokenLinkCount", () => {
   })
 
   it("excludes forward-reference links that are valid dates under the daily note folder", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2853,11 +2851,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(1)
   })
 
   it("excludes .md-suffixed forward-reference targets", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2867,11 +2866,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(0)
   })
 
   it("still counts broken links outside the daily note folder", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2880,11 +2880,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(2)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(2)
   })
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2894,7 +2895,10 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    const result = index.brokenLinkCount({}, logger)
+    const result = index.brokenLinkCount(
+      { dailyNotesFolder: "Daily Notes" },
+      logger,
+    )
     expect(result.count).toBe(1)
     expect(result.excludedCount).toBe(1)
   })

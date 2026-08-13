@@ -13,7 +13,6 @@ import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { loadConfig } from "./config.js"
-import { readDailyNotesConfig } from "./vault-operations/daily-notes.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
@@ -94,9 +93,6 @@ const startServer = async (): Promise<void> => {
   })
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
-
-  const dailyNotesConfig = await readDailyNotesConfig(vaultPath)
-  search.setDailyNotesFolder(dailyNotesConfig.folder)
 
   if (config.memoryEnabled) {
     const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })

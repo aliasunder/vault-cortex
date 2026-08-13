@@ -3,54 +3,9 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
+import { momentToLuxonFormat } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
-
-// ── Moment.js → Luxon format conversion ────────────────────────
-
-/** Sorted longest-first to avoid partial replacement collisions
- *  (e.g. YYYY before YY, dddd before ddd). */
-const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
-  ["YYYY", "yyyy"],
-  ["dddd", "cccc"],
-  ["MMMM", "MMMM"],
-  ["ddd", "ccc"],
-  ["MMM", "MMM"],
-  ["YY", "yy"],
-  ["MM", "MM"],
-  ["DD", "dd"],
-  ["HH", "HH"],
-  ["hh", "hh"],
-  ["mm", "mm"],
-  ["ss", "ss"],
-  ["A", "a"],
-]
-
-/** Matches Moment.js [literal] escape groups — e.g. [Daily Note]. */
-const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
-
-/** Converts a Moment.js format string to Luxon format tokens.
- *  Handles [literal] escapes (Moment) → 'literal' (Luxon) and
- *  common date/time tokens. Unsupported tokens (Do, d, dd) are
- *  left as-is — Luxon will throw on unknown tokens, making the
- *  failure visible rather than producing a wrong path. */
-export const momentToLuxonFormat = (momentFormat: string): string => {
-  // First pass: convert Moment [literal] escapes to Luxon 'literal' syntax.
-  // Single quotes inside literals are doubled per Luxon's escape convention.
-  const withLiteralsConverted = momentFormat.replace(
-    MOMENT_ESCAPE_RE,
-    (_, literal: string) => {
-      const escapedContent = literal.replace(/'/g, "''")
-      return `'${escapedContent}'`
-    },
-  )
-  // Second pass: replace date/time tokens from longest to shortest
-  return MOMENT_TO_LUXON.reduce(
-    (formatString, [momentToken, luxonToken]) =>
-      formatString.replaceAll(momentToken, luxonToken),
-    withLiteralsConverted,
-  )
-}
 
 // ── Config reading ──────────────────────────────────────────────
 
@@ -59,25 +14,35 @@ type DailyNotesConfig = {
   format: string
 }
 
-const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
+/** Per-field settings from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env
+ *  vars; each set field takes precedence over .obsidian/daily-notes.json. */
+export type DailyNotesEnvSettings = {
+  folder?: string | undefined
+  format?: string | undefined
+}
+
+// The format matches Obsidian's default; the folder is this server's own
+// choice — Obsidian with no configured location creates dailies in the
+// vault root, which is not a sensible folder for the server to assume.
+const FALLBACK_CONFIG: DailyNotesConfig = {
   folder: "Daily Notes",
   format: "YYYY-MM-DD",
 }
 
 // TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
 // createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Mutable module-level cache — justified because the config is read from
-// the filesystem once and never changes during the server's lifetime.
-// Avoids re-reading .obsidian/daily-notes.json on every tool call.
-let cachedConfig: DailyNotesConfig | null = null
+// Caches only SUCCESSFUL reads. Fallbacks are never cached: on a fresh
+// remote deploy the config file can arrive after boot (initial sync still
+// running), and retrying each call picks it up without a restart.
+let cachedFileConfig: DailyNotesConfig | null = null
 
-/** Reads .obsidian/daily-notes.json for the vault's daily note folder
- *  and filename format. Falls back to Obsidian defaults if the file
- *  is missing or malformed. Result is cached after first read. */
-export const readDailyNotesConfig = async (
+/** Reads .obsidian/daily-notes.json, caching only successful reads.
+ *  Returns the fallback config (uncached — see cache comment) when the
+ *  file is missing or malformed. */
+const readDailyNotesFileConfig = async (
   vaultPath: string,
 ): Promise<DailyNotesConfig> => {
-  if (cachedConfig) return cachedConfig
+  if (cachedFileConfig) return cachedFileConfig
 
   try {
     const configFileContent = await readFile(
@@ -85,28 +50,48 @@ export const readDailyNotesConfig = async (
       "utf8",
     )
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
-    cachedConfig = {
+    const fileConfig = {
       folder:
         typeof parsedConfig.folder === "string" &&
         parsedConfig.folder.length > 0
           ? parsedConfig.folder
-          : OBSIDIAN_DEFAULTS.folder,
+          : FALLBACK_CONFIG.folder,
       format:
         typeof parsedConfig.format === "string" &&
         parsedConfig.format.length > 0
           ? parsedConfig.format
-          : OBSIDIAN_DEFAULTS.format,
+          : FALLBACK_CONFIG.format,
     }
+    cachedFileConfig = fileConfig
+    return fileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
       logger.debug("failed to read daily notes config, using defaults", {
         error: describeError(error),
       })
     }
-    cachedConfig = { ...OBSIDIAN_DEFAULTS }
+    return { ...FALLBACK_CONFIG }
+  }
+}
+
+/** Resolves the vault's daily note folder and filename format with
+ *  per-field precedence: env setting → .obsidian/daily-notes.json →
+ *  the fallbacks ("Daily Notes", "YYYY-MM-DD"). When both fields are
+ *  set via env the config file is not read at all. */
+export const readDailyNotesConfig = async (
+  vaultPath: string,
+  envSettings?: DailyNotesEnvSettings,
+): Promise<DailyNotesConfig> => {
+  // Both fields set via env — the file can't contribute anything, skip I/O.
+  if (envSettings?.folder && envSettings.format) {
+    return { folder: envSettings.folder, format: envSettings.format }
   }
 
-  return cachedConfig
+  const fileConfig = await readDailyNotesFileConfig(vaultPath)
+  return {
+    folder: envSettings?.folder ?? fileConfig.folder,
+    format: envSettings?.format ?? fileConfig.format,
+  }
 }
 
 // ── Path resolution + read ──────────────────────────────────────
@@ -114,13 +99,16 @@ export const readDailyNotesConfig = async (
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
 const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Resolves a date to a vault-relative daily note path using the
- *  vault's .obsidian/daily-notes.json config. */
-export const getDailyNotePath = async (
-  vaultPath: string,
-  date?: string,
-): Promise<string> => {
-  const config = await readDailyNotesConfig(vaultPath)
+/** Resolves a date to a vault-relative daily note path using the env
+ *  settings, the vault's .obsidian/daily-notes.json config, and
+ *  the fallbacks — in that per-field precedence order. */
+export const getDailyNotePath = async (params: {
+  vaultPath: string
+  date?: string | undefined
+  envSettings?: DailyNotesEnvSettings | undefined
+}): Promise<string> => {
+  const { vaultPath, date, envSettings } = params
+  const config = await readDailyNotesConfig(vaultPath, envSettings)
   const luxonFormat = momentToLuxonFormat(config.format)
 
   if (date && !STRICT_ISO_DATE_RE.test(date)) {
@@ -149,10 +137,18 @@ type DailyNoteResult = {
 /** Reads a daily note by date. Returns the resolved path, content
  *  (if the note exists), and an exists flag. */
 export const getDailyNote = async (
-  params: { vaultPath: string; date?: string | undefined },
+  params: {
+    vaultPath: string
+    date?: string | undefined
+    envSettings?: DailyNotesEnvSettings | undefined
+  },
   logger: Logger,
 ): Promise<DailyNoteResult> => {
-  const path = await getDailyNotePath(params.vaultPath, params.date)
+  const path = await getDailyNotePath({
+    vaultPath: params.vaultPath,
+    date: params.date,
+    envSettings: params.envSettings,
+  })
 
   try {
     const content = await vaultFs.readNote(

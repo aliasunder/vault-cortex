@@ -144,7 +144,7 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading. `vault_replace_in_note` does exact text find-and-replace in the note body. `vault_delete_span` deletes a contiguous block of lines by short anchor substrings — more reliable than reproducing the full block as `old_text`, and the complement to `vault_replace_in_note` for deletion.
 
-`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
@@ -183,9 +183,9 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | `vault_list_property_values` | `key, folder?, limit?`        | readOnlyHint |
 | `vault_search_by_property`   | `key, value, folder?, limit?` | readOnlyHint |
 
-**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
+**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
-`vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
+**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`). Only a successful config-file read is cached — a missing or malformed file is re-read on the next call, so a config file that arrives after boot is picked up without a restart. `task-format-config.ts` uses the same cache rule.
 
 ### Memory
 
@@ -248,7 +248,7 @@ Link queries use a `links` table populated during indexing:
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
-- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
+- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes` — plus `Templates` and the memory dir).
 
 ### Files
 
@@ -763,9 +763,10 @@ Docker hardening, and durability seatbelts above.
   like `../../outside` cannot escape the memory directory — and leading
   dots, which would create hidden files (memory paths are built via
   `join`, bypassing `resolveSafePath`'s hidden-path guard).
-- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`,
-  `Daily Notes`) blocks deleting notes in, moving notes out of, and
-  moving notes into configured folders, checked after normalization.
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
+  `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
+  notes in, moving notes out of, and moving notes into configured
+  folders, checked after normalization.
 
 #### SQL + search safety
 

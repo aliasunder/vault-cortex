@@ -97,4 +97,57 @@ describe("readTaskFormatConfig", () => {
       setCancelledDate: true,
     })
   })
+
+  it("retries after ENOENT — a plugin config appearing later is picked up without a restart", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+
+    const beforeFileExists = await readTaskFormatConfig(vault)
+    expect(beforeFileExists).toEqual({
+      taskFormat: "emoji",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
+
+    await writePluginConfig(vault, {
+      taskFormat: "dataview",
+      setDoneDate: false,
+      setCancelledDate: false,
+    })
+    const afterFileExists = await readTaskFormatConfig(vault)
+    expect(afterFileExists).toEqual({
+      taskFormat: "dataview",
+      setDoneDate: false,
+      setCancelledDate: false,
+    })
+  })
+
+  it("caches a successful read — later file changes are not re-read", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
+
+    const first = await readTaskFormatConfig(vault)
+    expect(first).toEqual({
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
+
+    await writePluginConfig(vault, {
+      taskFormat: "tasksPluginEmoji",
+      setDoneDate: false,
+      setCancelledDate: false,
+    })
+    const second = await readTaskFormatConfig(vault)
+    expect(second).toEqual({
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
+  })
 })
