@@ -136,7 +136,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Remote deployments have additional settings (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Remote deployments have additional settings not included below (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
 | --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

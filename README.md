@@ -316,7 +316,7 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Remote deployments have additional settings (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](./deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Remote deployments have additional settings not included below (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](./deploy/remote/README.md#configuration).
 
 | Variable                    | Required?   | Default                                     | Description                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
