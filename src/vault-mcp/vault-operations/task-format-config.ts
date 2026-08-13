@@ -29,13 +29,9 @@ const DEFAULTS: TaskFormatConfig = {
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Mutable module-level cache of the last SUCCESSFUL file read, keyed by
-// vault path — same pattern as daily-notes.ts. Fallback results (file
-// missing or malformed) are deliberately never cached: on a fresh remote
-// deploy the plugin config can arrive after the first read (initial
-// Obsidian Sync still running), so retrying each call picks it up without
-// a restart. Once a read succeeds, the value is cached for the process
-// lifetime.
+// Caches only SUCCESSFUL reads, keyed by vault path — same pattern and
+// rationale as daily-notes.ts: uncached fallbacks are retried, so a plugin
+// config arriving after boot is picked up without a restart.
 let cachedConfig: { vaultPath: string; config: TaskFormatConfig } | null = null
 
 /** Reads the Tasks plugin's format preference from

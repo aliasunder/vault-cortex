@@ -94,12 +94,10 @@ const rewriteUrls = (line: string): string => {
   return result
 }
 
-/** Collapses markdown table cell padding. The README's column-aligned
- *  tables spend hundreds of bytes per row on alignment spaces; Docker Hub
- *  renders the compressed form identically, and the saved bytes matter
- *  against the Hub's 25000-byte README cap. Divider rows (|---|) are
- *  compressed too — uneven dash runs are still valid markdown. Assumes no
- *  escaped pipes (\|) inside cells — the README's tables have none. */
+/** Collapses markdown table padding — renders identically but saves
+ *  hundreds of bytes per row against Docker Hub's 25000-byte cap. Divider
+ *  rows compress too (still valid markdown). Assumes no escaped pipes
+ *  (\|) in cells — the README's tables have none. */
 const compressTableRow = (line: string): string => {
   if (!line.startsWith("|")) return line
   const cells = line.split("|").map((cell) => cell.trim())

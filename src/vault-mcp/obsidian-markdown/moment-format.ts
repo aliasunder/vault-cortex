@@ -1,9 +1,6 @@
-/** Moment.js → Luxon format-string conversion.
- *
- *  Obsidian's daily-notes config stores its filename format in Moment.js
- *  tokens (Obsidian bundles moment); the server renders dates with Luxon.
- *  Pure string transform with zero imports so config-time validation
- *  (config.ts) can use it without pulling in filesystem or logger deps. */
+/** Moment.js → Luxon format-string conversion — Obsidian stores daily-note
+ *  formats in moment tokens; the server renders with Luxon. Pure and
+ *  zero-import so config.ts can validate formats without fs/logger deps. */
 
 /** Sorted longest-first to avoid partial replacement collisions
  *  (e.g. YYYY before YY, dddd before ddd). */

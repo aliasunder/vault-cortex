@@ -99,11 +99,9 @@ const startServer = async (): Promise<void> => {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
-  // Residual staleness: without a DAILY_NOTES_FOLDER override, this startup
-  // read can race the initial Obsidian Sync on a fresh deploy — the search
-  // index's broken-link exclusion then uses the default folder until the next
-  // restart. Blast radius is cosmetic (daily-note wikilinks counted as broken
-  // links in search metadata); tool calls re-read the config and self-heal.
+  // Residual race: without an override, this startup read can beat the
+  // initial sync, leaving the index's broken-link exclusion on the default
+  // folder until restart. Cosmetic only — tool calls re-read and self-heal.
   search.setDailyNotesFolder(dailyNotesConfig.folder)
 
   if (config.memoryEnabled) {

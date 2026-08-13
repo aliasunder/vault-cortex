@@ -33,12 +33,10 @@ const splitCommaSeparatedFolders = (raw: string): string[] =>
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
 
-/** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date
- *  and checking the result is a usable filename. Structural checks only —
- *  unknown moment tokens are NOT rejected, because Luxon renders them
- *  literally (matching Obsidian's moment behavior), so an unusual token
- *  produces an unusual filename rather than a broken path. Returns the
- *  raw moment format string unchanged. */
+/** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
+ *  Structural checks only — unknown moment tokens pass through (Luxon
+ *  renders them literally, matching Obsidian). Returns the raw moment
+ *  string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
     momentToLuxonFormat(momentFormat),

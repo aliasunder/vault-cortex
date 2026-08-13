@@ -28,14 +28,10 @@ const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
 
 // TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
 // createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Mutable module-level cache of the last SUCCESSFUL file read, keyed by
-// vault path so a different vault (tests recycle the module across vault
-// tempdirs) never sees another vault's cached config. Fallback results
-// (file missing or malformed) are deliberately never cached: on a fresh
-// remote deploy the server boots before the initial Obsidian Sync delivers
-// .obsidian/, so the config file can appear after the first read — retrying
-// each call picks it up without a restart. Once a read succeeds, the value
-// is cached for the process lifetime.
+// Caches only SUCCESSFUL reads, keyed by vault path (tests recycle the
+// module across vault tempdirs). Fallbacks are never cached: on a fresh
+// remote deploy the config file can arrive after boot (initial sync still
+// running), and retrying each call picks it up without a restart.
 let cachedFileConfig: { vaultPath: string; config: DailyNotesConfig } | null =
   null
 
