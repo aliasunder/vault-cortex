@@ -136,7 +136,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults.
+All settings are environment variables with sensible defaults. This table covers the server's own settings; remote deployments add settings for the sync service (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`, `SYNC_CONFIGS`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
 | --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

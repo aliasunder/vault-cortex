@@ -316,7 +316,7 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults.
+All settings are environment variables with sensible defaults. This table covers the server's own settings; remote deployments add settings for the sync service (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`, `SYNC_CONFIGS`, …) — see the [remote guide's configuration table](./deploy/remote/README.md#configuration).
 
 | Variable                    | Required?   | Default                                     | Description                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
