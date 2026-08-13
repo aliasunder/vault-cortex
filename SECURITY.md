@@ -64,7 +64,9 @@ mechanism-level detail.
   read, write, move, and delete refuses hidden paths, matching Obsidian,
   which ignores them entirely. This also keeps any third-party API keys
   community plugins store in `.obsidian/plugins/*/data.json` out of a
-  compromised MCP token's reach.
+  compromised MCP token's reach — relevant in the default remote
+  configuration, where `SYNC_CONFIGS` syncs community plugin settings to
+  the server whenever the desktop pushes them.
 - The search index and OAuth databases live outside the vault (the
   default `/data` volume), so the file tools can't reach them.
   Hidden-path blocking does not cover a database relocated into a
