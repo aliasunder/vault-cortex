@@ -45,6 +45,8 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
     .split(MOMENT_ESCAPE_RE)
     .map((segment, segmentIndex) => {
       const isLiteralContent = segmentIndex % 2 === 1
+      // Luxon wraps literal text in single quotes and escapes an embedded
+      // quote by doubling it ("it's" → 'it''s').
       return isLiteralContent
         ? `'${segment.replace(/'/g, "''")}'`
         : convertMomentTokens(segment)
