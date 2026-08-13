@@ -138,14 +138,14 @@ describe("env var consistency across deploy surfaces", () => {
 
 describe("SYNC_CONFIGS default", () => {
   it.each(["deploy/remote/docker-compose.yml", "docker-compose.yml"])(
-    "%s defaults SYNC_CONFIGS to core-plugin-data",
+    "%s defaults SYNC_CONFIGS to the categories the server reads",
     (composePath) => {
       // Exact-form pin: the colon interpolation form keeps default-on
-      // semantics (unset OR empty → core-plugin-data); disabling is the
-      // explicit "none" sentinel handled by the init script, never an
+      // semantics (unset OR empty → the default categories); disabling is
+      // the explicit "none" sentinel handled by the init script, never an
       // empty/unset value.
       expect(readRepoFile(composePath)).toContain(
-        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data}",
+        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}",
       )
     },
   )

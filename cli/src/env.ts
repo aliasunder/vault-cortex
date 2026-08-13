@@ -230,14 +230,16 @@ CONFLICT_STRATEGY=merge
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 SYNC_MODE=bidirectional
 
-# Obsidian settings categories to sync into the server's .obsidian/ folder,
-# comma-separated (default: core-plugin-data — brings your daily notes
-# folder/format settings to the server). Set to "none" to disable.
+# Obsidian settings categories to sync into the server's .obsidian/ folder
+# (default: the two the server reads — daily notes settings and community
+# plugin settings such as the Tasks plugin's format; "none" disables).
 # A category only syncs after your desktop pushes it: Obsidian Settings →
-# Sync → "Vault configuration sync" (per device). Values: app, appearance,
-# appearance-data, hotkey, core-plugin, core-plugin-data, community-plugin,
-# community-plugin-data.
-SYNC_CONFIGS=core-plugin-data
+# Sync → "Vault configuration sync" (per device). Some community plugins
+# keep API keys in their settings — server tools never read .obsidian/,
+# but synced settings do live on the server volume. Values: app,
+# appearance, appearance-data, hotkey, core-plugin, core-plugin-data,
+# community-plugin, community-plugin-data — comma-separated.
+SYNC_CONFIGS=core-plugin-data,community-plugin-data
 `
 
 // sync:remote-optional:end
