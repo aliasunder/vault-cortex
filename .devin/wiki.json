@@ -40,7 +40,7 @@
     },
     {
       "title": "Obsidian Markdown Parsing",
-      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, memory-entries.ts, canvas.ts, plaintext.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
+      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, memory-entries.ts, canvas.ts, plaintext.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
       "parent": "Architecture"
     },
     {
@@ -55,7 +55,7 @@
     },
     {
       "title": "Memory Layer",
-      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, daily-notes.ts with obsidian-markdown/moment-format.ts, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
+      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
       "parent": "Architecture"
     },
     {
