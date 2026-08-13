@@ -122,6 +122,31 @@ describe("readTaskFormatConfig", () => {
     })
   })
 
+  it("keys the cache by vault path — a second vault gets its own config", async () => {
+    resetTaskFormatConfigCache()
+    const firstVault = await createVault()
+    await writePluginConfig(firstVault, {
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
+    const firstVaultConfig = await readTaskFormatConfig(firstVault)
+    expect(firstVaultConfig.taskFormat).toBe("dataview")
+
+    const secondVault = await createVault()
+    await writePluginConfig(secondVault, {
+      taskFormat: "tasksPluginEmoji",
+      setDoneDate: false,
+      setCancelledDate: false,
+    })
+    const secondVaultConfig = await readTaskFormatConfig(secondVault)
+    expect(secondVaultConfig).toEqual({
+      taskFormat: "emoji",
+      setDoneDate: false,
+      setCancelledDate: false,
+    })
+  })
+
   it("caches a successful read — later file changes are not re-read", async () => {
     resetTaskFormatConfigCache()
     const vault = await createVault()

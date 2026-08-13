@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+  vi,
+} from "vitest"
 import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -90,6 +98,33 @@ describe("readDailyNotesConfig", () => {
     )
     const second = await readDailyNotesConfig(vaultDir)
     expect(second.folder).toBe("Journal")
+  })
+
+  it("keys the cache by vault path — a second vault gets its own config", async () => {
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD" }),
+      "utf8",
+    )
+    const firstVaultConfig = await readDailyNotesConfig(vaultDir)
+    expect(firstVaultConfig.folder).toBe("Journal")
+
+    const secondVaultDir = await mkdtemp(
+      join(tmpdir(), "daily-notes-second-vault-"),
+    )
+    onTestFinished(async () => rm(secondVaultDir, { recursive: true }))
+    await mkdir(join(secondVaultDir, ".obsidian"), { recursive: true })
+    await writeFile(
+      join(secondVaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Diary", format: "DD-MM-YYYY" }),
+      "utf8",
+    )
+    const secondVaultConfig = await readDailyNotesConfig(secondVaultDir)
+    expect(secondVaultConfig).toEqual({
+      folder: "Diary",
+      format: "DD-MM-YYYY",
+    })
   })
 
   it("retries after ENOENT — a config file appearing later is picked up without a restart", async () => {

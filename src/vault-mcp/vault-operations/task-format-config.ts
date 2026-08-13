@@ -29,13 +29,14 @@ const DEFAULTS: TaskFormatConfig = {
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Mutable module-level cache of the last SUCCESSFUL file read — same
-// pattern as daily-notes.ts. Fallback results (file missing or malformed)
-// are deliberately never cached: on a fresh remote deploy the plugin config
-// can arrive after the first read (initial Obsidian Sync still running), so
-// retrying each call picks it up without a restart. Once a read succeeds,
-// the value is cached for the process lifetime.
-let cachedConfig: TaskFormatConfig | null = null
+// Mutable module-level cache of the last SUCCESSFUL file read, keyed by
+// vault path — same pattern as daily-notes.ts. Fallback results (file
+// missing or malformed) are deliberately never cached: on a fresh remote
+// deploy the plugin config can arrive after the first read (initial
+// Obsidian Sync still running), so retrying each call picks it up without
+// a restart. Once a read succeeds, the value is cached for the process
+// lifetime.
+let cachedConfig: { vaultPath: string; config: TaskFormatConfig } | null = null
 
 /** Reads the Tasks plugin's format preference from
  *  `.obsidian/plugins/obsidian-tasks-plugin/data.json`. Falls back to
@@ -44,7 +45,7 @@ let cachedConfig: TaskFormatConfig | null = null
 export const readTaskFormatConfig = async (
   vaultPath: string,
 ): Promise<TaskFormatConfig> => {
-  if (cachedConfig) return cachedConfig
+  if (cachedConfig?.vaultPath === vaultPath) return cachedConfig.config
 
   try {
     const configPath = join(
@@ -61,7 +62,7 @@ export const readTaskFormatConfig = async (
     const taskFormat: "emoji" | "dataview" =
       rawFormat === "dataview" ? "dataview" : "emoji"
 
-    cachedConfig = {
+    const fileConfig = {
       taskFormat,
       setDoneDate:
         typeof parsed.setDoneDate === "boolean"
@@ -72,7 +73,8 @@ export const readTaskFormatConfig = async (
           ? parsed.setCancelledDate
           : DEFAULTS.setCancelledDate,
     }
-    return cachedConfig
+    cachedConfig = { vaultPath, config: fileConfig }
+    return fileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
       logger.debug("failed to read Tasks plugin config, using defaults", {

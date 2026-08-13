@@ -28,13 +28,16 @@ const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
 
 // TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
 // createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Mutable module-level cache of the last SUCCESSFUL file read. Fallback
-// results (file missing or malformed) are deliberately never cached: on a
-// fresh remote deploy the server boots before the initial Obsidian Sync
-// delivers .obsidian/, so the config file can appear after the first read —
-// retrying each call picks it up without a restart. Once a read succeeds,
-// the value is cached for the process lifetime.
-let cachedFileConfig: DailyNotesConfig | null = null
+// Mutable module-level cache of the last SUCCESSFUL file read, keyed by
+// vault path so a different vault (tests recycle the module across vault
+// tempdirs) never sees another vault's cached config. Fallback results
+// (file missing or malformed) are deliberately never cached: on a fresh
+// remote deploy the server boots before the initial Obsidian Sync delivers
+// .obsidian/, so the config file can appear after the first read — retrying
+// each call picks it up without a restart. Once a read succeeds, the value
+// is cached for the process lifetime.
+let cachedFileConfig: { vaultPath: string; config: DailyNotesConfig } | null =
+  null
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns Obsidian defaults (uncached — see cache comment) when the
@@ -42,7 +45,7 @@ let cachedFileConfig: DailyNotesConfig | null = null
 const readDailyNotesFileConfig = async (
   vaultPath: string,
 ): Promise<DailyNotesConfig> => {
-  if (cachedFileConfig) return cachedFileConfig
+  if (cachedFileConfig?.vaultPath === vaultPath) return cachedFileConfig.config
 
   try {
     const configFileContent = await readFile(
@@ -50,7 +53,7 @@ const readDailyNotesFileConfig = async (
       "utf8",
     )
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
-    cachedFileConfig = {
+    const fileConfig = {
       folder:
         typeof parsedConfig.folder === "string" &&
         parsedConfig.folder.length > 0
@@ -62,7 +65,8 @@ const readDailyNotesFileConfig = async (
           ? parsedConfig.format
           : OBSIDIAN_DEFAULTS.format,
     }
-    return cachedFileConfig
+    cachedFileConfig = { vaultPath, config: fileConfig }
+    return fileConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
       logger.debug("failed to read daily notes config, using defaults", {
