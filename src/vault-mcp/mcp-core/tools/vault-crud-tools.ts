@@ -715,7 +715,7 @@ Parameters:
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
-- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
       inputSchema: {
