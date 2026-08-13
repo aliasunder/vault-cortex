@@ -53,6 +53,16 @@ describe("momentToLuxonFormat", () => {
       input: "YYYY-MM-DD []",
       expected: "yyyy-MM-dd ''",
     },
+    {
+      name: "preserves token letters inside a [literal] escape",
+      input: "YYYY-MM-DD [Week A]",
+      expected: "yyyy-MM-dd 'Week A'",
+    },
+    {
+      name: "preserves a literal made entirely of token characters",
+      input: "[DD] DD",
+      expected: "'DD' dd",
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {

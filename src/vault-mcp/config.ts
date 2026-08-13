@@ -34,9 +34,10 @@ const splitCommaSeparatedFolders = (raw: string): string[] =>
     .filter((entry) => entry.length > 0)
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
- *  Structural checks only — unknown moment tokens pass through (Luxon
- *  renders them literally, matching Obsidian). Returns the raw moment
- *  string unchanged. */
+ *  Structural checks only — moment tokens without a Luxon mapping pass
+ *  through and may render differently than in Obsidian, so only
+ *  structurally unsafe results (traversal, separators, empty) are
+ *  rejected. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
     momentToLuxonFormat(momentFormat),

@@ -23,25 +23,31 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
 /** Matches Moment.js [literal] escape groups — e.g. [Daily Note]. */
 const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
 
-/** Converts a Moment.js format string to Luxon format tokens.
- *  Handles [literal] escapes (Moment) → 'literal' (Luxon) and
- *  common date/time tokens. Unsupported tokens (Do, d, dd) are
- *  left as-is — Luxon renders unknown tokens literally, so they
- *  appear verbatim in the output rather than failing. */
+/** Replaces moment date/time tokens with their Luxon equivalents. */
+const convertMomentTokens = (formatSpan: string): string =>
+  MOMENT_TO_LUXON.reduce(
+    (convertedSpan, [momentToken, luxonToken]) =>
+      convertedSpan.replaceAll(momentToken, luxonToken),
+    formatSpan,
+  )
+
+/** Converts a Moment.js format string to Luxon format tokens. [literal]
+ *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
+ *  replacement runs only OUTSIDE literals so literal text containing token
+ *  letters ("[Week A]") is preserved verbatim. Moment tokens without a
+ *  mapping (Do, dd, DDD) pass through into Luxon's token grammar and may
+ *  render differently than Obsidian would — config.ts's probe-render
+ *  rejects only structurally unsafe results. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
-  // First pass: convert Moment [literal] escapes to Luxon 'literal' syntax.
-  // Single quotes inside literals are doubled per Luxon's escape convention.
-  const withLiteralsConverted = momentFormat.replace(
-    MOMENT_ESCAPE_RE,
-    (_, literal: string) => {
-      const escapedContent = literal.replace(/'/g, "''")
-      return `'${escapedContent}'`
-    },
-  )
-  // Second pass: replace date/time tokens from longest to shortest
-  return MOMENT_TO_LUXON.reduce(
-    (formatString, [momentToken, luxonToken]) =>
-      formatString.replaceAll(momentToken, luxonToken),
-    withLiteralsConverted,
-  )
+  // split() with a capturing group alternates non-literal spans (even
+  // indices) with literal contents (odd indices).
+  return momentFormat
+    .split(MOMENT_ESCAPE_RE)
+    .map((segment, segmentIndex) => {
+      const isLiteralContent = segmentIndex % 2 === 1
+      return isLiteralContent
+        ? `'${segment.replace(/'/g, "''")}'`
+        : convertMomentTokens(segment)
+    })
+    .join("")
 }
