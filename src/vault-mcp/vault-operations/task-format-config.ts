@@ -29,13 +29,18 @@ const DEFAULTS: TaskFormatConfig = {
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Mutable module-level cache — same pattern as daily-notes.ts.
-// Config doesn't change during the server's lifetime.
+// Mutable module-level cache of the last SUCCESSFUL file read — same
+// pattern as daily-notes.ts. Fallback results (file missing or malformed)
+// are deliberately never cached: on a fresh remote deploy the plugin config
+// can arrive after the first read (initial Obsidian Sync still running), so
+// retrying each call picks it up without a restart. Once a read succeeds,
+// the value is cached for the process lifetime.
 let cachedConfig: TaskFormatConfig | null = null
 
 /** Reads the Tasks plugin's format preference from
  *  `.obsidian/plugins/obsidian-tasks-plugin/data.json`. Falls back to
- *  emoji format + dates enabled when the file is missing or malformed. */
+ *  emoji format + dates enabled (uncached — see cache comment) when the
+ *  file is missing or malformed. */
 export const readTaskFormatConfig = async (
   vaultPath: string,
 ): Promise<TaskFormatConfig> => {
@@ -67,16 +72,15 @@ export const readTaskFormatConfig = async (
           ? parsed.setCancelledDate
           : DEFAULTS.setCancelledDate,
     }
+    return cachedConfig
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
       logger.debug("failed to read Tasks plugin config, using defaults", {
         error: describeError(error),
       })
     }
-    cachedConfig = { ...DEFAULTS }
+    return { ...DEFAULTS }
   }
-
-  return cachedConfig
 }
 
 /** Resets the cached config — only for testing. */
