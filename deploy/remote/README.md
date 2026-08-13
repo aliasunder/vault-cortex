@@ -374,9 +374,10 @@ Sync has attachment syncing disabled and no files exist on disk.
 
 ## Daily notes
 
-`vault_get_daily_note` resolves paths from your vault's daily notes settings
-(`.obsidian/daily-notes.json`). In remote mode that file only reaches the
-server when vault configuration syncing is on — which takes both switches:
+`vault_get_daily_note` finds your daily notes using the folder and date
+format set in Obsidian's Daily notes options. Obsidian stores those settings
+in `.obsidian/daily-notes.json`, and in remote mode the server only receives
+that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to `core-plugin-data`, so the
   right category syncs automatically. Set `SYNC_CONFIGS=none` in `.env` to
