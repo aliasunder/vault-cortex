@@ -90,8 +90,9 @@ current values, saves your picks to `.env`, and offers to restart the
 container so they take effect.
 
 Settings not in the chooser live in `.env` too: edit the value there, then
-run [`restart`](#restart). That's also how you clear a daily notes setting
-back to your vault's own configuration — comment out or delete its line.
+run [`restart`](#restart). The daily notes settings can be updated the same
+way — and removing a line entirely puts the server back on your vault's own
+daily notes settings.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
