@@ -66,6 +66,17 @@
 
 
 
+
+## [0.36.1] — 2026-08-13
+
+### Features
+
+- Extend file content search to PDF and text files (#425)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.36.0
+
 ## [0.36.0] — 2026-08-11
 
 ### Features
