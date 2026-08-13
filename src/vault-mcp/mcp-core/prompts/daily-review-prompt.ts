@@ -164,7 +164,14 @@ export const registerDailyReviewPrompt = ({
         }
 
         const daily = await getDailyNote(
-          { vaultPath, date: dateArg },
+          {
+            vaultPath,
+            date: dateArg,
+            overrides: {
+              folder: config.dailyNotesFolder,
+              format: config.dailyNotesFormat,
+            },
+          },
           reqLogger,
         )
         const modifiedOnDate = search.modifiedOnDate(

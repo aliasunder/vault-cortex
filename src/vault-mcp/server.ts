@@ -95,7 +95,15 @@ const startServer = async (): Promise<void> => {
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
-  const dailyNotesConfig = await readDailyNotesConfig(vaultPath)
+  const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+    folder: config.dailyNotesFolder,
+    format: config.dailyNotesFormat,
+  })
+  // Residual staleness: without a DAILY_NOTES_FOLDER override, this startup
+  // read can race the initial Obsidian Sync on a fresh deploy — the search
+  // index's broken-link exclusion then uses the default folder until the next
+  // restart. Blast radius is cosmetic (daily-note wikilinks counted as broken
+  // links in search metadata); tool calls re-read the config and self-heal.
   search.setDailyNotesFolder(dailyNotesConfig.folder)
 
   if (config.memoryEnabled) {
