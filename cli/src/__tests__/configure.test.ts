@@ -77,7 +77,7 @@ describe("runConfigure with nothing picked", () => {
 
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
-    expect(scripted.logs).toEqual(["No settings selected — nothing changed."])
+    expect(scripted.logs).toEqual(["No changes to apply."])
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
     ])
@@ -275,7 +275,7 @@ describe("runConfigure with picked settings", () => {
     )
   })
 
-  it("treats a picked-then-blanked daily notes setting as nothing selected", async () => {
+  it("treats a picked-then-blanked daily notes setting as no changes to apply", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
@@ -289,7 +289,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
     expect(scripted.logs).toEqual([
       "Left unset — the server reads this setting from your vault's own config.",
-      "No settings selected — nothing changed.",
+      "No changes to apply.",
     ])
   })
 
@@ -311,7 +311,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(envWithDailyNotes)
     expect(scripted.logs).toEqual([
       "Kept the current value (Journal).",
-      "No settings selected — nothing changed.",
+      "No changes to apply.",
     ])
     expect(scripted.warnings).toEqual([])
   })
