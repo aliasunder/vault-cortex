@@ -209,6 +209,12 @@ describe("loadConfig", () => {
       )
     })
 
+    it("rejects a format that renders to a leading path separator ([/]YYYY)", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[/]YYYY" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not start with a path separator',
+      )
+    })
+
     it("rejects a format that renders to an empty filename", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[ ]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',

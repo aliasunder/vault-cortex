@@ -131,7 +131,11 @@ describe("readTaskFormatConfig", () => {
       setCancelledDate: true,
     })
     const firstVaultConfig = await readTaskFormatConfig(firstVault)
-    expect(firstVaultConfig.taskFormat).toBe("dataview")
+    expect(firstVaultConfig).toEqual({
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
 
     const secondVault = await createVault()
     await writePluginConfig(secondVault, {
@@ -157,7 +161,11 @@ describe("readTaskFormatConfig", () => {
     })
 
     const first = await readTaskFormatConfig(vault)
-    expect(first.taskFormat).toBe("dataview")
+    expect(first).toEqual({
+      taskFormat: "dataview",
+      setDoneDate: true,
+      setCancelledDate: true,
+    })
 
     await writePluginConfig(vault, {
       taskFormat: "tasksPluginEmoji",

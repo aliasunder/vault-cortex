@@ -36,15 +36,13 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const config = await readDailyNotesConfig(vaultDir)
-    expect(config.folder).toBe("Journal")
-    expect(config.format).toBe("YYYY-MM-DD-dddd")
+    expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD-dddd" })
   })
 
   it("falls back to defaults when file is missing", async () => {
     const { readDailyNotesConfig } = await import("../daily-notes.js")
     const config = await readDailyNotesConfig(vaultDir)
-    expect(config.folder).toBe("Daily Notes")
-    expect(config.format).toBe("YYYY-MM-DD")
+    expect(config).toEqual({ folder: "Daily Notes", format: "YYYY-MM-DD" })
   })
 
   it("falls back to defaults when file is malformed JSON", async () => {
@@ -55,8 +53,7 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const config = await readDailyNotesConfig(vaultDir)
-    expect(config.folder).toBe("Daily Notes")
-    expect(config.format).toBe("YYYY-MM-DD")
+    expect(config).toEqual({ folder: "Daily Notes", format: "YYYY-MM-DD" })
   })
 
   it("uses default folder when config has empty folder string", async () => {
@@ -67,7 +64,7 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const config = await readDailyNotesConfig(vaultDir)
-    expect(config.folder).toBe("Daily Notes")
+    expect(config).toEqual({ folder: "Daily Notes", format: "YYYY-MM-DD" })
   })
 
   it("uses default format when config has empty format string", async () => {
@@ -78,7 +75,7 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const config = await readDailyNotesConfig(vaultDir)
-    expect(config.format).toBe("YYYY-MM-DD")
+    expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
   })
 
   it("caches the config after first read", async () => {
@@ -89,7 +86,7 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const first = await readDailyNotesConfig(vaultDir)
-    expect(first.folder).toBe("Journal")
+    expect(first).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
 
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
@@ -97,7 +94,7 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const second = await readDailyNotesConfig(vaultDir)
-    expect(second.folder).toBe("Journal")
+    expect(second).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
   })
 
   it("keys the cache by vault path — a second vault gets its own config", async () => {
@@ -108,7 +105,10 @@ describe("readDailyNotesConfig", () => {
       "utf8",
     )
     const firstVaultConfig = await readDailyNotesConfig(vaultDir)
-    expect(firstVaultConfig.folder).toBe("Journal")
+    expect(firstVaultConfig).toEqual({
+      folder: "Journal",
+      format: "YYYY-MM-DD",
+    })
 
     const secondVaultDir = await mkdtemp(
       join(tmpdir(), "daily-notes-second-vault-"),
