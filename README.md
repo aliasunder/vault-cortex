@@ -348,7 +348,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 ### Daily notes
 
-`vault_get_daily_note` and the daily-review prompt resolve daily note paths using, per field: the `DAILY_NOTES_FOLDER` / `DAILY_NOTES_FORMAT` env overrides → the vault's `.obsidian/daily-notes.json` → Obsidian's defaults (`Daily Notes` folder, `YYYY-MM-DD` format). The format takes the same tokens as Obsidian's daily note date format setting (`YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …).
+`vault_get_daily_note` and the daily-review prompt resolve daily note paths using, per field: the `DAILY_NOTES_FOLDER` / `DAILY_NOTES_FORMAT` env overrides → the vault's `.obsidian/daily-notes.json` → Obsidian's defaults (`Daily Notes` folder, `YYYY-MM-DD` format). The folder is any vault-relative path (`Journal`, `Planner/Daily`); the format takes the same tokens as Obsidian's daily note date format setting (`YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …).
 
 - **Local mode** reads `.obsidian/daily-notes.json` straight from your bind-mounted vault — custom settings work with no extra setup.
 - **Remote mode**: the config file only reaches the server when vault configuration syncing is on. Two switches control that: `SYNC_CONFIGS` (defaults to `core-plugin-data`; set `none` to disable) and the push side on your desktop — Obsidian Settings → Sync → **Vault configuration sync**, enabled per device. If the file hasn't arrived yet when the server boots (first sync still running), the server retries on every call and picks it up the moment it lands — no restart needed. `SYNC_CONFIGS` takes a comma-separated list of Obsidian's settings categories: `app`, `appearance`, `appearance-data`, `hotkey`, `core-plugin`, `core-plugin-data`, `community-plugin`, `community-plugin-data`.

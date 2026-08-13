@@ -387,6 +387,8 @@ server when vault configuration syncing is on — which takes both switches:
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` and
 `DAILY_NOTES_FORMAT` in `.env`; they override the config file per field.
+The folder is any vault-relative path (`Journal`, `Planner/Daily`); the
+format takes the same tokens as Obsidian's daily note date format setting.
 Without either source, the server uses Obsidian's defaults (`Daily Notes`
 folder, `YYYY-MM-DD` format).
 
