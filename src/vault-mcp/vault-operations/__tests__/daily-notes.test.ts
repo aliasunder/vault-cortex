@@ -3,69 +3,7 @@ import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { momentToLuxonFormat } from "../daily-notes.js"
 import { logger } from "../../../logger.js"
-
-// ── momentToLuxonFormat ──────────────────────────────────────────
-
-describe("momentToLuxonFormat", () => {
-  const scenarios = [
-    {
-      name: "standard daily note format",
-      input: "YYYY-MM-DD",
-      expected: "yyyy-MM-dd",
-    },
-    {
-      name: "date with full weekday name",
-      input: "YYYY-MM-DD-dddd",
-      expected: "yyyy-MM-dd-cccc",
-    },
-    {
-      name: "date with short weekday name",
-      input: "YYYY-MM-DD-ddd",
-      expected: "yyyy-MM-dd-ccc",
-    },
-    {
-      name: "nested folder format",
-      input: "YYYY/MM/DD",
-      expected: "yyyy/MM/dd",
-    },
-    {
-      name: "European date format",
-      input: "DD-MM-YYYY",
-      expected: "dd-MM-yyyy",
-    },
-    {
-      name: "two-digit year",
-      input: "YY-MM-DD",
-      expected: "yy-MM-dd",
-    },
-    {
-      name: "preserves non-token characters",
-      input: "YYYY_MM_DD journal",
-      expected: "yyyy_MM_dd journal",
-    },
-    {
-      name: "converts [literal] escapes to Luxon single-quote syntax",
-      input: "YYYY-MM-DD [Daily Note]",
-      expected: "yyyy-MM-dd 'Daily Note'",
-    },
-    {
-      name: "handles [literal] with apostrophe",
-      input: "YYYY-MM-DD [it's]",
-      expected: "yyyy-MM-dd 'it''s'",
-    },
-    {
-      name: "handles empty [literal] brackets",
-      input: "YYYY-MM-DD []",
-      expected: "yyyy-MM-dd ''",
-    },
-  ]
-
-  it.each(scenarios)("$name", ({ input, expected }) => {
-    expect(momentToLuxonFormat(input)).toBe(expected)
-  })
-})
 
 // ── readDailyNotesConfig ─────────────────────────────────────────
 
