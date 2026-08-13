@@ -139,7 +139,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 All settings are environment variables with sensible defaults.
 
 | Variable | Required? | Default | Description |
-| --------------------------- | ----------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume) |
 | `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata |

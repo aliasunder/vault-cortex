@@ -353,7 +353,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 - **Local mode** reads `.obsidian/daily-notes.json` straight from your bind-mounted vault — custom settings work with no extra setup.
 - **Remote mode**: the config file only reaches the server when vault configuration syncing is on. Two switches control that: `SYNC_CONFIGS` (defaults to `core-plugin-data`; set `none` to disable) and the push side on your desktop — Obsidian Settings → Sync → **Vault configuration sync**, enabled per device. If the file hasn't arrived yet when the server boots (first sync still running), the server retries on every call and picks it up the moment it lands — no restart needed. `SYNC_CONFIGS` takes a comma-separated list of Obsidian's settings categories: `app`, `appearance`, `appearance-data`, `hotkey`, `core-plugin`, `core-plugin-data`, `community-plugin`, `community-plugin-data`.
 - **Periodic Notes plugin users**: vault-cortex reads the core Daily Notes plugin's config, which the Periodic Notes plugin doesn't update. Set the env overrides to match your Periodic Notes settings (or hand-edit `.obsidian/daily-notes.json` in your vault to match).
-- **Tip**: `DAILY_NOTES_FOLDER` cascades into the `PROTECTED_PATHS` default, so an env-configured folder is protected from deletion automatically. A custom folder configured only in `daily-notes.json` is not — add it to `PROTECTED_PATHS` explicitly.
+- **Tip**: the `PROTECTED_PATHS` default automatically protects your daily notes folder when it's set via `DAILY_NOTES_FOLDER`, and falls back to protecting `Daily Notes` otherwise. A folder configured only in `daily-notes.json` is not covered — add it to `PROTECTED_PATHS` explicitly.
 
 ## Data Integrity
 
