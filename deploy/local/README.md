@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -146,7 +146,32 @@ curl http://localhost:8000/healthz
 # OAuth discovery (no auth required — root and RFC 9728 path-suffixed forms):
 curl http://localhost:8000/.well-known/oauth-protected-resource
 curl http://localhost:8000/.well-known/oauth-protected-resource/mcp
+
+# Server logs (structured JSON lines):
+npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
+docker logs vault-cortex       # Compose
 ```
+
+## Monitoring
+
+**Set up with the CLI?**
+
+```bash
+# Follow the server logs until ctrl-C:
+npx vault-cortex@latest logs --follow
+
+# Or just recent history:
+npx vault-cortex@latest logs --since 10m
+```
+
+**Set up with Docker Compose?**
+
+```bash
+docker logs -f vault-cortex
+```
+
+Either way, `docker ps` shows container status — "healthy" tracks the
+server's `/healthz`.
 
 ## Updating
 
@@ -170,6 +195,29 @@ and the `--dir` flag.
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+## Restart
+
+The server runs startup tasks on every boot: it rebuilds the search index,
+creates memory template files if the memory folder doesn't exist, and starts
+the file watcher. Restarting the container re-runs this flow (useful when
+testing bootstrap behavior). The command is the same for both setup methods,
+since both name the container `vault-cortex`:
+
+```bash
+docker restart vault-cortex
+```
+
+> **Changed `.env`?** A restart does **not** re-read `.env` — the container
+> has to be re-created. Set up with the CLI? Run
+> [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
+> `docker restart`, it re-creates the container, so your edits take effect
+> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
+> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> re-creates services whose configuration changed.
+
+The container also restarts automatically on crash (`restart: unless-stopped`
+policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
