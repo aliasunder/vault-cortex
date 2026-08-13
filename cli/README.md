@@ -91,8 +91,8 @@ container so they take effect.
 
 Settings not in the chooser live in `.env` too: edit the value there, then
 run [`restart`](#restart). The daily notes settings can be updated the same
-way — and removing a line entirely puts the server back on your vault's own
-daily notes settings.
+way — and if you remove one from `.env`, the server goes back to your
+vault's own daily notes settings.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
