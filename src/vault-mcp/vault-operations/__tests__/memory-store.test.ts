@@ -89,6 +89,22 @@ afterEach(async () => {
 })
 
 describe("getMemory", () => {
+  // A pre-existing hidden file on disk (created outside the server) must not
+  // leak through the concatenate-all read — the enumeration filter, not just
+  // the explicit-name rejection, is what excludes it.
+  it("excludes a pre-existing hidden memory file from the all-files read", async () => {
+    await writeFile(
+      join(vault, "About Me", ".secret.md"),
+      "# Hidden\n\nleaked-fixture-content\n",
+      "utf8",
+    )
+    const result = await getMemory({ vaultPath: vault }, logger)
+    expect(result).not.toContain("leaked-fixture-content")
+    // The visible files still come back — proves the read ran normally.
+    expect(result).toContain("# Opinions")
+    expect(result).toContain("# Principles")
+  })
+
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
     expect(result).toContain("# Opinions")
@@ -1509,6 +1525,15 @@ title: Dupe
 })
 
 describe("listMemoryFiles", () => {
+  it("excludes a pre-existing hidden memory file from the outlines", async () => {
+    await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual([
+      "Opinions",
+      "Principles",
+    ])
+  })
+
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines).toHaveLength(2)
@@ -1703,6 +1728,12 @@ describe("listMemoryFileNames", () => {
 
   it("ignores non-markdown files", async () => {
     await writeFile(join(vault, "About Me/notes.txt"), "ignore me", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("excludes a pre-existing hidden memory file", async () => {
+    await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })
