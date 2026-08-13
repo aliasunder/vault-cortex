@@ -136,7 +136,7 @@ src/
       vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
-      daily-notes.ts                   # Daily note config reader + path resolver (env overrides > daily-notes.json)
+      daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
       task-updater.ts                  # Task state mutations (status, priority, lane moves)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)

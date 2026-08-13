@@ -21,7 +21,7 @@ export const registerDailyNoteTools = ({
     TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
-      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json, then Obsidian's defaults. Defaults to today if no date is provided.
+      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json, then to "Daily Notes" and YYYY-MM-DD. Defaults to today if no date is provided.
 
 Example: vault_get_daily_note({ date: "2026-05-13" })
 Example: vault_get_daily_note({}) — returns today's daily note

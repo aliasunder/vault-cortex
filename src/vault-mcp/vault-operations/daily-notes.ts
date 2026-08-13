@@ -21,7 +21,10 @@ export type DailyNotesEnvSettings = {
   format?: string | undefined
 }
 
-const OBSIDIAN_DEFAULTS: DailyNotesConfig = {
+// The format matches Obsidian's default; the folder is this server's own
+// choice — Obsidian with no configured location creates dailies in the
+// vault root, which is not a sensible folder for the server to assume.
+const FALLBACK_CONFIG: DailyNotesConfig = {
   folder: "Daily Notes",
   format: "YYYY-MM-DD",
 }
@@ -36,7 +39,7 @@ let cachedFileConfig: { vaultPath: string; config: DailyNotesConfig } | null =
   null
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
- *  Returns Obsidian defaults (uncached — see cache comment) when the
+ *  Returns the fallback config (uncached — see cache comment) when the
  *  file is missing or malformed. */
 const readDailyNotesFileConfig = async (
   vaultPath: string,
@@ -54,12 +57,12 @@ const readDailyNotesFileConfig = async (
         typeof parsedConfig.folder === "string" &&
         parsedConfig.folder.length > 0
           ? parsedConfig.folder
-          : OBSIDIAN_DEFAULTS.folder,
+          : FALLBACK_CONFIG.folder,
       format:
         typeof parsedConfig.format === "string" &&
         parsedConfig.format.length > 0
           ? parsedConfig.format
-          : OBSIDIAN_DEFAULTS.format,
+          : FALLBACK_CONFIG.format,
     }
     cachedFileConfig = { vaultPath, config: fileConfig }
     return fileConfig
@@ -69,14 +72,14 @@ const readDailyNotesFileConfig = async (
         error: describeError(error),
       })
     }
-    return { ...OBSIDIAN_DEFAULTS }
+    return { ...FALLBACK_CONFIG }
   }
 }
 
 /** Resolves the vault's daily note folder and filename format with
  *  per-field precedence: env setting → .obsidian/daily-notes.json →
- *  Obsidian defaults. When both fields are set via env the config file
- *  is not read at all. */
+ *  the fallbacks ("Daily Notes", "YYYY-MM-DD"). When both fields are
+ *  set via env the config file is not read at all. */
 export const readDailyNotesConfig = async (
   vaultPath: string,
   envSettings?: DailyNotesEnvSettings,
@@ -100,7 +103,7 @@ const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Resolves a date to a vault-relative daily note path using the env
  *  settings, the vault's .obsidian/daily-notes.json config, and
- *  Obsidian defaults — in that per-field precedence order. */
+ *  the fallbacks — in that per-field precedence order. */
 export const getDailyNotePath = async (params: {
   vaultPath: string
   date?: string | undefined
