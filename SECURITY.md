@@ -62,9 +62,10 @@ mechanism-level detail.
 - `resolveSafePath()` also rejects any path with a dot-prefixed segment
   (`.obsidian/`, `.trash/`, dotfiles) before filesystem access — every
   read, write, move, and delete refuses hidden paths, matching Obsidian,
-  which ignores them entirely. Community plugin `data.json` files under
-  `.obsidian/plugins/` frequently contain API keys, so a leaked MCP token
-  does not extend to plugin credentials.
+  which ignores them entirely. Community plugins often store their own
+  third-party API keys in `.obsidian/plugins/*/data.json`; with those
+  files unreachable, a leaked MCP token exposes vault content only, not
+  the keys inside plugin configs.
 - Keep the search index and OAuth databases **outside the vault** (the
   default `/data` volume already is). A database placed in a _visible_
   vault folder would be readable through the file tools like any other
