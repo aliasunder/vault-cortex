@@ -65,10 +65,11 @@ mechanism-level detail.
   which ignores them entirely. This also keeps any third-party API keys
   community plugins store in `.obsidian/plugins/*/data.json` out of a
   compromised MCP token's reach.
-- Keep the search index and OAuth databases **outside the vault** (the
-  default `/data` volume already is). A database placed in a _visible_
-  vault folder would be readable through the file tools like any other
-  vault file.
+- The search index and OAuth databases live outside the vault (the
+  default `/data` volume), so the file tools can't reach them.
+  Hidden-path blocking does not cover a database relocated into a
+  _visible_ vault folder — there it is readable like any other vault
+  file.
 
 ### TOCTOU race prevention
 
