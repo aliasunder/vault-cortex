@@ -31,6 +31,17 @@ type OptionalSetting =
       defaultValue: string
     })
   | (OptionalSettingBase & {
+      kind: "optionalText"
+      question: string
+      /**
+       * Ghost text for the input. Unlike `folder`, there is no defaultValue:
+       * an unset var means the server reads the vault's own config, so
+       * pre-filling a concrete value would write an override that silently
+       * shadows it. Blank when unset = skip (write nothing).
+       */
+      placeholder: string
+    })
+  | (OptionalSettingBase & {
       kind: "choice"
       question: string
       choices: SelectOption[]
@@ -54,6 +65,20 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Vault folder for the memory files:",
     defaultValue: "About Me",
     requiresToggle: "MEMORY_ENABLED",
+  },
+  {
+    kind: "optionalText",
+    name: "DAILY_NOTES_FOLDER",
+    label: "Daily notes folder",
+    question: "Vault folder for daily notes:",
+    placeholder: "blank = use your vault's daily notes settings",
+  },
+  {
+    kind: "optionalText",
+    name: "DAILY_NOTES_FORMAT",
+    label: "Daily notes format",
+    question: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
+    placeholder: "blank = use your vault's daily notes settings",
   },
   {
     kind: "toggle",
@@ -259,11 +284,42 @@ const askFolder = async (
   return askFolder(params, prompts)
 }
 
-/** Routes a picked setting to its kind's prompt and returns the .env value. */
+/**
+ * Text prompt for a setting whose absence is meaningful — the server falls
+ * back to the vault's own config when the var is unset. Blank when unset =
+ * skip (write nothing); blank when set keeps the current value (the prompt
+ * resolves an empty submit to its defaultValue). There is no removal path —
+ * clearing a set value stays a manual .env edit.
+ */
+const askOptionalText = async (
+  params: {
+    question: string
+    placeholder: string
+    currentValue: string | undefined
+  },
+  prompts: Prompts,
+): Promise<string | undefined> => {
+  const answer = (
+    await prompts.text(params.question, {
+      defaultValue: params.currentValue,
+      placeholder: params.placeholder,
+    })
+  ).trim()
+  if (answer !== "") return answer
+  prompts.log(
+    "Left unset — the server keeps reading your vault's daily notes settings.",
+  )
+  return undefined
+}
+
+/**
+ * Routes a picked setting to its kind's prompt and returns the .env value —
+ * or undefined when an optionalText prompt was left blank (nothing to write).
+ */
 const askSettingValue = async (
   params: { setting: OptionalSetting; currentValue: string | undefined },
   prompts: Prompts,
-): Promise<string> => {
+): Promise<string | undefined> => {
   const { setting, currentValue } = params
   switch (setting.kind) {
     case "toggle": {
@@ -283,6 +339,15 @@ const askSettingValue = async (
           question: setting.question,
           currentValue,
           defaultValue: setting.defaultValue,
+        },
+        prompts,
+      )
+    case "optionalText":
+      return askOptionalText(
+        {
+          question: setting.question,
+          placeholder: setting.placeholder,
+          currentValue,
         },
         prompts,
       )
@@ -332,14 +397,16 @@ export const askOptionalSettings = async (
   )
 
   // Sequential prompting: answers are gathered one at a time in the curated
-  // order, so the record builds up inside an honest loop.
+  // order, so the record builds up inside an honest loop. An undefined answer
+  // (an optionalText prompt left blank) writes nothing.
   const overrides: Record<string, string> = {}
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
-    overrides[setting.name] = await askSettingValue(
+    const value = await askSettingValue(
       { setting, currentValue: readOptionalValue(envContent, setting.name) },
       prompts,
     )
+    if (value !== undefined) overrides[setting.name] = value
   }
   return overrides
 }

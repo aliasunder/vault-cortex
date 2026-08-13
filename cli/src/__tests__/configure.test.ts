@@ -231,6 +231,47 @@ describe("runConfigure with picked settings", () => {
     )
   })
 
+  it("uncomments the template's daily notes folder line on a typed value", async () => {
+    // The generated .env carries the var as a commented template line — the
+    // chooser's value must land by uncommenting it, not by appending a
+    // duplicate.
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    writeFileSync(
+      envFilePath,
+      `${LOCAL_ENV_CONTENT}\n# DAILY_NOTES_FOLDER=Journal\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`,
+    )
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      `${LOCAL_ENV_CONTENT}\nDAILY_NOTES_FOLDER=Planner\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`,
+    )
+  })
+
+  it("treats a picked-then-blanked daily notes setting as nothing selected", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
+    expect(scripted.logs).toEqual([
+      "Left unset — the server keeps reading your vault's daily notes settings.",
+      "No settings selected — nothing changed.",
+    ])
+  })
+
   it("keeps the saved change and exits 1 when the .env cannot start a container", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = join(targetDir, ".env")
