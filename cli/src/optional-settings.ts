@@ -19,7 +19,8 @@ type OptionalSettingBase = {
 /**
  * One optional .env setting the guided flow can change. `kind` selects the
  * prompt shape a picked setting gets: toggles use a yes/no confirm, port and
- * timezone use validated text inputs, and choice uses a single select.
+ * timezone use validated text inputs, folder requires a non-empty name,
+ * optionalText writes nothing when left blank, and choice uses a single select.
  */
 type OptionalSetting =
   | (OptionalSettingBase & { kind: "toggle"; question: string })
