@@ -57,6 +57,11 @@ const validateDailyNotesFormat = (momentFormat: string): string => {
       `env-var: "DAILY_NOTES_FORMAT" must not start with a path separator`,
     )
   }
+  if (momentFormat.endsWith("/") || renderedProbe.endsWith("/")) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
+    )
+  }
   return momentFormat
 }
 

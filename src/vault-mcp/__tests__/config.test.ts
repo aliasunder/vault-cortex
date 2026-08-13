@@ -237,6 +237,18 @@ describe("loadConfig", () => {
       )
     })
 
+    it("rejects a trailing path separator", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "YYYY/MM/DD/" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not end with a path separator',
+      )
+    })
+
+    it("rejects a format that renders to a trailing path separator (YYYY[/])", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "YYYY[/]" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" must not end with a path separator',
+      )
+    })
+
     it("rejects a format that renders to an empty filename", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[ ]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',
