@@ -28,6 +28,7 @@ import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
   isString,
@@ -1625,7 +1626,7 @@ export const createSearchIndex = (
         }
       }
       const isVisiblePath = (file: { relativePath: string }): boolean =>
-        !file.relativePath.split("/").some((segment) => segment.startsWith("."))
+        !hasHiddenPathSegment(file.relativePath)
 
       return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath)
     }

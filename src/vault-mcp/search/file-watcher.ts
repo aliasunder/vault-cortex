@@ -12,6 +12,7 @@ import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { readdirOrNull, statOrNull } from "../../utils/fs.js"
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
@@ -22,12 +23,6 @@ const POLLING_INTERVAL_MS = 300
 
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
-
-/** True when any segment of a vault-relative path is dot-prefixed — hidden
- *  files and directories (.obsidian/, .trash/, dotfiles) the watcher skips. */
-const hasHiddenPathSegment = (relativePath: string): boolean => {
-  return relativePath.split("/").some((segment) => segment.startsWith("."))
-}
 
 /** Resolves a path's realpath, returning null instead of throwing when the
  *  path no longer exists (ENOENT). Any other error propagates. */

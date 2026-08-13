@@ -3136,3 +3136,60 @@ describe("concurrent writes (exclusive lock)", () => {
     )
   })
 })
+
+describe("hidden paths", () => {
+  // The note exists on disk so a removed guard would make the operations
+  // succeed — the tests then fail because the edit went through, never via
+  // a coincidental "note not found".
+  const HIDDEN_NOTE = ".trash/secret.md"
+  const HIDDEN_CONTENT = "# Secret\n\nBody line.\n"
+
+  it("patchNote rejects a note inside a hidden folder and leaves it unchanged", async () => {
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: HIDDEN_NOTE,
+          operation: "append",
+          content: "injected",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+
+  it("replaceInNote rejects a note inside a hidden folder and leaves it unchanged", async () => {
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
+    await expect(
+      replaceInNote(
+        {
+          vaultPath: vault,
+          path: HIDDEN_NOTE,
+          oldText: "Body line.",
+          newText: "changed",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+
+  it("deleteSpan rejects a note inside a hidden folder and leaves it unchanged", async () => {
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+})

@@ -317,10 +317,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
   // entirely, so reject it at the single point every memory path goes through.
+  // A dot-prefixed name would create a hidden file (invisible in Obsidian,
+  // excluded from listings and the index), so it is rejected the same way —
+  // memory paths bypass resolveSafePath's hidden-path guard via direct join.
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
       throw new Error(
         `memory file must be a bare name without path separators: "${file}"`,
+      )
+    }
+    if (file.startsWith(".")) {
+      throw new Error(
+        `memory file must not start with a dot: "${file}" would be a hidden file`,
       )
     }
     return join(vaultPath, memoryDir, `${file}.md`)

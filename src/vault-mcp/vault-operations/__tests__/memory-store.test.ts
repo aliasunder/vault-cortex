@@ -199,6 +199,20 @@ describe("getMemory", () => {
       'memory file must be a bare name without path separators: "../Outside"',
     )
   })
+
+  // A dot-prefixed name would create a file hidden from Obsidian, listings,
+  // and the index — memory paths bypass resolveSafePath's hidden-path guard,
+  // so the name gate is the only defense.
+  it("rejects a dot-prefixed file name instead of reading a hidden file", async () => {
+    // A real hidden memory file on disk — the guard, not a missing file,
+    // must be what rejects the read.
+    await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    await expect(
+      getMemory({ vaultPath: vault, file: ".secret" }, logger),
+    ).rejects.toThrow(
+      'memory file must not start with a dot: ".secret" would be a hidden file',
+    )
+  })
 })
 
 describe("updateMemory", () => {
