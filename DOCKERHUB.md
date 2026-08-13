@@ -136,13 +136,15 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. This table covers the server's own settings; remote deployments add settings for the sync service (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`, `SYNC_CONFIGS`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Remote deployments have additional settings (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
 | --------------------------- | ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume) |
 | `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata |
+| `OBSIDIAN_AUTH_TOKEN` | Remote only | — | Obsidian Sync auth token — the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/#get-sync-token) captures it for you |
+| `VAULT_NAME` | Remote only | — | Exact name of your Obsidian Sync vault (case-sensitive) |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
 | `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`. |
