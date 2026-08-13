@@ -272,6 +272,29 @@ describe("runConfigure with picked settings", () => {
     ])
   })
 
+  it("neither claims an update nor offers a restart when a set daily notes folder is blank-kept", async () => {
+    // A blank submit on a set value keeps it — configure must not log
+    // "Updated ..." or offer a restart for a byte-identical file.
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    const envWithDailyNotes = `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Journal\n`
+    writeFileSync(envFilePath, envWithDailyNotes)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(envWithDailyNotes)
+    expect(scripted.logs).toEqual([
+      "Kept the current value (Journal).",
+      "No settings selected — nothing changed.",
+    ])
+    expect(scripted.warnings).toEqual([])
+  })
+
   it("keeps the saved change and exits 1 when the .env cannot start a container", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = join(targetDir, ".env")

@@ -344,6 +344,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       {
         message: "Vault folder for the memory files:",
         defaultValue: "About Me",
+        placeholder: "About Me",
       },
     ])
     expect(overrides).toEqual({ MEMORY_DIR: "Memory Bank" })
@@ -421,7 +422,11 @@ describe("askOptionalSettings per-setting prompts", () => {
     // No pre-filled default when unset — the real default is the vault's
     // own config, so the prompt must not offer a concrete value to accept.
     expect(scripted.textCalls).toEqual([
-      { message: "Vault folder for daily notes:", defaultValue: undefined },
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: undefined,
+        placeholder: "blank = use your vault's daily notes settings",
+      },
     ])
     expect(overrides).toEqual({})
     expect(scripted.logs).toEqual([
@@ -429,9 +434,11 @@ describe("askOptionalSettings per-setting prompts", () => {
     ])
   })
 
-  it("keeps the current daily notes folder on a blank submit", async () => {
+  it("keeps a set daily notes folder on a blank submit without recording a no-op", async () => {
     // The prompt resolves an empty submit to its defaultValue (the current
-    // value), so blank never destroys an existing setting.
+    // value), so blank never destroys an existing setting — and the unchanged
+    // value is not recorded, so the caller won't rewrite the file or offer a
+    // restart for a no-op. The placeholder states what blank actually does.
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
 
     const overrides = await askOptionalSettings(
@@ -440,9 +447,14 @@ describe("askOptionalSettings per-setting prompts", () => {
     )
 
     expect(scripted.textCalls).toEqual([
-      { message: "Vault folder for daily notes:", defaultValue: "Journal" },
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: "Journal",
+        placeholder: "blank = keep the current value",
+      },
     ])
-    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
   })
 
   it("collects a typed daily notes format, trimmed", async () => {
@@ -460,6 +472,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       {
         message: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
         defaultValue: undefined,
+        placeholder: "blank = use your vault's daily notes settings",
       },
     ])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
@@ -467,8 +480,9 @@ describe("askOptionalSettings per-setting prompts", () => {
 
   it("does not clobber a set daily notes folder on whitespace input", async () => {
     // Whitespace defeats the empty-submit-resolves-to-default behavior and
-    // trims to empty — the skip path must leave the existing value alone
-    // rather than write an empty one.
+    // trims to empty — the keep path must leave the existing value alone
+    // rather than write an empty one, and must say "kept", not "left unset":
+    // the override stays active in .env.
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "   "])
 
     const overrides = await askOptionalSettings(
@@ -477,6 +491,19 @@ describe("askOptionalSettings per-setting prompts", () => {
     )
 
     expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
+  })
+
+  it("does not record retyping the value a daily notes folder already has", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Journal"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
   })
 
   it("records only the typed setting when one of a pair is left blank", async () => {
