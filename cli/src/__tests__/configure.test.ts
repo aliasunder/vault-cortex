@@ -231,6 +231,27 @@ describe("runConfigure with picked settings", () => {
     )
   })
 
+  it("replaces an active daily notes folder with a new value", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    const envWithDailyNotes = `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Journal\n`
+    writeFileSync(envFilePath, envWithDailyNotes)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Planner\n`,
+    )
+    expect(scripted.logs).toEqual([
+      `Updated DAILY_NOTES_FOLDER in ${targetDir}/.env.`,
+    ])
+  })
+
   it("uncomments the template's daily notes folder line on a typed value", async () => {
     // The generated .env carries the var as a commented template line — the
     // chooser's value must land by uncommenting it, not by appending a

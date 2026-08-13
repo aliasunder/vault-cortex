@@ -494,6 +494,24 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
   })
 
+  it("updates a set daily notes folder to a new value", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: "Journal",
+        placeholder: "blank = keep the current value",
+      },
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Planner" })
+  })
+
   it("does not record retyping the value a daily notes folder already has", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Journal"])
 
