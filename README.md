@@ -405,6 +405,14 @@ All three paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:late
 
 **Cost:** A remote setup needs a VPS and $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29/mo all-in.
 
+### Community deployments
+
+Deployment templates built and maintained by the community — not tested here, and they may lag behind releases. Report platform-specific issues to the linked repository.
+
+- [vault-cortex-aca](https://github.com/flytzen/vault-cortex-aca) — Bicep template for **Azure Container Apps** by [@flytzen](https://github.com/flytzen). Runs the `:remote` image behind Container Apps ingress with free managed HTTPS; storage is deliberately ephemeral, with Obsidian Sync as the source of truth.
+
+Built a deployment for another platform? Open a PR to add it here.
+
 ## Development
 
 ```bash
