@@ -31,7 +31,7 @@ What happens on first start:
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
 > at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
-> generated `.env` after `init` and apply with `npx vault-cortex@latest upgrade`. See
+> generated `.env` after `init` and apply with `npx vault-cortex@latest restart`. See
 > [Windows (Docker Desktop)](#windows-docker-desktop) below.
 
 <details>
@@ -224,9 +224,13 @@ policy), Docker daemon restart, or system reboot.
 **Set up with the CLI?**
 
 ```bash
-# Stop (data persists in Docker volumes):
-docker stop vault-cortex
+# Stop and remove the container (data persists in Docker volumes):
+npx vault-cortex@latest down
 ```
+
+Start again any time with `npx vault-cortex@latest start` — your saved
+settings are reused ([`down`](../../cli/#down) · [`start`](../../cli/#start)
+in the CLI reference).
 
 **Set up with Docker Compose?**
 
@@ -289,8 +293,9 @@ Sync has attachment syncing disabled and no files exist on disk.
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, file tools, timezone), see
-the [Configuration](../../README.md#configuration) section in the main README.
+(memory folder, protected paths, orphan exclusions, file tools, daily notes
+folder and format, timezone), see the
+[Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting
 
