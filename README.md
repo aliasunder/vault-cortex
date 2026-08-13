@@ -407,7 +407,7 @@ All three paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:late
 
 ### Community deployments
 
-Deployment templates built and maintained by the community — not tested here, and they may lag behind releases. Report platform-specific issues to the linked repository.
+Deployment templates built and maintained by the community — not tested here, and they may lag behind releases.
 
 - [vault-cortex-aca](https://github.com/flytzen/vault-cortex-aca) — Bicep template for **Azure Container Apps** by [@flytzen](https://github.com/flytzen). Runs the `:remote` image behind Container Apps ingress with free managed HTTPS; storage is deliberately ephemeral, with Obsidian Sync as the source of truth.
 
