@@ -17,7 +17,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [Community Deployments](#community-deployments)
 
 ## What you get
 
@@ -404,6 +404,14 @@ All three paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:late
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
 **Cost:** A remote setup needs a VPS and $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29/mo all-in.
+
+### Community deployments
+
+Deployment templates built and maintained by the community — not tested here, and they may lag behind releases.
+
+- [vault-cortex-aca](https://github.com/flytzen/vault-cortex-aca) — Bicep template for **Azure Container Apps** by [@flytzen](https://github.com/flytzen). Runs the `:remote` image behind Container Apps ingress with free managed HTTPS; storage is deliberately ephemeral, with Obsidian Sync as the source of truth.
+
+Built a deployment for another platform? Open a PR to add it here.
 
 ## Development
 
