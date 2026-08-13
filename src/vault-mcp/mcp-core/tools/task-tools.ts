@@ -267,6 +267,7 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "no task at line N" — line doesn't contain a task checkbox
 - "block_id not found" — no task line ends with ^block_id
 - "at least one mutation required" — none of status, priority, or lane provided

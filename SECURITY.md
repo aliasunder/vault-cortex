@@ -17,8 +17,9 @@ notes below describe what the maintainer uses.
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
-  `resolveSafePath()` (resolve + prefix check). Protected paths prevent deletion
-  of sensitive folders
+  `resolveSafePath()` (resolve + prefix check), and hidden paths (any
+  dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
+  write. Protected paths prevent deletion of sensitive folders
 - **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
   server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
   a single container, sharing a `/vault` volume at UID 1000)
@@ -53,7 +54,21 @@ mechanism-level detail.
 - `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
   names at config parse time
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
-  escapes from the memory directory
+  escapes from the memory directory — and leading dots, which would
+  create hidden files
+
+### Hidden paths
+
+- `resolveSafePath()` also rejects any path with a dot-prefixed segment
+  (`.obsidian/`, `.trash/`, dotfiles) before filesystem access — every
+  read, write, move, and delete refuses hidden paths, matching Obsidian,
+  which ignores them entirely. Community plugin `data.json` files under
+  `.obsidian/plugins/` frequently contain API keys, so a leaked MCP token
+  does not extend to plugin credentials.
+- Keep the search index and OAuth databases **outside the vault** (the
+  default `/data` volume already is). A database placed in a _visible_
+  vault folder would be readable through the file tools like any other
+  vault file.
 
 ### TOCTOU race prevention
 
