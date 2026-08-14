@@ -153,7 +153,10 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
     args.push("--health-retries", "5")
-    args.push("--health-start-period", "60s")
+    // 180s: the remote image's init chain runs the first vault sync to
+    // completion before the MCP server boots, so /healthz appears late on
+    // fresh deploys.
+    args.push("--health-start-period", "180s")
     args.push("--log-driver", "json-file")
     args.push("--log-opt", "max-size=10m")
     args.push("--log-opt", "max-file=3")

@@ -72,9 +72,10 @@ services:
       - obsidian_config:/home/obsidian/.config
     ports:
       - "0.0.0.0:8000:8000"
-    # start_period covers the s6 init chain (Obsidian login + sync-setup)
-    # that runs before the MCP server boots. Failures during start_period
-    # don't count against retries; a fast boot flips healthy immediately.
+    # start_period covers the s6 init chain (Obsidian login + sync-setup +
+    # first vault sync to completion) that runs before the MCP server boots.
+    # Failures during start_period don't count against retries; a fast boot
+    # flips healthy immediately.
     healthcheck:
       test:
         [
@@ -86,7 +87,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 180s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

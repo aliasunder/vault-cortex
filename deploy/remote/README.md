@@ -108,8 +108,9 @@ server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
 from Obsidian's servers. The initial sync takes 30–120 seconds depending on
-vault size. The MCP server starts once sync is running and builds its search
-index as files arrive.
+vault size. The MCP server starts only after that first sync completes, so
+it always sees your full vault — including your memory files — from its
+very first moment.
 
 **docker run (no Compose):** The command the CLI runs for you, spelled out —
 for when you have neither Node.js nor Compose, invoke a different runtime
@@ -323,10 +324,11 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-The server runs startup tasks on every boot: it rebuilds the search index,
-creates memory template files if the memory folder doesn't exist, and starts
-the file watcher. Restarting the container re-runs this flow (useful when
-testing bootstrap behavior). The command is the same for every setup method,
+The container runs startup tasks on every boot: a quick catch-up sync brings
+the vault current before the server starts, then the server rebuilds the
+search index, creates memory template files if the memory folder doesn't
+exist, and starts the file watcher. Restarting the container re-runs this
+flow (useful when testing bootstrap behavior). The command is the same for every setup method,
 since all three name the container `vault-cortex`:
 
 ```bash
@@ -405,8 +407,9 @@ Some community plugins keep API keys in their settings. Server tools never
 read `.obsidian/`, and the server itself opens only the two config files
 above — synced settings otherwise just sit in the config volume.
 
-If the file hasn't arrived when the server boots (first sync still running),
-it's picked up automatically once it lands — no restart needed.
+If the file arrives after the server is already running (you enabled the
+sync category later), it's picked up automatically once it lands — no
+restart needed.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any

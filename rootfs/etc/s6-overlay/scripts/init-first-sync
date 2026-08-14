@@ -1,0 +1,68 @@
+#!/command/with-contenv sh
+# One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
+# svc-obsidian-sync and svc-vault-mcp start. Closes the fresh-volume race
+# (#440): without this gate the MCP server boots against a still-empty
+# vault, bootstraps default About Me/ templates, and bidirectional sync
+# pushes those newer defaults over the user's real memory files.
+#
+# Failure policy after retries are exhausted:
+# - Empty vault + VAULT_NAME set: FATAL. Starting the server against an
+#   empty vault reopens the data-loss window; S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+#   stops the container and the restart policy owns the outer retry.
+# - Vault already has content: warn and continue — the server can serve the
+#   existing vault while continuous sync keeps retrying.
+# - VAULT_NAME unset (possibly unconfigured, matching init-setup-vault's
+#   skip): single attempt, warn and continue — preserves the pre-gate
+#   behavior for unconfigured vaults.
+set -e
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# Capture emptiness BEFORE syncing — a partially completed sync populates the
+# directory, and the failure policy keys on the pre-sync state. Hidden entries
+# (e.g. .obsidian written by sync-setup) and lost+found don't count as content.
+if [ -n "$(find "$VAULT_PATH" -mindepth 1 -maxdepth 1 ! -name '.*' ! -name 'lost+found' -print -quit)" ]; then
+  VAULT_HAS_CONTENT=1
+else
+  VAULT_HAS_CONTENT=
+fi
+
+# VAULT_NAME unset means either a persisted config volume (sync succeeds
+# anyway) or a truly unconfigured vault (sync fails fast) — retry only when
+# configuration is certain, so the unconfigured path stays quick.
+if [ -n "$VAULT_NAME" ]; then
+  MAX_ATTEMPTS=3
+else
+  MAX_ATTEMPTS=1
+fi
+
+ATTEMPT=1
+while :; do
+  echo "[obsidian-sync] First sync (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — waiting for completion before starting services..."
+  if s6-setuidgid obsidian ob sync; then
+    echo "[obsidian-sync] First sync complete."
+    exit 0
+  fi
+  if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  echo "[obsidian-sync] First sync failed — retrying in 10s..." >&2
+  sleep 10
+done
+
+if [ -z "$VAULT_HAS_CONTENT" ] && [ -n "$VAULT_NAME" ]; then
+  echo "[obsidian-sync] ERROR: First sync failed and the vault is empty." >&2
+  echo "[obsidian-sync] Refusing to start: the MCP server would create template files" >&2
+  echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2
+  echo "[obsidian-sync] Check network and credentials — the container's restart policy retries." >&2
+  exit 1
+fi
+
+echo "[obsidian-sync] WARNING: First sync did not complete — starting services anyway." >&2
+echo "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists." >&2
+exit 0

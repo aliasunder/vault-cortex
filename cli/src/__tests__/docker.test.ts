@@ -104,7 +104,7 @@ describe("buildDockerRunArgs", () => {
       "--health-retries",
       "5",
       "--health-start-period",
-      "60s",
+      "180s",
       "--log-driver",
       "json-file",
       "--log-opt",
@@ -187,7 +187,7 @@ describe("buildDockerRunArgs", () => {
     const retriesIndex = args.indexOf("--health-retries")
     expect(args[retriesIndex + 1]).toBe("5")
     const startPeriodIndex = args.indexOf("--health-start-period")
-    expect(args[startPeriodIndex + 1]).toBe("60s")
+    expect(args[startPeriodIndex + 1]).toBe("180s")
   })
 })
 

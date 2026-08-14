@@ -622,7 +622,7 @@ dependency-ordered service database.
 
 ```mermaid
 graph LR
-    A["init chain<br/>setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
+    A["init chain<br/>setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup → first sync"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
     B --> C["svc-vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
@@ -634,9 +634,12 @@ graph LR
    PUID/PGID and fixes ownership of `/vault`, `/data`, and `/home/obsidian`) →
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config). Any failure stops the
-   container (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns
-   retry.
+   with `--device-name`, plus optional sync-config) → `init-first-sync`
+   (one-shot `ob sync` run to _completion_, with retries, so the vault
+   reflects remote truth before any service starts; on failure, an empty
+   configured vault is fatal while a vault with existing content warns and
+   continues). Any fatal init failure stops the container
+   (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
    (`ob sync --continuous`). Stores sync state in the config volume at
    `/home/obsidian/.config` (persists across restarts for incremental sync —
@@ -648,18 +651,18 @@ graph LR
    watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
-MCP server starts only after login and vault setup have completed and the
-sync process has spawned. The dependency gates startup order only: it does
-not wait for sync health, nothing guarantees the initial sync has
-_completed_, and a later sync crash restarts just that service, not the MCP
-server.
-
-On a fresh volume that means two races, each with its own safety net:
-
-- **Search index** — self-heals: the file watcher indexes files as they arrive.
-- **Memory bootstrap** — can race arriving files; the memory-write
-  [shrink guard](#memory-layer-safety) is what actually prevents the
-  fresh-volume clobber.
+MCP server starts only after the full init chain — including the first sync —
+has completed and the sync process has spawned. The longrun dependency itself
+gates startup order only (it does not wait for sync health, and a later sync
+crash restarts just that service, not the MCP server); first-sync
+_completion_ is what `init-first-sync` guarantees. On a fresh volume that
+closes the memory-bootstrap race: the vault already holds the user's real
+`About Me/` files when the server's bootstrap check runs, so default
+templates are never created over a syncing vault and never pushed upstream.
+Files arriving through later continuous sync self-heal — the file watcher
+indexes them as they land — and the memory-write
+[shrink guard](#memory-layer-safety) remains defense-in-depth for
+update/delete writes.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
@@ -813,10 +816,12 @@ Docker hardening, and durability seatbelts above.
 #### Memory layer safety
 
 - **Shrink guard** (`guardAgainstShrink` in `memory-store.ts`): refuses
-  a write that would remove >50% of a file's bytes — catches
-  template-clobber bugs from the Obsidian Sync startup race. Files at or
-  under 1250 bytes are exempt (a threshold just above the largest empty
-  template, so a file with no real entries is never guarded).
+  an update/delete that would remove >50% of a file's bytes —
+  defense-in-depth against clobber bugs (the fresh-volume startup race
+  itself is closed by the `:remote` image's first-sync gate; see
+  [Container startup](#container-startup)). Files at or under 1250 bytes
+  are exempt (a threshold just above the largest empty template, so a
+  file with no real entries is never guarded).
 - **Idempotency guard**: if the exact bullet already exists in the target
   section, `updateMemory` no-ops — prevents duplicate entries from MCP
   client retries after gateway timeouts.
