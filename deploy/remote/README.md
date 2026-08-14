@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -384,6 +384,13 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Read-only mode
+
+Want the server to browse and search your vault without ever changing it? Set
+`READONLY_MODE=true` in your `.env` — every tool that edits, creates, moves,
+or deletes notes is hidden, and the memory folder is not created. Useful for
+a first deployment you want to trust before enabling writes.
+
 ## Daily notes
 
 `vault_get_daily_note` finds your daily notes using the folder and date
@@ -433,6 +440,7 @@ required. These optional settings are worth knowing about:
 | `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                        |
 | `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                    |
 | `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| `READONLY_MODE`      | `false`                       | Set `true` to hide every tool that changes the vault — read and search only                           |
 | `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
 | `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
 | `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |

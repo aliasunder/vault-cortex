@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -125,6 +125,8 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 - `bytes` — each result's on-disk file size, so agents can decide whether to read a note in full or use `outline`/`heading` mode before committing
 - `leading_callout` — the note's top-of-file callout when present (opt-in via `include_leading_callout` on `vault_search`; automatic on the rest)
+
+**Read-only mode:** `READONLY_MODE=true` gates every vault-writing tool at registration — the write tools are never advertised to clients rather than rejected at call time. Surviving read tools drop the write-tool cross-references from their descriptions, server metadata omits write references, the `memory-review` prompt is unregistered (its purpose is proposing memory writes), and the memory bootstrap is skipped. Composes with the group toggles: memory write tools require `MEMORY_ENABLED` _and_ a writable server; `MEMORY_ENABLED=false` still removes the whole memory group including reads. Search, indexing, and the file watcher are unaffected — they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
 
@@ -644,8 +646,8 @@ graph LR
 3. **`svc-vault-mcp`** — MCP server. Drops to the same `obsidian` user, so
    both processes read/write the shared `/vault` volume. On startup: builds
    the FTS5 search index, bootstraps memory templates if the memory folder
-   doesn't exist and `MEMORY_ENABLED` is not `false`, then starts the file
-   watcher.
+   doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
+   `READONLY_MODE`, then starts the file watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after login and vault setup have completed and the

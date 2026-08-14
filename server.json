@@ -102,6 +102,11 @@
           "default": "true"
         },
         {
+          "name": "READONLY_MODE",
+          "description": "Run the server read-only: every vault-writing tool is hidden, the memory folder is not auto-created, and server metadata omits write references.",
+          "default": "false"
+        },
+        {
           "name": "MEMORY_DIR",
           "description": "Vault folder for structured memory files (About Me-style notes). Memory tools are hidden when MEMORY_ENABLED is false, but this value still feeds the defaults for PROTECTED_PATHS and ORPHAN_EXCLUDE_FOLDERS.",
           "default": "About Me"

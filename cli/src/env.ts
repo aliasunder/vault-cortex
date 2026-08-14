@@ -74,6 +74,10 @@ MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
 FILE_TOOLS_ENABLED=true
+# Run the server in read-only mode (default: false).
+# Set to true to hide every tool that changes the vault — clients can only
+# read and search. The memory folder is not auto-created in this mode.
+READONLY_MODE=false
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
@@ -178,6 +182,10 @@ MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
 FILE_TOOLS_ENABLED=true
+# Run the server in read-only mode (default: false).
+# Set to true to hide every tool that changes the vault — clients can only
+# read and search. The memory folder is not auto-created in this mode.
+READONLY_MODE=false
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 

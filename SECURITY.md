@@ -19,7 +19,9 @@ notes below describe what the maintainer uses.
 - **File system access** — vault reads and writes. Path traversal is blocked by
   `resolveSafePath()` (resolve + prefix check), and hidden paths (any
   dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
-  write. Protected paths prevent deletion of sensitive folders
+  write. Protected paths prevent deletion of sensitive folders, and
+  `READONLY_MODE=true` removes every vault-writing tool from the server
+  entirely
 - **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
   server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
   a single container, sharing a `/vault` volume at UID 1000)
@@ -76,6 +78,15 @@ mechanism-level detail.
   hidden path is followed. Creating such a symlink requires direct
   filesystem access — no tool can create one, and anyone with that
   access can already read hidden files.
+
+### Read-only mode
+
+- `READONLY_MODE=true` removes write capability at tool registration:
+  every tool that changes the vault is never advertised to clients, not
+  merely rejected at call time — a compromised or over-eager client has
+  no write surface to call. The memory template bootstrap (the one
+  server-initiated vault write) is skipped too; only infrastructure
+  writes outside the vault (search index, OAuth database) remain.
 
 ### TOCTOU race prevention
 

@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -277,11 +277,18 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Read-only mode
+
+Want the server to browse and search your vault without ever changing it? Set
+`READONLY_MODE=true` in your `.env` — every tool that edits, creates, moves,
+or deletes notes is hidden, and the memory folder is not created. Useful for
+a first deployment you want to trust before enabling writes.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, file tools, daily notes
-folder and format, timezone), see the
+(memory folder, protected paths, orphan exclusions, file tools, read-only
+mode, daily notes folder and format, timezone), see the
 [Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting
