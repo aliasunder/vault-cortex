@@ -686,7 +686,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
 
 Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance — surfacing notes to integrate into the graph. Link an orphan by mentioning it from a relevant note with vault_patch_note.
+When to use: Vault maintenance — surfacing notes to integrate into the graph.${config.readOnlyMode ? "" : " Link an orphan by mentioning it from a relevant note with vault_patch_note."}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:

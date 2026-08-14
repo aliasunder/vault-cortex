@@ -76,6 +76,7 @@ const startServer = async (): Promise<void> => {
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,
     fileToolsEnabled: config.fileToolsEnabled,
+    readOnlyMode: config.readOnlyMode,
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,
@@ -94,7 +95,9 @@ const startServer = async (): Promise<void> => {
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
-  if (config.memoryEnabled) {
+  // A read-only server never writes to the vault, so the memory template
+  // bootstrap (the one server-initiated vault write) is skipped too.
+  if (config.memoryEnabled && !config.readOnlyMode) {
     const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
     await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
   }

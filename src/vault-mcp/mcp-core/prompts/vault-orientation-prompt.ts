@@ -238,7 +238,7 @@ export const registerVaultOrientationPrompt = ({
         const memorySection = config.memoryEnabled
           ? memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)
-            : `No memory files yet — the ${config.memoryDir}/ layer is empty. Use vault_update_memory to start it.`
+            : `No memory files yet — the ${config.memoryDir}/ layer is empty.${config.readOnlyMode ? "" : " Use vault_update_memory to start it."}`
           : ""
 
         const orphanTools =

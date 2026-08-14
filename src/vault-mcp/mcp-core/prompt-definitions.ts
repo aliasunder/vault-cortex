@@ -31,16 +31,18 @@ export const registerPrompts = (params: {
   config: VaultConfig
 }): void => {
   registerVaultOrientationPrompt(params)
-  if (params.config.memoryEnabled) {
+  // memory-review's whole purpose is proposing memory writes, so it needs
+  // both the memory layer and a writable server.
+  const memoryReviewEnabled =
+    params.config.memoryEnabled && !params.config.readOnlyMode
+  if (memoryReviewEnabled) {
     registerMemoryReviewPrompt(params)
   }
   registerDailyReviewPrompt(params)
 
   const promptCount =
     Object.keys(VAULT_ORIENTATION_PROMPT_NAMES).length +
-    (params.config.memoryEnabled
-      ? Object.keys(MEMORY_REVIEW_PROMPT_NAMES).length
-      : 0) +
+    (memoryReviewEnabled ? Object.keys(MEMORY_REVIEW_PROMPT_NAMES).length : 0) +
     Object.keys(DAILY_REVIEW_PROMPT_NAMES).length
   params.logger.info("registered prompts", { count: promptCount })
 }

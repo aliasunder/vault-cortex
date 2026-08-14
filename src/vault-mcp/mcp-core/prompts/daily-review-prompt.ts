@@ -281,11 +281,18 @@ export const registerDailyReviewPrompt = ({
           dueOrOverdue.tasks.length > 0 ||
           scheduledToday.tasks.length > 0 ||
           dailyNoteTasks.tasks.length > 0
+        // Read-only variants keep each step's reflection value but replace
+        // write-tool directives with "tell me / list for me" phrasing — the
+        // write tools are not registered in read-only mode.
         const memoryStep = config.memoryEnabled
-          ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+          ? config.readOnlyMode
+            ? "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
+            : `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
           : ""
         const taskReviewStep = hasTaskData
-          ? "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_patch_note or vault_replace_in_note."
+          ? config.readOnlyMode
+            ? "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
+            : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_patch_note or vault_replace_in_note."
           : daily.exists
             ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
             : ""
@@ -297,7 +304,9 @@ export const registerDailyReviewPrompt = ({
           : []
         const reviewSection = [
           "**Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
-          "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
+          config.readOnlyMode
+            ? "**Capture follow-ups** as concrete next actions and list them for me to record."
+            : "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
           memoryStep,
           taskReviewStep,
           ...noteContextSteps,
@@ -311,7 +320,9 @@ export const registerDailyReviewPrompt = ({
           "",
           daily.exists
             ? `Daily note: \`${daily.path}\``
-            : `No daily note found at \`${daily.path}\`. If you'd like one, create it at that path with vault_write_note.`,
+            : config.readOnlyMode
+              ? `No daily note found at \`${daily.path}\`.`
+              : `No daily note found at \`${daily.path}\`. If you'd like one, create it at that path with vault_write_note.`,
           "",
           "## Daily note",
           "",

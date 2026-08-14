@@ -75,6 +75,12 @@ export type VaultConfig = Readonly<{
    *  tool registration is skipped and server metadata omits file tool
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean
+  /** When true, the server is read-only: every tool that writes to the vault
+   *  is hidden, the memory-review prompt is unregistered, memory bootstrap is
+   *  skipped, and server metadata omits write references. Search-index and
+   *  OAuth SQLite writes are unaffected — infrastructure, not vault writes.
+   *  Set via READONLY_MODE. */
+  readOnlyMode: boolean
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -176,6 +182,12 @@ export const loadConfig = (
     .default("true")
     .asBool()
 
+  const readOnlyMode = envVar
+    .from(env)
+    .get("READONLY_MODE")
+    .default("false")
+    .asBool()
+
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -226,6 +238,7 @@ export const loadConfig = (
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
+    readOnlyMode,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,

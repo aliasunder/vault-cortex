@@ -96,20 +96,32 @@ export const createMcpRouter = ({
         const fileToolsClause = config.fileToolsEnabled
           ? "; vault_read_file for images, canvases, and other non-markdown files"
           : ""
+        // Read-only mode strips every write directive from the metadata —
+        // the write tools it would point at are not registered.
         const memoryClause = config.memoryEnabled
-          ? `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.`
-          : ". Use vault_write_note for writes."
-        const instructions = `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
+          ? config.readOnlyMode
+            ? `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`
+            : `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.`
+          : config.readOnlyMode
+            ? "."
+            : ". Use vault_write_note for writes."
+        const accessDescription = config.readOnlyMode
+          ? "Read and search"
+          : "Read, write, and search"
+        const markdownClause = config.readOnlyMode
+          ? "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
+          : "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
+        const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
 
-Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`
+${markdownClause}`
         const server = new McpServer(
           {
             name: "vault-cortex",
             title: "Vault Cortex",
             version: "1.0.0",
             description: config.memoryEnabled
-              ? `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
-              : `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`,
+              ? `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
+              : `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`,
             icons: SERVER_ICONS,
             websiteUrl: SERVER_WEBSITE_URL,
           },

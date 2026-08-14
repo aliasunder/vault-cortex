@@ -6,15 +6,30 @@ import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
 import {
   VAULT_CRUD_TOOL_NAMES,
-  registerVaultCrudTools,
+  VAULT_CRUD_READ_TOOL_NAMES,
+  VAULT_CRUD_WRITE_TOOL_NAMES,
+  registerVaultCrudReadTools,
+  registerVaultCrudWriteTools,
 } from "./tools/vault-crud-tools.js"
 import { SEARCH_TOOL_NAMES, registerSearchTools } from "./tools/search-tools.js"
-import { MEMORY_TOOL_NAMES, registerMemoryTools } from "./tools/memory-tools.js"
+import {
+  MEMORY_TOOL_NAMES,
+  MEMORY_READ_TOOL_NAMES,
+  MEMORY_WRITE_TOOL_NAMES,
+  registerMemoryReadTools,
+  registerMemoryWriteTools,
+} from "./tools/memory-tools.js"
 import {
   DAILY_NOTE_TOOL_NAMES,
   registerDailyNoteTools,
 } from "./tools/daily-note-tools.js"
-import { TASK_TOOL_NAMES, registerTaskTools } from "./tools/task-tools.js"
+import {
+  TASK_TOOL_NAMES,
+  TASK_READ_TOOL_NAMES,
+  TASK_WRITE_TOOL_NAMES,
+  registerTaskReadTools,
+  registerTaskWriteTools,
+} from "./tools/task-tools.js"
 import { FILE_TOOL_NAMES, registerAssetTools } from "./tools/asset-tools.js"
 
 export const TOOL_NAMES = {
@@ -33,23 +48,42 @@ export const registerTools = (params: {
   logger: Logger
   config: VaultConfig
 }): void => {
-  registerVaultCrudTools(params)
+  // Read-only mode gates each mixed group's write half; the memory group is
+  // additionally gated as a whole (reads included) by memoryEnabled.
+  const writeToolsEnabled = !params.config.readOnlyMode
+  registerVaultCrudReadTools(params)
+  if (writeToolsEnabled) {
+    registerVaultCrudWriteTools(params)
+  }
   registerSearchTools(params)
   if (params.config.memoryEnabled) {
-    registerMemoryTools(params)
+    registerMemoryReadTools(params)
+    if (writeToolsEnabled) {
+      registerMemoryWriteTools(params)
+    }
   }
   registerDailyNoteTools(params)
-  registerTaskTools(params)
+  registerTaskReadTools(params)
+  if (writeToolsEnabled) {
+    registerTaskWriteTools(params)
+  }
   if (params.config.fileToolsEnabled) {
     registerAssetTools(params)
   }
 
+  const countNames = (names: Record<string, string>): number =>
+    Object.keys(names).length
   const registeredCount =
-    Object.keys(VAULT_CRUD_TOOL_NAMES).length +
-    Object.keys(SEARCH_TOOL_NAMES).length +
-    (params.config.memoryEnabled ? Object.keys(MEMORY_TOOL_NAMES).length : 0) +
-    Object.keys(DAILY_NOTE_TOOL_NAMES).length +
-    Object.keys(TASK_TOOL_NAMES).length +
-    (params.config.fileToolsEnabled ? Object.keys(FILE_TOOL_NAMES).length : 0)
+    countNames(VAULT_CRUD_READ_TOOL_NAMES) +
+    (writeToolsEnabled ? countNames(VAULT_CRUD_WRITE_TOOL_NAMES) : 0) +
+    countNames(SEARCH_TOOL_NAMES) +
+    (params.config.memoryEnabled
+      ? countNames(MEMORY_READ_TOOL_NAMES) +
+        (writeToolsEnabled ? countNames(MEMORY_WRITE_TOOL_NAMES) : 0)
+      : 0) +
+    countNames(DAILY_NOTE_TOOL_NAMES) +
+    countNames(TASK_READ_TOOL_NAMES) +
+    (writeToolsEnabled ? countNames(TASK_WRITE_TOOL_NAMES) : 0) +
+    (params.config.fileToolsEnabled ? countNames(FILE_TOOL_NAMES) : 0)
   params.logger.info("registered tools", { count: registeredCount })
 }

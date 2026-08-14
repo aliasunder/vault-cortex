@@ -6,12 +6,21 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
 import { taskUpdater } from "../../vault-operations/task-updater.js"
 
-const TOOL_NAMES = {
+const READ_TOOL_NAMES = {
   VAULT_LIST_TASKS: "vault_list_tasks",
+} as const
+
+const WRITE_TOOL_NAMES = {
   VAULT_UPDATE_TASK: "vault_update_task",
 } as const
 
-export { TOOL_NAMES as TASK_TOOL_NAMES }
+const TOOL_NAMES = { ...READ_TOOL_NAMES, ...WRITE_TOOL_NAMES } as const
+
+export {
+  TOOL_NAMES as TASK_TOOL_NAMES,
+  READ_TOOL_NAMES as TASK_READ_TOOL_NAMES,
+  WRITE_TOOL_NAMES as TASK_WRITE_TOOL_NAMES,
+}
 
 /** Drops null fields, false booleans, and empty arrays from a task entry
  *  so responses stay lean — most tasks carry only a few of the optional
@@ -23,11 +32,11 @@ const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
     ),
   )
 
-export const registerTaskTools = ({
+export const registerTaskReadTools = ({
   server,
-  vaultPath,
   search,
   logger: sessionLogger,
+  config,
 }: ToolRegistrationContext): void => {
   // ── vault_list_tasks ────────────────────────────────────────────
 
@@ -60,7 +69,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
 
-Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards; use to determine the done lane for vault_update_task), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move via vault_update_task, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards${config.readOnlyMode ? "" : "; use to determine the done lane for vault_update_task"}), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move${config.readOnlyMode ? "" : " via vault_update_task"}, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .union([
@@ -241,7 +250,13 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
       )
     },
   )
+}
 
+export const registerTaskWriteTools = ({
+  server,
+  vaultPath,
+  logger: sessionLogger,
+}: ToolRegistrationContext): void => {
   // ── vault_update_task ───────────────────────────────────────────
 
   server.registerTool(

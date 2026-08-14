@@ -16,19 +16,28 @@ import {
   safeHandlerContent,
 } from "./tool-helpers.js"
 
-const TOOL_NAMES = {
+const READ_TOOL_NAMES = {
   VAULT_READ_NOTE: "vault_read_note",
+  VAULT_LIST_NOTES: "vault_list_notes",
+} as const
+
+const WRITE_TOOL_NAMES = {
   VAULT_WRITE_NOTE: "vault_write_note",
   VAULT_PATCH_NOTE: "vault_patch_note",
   VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
   VAULT_DELETE_SPAN: "vault_delete_span",
-  VAULT_LIST_NOTES: "vault_list_notes",
   VAULT_DELETE_NOTE: "vault_delete_note",
   VAULT_MOVE_NOTE: "vault_move_note",
   VAULT_UPDATE_PROPERTIES: "vault_update_properties",
 } as const
 
-export { TOOL_NAMES as VAULT_CRUD_TOOL_NAMES }
+const TOOL_NAMES = { ...READ_TOOL_NAMES, ...WRITE_TOOL_NAMES } as const
+
+export {
+  TOOL_NAMES as VAULT_CRUD_TOOL_NAMES,
+  READ_TOOL_NAMES as VAULT_CRUD_READ_TOOL_NAMES,
+  WRITE_TOOL_NAMES as VAULT_CRUD_WRITE_TOOL_NAMES,
+}
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -46,10 +55,9 @@ const describeDisplacedLeadingContent = ({
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
-export const registerVaultCrudTools = ({
+export const registerVaultCrudReadTools = ({
   server,
   vaultPath,
-  search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
@@ -67,7 +75,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
-Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
+Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""}${config.readOnlyMode ? "" : " To edit a section you've read, use vault_patch_note."} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
@@ -82,7 +90,7 @@ Errors:
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note, and edit via vault_replace_in_note.`,
+Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${config.readOnlyMode ? "" : ", and edit via vault_replace_in_note"}.`,
       inputSchema: {
         path: z
           .string()
@@ -310,6 +318,73 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
     },
   )
 
+  server.registerTool(
+    TOOL_NAMES.VAULT_LIST_NOTES,
+    {
+      title: "List Notes",
+      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
+
+Example: vault_list_notes({ folder: "Projects" })
+Example: vault_list_notes({ glob: "**/*session-log*.md" })
+
+When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
+Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
+
+Parameters:
+- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). When combined with glob, the glob pattern is applied within the folder's scope.
+- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.
+
+Errors:
+- A nonexistent folder or no glob matches returns an empty array, not an error.
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
+
+Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
+      inputSchema: {
+        folder: z
+          .string()
+          .optional()
+          .describe(
+            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
+          ),
+        glob: z
+          .string()
+          .optional()
+          .describe(
+            'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ folder, glob }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_LIST_NOTES,
+      })
+      reqLogger.info("tool_call", { folder, glob })
+      return safeHandler(
+        reqLogger,
+        () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
+        (paths) => {
+          reqLogger.info("tool_result", { resultCount: paths.length })
+          return JSON.stringify(paths)
+        },
+      )
+    },
+  )
+}
+
+export const registerVaultCrudWriteTools = ({
+  server,
+  vaultPath,
+  search,
+  logger: sessionLogger,
+  config,
+}: ToolRegistrationContext): void => {
   server.registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -692,65 +767,6 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
         (msg) => {
           reqLogger.info("tool_result", { outcome: "span_deleted" })
           return msg
-        },
-      )
-    },
-  )
-
-  server.registerTool(
-    TOOL_NAMES.VAULT_LIST_NOTES,
-    {
-      title: "List Notes",
-      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
-
-Example: vault_list_notes({ folder: "Projects" })
-Example: vault_list_notes({ glob: "**/*session-log*.md" })
-
-When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
-Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
-
-Parameters:
-- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). When combined with glob, the glob pattern is applied within the folder's scope.
-- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.
-
-Errors:
-- A nonexistent folder or no glob matches returns an empty array, not an error.
-- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
-
-Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
-      inputSchema: {
-        folder: z
-          .string()
-          .optional()
-          .describe(
-            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
-          ),
-        glob: z
-          .string()
-          .optional()
-          .describe(
-            'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
-          ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ folder, glob }, extra) => {
-      const reqLogger = sessionLogger.child({
-        requestId: extra.requestId,
-        tool: TOOL_NAMES.VAULT_LIST_NOTES,
-      })
-      reqLogger.info("tool_call", { folder, glob })
-      return safeHandler(
-        reqLogger,
-        () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
-        (paths) => {
-          reqLogger.info("tool_result", { resultCount: paths.length })
-          return JSON.stringify(paths)
         },
       )
     },
