@@ -279,7 +279,16 @@ const renderFenceBlock = (
     return `${" ".repeat(indentCharacters)}${lineText}`
   })
 
-  return ["```", ...indentedLines, "```"]
+  // A fence must be longer than the longest backtick run inside the block —
+  // otherwise content that itself shows a fence (e.g. a markdown sample)
+  // would close the block early (CommonMark closing-fence rule).
+  const backtickRunLengths = indentedLines.flatMap((indentedLine) => {
+    const backtickRuns = indentedLine.match(/`+/g) ?? []
+    return backtickRuns.map((backtickRun) => backtickRun.length)
+  })
+  const longestBacktickRun = Math.max(0, ...backtickRunLengths)
+  const fence = "`".repeat(Math.max(3, longestBacktickRun + 1))
+  return [fence, ...indentedLines, fence]
 }
 
 /** Reattaches orphaned list markers to their items. Some producers (notably

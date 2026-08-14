@@ -246,6 +246,17 @@ describe("extractPdfText", () => {
       )
     })
 
+    it("lengthens the fence when block content contains backtick runs", async () => {
+      const pdfBuffer = buildPdf([
+        { text: "```js", x: 72, y: 700, fontSize: 12, font: "courier" },
+        { text: "const x = 1", x: 72, y: 680, fontSize: 12, font: "courier" },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(
+        `${HEADER}\n\n\`\`\`\`\n\`\`\`js\nconst x = 1\n\`\`\`\``,
+      )
+    })
+
     it("closes an open fence before a mixed line and reopens after it", async () => {
       const pdfBuffer = buildPdf([
         { text: "line one", x: 72, y: 700, fontSize: 12, font: "courier" },
