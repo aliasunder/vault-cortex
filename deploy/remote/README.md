@@ -74,7 +74,8 @@ captures the token for you:
 npx vault-cortex@latest get-sync-token
 ```
 
-Otherwise, run the Docker image directly:
+Otherwise, run the helper in a throwaway container — it prints the token
+and exits; nothing stays running:
 
 ```bash
 docker run --rm -it --entrypoint get-sync-token \
@@ -101,6 +102,9 @@ cp .env.example .env
 ```bash
 docker compose up -d
 ```
+
+No Compose? The **docker run (no Compose)** block below starts the same
+server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
 from Obsidian's servers. The initial sync takes 30–120 seconds depending on
