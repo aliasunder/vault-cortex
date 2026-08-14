@@ -78,8 +78,8 @@
   "dependencies": {
     "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@napi-rs/canvas": "1.0.3",
-    "better-sqlite3": "13.0.2",
+    "@napi-rs/canvas": "1.0.5",
+    "better-sqlite3": "13.0.3",
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
     "express": "5.2.1",
