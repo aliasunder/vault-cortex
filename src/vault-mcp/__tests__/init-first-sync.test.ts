@@ -144,6 +144,20 @@ describe("init-first-sync gate script", () => {
     expect(run.stderr).toContain("Refusing to start")
   })
 
+  it("refuses on a content-warm vault whose memory folder has not synced", () => {
+    // Pins fatality to the memory folder specifically — a regression to a
+    // vault-warmth check (any visible content ⇒ warn-and-continue) would
+    // reopen the #440 window on partially synced volumes.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["Projects"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain("Refusing to start")
+  })
+
   it("still refuses when only hidden entries arrived before the failure", () => {
     const run = runGateScript({
       syncOutcomes: [1],

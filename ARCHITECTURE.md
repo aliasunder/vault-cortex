@@ -652,14 +652,20 @@ graph LR
    watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
-MCP server starts only after the full init chain — including the first sync —
-has completed and the sync process has spawned. The longrun dependency itself
-gates startup order only (it does not wait for sync health, and a later sync
-crash restarts just that service, not the MCP server); first-sync
-_completion_ is what `init-first-sync` guarantees. On a fresh volume that
-closes the memory-bootstrap race: the vault already holds the user's real
-`About Me/` files when the server's bootstrap check runs, so default
-templates are never created over a syncing vault and never pushed upstream.
+MCP server starts only after the full init chain has finished and the sync
+process has spawned. The longrun dependency itself gates startup order only
+(it does not wait for sync health, and a later sync crash restarts just that
+service, not the MCP server); what `init-first-sync` adds is running the
+first sync to completion when it succeeds, and refusing to start the
+services when it fails while the memory bootstrap could still clobber
+(memory layer enabled, memory folder absent). On its warn-and-continue
+branches — memory folder present, memory disabled, or `VAULT_NAME` unset —
+the server starts with whatever vault state exists while continuous sync
+keeps retrying. On a fresh volume that closes the memory-bootstrap race:
+either the vault already holds the user's real `About Me/` files when the
+server's bootstrap check runs, or the container refuses to start — so
+default templates are never created over a syncing vault and never pushed
+upstream.
 Files arriving through later continuous sync self-heal — the file watcher
 indexes them as they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
