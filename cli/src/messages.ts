@@ -239,8 +239,8 @@ ${nonOauthBlocks}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (memory layer and folder, file tools,
-semantic search, port, timezone):
+Adjust optional settings (memory layer and folder, daily notes
+folder and format, file tools, semantic search, port, timezone):
   npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
@@ -324,8 +324,9 @@ ${remoteHealthCheckBlock(`${publicUrl}/healthz`, started)}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (memory layer and folder, file tools,
-semantic search, port, timezone, sync direction):
+Adjust optional settings (memory layer and folder, daily notes
+folder and format, file tools, semantic search, port, timezone,
+sync direction):
   npx vault-cortex@latest configure --dir "${targetDir}"
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it

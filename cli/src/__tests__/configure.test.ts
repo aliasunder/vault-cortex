@@ -77,7 +77,7 @@ describe("runConfigure with nothing picked", () => {
 
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
-    expect(scripted.logs).toEqual(["No settings selected — nothing changed."])
+    expect(scripted.logs).toEqual(["No changes to apply."])
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
     ])
@@ -229,6 +229,91 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=https://vault.example.com\n\nSYNC_MODE=pull-only\n",
     )
+  })
+
+  it("replaces an active daily notes folder with a new value", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    const envWithDailyNotes = `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Journal\n`
+    writeFileSync(envFilePath, envWithDailyNotes)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Planner\n`,
+    )
+    expect(scripted.logs).toEqual([
+      `Updated DAILY_NOTES_FOLDER in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("uncomments the template's daily notes folder line on a typed value", async () => {
+    // The generated .env carries the var as a commented template line — the
+    // chooser's value must land by uncommenting it, not by appending a
+    // duplicate.
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    writeFileSync(
+      envFilePath,
+      `${LOCAL_ENV_CONTENT}\n# DAILY_NOTES_FOLDER=Journal\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`,
+    )
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      `${LOCAL_ENV_CONTENT}\nDAILY_NOTES_FOLDER=Planner\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`,
+    )
+  })
+
+  it("treats a picked-then-blanked daily notes setting as no changes to apply", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
+    expect(scripted.logs).toEqual([
+      "Left unset — the server reads this setting from your vault's own config.",
+      "No changes to apply.",
+    ])
+  })
+
+  it("neither claims an update nor offers a restart when a set daily notes folder is blank-kept", async () => {
+    // A blank submit on a set value keeps it — configure must not log
+    // "Updated ..." or offer a restart for a byte-identical file.
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    const envWithDailyNotes = `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Journal\n`
+    writeFileSync(envFilePath, envWithDailyNotes)
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(envWithDailyNotes)
+    expect(scripted.logs).toEqual([
+      "Kept the current value (Journal).",
+      "No changes to apply.",
+    ])
+    expect(scripted.warnings).toEqual([])
   })
 
   it("keeps the saved change and exits 1 when the .env cannot start a container", async () => {
