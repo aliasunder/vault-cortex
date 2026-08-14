@@ -10,7 +10,11 @@ export type ScriptedAnswer = string | boolean | string[]
 export type MultiselectCall = { message: string; options: SelectOption[] }
 export type ConfirmCall = { message: string; initialValue: boolean }
 export type SelectCall = { message: string; initialValue: string }
-export type TextCall = { message: string; defaultValue: string | undefined }
+export type TextCall = {
+  message: string
+  defaultValue: string | undefined
+  placeholder: string | undefined
+}
 
 export type ScriptedPrompts = {
   prompts: Prompts
@@ -115,7 +119,11 @@ export const createScriptedPrompts = (
       return answer
     },
     text: async (message, options) => {
-      textCalls.push({ message, defaultValue: options?.defaultValue })
+      textCalls.push({
+        message,
+        defaultValue: options?.defaultValue,
+        placeholder: options?.placeholder,
+      })
       const answer = nextStringAnswer(message)
       // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
       if (answer === "" && options?.defaultValue !== undefined)

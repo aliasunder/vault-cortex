@@ -53,7 +53,10 @@ export const runConfigure = async (
     prompts,
   )
   if (Object.keys(pickedOverrides).length === 0) {
-    prompts.log("No settings selected — nothing changed.")
+    // Covers both empty-overrides paths: nothing picked in the chooser, and
+    // picked-but-kept (an optionalText prompt left blank logs its own
+    // "Kept the current value" line, which this must not contradict).
+    prompts.log("No changes to apply.")
     prompts.outro("Done.")
     return 0
   }
