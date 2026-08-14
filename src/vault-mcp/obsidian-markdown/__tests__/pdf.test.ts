@@ -12,14 +12,12 @@ const HEADER = "Title: (untitled) | Pages: 1"
 describe("extractPdfText", () => {
   it("extracts text from a valid PDF", async () => {
     const result = await extractPdfText(toPdfData(buildMinimalPdf()))
-    expect(result.text).toBe(`${HEADER}\n\nHello PDF`)
-    expect(result.totalPages).toBe(1)
+    expect(result).toEqual({ text: `${HEADER}\n\nHello PDF`, totalPages: 1 })
   })
 
   it("returns empty text with page count for a PDF with no extractable text", async () => {
     const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()))
-    expect(result.text).toBe("")
-    expect(result.totalPages).toBe(1)
+    expect(result).toEqual({ text: "", totalPages: 1 })
   })
 
   describe("heading levels", () => {
