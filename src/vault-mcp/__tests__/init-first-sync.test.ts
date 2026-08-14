@@ -58,6 +58,8 @@ type GateRunOptions = {
   memoryEnabled?: string
   /** Vault-relative directories to create before running. */
   vaultDirs?: string[]
+  /** When false, VAULT_PATH points at a directory that doesn't exist. */
+  vaultExists?: boolean
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
@@ -65,7 +67,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
   mkdirSync(stubBinDir)
-  mkdirSync(vaultPath)
+  if (options.vaultExists ?? true) {
+    mkdirSync(vaultPath)
+  }
   for (const vaultDir of options.vaultDirs ?? []) {
     mkdirSync(join(vaultPath, vaultDir), { recursive: true })
   }
@@ -178,6 +182,19 @@ describe("init-first-sync gate script", () => {
     )
   })
 
+  it("warns and continues when the memory layer is disabled via the 0 spelling", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      memoryEnabled: "0",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toContain(
+      "WARNING: First sync did not complete — starting services anyway.",
+    )
+  })
+
   it("treats MEMORY_ENABLED case-insensitively, matching config.ts asBool", () => {
     const run = runGateScript({
       syncOutcomes: [1],
@@ -188,6 +205,20 @@ describe("init-first-sync gate script", () => {
     expect(run.status).toBe(0)
     expect(run.stderr).toContain(
       "WARNING: First sync did not complete — starting services anyway.",
+    )
+  })
+
+  it("exits 1 without syncing when VAULT_PATH does not exist", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultExists: false,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: Failed to change directory to VAULT_PATH=",
     )
   })
 
