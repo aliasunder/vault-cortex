@@ -164,7 +164,7 @@ LABEL org.opencontainers.image.description="Standalone MCP server for Obsidian v
 # tying container health to a sync crash-loop (e.g. a bad auth token) would
 # invite restarts that can't fix the cause. start-period covers the init
 # chain including the first vault sync, which runs to completion before the
-# server boots.
+# server boots whenever it succeeds.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
   CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT||8000}/healthz`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 

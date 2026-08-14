@@ -31,8 +31,11 @@ fi
 
 # Defaults mirror the server's config.ts (MEMORY_DIR falls back to
 # "About Me"; MEMORY_ENABLED defaults to true) — keep them in lockstep.
-# Lowercased to match config.ts's case-insensitive boolean parsing
+# MEMORY_DIR strips leading/trailing whitespace to mirror config.ts's
+# .trim() (whitespace-only falls through to the default); MEMORY_ENABLED
+# is lowercased to match config.ts's case-insensitive boolean parsing
 # (env-var's asBool accepts TRUE/FALSE/True/False/1/0).
+MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
 MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
 

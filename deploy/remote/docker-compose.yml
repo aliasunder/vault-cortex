@@ -74,7 +74,8 @@ services:
     ports:
       - "0.0.0.0:${PORT:-8000}:8000"
     # start_period covers the s6 init chain (Obsidian login + sync-setup +
-    # first vault sync to completion) that runs before the MCP server boots.
+    # first vault sync, run to completion when it succeeds) that runs before
+    # the MCP server boots.
     healthcheck:
       test:
         [

@@ -267,7 +267,8 @@ jobs:
           # --remove-orphans + --wait-timeout 300: same flags as deploy.yml —
           # retires containers whose services no longer exist in the compose
           # file and covers the s6 init chain (Obsidian login + sync-setup +
-          # first vault sync to completion) that runs before /healthz comes up.
+          # first vault sync, run to completion when it succeeds) that runs
+          # before /healthz comes up.
           ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" \
             'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'
 

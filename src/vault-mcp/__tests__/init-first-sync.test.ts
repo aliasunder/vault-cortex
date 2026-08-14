@@ -260,6 +260,23 @@ describe("init-first-sync gate script", () => {
     )
   })
 
+  it("trims MEMORY_DIR whitespace, matching config.ts normalization", () => {
+    // config.ts trims MEMORY_DIR before applying the default; the script
+    // must check the same normalized folder name or the two sides would
+    // disagree about which folder protects a degraded start.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      memoryDir: " About Me ",
+      vaultDirs: ["About Me"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toContain(
+      "WARNING: First sync did not complete — starting services anyway.",
+    )
+  })
+
   it("matches the server's config defaults for the memory layer", () => {
     // Drift guard: the script hardcodes fallbacks for MEMORY_DIR and
     // MEMORY_ENABLED that must mirror config.ts. The folder default is
