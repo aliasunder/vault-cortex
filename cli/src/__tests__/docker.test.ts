@@ -6,6 +6,8 @@ import {
   buildObsidianLoginArgs,
   classifyDaemonStatus,
   CONTAINER_NAME,
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
   LOCAL_IMAGE,
   pollHealth,
   probeHealth,
@@ -253,6 +255,30 @@ describe("buildObsidianLoginArgs", () => {
       REMOTE_IMAGE,
       "login",
     ])
+  })
+})
+
+describe("healthPollTimeoutMs", () => {
+  it("gives remote mode a 4-minute budget for the first-sync gate", () => {
+    expect(healthPollTimeoutMs("remote")).toBe(240_000)
+  })
+
+  it("keeps the local-mode budget at 2 minutes", () => {
+    expect(healthPollTimeoutMs("local")).toBe(120_000)
+  })
+})
+
+describe("healthTimeoutMessage", () => {
+  it("renders the local budget as 2 minutes", () => {
+    expect(healthTimeoutMessage(120_000)).toBe(
+      "Server did not respond within 2 minutes — check: docker logs vault-cortex",
+    )
+  })
+
+  it("renders the remote budget as 4 minutes", () => {
+    expect(healthTimeoutMessage(240_000)).toBe(
+      "Server did not respond within 4 minutes — check: docker logs vault-cortex",
+    )
   })
 })
 

@@ -108,8 +108,8 @@ mechanism-level detail.
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
 - Memory shrink guard: refuses writes that would remove >50% of a file's
-  bytes — catches template-clobber bugs during the Obsidian Sync startup
-  race
+  bytes — defense-in-depth against clobber-shaped write bugs (the remote
+  image's first-sync gate closes the Obsidian Sync startup race itself)
 - Memory idempotency guard: exact-bullet dedup prevents duplicates from
   retried writes after gateway timeouts
 - Memory line-break rejection: entry, date, and section reject `\r`/`\n`

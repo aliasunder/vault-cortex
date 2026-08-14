@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import type { DockerRunner } from "../docker.js"
+import { healthTimeoutMessage, type DockerRunner } from "../docker.js"
 import { runUpgrade } from "../upgrade.js"
 import {
   createScriptedPrompts,
@@ -276,7 +276,7 @@ describe("runUpgrade", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toContain(
-      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
+      `stop: ${healthTimeoutMessage(20)}`,
     )
   })
 

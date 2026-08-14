@@ -2,6 +2,8 @@ import { join, resolve } from "node:path"
 
 import {
   CONTAINER_NAME,
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
   pollHealth,
   probeHealth,
   type DockerRunner,
@@ -226,17 +228,16 @@ export const recreateContainer = async (
 
   const spinner = prompts.spinner()
   spinner.start("Waiting for the server to come up")
+  const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(deployment.mode)
   const healthy = await pollHealth(
     {
       url: `http://127.0.0.1:${deployment.port}/healthz`,
-      timeoutMs: healthTimeoutMs,
+      timeoutMs,
     },
     fetchFn,
   )
   if (!healthy) {
-    spinner.stop(
-      `Server did not respond within 2 minutes — check: docker logs ${CONTAINER_NAME}`,
-    )
+    spinner.stop(healthTimeoutMessage(timeoutMs))
     return 1
   }
   spinner.stop("Server is up — health check passed.")
