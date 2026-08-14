@@ -217,8 +217,8 @@ const renderLineText = (
         previousRun.items[previousRun.items.length - 1]
       const nextBoundaryItem = run.items[0]
       const junctionHasWhitespace =
-        previousBoundaryItem !== undefined &&
-        nextBoundaryItem !== undefined &&
+        previousBoundaryItem &&
+        nextBoundaryItem &&
         (/\s$/.test(previousBoundaryItem.str) ||
           /^\s/.test(nextBoundaryItem.str) ||
           isWordGap(previousBoundaryItem, nextBoundaryItem))
