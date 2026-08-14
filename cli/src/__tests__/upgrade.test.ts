@@ -276,7 +276,7 @@ describe("runUpgrade", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toContain(
-      `stop: ${healthTimeoutMessage(20)}`,
+      `stop: ${healthTimeoutMessage("local", 20)}`,
     )
   })
 

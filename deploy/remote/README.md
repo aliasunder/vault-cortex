@@ -108,9 +108,12 @@ server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
 from Obsidian's servers. The initial sync takes 30–120 seconds depending on
-vault size. The MCP server starts only after that first sync completes, so
-it always sees your full vault — including your memory files — from its
-very first moment.
+vault size, and the MCP server waits for it to finish before starting — so
+on a normal boot it sees your synced vault, including your memory files,
+from its first moment. If the sync can't complete on a brand-new setup, the
+server stops rather than start with an incomplete vault (Docker retries
+automatically); on later boots it starts with the vault it already has and
+syncing keeps retrying in the background.
 
 **docker run (no Compose):** The command the CLI runs for you, spelled out —
 for when you have neither Node.js nor Compose, invoke a different runtime

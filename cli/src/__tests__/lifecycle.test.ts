@@ -701,7 +701,7 @@ describe("runRestart", () => {
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      `stop: ${healthTimeoutMessage(20)}`,
+      `stop: ${healthTimeoutMessage("local", 20)}`,
     ])
   })
 

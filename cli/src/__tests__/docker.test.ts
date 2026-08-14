@@ -270,14 +270,14 @@ describe("healthPollTimeoutMs", () => {
 
 describe("healthTimeoutMessage", () => {
   it("renders the local budget as 2 minutes", () => {
-    expect(healthTimeoutMessage(120_000)).toBe(
+    expect(healthTimeoutMessage("local", 120_000)).toBe(
       "Server did not respond within 2 minutes — check: docker logs vault-cortex",
     )
   })
 
-  it("renders the remote budget as 4 minutes", () => {
-    expect(healthTimeoutMessage(240_000)).toBe(
-      "Server did not respond within 4 minutes — check: docker logs vault-cortex",
+  it("adds the first-sync hint to the remote 4-minute message", () => {
+    expect(healthTimeoutMessage("remote", 240_000)).toBe(
+      "Server did not respond within 4 minutes — check: docker logs vault-cortex (a long first sync may still be running — the container keeps starting in the background)",
     )
   })
 })

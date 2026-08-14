@@ -412,7 +412,7 @@ describe("runConfigure with picked settings", () => {
     // container started (spinner ran) and the poll timed out.
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      `stop: ${healthTimeoutMessage(0)}`,
+      `stop: ${healthTimeoutMessage("local", 0)}`,
     ])
   })
 

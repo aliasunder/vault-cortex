@@ -237,7 +237,7 @@ export const recreateContainer = async (
     fetchFn,
   )
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(timeoutMs))
+    spinner.stop(healthTimeoutMessage(deployment.mode, timeoutMs))
     return 1
   }
   spinner.stop("Server is up — health check passed.")

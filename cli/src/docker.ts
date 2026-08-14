@@ -298,9 +298,16 @@ export const healthPollTimeoutMs = (mode: Mode): number => {
 }
 
 /** Health-poll failure message with the duration derived from the actual
- *  timeout, so mode-specific budgets can't drift out of the copy. */
-export const healthTimeoutMessage = (timeoutMs: number): string => {
-  return `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+ *  timeout, so mode-specific budgets can't drift out of the copy. Remote
+ *  adds a first-sync hint: the container's init chain retries the first
+ *  sync with no upper time bound, so an expired poll does not mean the
+ *  server failed — it may flip healthy after the CLI stops waiting. */
+export const healthTimeoutMessage = (mode: Mode, timeoutMs: number): string => {
+  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+  if (mode === "remote") {
+    return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`
+  }
+  return baseMessage
 }
 
 /**

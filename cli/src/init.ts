@@ -283,7 +283,7 @@ const offerDockerRun = async (
     fetchFn,
   )
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(timeoutMs))
+    spinner.stop(healthTimeoutMessage(mode, timeoutMs))
     return false
   }
   spinner.stop("Server is up — health check passed.")
