@@ -182,6 +182,10 @@ const renderLineText = (
 ): string => {
   // Partition into maximal runs of equal monospace-ness, tracking each run's
   // boundary items so junction spacing can use the real gap metrics.
+  // "Run" is used in the text-layout sense: a maximal stretch of consecutive
+  // items sharing a property — the same concept as DOCX formatting runs
+  // (`<w:r>` elements) and Core Text's CTRun (glyph runs):
+  // https://developer.apple.com/documentation/coretext/ctrun
   type FontRun = { monospace: boolean; items: StructuredTextItem[] }
   const fontRuns: FontRun[] = []
   for (const item of orderedItems) {
@@ -194,6 +198,8 @@ const renderLineText = (
     }
   }
 
+  // Renders one run to text: gap-aware join, letter-spacing collapse for
+  // plain text only (code is never reflowed), backtick wrap for monospace.
   const renderRun = (run: FontRun): string => {
     const joinedText = run.items
       .map((item, index) => {
