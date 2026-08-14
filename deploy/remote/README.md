@@ -130,7 +130,7 @@ docker run -d --name vault-cortex \
   --restart unless-stopped \
   --health-cmd "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" \
   --health-interval 15s --health-timeout 5s --health-retries 5 \
-  --health-start-period 60s \
+  --health-start-period 180s \
   --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
