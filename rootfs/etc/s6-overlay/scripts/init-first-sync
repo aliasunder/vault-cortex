@@ -31,8 +31,10 @@ fi
 
 # Defaults mirror the server's config.ts (MEMORY_DIR falls back to
 # "About Me"; MEMORY_ENABLED defaults to true) — keep them in lockstep.
+# Lowercased to match config.ts's case-insensitive boolean parsing
+# (env-var's asBool accepts TRUE/FALSE/True/False/1/0).
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
-MEMORY_ENABLED="${MEMORY_ENABLED:-true}"
+MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
 
 # VAULT_NAME unset means either a persisted config volume (sync succeeds
 # anyway) or a truly unconfigured vault (sync fails fast) — retry only when
