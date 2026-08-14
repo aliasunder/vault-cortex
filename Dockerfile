@@ -24,7 +24,7 @@
 # obsidian-headless via npm ci instead of building FROM the Alpine
 # obsidian-headless-sync-docker image).
 
-FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS deps
+FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts
@@ -34,7 +34,7 @@ RUN npm ci --omit=dev --ignore-scripts
 # the affected arch — not at container startup on a user's machine.
 RUN node -e "const Database = require('better-sqlite3'); new Database(':memory:').exec('select 1'); require('onnxruntime-node'); console.log('native bindings verified')"
 
-FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS build
+FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS build
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
@@ -51,7 +51,7 @@ RUN npm run build:server
 # uses npm ci for the lockfile-pinned obsidian-headless install, then
 # removes npm the same way.
 # ---------------------------------------------------------------------------
-FROM node:24-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS base
+FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS base
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly (local
 # target; the remote target's s6 /init takes over PID 1 duties there).
