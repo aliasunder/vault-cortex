@@ -68,6 +68,28 @@
 
 
 
+
+## [0.36.3] — 2026-08-14
+
+### Features
+
+- **cli:** Daily notes folder and format in the settings chooser (#433)
+
+### Bug Fixes
+
+- **pdf:** Body-dominant headings, visual line order, inline code, and list-marker rejoin in text renditions (#435)
+
+### Documentation
+
+- **deploy:** Signpost the one-shot token step and no-Compose path in remote manual setup (#436)
+- **deploy:** Surface CLI lifecycle commands across the deploy guides (#432)
+- **readme:** Add community deployments section linking flytzen/vault-cortex-aca (#434)
+- Update CHANGELOG.md for v0.36.2
+
+### CI / Infrastructure
+
+- Bump umm-actually action to v0.3.5 (#431)
+
 ## [0.36.2] — 2026-08-13
 
 ### ⚠ BREAKING CHANGES
