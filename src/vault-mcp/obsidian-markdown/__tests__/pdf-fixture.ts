@@ -14,7 +14,18 @@ const escapePdfString = (text: string): string => {
     .replace(/\(/g, "\\(")
     .replace(/\)/g, "\\)")
   return [...escaped]
-    .map((character) => WINANSI_OCTAL_ESCAPES.get(character) ?? character)
+    .map((character) => {
+      const winAnsiEscape = WINANSI_OCTAL_ESCAPES.get(character)
+      if (winAnsiEscape) return winAnsiEscape
+      // The buffer is ASCII-encoded, which truncates code points to their low
+      // byte — reject unsupported characters instead of silently corrupting.
+      if (character.charCodeAt(0) > 126) {
+        throw new Error(
+          `escapePdfString: unsupported non-ASCII character "${character}" — add it to WINANSI_OCTAL_ESCAPES`,
+        )
+      }
+      return character
+    })
     .join("")
 }
 
