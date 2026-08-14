@@ -212,21 +212,26 @@ describe("extractPdfText", () => {
     })
 
     it("rejoins lettered markers to their items", async () => {
+      // The marker and its item are separated in the stream by another line,
+      // so only the rejoin pass — not plain sequential grouping — can merge
+      // them (same shape as the numeric-marker test).
       const pdfBuffer = buildPdf([
         { text: "a.", x: 100, y: 700, fontSize: 12 },
+        { text: "closing line", x: 72, y: 660, fontSize: 12 },
         { text: "Alpha item", x: 115, y: 700, fontSize: 12 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\na. Alpha item`)
+      expect(result.text).toBe(`${HEADER}\n\nclosing line\na. Alpha item`)
     })
 
     it("rejoins bullet-glyph markers to their items", async () => {
       const pdfBuffer = buildPdf([
         { text: "•", x: 100, y: 700, fontSize: 12 },
+        { text: "closing line", x: 72, y: 660, fontSize: 12 },
         { text: "Bullet item", x: 112, y: 700, fontSize: 12 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n• Bullet item`)
+      expect(result.text).toBe(`${HEADER}\n\nclosing line\n• Bullet item`)
     })
 
     it("leaves non-marker short lines and partnerless markers untouched", async () => {

@@ -264,8 +264,11 @@ Link queries use a `links` table populated during indexing:
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
-   - Heading hierarchy inferred from relative font sizes
-   - Fenced code blocks detected via monospace fonts
+   - Heading hierarchy inferred from font sizes relative to the dominant
+     body size (the size carrying the most text) — only sizes larger than
+     body become headings
+   - Fenced code blocks for fully-monospace lines; inline code spans for
+     monospace runs inside mixed lines
    - Page separators and a deduplicated links footer
 
    `raw: true` switches to page-image mode: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
