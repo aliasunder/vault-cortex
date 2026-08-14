@@ -388,6 +388,28 @@ describe("vault-orientation with FILE_TOOLS_ENABLED=false", () => {
   })
 })
 
+// ── READONLY_MODE=true ──────────────────────────────────────────
+
+describe("vault-orientation with READONLY_MODE=true", () => {
+  it("empty-memory fallback omits the vault_update_memory suggestion", async () => {
+    const config = loadConfig({ READONLY_MODE: "true" })
+    const { calls } = await setupVault({
+      config,
+      indexNotes: false,
+      memoryFiles: false,
+    })
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
+    const text = textOf(await handler(fakeExtra))
+
+    // Guard against a silent no-op: the empty-memory sentinel is present,
+    // only the write-tool suggestion is dropped.
+    expect(text).toContain(
+      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
+    )
+    expect(text).not.toContain("vault_update_memory")
+  })
+})
+
 // ── Genericness ─────────────────────────────────────────────────
 
 describe("vault-orientation genericness", () => {

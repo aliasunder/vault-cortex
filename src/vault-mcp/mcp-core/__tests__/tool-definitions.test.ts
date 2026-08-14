@@ -1117,6 +1117,89 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   })
 })
 
+describe("READONLY_MODE=true", () => {
+  const MUTATING_TOOLS = [
+    TOOL_NAMES.VAULT_WRITE_NOTE,
+    TOOL_NAMES.VAULT_PATCH_NOTE,
+    TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+    TOOL_NAMES.VAULT_DELETE_SPAN,
+    TOOL_NAMES.VAULT_DELETE_NOTE,
+    TOOL_NAMES.VAULT_MOVE_NOTE,
+    TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+    TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
+    TOOL_NAMES.VAULT_UPDATE_TASK,
+  ] as const
+
+  const registerReadOnly = (
+    extraEnv: Record<string, string> = {},
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({ READONLY_MODE: "true", ...extraEnv }),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  it("does not register mutating tools", () => {
+    const readOnlyCalls = registerReadOnly()
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    for (const mutatingTool of MUTATING_TOOLS) {
+      expect(registeredNames).not.toContain(mutatingTool)
+    }
+  })
+
+  it(`registers exactly the ${READ_ONLY_TOOLS.length} read-only tools`, () => {
+    const readOnlyCalls = registerReadOnly()
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    expect(new Set(registeredNames)).toEqual(new Set(READ_ONLY_TOOLS))
+    expect(registeredNames).toHaveLength(READ_ONLY_TOOLS.length)
+  })
+
+  it("surviving tool descriptions do not reference mutating tools", () => {
+    const readOnlyCalls = registerReadOnly()
+    for (const [, toolConfig] of readOnlyCalls) {
+      expect(toolConfig.description).toBeDefined()
+      for (const mutatingToolName of MUTATING_TOOLS) {
+        expect(toolConfig.description).not.toContain(mutatingToolName)
+      }
+    }
+  })
+
+  it("with MEMORY_ENABLED=false registers the read-only tools minus memory reads", () => {
+    const readOnlyCalls = registerReadOnly({ MEMORY_ENABLED: "false" })
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    const memoryReadTools = new Set<string>([
+      TOOL_NAMES.VAULT_GET_MEMORY,
+      TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+      TOOL_NAMES.VAULT_MEMORY_RECALL,
+    ])
+    const expectedTools = READ_ONLY_TOOLS.filter(
+      (toolName) => !memoryReadTools.has(toolName),
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedTools))
+    expect(registeredNames).toHaveLength(expectedTools.length)
+  })
+
+  it("with FILE_TOOLS_ENABLED=false registers the read-only tools minus file tools", () => {
+    const readOnlyCalls = registerReadOnly({ FILE_TOOLS_ENABLED: "false" })
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    const fileTools = new Set<string>([
+      TOOL_NAMES.VAULT_READ_FILE,
+      TOOL_NAMES.VAULT_LIST_FILES,
+    ])
+    const expectedTools = READ_ONLY_TOOLS.filter(
+      (toolName) => !fileTools.has(toolName),
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedTools))
+    expect(registeredNames).toHaveLength(expectedTools.length)
+  })
+})
+
 describe("vault_memory_recall handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 

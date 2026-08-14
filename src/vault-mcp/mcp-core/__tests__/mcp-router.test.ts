@@ -331,6 +331,53 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(options?.instructions).toContain("vault_write_note")
     })
 
+    it("instructions and description omit write references when READONLY_MODE is true", async () => {
+      const readOnlyConfig = loadConfig({ READONLY_MODE: "true" })
+      const harness = await setupHarness({ config: readOnlyConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+
+Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+      )
+      expect(info.description).toBe(
+        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+      )
+    })
+
+    it("read-only instructions with MEMORY_ENABLED=false omit memory and write references", async () => {
+      const readOnlyNoMemoryConfig = loadConfig({
+        READONLY_MODE: "true",
+        MEMORY_ENABLED: "false",
+      })
+      const harness = await setupHarness({ config: readOnlyNoMemoryConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
+
+Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+      )
+    })
+
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
       expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(

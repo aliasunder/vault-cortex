@@ -194,6 +194,7 @@ export const setupVault = async (
 export const setupDailyReviewVault = async (options: {
   date: string
   dailyContent?: string
+  config?: ReturnType<typeof loadConfig>
   extraNotes?: ReadonlyArray<{
     path: string
     content: string
@@ -245,7 +246,7 @@ export const setupDailyReviewVault = async (options: {
     )
   }
 
-  const calls = registerWithSearch(vault, search)
+  const calls = registerWithSearch(vault, search, logger, options.config)
   return { vault, search, calls }
 }
 
@@ -255,6 +256,7 @@ export const registerWithSearch = (
   vaultPath: string,
   search: SearchIndex,
   log: Logger = logger,
+  config: ReturnType<typeof loadConfig> = loadConfig({}),
 ): RegisterPromptCall[] => {
   const calls: RegisterPromptCall[] = []
   const server = {
@@ -267,7 +269,7 @@ export const registerWithSearch = (
     vaultPath,
     search,
     logger: log,
-    config: loadConfig({}),
+    config,
   })
   return calls
 }

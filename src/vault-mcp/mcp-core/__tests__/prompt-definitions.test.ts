@@ -93,3 +93,27 @@ describe("MEMORY_ENABLED=false", () => {
     expect(calls).toHaveLength(2)
   })
 })
+
+// ── READONLY_MODE=true ──────────────────────────────────────────
+
+describe("READONLY_MODE=true", () => {
+  it("registers vault-orientation and daily-review but not memory-review", () => {
+    const calls = captureRegistration(loadConfig({ READONLY_MODE: "true" }))
+    const registeredNames = calls.map((call) => call[0])
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
+    expect(registeredNames).toHaveLength(2)
+  })
+
+  it("with MEMORY_ENABLED=false registers the same 2 prompts", () => {
+    const calls = captureRegistration(
+      loadConfig({ READONLY_MODE: "true", MEMORY_ENABLED: "false" }),
+    )
+    const registeredNames = calls.map((call) => call[0])
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
+    expect(registeredNames).toHaveLength(2)
+  })
+})

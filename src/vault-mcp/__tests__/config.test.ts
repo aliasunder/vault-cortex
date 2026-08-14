@@ -478,6 +478,38 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("READONLY_MODE", () => {
+    it("defaults to false when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.readOnlyMode).toBe(false)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ READONLY_MODE: "true" })
+      expect(config.readOnlyMode).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ READONLY_MODE: "false" })
+      expect(config.readOnlyMode).toBe(false)
+    })
+
+    it("rejects a non-boolean value", () => {
+      expect(() => loadConfig({ READONLY_MODE: "yes" })).toThrow(
+        /READONLY_MODE/,
+      )
+    })
+
+    it("composes with MEMORY_ENABLED — both flags parse independently", () => {
+      const config = loadConfig({
+        READONLY_MODE: "true",
+        MEMORY_ENABLED: "false",
+      })
+      expect(config.readOnlyMode).toBe(true)
+      expect(config.memoryEnabled).toBe(false)
+    })
+  })
+
   describe("MAX_FILE_BYTES", () => {
     it("defaults to 50 MiB (52428800) when unset", () => {
       const config = loadConfig(EMPTY_ENV)
