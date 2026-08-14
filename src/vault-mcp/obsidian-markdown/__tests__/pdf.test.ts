@@ -191,6 +191,21 @@ describe("extractPdfText", () => {
       expect(result.text).toBe(`${HEADER}\n\nRun \`kubectl apply\` now`)
     })
 
+    it("joins tight cross-font junctions without inserting spaces", async () => {
+      // "(" ends at 103.996 (Helvetica 12pt); the Courier run starts 0.5pt
+      // later — far below the 0.2em word-gap threshold — and ")" hugs the run
+      // end the same way. The font changes force separate items, so this is
+      // the only shape that exercises the no-space branch of the gap rule
+      // (same-font tight glyphs get merged by pdfjs itself).
+      const pdfBuffer = buildPdf([
+        { text: "(", x: 100, y: 700, fontSize: 12 },
+        { text: "robt", x: 104.5, y: 700, fontSize: 12, font: "courier" },
+        { text: ")", x: 133.8, y: 700, fontSize: 12 },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(`${HEADER}\n\n(\`robt\`)`)
+    })
+
     it("closes an open fence before a mixed line and reopens after it", async () => {
       const pdfBuffer = buildPdf([
         { text: "line one", x: 72, y: 700, fontSize: 12, font: "courier" },

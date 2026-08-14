@@ -232,7 +232,10 @@ const renderLineText = (
 
 /** Joins a fully-monospace line's items verbatim for emission inside a code
  *  fence — gap-aware spacing, no backtick wrapping, no letter-spacing
- *  collapse (code is never reflowed). */
+ *  collapse (code is never reflowed). Leading indentation cannot survive
+ *  here: pdfjs normalizes leading whitespace out of item strings into x
+ *  positions, so restoring it would need positional reconstruction, not
+ *  string handling. */
 const renderFencedLineText = (
   orderedItems: readonly StructuredTextItem[],
 ): string => {
