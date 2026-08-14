@@ -206,6 +206,46 @@ describe("extractPdfText", () => {
       expect(result.text).toBe(`${HEADER}\n\n(\`robt\`)`)
     })
 
+    it("reconstructs leading indentation inside fence blocks from glyph positions", async () => {
+      // pdfjs folds the second op's leading spaces into its x position
+      // (str arrives as "return True" at x = 72 + 4 × 7.2); the fence-block
+      // renderer rebuilds the four spaces from the x offset and Courier's
+      // per-character advance.
+      const pdfBuffer = buildPdf([
+        { text: "def check():", x: 72, y: 700, fontSize: 12, font: "courier" },
+        {
+          text: "    return True",
+          x: 72,
+          y: 680,
+          fontSize: 12,
+          font: "courier",
+        },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(
+        `${HEADER}\n\n\`\`\`\ndef check():\n    return True\n\`\`\``,
+      )
+    })
+
+    it("measures fence indentation from the block's leftmost line, not its first", async () => {
+      // The first line sits two characters right of the second (Courier 12pt
+      // advance = 7.2pt), so the block margin comes from the later line.
+      const pdfBuffer = buildPdf([
+        {
+          text: "indented first",
+          x: 86.4,
+          y: 700,
+          fontSize: 12,
+          font: "courier",
+        },
+        { text: "at margin", x: 72, y: 680, fontSize: 12, font: "courier" },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(
+        `${HEADER}\n\n\`\`\`\n  indented first\nat margin\n\`\`\``,
+      )
+    })
+
     it("closes an open fence before a mixed line and reopens after it", async () => {
       const pdfBuffer = buildPdf([
         { text: "line one", x: 72, y: 700, fontSize: 12, font: "courier" },

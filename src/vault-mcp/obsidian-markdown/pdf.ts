@@ -232,10 +232,9 @@ const renderLineText = (
 
 /** Joins a fully-monospace line's items verbatim for emission inside a code
  *  fence — gap-aware spacing, no backtick wrapping, no letter-spacing
- *  collapse (code is never reflowed). Leading indentation cannot survive
- *  here: pdfjs normalizes leading whitespace out of item strings into x
- *  positions, so restoring it would need positional reconstruction, not
- *  string handling. */
+ *  collapse (code is never reflowed). Leading indentation never arrives in
+ *  item strings (pdfjs normalizes it into x positions); `renderFenceBlock`
+ *  reconstructs it positionally around this per-line text. */
 const renderFencedLineText = (
   orderedItems: readonly StructuredTextItem[],
 ): string => {
@@ -247,6 +246,40 @@ const renderFencedLineText = (
     })
     .join("")
     .trim()
+}
+
+/** Renders a fence block (consecutive fully-monospace lines) with leading
+ *  indentation reconstructed from glyph positions. pdfjs normalizes leading
+ *  whitespace out of item strings into x offsets, so indentation must be
+ *  rebuilt positionally: the block's left margin is the smallest starting x
+ *  across its lines, and each line's indent is its x offset from that margin
+ *  divided by the line's own per-character advance (exact for monospace —
+ *  first item width / character count). Degenerate metrics (non-positive
+ *  width) skip indentation for that line rather than guessing. */
+const renderFenceBlock = (
+  orderedLines: readonly (readonly StructuredTextItem[])[],
+): string[] => {
+  const lineStartXs = orderedLines.map(
+    (orderedItems) => orderedItems[0]?.x ?? 0,
+  )
+  const blockLeftMargin = Math.min(...lineStartXs)
+
+  const indentedLines = orderedLines.map((orderedItems, lineIndex) => {
+    const lineText = renderFencedLineText(orderedItems)
+    const firstItem = orderedItems[0]
+    const lineStartX = lineStartXs[lineIndex] ?? blockLeftMargin
+    if (!firstItem || firstItem.width <= 0 || firstItem.str.length === 0) {
+      return lineText
+    }
+    const characterAdvance = firstItem.width / firstItem.str.length
+    const indentCharacters = Math.max(
+      0,
+      Math.round((lineStartX - blockLeftMargin) / characterAdvance),
+    )
+    return `${" ".repeat(indentCharacters)}${lineText}`
+  })
+
+  return ["```", ...indentedLines, "```"]
 }
 
 /** Reattaches orphaned list markers to their items. Some producers (notably
@@ -355,40 +388,46 @@ const reconstructPdfMarkdown = (params: {
       outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
 
-    // Fence state machine — tracks whether we're inside a code block
-    // so monospace→sans-serif transitions emit closing fences.
-    let inCodeBlock = false
+    // Partition the page's lines into alternating fenced/plain segments —
+    // consecutive fully-monospace lines form one fence block, so the block
+    // can compute a shared left margin for indentation reconstruction.
+    type LineSegment = {
+      fenced: boolean
+      orderedLines: (readonly StructuredTextItem[])[]
+    }
+    const lineSegments: LineSegment[] = []
     for (const line of lines) {
       const orderedItems = orderLineItems(line)
       const isFullyMonospaceLine = orderedItems.every(
         (item) => item.fontFamily === "monospace",
       )
-      const lineText = isFullyMonospaceLine
-        ? renderFencedLineText(orderedItems)
-        : renderLineText(orderedItems)
-      if (!lineText) continue
-
-      const headingLevel =
-        headingLevels.get(dominantRoundedFontSize(orderedItems)) ?? 0
-
-      if (isFullyMonospaceLine && !inCodeBlock) {
-        outputLines.push("```")
-        inCodeBlock = true
-      } else if (!isFullyMonospaceLine && inCodeBlock) {
-        outputLines.push("```")
-        inCodeBlock = false
-      }
-
-      if (inCodeBlock) {
-        outputLines.push(lineText)
-      } else if (headingLevel > 0) {
-        outputLines.push(`${"#".repeat(headingLevel)} ${lineText}`)
+      const currentSegment = lineSegments[lineSegments.length - 1]
+      if (currentSegment && currentSegment.fenced === isFullyMonospaceLine) {
+        currentSegment.orderedLines.push(orderedItems)
       } else {
-        outputLines.push(lineText)
+        lineSegments.push({
+          fenced: isFullyMonospaceLine,
+          orderedLines: [orderedItems],
+        })
       }
     }
-    if (inCodeBlock) {
-      outputLines.push("```")
+
+    for (const segment of lineSegments) {
+      if (segment.fenced) {
+        outputLines.push(...renderFenceBlock(segment.orderedLines))
+        continue
+      }
+      for (const orderedItems of segment.orderedLines) {
+        const lineText = renderLineText(orderedItems)
+        if (!lineText) continue
+        const headingLevel =
+          headingLevels.get(dominantRoundedFontSize(orderedItems)) ?? 0
+        if (headingLevel > 0) {
+          outputLines.push(`${"#".repeat(headingLevel)} ${lineText}`)
+        } else {
+          outputLines.push(lineText)
+        }
+      }
     }
   }
 
