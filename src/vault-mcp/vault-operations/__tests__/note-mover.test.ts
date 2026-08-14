@@ -1553,3 +1553,28 @@ describe("moveNote — backlink source hygiene", () => {
     })
   })
 })
+
+describe("moveNote — hidden paths", () => {
+  it("rejects a hidden old_path", async () => {
+    const { writeFixture, moveNote } = setupVault()
+    // The note exists on disk so a removed guard would let the move succeed.
+    await writeFixture(".trash/secret.md", "# Secret\n")
+    await expect(
+      moveNote({ oldPath: ".trash/secret.md", newPath: "Rescued.md" }),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+  })
+
+  it("rejects a hidden new_path and leaves the source note in place", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Visible.md", "# Visible\n")
+    await expect(
+      moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" }),
+    ).rejects.toThrow(
+      'hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder',
+    )
+    expect(await noteExists("Visible.md")).toBe(true)
+    expect(await readNote("Visible.md")).toBe("# Visible\n")
+  })
+})

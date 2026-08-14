@@ -208,6 +208,16 @@ const groupBy = <Key, Item>(
   return buckets
 }
 
+/** Parses canvas JSON with a contextual error message on failure. */
+const parseCanvasJson = (canvasJson: string): unknown => {
+  try {
+    return JSON.parse(canvasJson)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })
+  }
+}
+
 /**
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
@@ -215,14 +225,7 @@ const groupBy = <Key, Item>(
  * form with ids resolved to display names. Throws only on unparseable JSON.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
-  const parsed = ((): unknown => {
-    try {
-      return JSON.parse(canvasJson)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })
-    }
-  })()
+  const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes =
     isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
@@ -269,4 +272,24 @@ export const linearizeCanvas = (canvasJson: string): string => {
       : []),
   ]
   return sections.join("\n\n")
+}
+
+/** Extracts deduplicated vault-relative file paths from canvas `file`-type
+ *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
+ *  references create graph edges (matching Obsidian's behavior). Throws on
+ *  unparseable JSON (same contract as `linearizeCanvas`). */
+export const extractCanvasFileLinks = (canvasJson: string): string[] => {
+  const parsed = parseCanvasJson(canvasJson)
+
+  const rawNodes =
+    isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
+  const filePaths: string[] = []
+  for (const rawNode of rawNodes) {
+    const node = parseNode(rawNode)
+    if (node !== null && node.type === "file" && node.file) {
+      filePaths.push(node.file)
+    }
+  }
+
+  return [...new Set(filePaths)]
 }

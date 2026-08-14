@@ -83,4 +83,19 @@ apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
 apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
 apply_sync_config --file-types "$FILE_TYPES"
 apply_sync_config --mode "$SYNC_MODE"
-apply_sync_config --configs "$SYNC_CONFIGS"
+
+# Config-category sync defaults ON for the two categories the server
+# reads: core-plugin-data (daily notes settings) and community-plugin-data
+# (community plugin settings, e.g. the Tasks plugin's format). The default
+# is applied here as well as in the compose files so plain `docker run`
+# (no interpolation) matches. SYNC_CONFIGS=none actively clears ("empty to
+# clear" per ob sync-config --help) rather than skipping, which would leave
+# a previously enabled category on across boots on a persistent config
+# volume.
+if [ "$SYNC_CONFIGS" = "none" ]; then
+  if ! s6-setuidgid obsidian ob sync-config --configs ""; then
+    echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2
+  fi
+else
+  apply_sync_config --configs "${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}"
+fi

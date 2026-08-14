@@ -144,6 +144,8 @@ describe("askOptionalSettings chooser", () => {
     ).toEqual([
       "MEMORY_ENABLED",
       "MEMORY_DIR",
+      "DAILY_NOTES_FOLDER",
+      "DAILY_NOTES_FORMAT",
       "FILE_TOOLS_ENABLED",
       "EMBEDDING_ENABLED",
       "PORT",
@@ -164,6 +166,8 @@ describe("askOptionalSettings chooser", () => {
     ).toEqual([
       "MEMORY_ENABLED",
       "MEMORY_DIR",
+      "DAILY_NOTES_FOLDER",
+      "DAILY_NOTES_FORMAT",
       "FILE_TOOLS_ENABLED",
       "EMBEDDING_ENABLED",
       "PORT",
@@ -185,6 +189,8 @@ describe("askOptionalSettings chooser", () => {
     ).toEqual([
       "MEMORY_ENABLED · currently false",
       "MEMORY_DIR · currently not set · not used while Memory layer is off",
+      "DAILY_NOTES_FOLDER · currently not set",
+      "DAILY_NOTES_FORMAT · currently not set",
       "FILE_TOOLS_ENABLED · currently not set",
       "EMBEDDING_ENABLED · currently not set",
       "PORT · currently 9000",
@@ -338,6 +344,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       {
         message: "Vault folder for the memory files:",
         defaultValue: "About Me",
+        placeholder: "About Me",
       },
     ])
     expect(overrides).toEqual({ MEMORY_DIR: "Memory Bank" })
@@ -402,5 +409,149 @@ describe("askOptionalSettings per-setting prompts", () => {
       '"Not/AZone" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).',
     ])
     expect(overrides).toEqual({ TZ: "Europe/London" })
+  })
+
+  it("skips an unset daily notes folder left blank, writing nothing", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    // No pre-filled default when unset — the real default is the vault's
+    // own config, so the prompt must not offer a concrete value to accept.
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: undefined,
+        placeholder: "blank = use your vault's daily notes settings",
+      },
+    ])
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual([
+      "Left unset — the server reads this setting from your vault's own config.",
+    ])
+  })
+
+  it("keeps a set daily notes folder on a blank submit without recording a no-op", async () => {
+    // The prompt resolves an empty submit to its defaultValue (the current
+    // value), so blank never destroys an existing setting — and the unchanged
+    // value is not recorded, so the caller won't rewrite the file or offer a
+    // restart for a no-op. The placeholder states what blank actually does.
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: "Journal",
+        placeholder: "blank = keep the current value",
+      },
+    ])
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
+  })
+
+  it("collects a typed daily notes format, trimmed", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "  DD-MM-YYYY  ",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
+        defaultValue: undefined,
+        placeholder: "blank = use your vault's daily notes settings",
+      },
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
+  })
+
+  it("does not clobber a set daily notes folder on whitespace input", async () => {
+    // Whitespace defeats the empty-submit-resolves-to-default behavior and
+    // trims to empty — the keep path must leave the existing value alone
+    // rather than write an empty one, and must say "kept", not "left unset":
+    // the override stays active in .env.
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "   "])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
+  })
+
+  it("updates a set daily notes folder to a new value", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      {
+        message: "Vault folder for daily notes:",
+        defaultValue: "Journal",
+        placeholder: "blank = keep the current value",
+      },
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Planner" })
+  })
+
+  it("does not record retyping the value a daily notes folder already has", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Journal"])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (Journal)."])
+  })
+
+  it("records only the typed setting when one of a pair is left blank", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FOLDER", "DAILY_NOTES_FORMAT"],
+      "", // folder left blank — skipped
+      "YYYY/MM/DD", // format typed
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
+  })
+
+  it("shows a set daily notes folder in its chooser hint", async () => {
+    const scripted = createScriptedPrompts([[]])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
+
+    const dailyNotesFolderOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "DAILY_NOTES_FOLDER",
+    )
+    expect(dailyNotesFolderOption?.hint).toBe(
+      "DAILY_NOTES_FOLDER · currently Journal",
+    )
   })
 })

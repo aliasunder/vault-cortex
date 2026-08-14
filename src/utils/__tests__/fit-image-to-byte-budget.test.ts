@@ -63,9 +63,13 @@ describe("fitImageToByteBudget", () => {
   })
 
   it("recompresses an alpha image to WebP, not JPEG", async () => {
+    // 800px keeps the noise PNG far over budget (forcing recompression)
+    // while staying cheap to WebP-encode — at 2000px this test timed out
+    // on slow CI runners. Dimension descent and the 1568px clamp have
+    // their own tests; only the format choice is under test here.
     const original = await noiseImage({
-      width: 2000,
-      height: 2000,
+      width: 800,
+      height: 800,
       alpha: true,
     })
     const budgetBytes = 49152

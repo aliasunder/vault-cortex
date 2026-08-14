@@ -17,8 +17,9 @@ notes below describe what the maintainer uses.
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
-  `resolveSafePath()` (resolve + prefix check). Protected paths prevent deletion
-  of sensitive folders
+  `resolveSafePath()` (resolve + prefix check), and hidden paths (any
+  dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
+  write. Protected paths prevent deletion of sensitive folders
 - **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
   server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
   a single container, sharing a `/vault` volume at UID 1000)
@@ -53,7 +54,28 @@ mechanism-level detail.
 - `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
   names at config parse time
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
-  escapes from the memory directory
+  escapes from the memory directory — and leading dots, which would
+  create hidden files
+
+### Hidden paths
+
+- `resolveSafePath()` also rejects any path with a dot-prefixed segment
+  (`.obsidian/`, `.trash/`, dotfiles) before filesystem access — every
+  read, write, move, and delete refuses hidden paths, matching Obsidian,
+  which ignores them entirely. This also keeps any third-party API keys
+  community plugins store in `.obsidian/plugins/*/data.json` out of a
+  compromised MCP token's reach — relevant in the default remote
+  configuration, where `SYNC_CONFIGS` syncs community plugin settings to
+  the server whenever the desktop pushes them.
+- The search index and OAuth databases live outside the vault (the
+  default `/data` volume), so the file tools can't reach them.
+  Hidden-path blocking does not cover a database relocated into a
+  _visible_ vault folder — there it is readable like any other vault
+  file.
+- The hidden-path check is lexical: a visible symlink whose target is a
+  hidden path is followed. Creating such a symlink requires direct
+  filesystem access — no tool can create one, and anyone with that
+  access can already read hidden files.
 
 ### TOCTOU race prevention
 

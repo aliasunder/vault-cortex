@@ -8,6 +8,10 @@ import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import {
+  linearizeCanvas,
+  extractCanvasFileLinks,
+} from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -20,9 +24,12 @@ import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
+import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
   isString,
   coerceToArray,
@@ -30,6 +37,42 @@ import {
   escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
+
+// ── File content indexing constants ─────────────────────────────
+
+/** Extensions whose content is indexed into file_content_fts for vault_search.
+ *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
+export const INDEXABLE_TEXT_EXTENSIONS = new Set([
+  ".pdf",
+  ".txt",
+  ".csv",
+  ".json",
+  ".xml",
+  ".svg",
+  ".log",
+  ".yaml",
+  ".yml",
+  ".base",
+])
+
+/** Cap on rendered content indexed into file_content_fts — prevents
+ *  pathological FTS rows from large CSVs or verbose JSONs. */
+const MAX_INDEXED_CONTENT_BYTES = 102_400
+
+/** Truncates a string to fit within a UTF-8 byte limit without splitting
+ *  multi-byte characters — iterates Unicode code points and accumulates
+ *  each code point's UTF-8 byte length, stopping before the cap. */
+const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
+  let usedBytes = 0
+  let endIndex = 0
+  for (const character of content) {
+    const characterBytes = Buffer.byteLength(character, "utf8")
+    if (usedBytes + characterBytes > maxBytes) break
+    usedBytes += characterBytes
+    endIndex += character.length
+  }
+  return content.slice(0, endIndex)
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -52,6 +95,8 @@ export type SearchResult = {
   modified: string
   bytes: number
   leading_callout?: LeadingCallout
+  kind: "note" | "file"
+  extension?: string | undefined
 }
 
 export type HybridSearchResult = {
@@ -291,9 +336,13 @@ export const createSearchIndex = (
      *  granularity for vault_memory_recall; undefined (memory disabled)
      *  skips the entry tables entirely. */
     memoryDir?: string | undefined
+    /** When true, creates file_content + file_content_fts tables for
+     *  full-text search of non-markdown file content (e.g. canvas). */
+    fileToolsEnabled?: boolean | undefined
   },
 ) => {
   const memoryDir = options?.memoryDir
+  const fileToolsEnabled = options?.fileToolsEnabled ?? false
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -448,6 +497,26 @@ export const createSearchIndex = (
     }
   }
 
+  // ── File content tables (gated behind fileToolsEnabled) ──────
+  // Non-markdown file content (e.g. linearized canvas text) stored in a
+  // separate table from notes — different schema, no tags/properties/type.
+  if (fileToolsEnabled) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_content (
+        path    TEXT PRIMARY KEY,
+        title   TEXT NOT NULL,
+        content TEXT NOT NULL,
+        folder  TEXT NOT NULL,
+        mtime   INTEGER NOT NULL,
+        bytes   INTEGER NOT NULL
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
+        path UNINDEXED, title, content, tokenize='porter unicode61'
+      );
+    `)
+  }
+
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
   // database from before the `leading_callout` column was added would lack it
   // (and the upsert below would throw). Add it idempotently when absent. The
@@ -475,11 +544,6 @@ export const createSearchIndex = (
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
   }
-
-  // Daily notes folder for forward-ref exclusion — broken links under
-  // this folder are treated as intentional "create on click" navigation.
-  // Set via setDailyNotesFolder from server.ts config; null until then.
-  let dailyNotesFolder: string | null = null
 
   // Prepared statements are compiled once here and reused across all calls.
   // db.prepare() caches the compiled SQL — calling it inside a function
@@ -575,6 +639,45 @@ export const createSearchIndex = (
   >(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
+  // ── File content prepared statements (conditional on fileToolsEnabled) ──
+  const upsertFileContentStmt = fileToolsEnabled
+    ? db.prepare(
+        `INSERT OR REPLACE INTO file_content (path, title, content, folder, mtime, bytes)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+    : null
+  const deleteFileContentStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
+    : null
+  const deleteFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
+    : null
+  const insertFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare(
+        `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
+      )
+    : null
+  const searchFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare<
+        [number, string, number],
+        {
+          path: string
+          title: string
+          folder: string
+          mtime: number
+          bytes: number
+          snippet: string
+        }
+      >(
+        `SELECT fc.path, fc.title, fc.folder, fc.mtime, fc.bytes,
+                snippet(file_content_fts, 2, '', '', '...', ?) as snippet
+         FROM file_content_fts
+         JOIN file_content fc ON fc.path = file_content_fts.path
+         WHERE file_content_fts MATCH ?
+         ORDER BY rank LIMIT ?`,
+      )
+    : null
+
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
     ? db.prepare(
@@ -867,6 +970,103 @@ export const createSearchIndex = (
    *  includes them. Same behavior as removeNote for deleted .md files. */
   const removeNonMdFile = (filePath: string): void => {
     deleteNonMdFileStmt.run(filePath)
+  }
+
+  // ── File content indexing ─────────────────────────────────────
+
+  /** Indexes non-markdown file content for FTS and extracts graph links.
+   *  Canvas files pass raw JSON — linearized here for FTS and parsed for
+   *  link extraction. Other file types pass pre-rendered text (PDF text,
+   *  raw UTF-8) — inserted into FTS as-is, no link extraction. FTS
+   *  indexing is gated behind `fileToolsEnabled`; canvas link extraction
+   *  is unconditional (graph integrity is a core feature). */
+  const upsertFileContent = (
+    params: {
+      filePath: string
+      rawContent: string
+      fileStat: { mtimeMs: number; size: number }
+    },
+    logger: Logger,
+  ): void => {
+    const extension = posix.extname(params.filePath)
+    const isCanvas = extension === ".canvas"
+
+    // Canvas: linearize for FTS, raw JSON for link extraction.
+    // Other types: rawContent is already the rendered text.
+    const contentToIndex = isCanvas
+      ? linearizeCanvas(params.rawContent)
+      : params.rawContent
+
+    // Truncate content exceeding the FTS cap — iterates Unicode code points
+    // and accumulates UTF-8 byte length so the cap is enforced in bytes
+    // without splitting multi-byte characters at the boundary.
+    const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
+    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
+    const truncatedContent = needsTruncation
+      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+      : contentToIndex
+    if (needsTruncation) {
+      logger.debug("truncated file content for FTS indexing", {
+        path: params.filePath,
+        originalBytes: contentBytes,
+        cappedBytes: MAX_INDEXED_CONTENT_BYTES,
+      })
+    }
+
+    const canvasLinks = isCanvas
+      ? extractCanvasFileLinks(params.rawContent)
+      : []
+
+    db.transaction(() => {
+      // FTS indexing — gated behind fileToolsEnabled
+      if (
+        upsertFileContentStmt &&
+        deleteFileContentFtsStmt &&
+        insertFileContentFtsStmt
+      ) {
+        const title = basename(params.filePath, extension)
+        const folder = posix.dirname(params.filePath)
+        upsertFileContentStmt.run(
+          params.filePath,
+          title,
+          truncatedContent,
+          folder,
+          Math.round(params.fileStat.mtimeMs),
+          params.fileStat.size,
+        )
+        deleteFileContentFtsStmt.run(params.filePath)
+        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent)
+      }
+
+      // Link extraction — canvas only, unconditional (graph integrity)
+      if (isCanvas) {
+        deleteLinksStmt.run(params.filePath)
+        for (const linkTarget of canvasLinks) {
+          insertLinkStmt.run(params.filePath, linkTarget)
+        }
+      }
+    })()
+
+    logger.debug("indexed file content", {
+      path: params.filePath,
+      links: canvasLinks.length,
+      fts: Boolean(upsertFileContentStmt),
+    })
+  }
+
+  /** Removes a file's content from FTS and its links from the graph. */
+  const removeFileContent = (
+    params: { filePath: string },
+    logger: Logger,
+  ): void => {
+    db.transaction(() => {
+      if (deleteFileContentStmt && deleteFileContentFtsStmt) {
+        deleteFileContentFtsStmt.run(params.filePath)
+        deleteFileContentStmt.run(params.filePath)
+      }
+      deleteLinksStmt.run(params.filePath)
+    })()
+    logger.debug("removed file content", { path: params.filePath })
   }
 
   // ── Memory-entry indexing ──────────────────────────────────────
@@ -1372,6 +1572,10 @@ export const createSearchIndex = (
     db.exec("DELETE FROM links")
     db.exec("DELETE FROM non_md_files")
     db.exec("DELETE FROM tasks")
+    if (fileToolsEnabled) {
+      db.exec("DELETE FROM file_content_fts")
+      db.exec("DELETE FROM file_content")
+    }
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
     // Deleted notes are cleaned up in Pass 3 before embedding starts.
@@ -1417,22 +1621,136 @@ export const createSearchIndex = (
         }
       }
       const isVisiblePath = (file: { relativePath: string }): boolean =>
-        !file.relativePath.split("/").some((segment) => segment.startsWith("."))
+        !hasHiddenPathSegment(file.relativePath)
 
       return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath)
     }
 
     const markdownFiles = visibleFilesOfKind("note")
 
+    // Identify all non-md files once — reused for stat, content indexing,
+    // and read-strategy splitting below.
+    const allNonMdFiles = visibleFilesOfKind("file")
+
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
     const nonMarkdownFileSizes = (
       await Promise.all(
-        visibleFilesOfKind("file").map(async (file) => {
+        allNonMdFiles.map(async (file) => {
           const fileStat = await statOrNull(file.absolutePath)
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }
+        }),
+      )
+    ).filter((entry) => entry !== null)
+    const canvasFiles = allNonMdFiles.filter((file) =>
+      file.relativePath.endsWith(".canvas"),
+    )
+    // PDF and text files are only read when file content FTS is enabled —
+    // without the tables, the extraction is wasted I/O.
+    const pdfFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
+      : []
+    const textFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => {
+          const extension = posix.extname(file.relativePath)
+          return (
+            extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+          )
+        })
+      : []
+
+    // Read canvas files for content indexing + link extraction.
+    const canvasContents = (
+      await Promise.all(
+        canvasFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable canvas file during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
+        }),
+      )
+    ).filter((entry) => entry !== null)
+
+    // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
+    const extractPdfContent = async (file: {
+      absolutePath: string
+      relativePath: string
+    }): Promise<{
+      relativePath: string
+      content: string
+      modifiedAtMs: number
+      sizeBytes: number
+    } | null> => {
+      try {
+        const [buffer, fileStat] = await Promise.all([
+          readFile(file.absolutePath),
+          stat(file.absolutePath),
+        ])
+        const pdfData = new Uint8Array(
+          buffer.buffer,
+          buffer.byteOffset,
+          buffer.byteLength,
+        )
+        const pdfResult = await extractPdfText(pdfData)
+        return {
+          relativePath: file.relativePath,
+          content: pdfResult.text,
+          modifiedAtMs: fileStat.mtimeMs,
+          sizeBytes: fileStat.size,
+        }
+      } catch (error) {
+        logger.warn("skipped unreadable PDF during rebuild", {
+          path: file.relativePath,
+          error: describeError(error),
+        })
+        return null
+      }
+    }
+    const pdfResults = await mapWithConcurrency({
+      items: pdfFiles,
+      concurrency: 4,
+      mapper: extractPdfContent,
+    })
+    const pdfContents = pdfResults.filter((entry) => entry !== null)
+
+    // Read text files for content indexing (raw UTF-8).
+    const textFileContents = (
+      await Promise.all(
+        textFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable text file during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
         }),
       )
     ).filter((entry) => entry !== null)
@@ -1520,6 +1838,35 @@ export const createSearchIndex = (
               resolvedNonMdPath ?? rawTarget,
             )
           }
+        }
+      }
+
+      // File content indexing: canvas (FTS + link extraction), PDF and text
+      // (FTS only). upsertFileContent deletes old canvas links before
+      // inserting, so canvas links append cleanly after the note link pass.
+      const allFileContents = [
+        ...canvasContents,
+        ...pdfContents,
+        ...textFileContents,
+      ]
+      for (const fileEntry of allFileContents) {
+        try {
+          upsertFileContent(
+            {
+              filePath: fileEntry.relativePath,
+              rawContent: fileEntry.content,
+              fileStat: {
+                mtimeMs: fileEntry.modifiedAtMs,
+                size: fileEntry.sizeBytes,
+              },
+            },
+            logger,
+          )
+        } catch (error) {
+          logger.warn("skipped malformed file during rebuild", {
+            path: fileEntry.relativePath,
+            error: describeError(error),
+          })
         }
       }
     })()
@@ -1633,7 +1980,6 @@ export const createSearchIndex = (
 
   const queryContext: queries.SearchQueryContext = {
     db,
-    getDailyNotesFolder: () => dailyNotesFolder,
     vector: {
       embedder,
       knnSearchStmt,
@@ -1653,6 +1999,9 @@ export const createSearchIndex = (
             selectEntryByIdStmt: selectMemoryEntryByIdStmt,
           }
         : null,
+    fileContentFts: searchFileContentFtsStmt
+      ? { searchStmt: searchFileContentFtsStmt }
+      : null,
   }
 
   /** Binds the query context as the first argument of a query function,
@@ -1663,13 +2012,6 @@ export const createSearchIndex = (
     return (params, logger) => fn(queryContext, params, logger)
   }
 
-  /** Sets the daily notes folder used by brokenLinkCount and
-   *  getOutgoingLinks to identify forward-reference links. Called
-   *  from server.ts after reading the vault's daily notes config. */
-  const setDailyNotesFolder = (folder: string): void => {
-    dailyNotesFolder = folder
-  }
-
   return {
     upsertNote,
     embedNote,
@@ -1677,7 +2019,8 @@ export const createSearchIndex = (
     rebuildFromVault,
     upsertNonMdFile,
     removeNonMdFile,
-    setDailyNotesFolder,
+    upsertFileContent,
+    removeFileContent,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(queries.hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),
@@ -1695,6 +2038,7 @@ export const createSearchIndex = (
     brokenLinkCount: bindQueryContext(queries.brokenLinkCount),
     modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
     vaultStats: bindQueryContext(queries.vaultStats),
+    fileContentIndexingEnabled: fileToolsEnabled,
   }
 }
 

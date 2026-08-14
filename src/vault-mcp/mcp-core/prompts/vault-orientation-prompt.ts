@@ -5,6 +5,7 @@ import {
   type MemoryFileOutline,
 } from "../../vault-operations/memory-store.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import {
   type PromptRegistrationContext,
@@ -172,7 +173,14 @@ export const registerVaultOrientationPrompt = ({
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const brokenLinkResult = search.brokenLinkCount({}, reqLogger)
+        const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+          folder: config.dailyNotesFolder,
+          format: config.dailyNotesFormat,
+        })
+        const brokenLinkResult = search.brokenLinkCount(
+          { dailyNotesFolder: dailyNotesConfig.folder },
+          reqLogger,
+        )
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)

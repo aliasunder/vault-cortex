@@ -14,11 +14,11 @@
     },
     {
       "title": "Getting Started",
-      "purpose": "Quickstart paths from README.md and deploy/ — local Docker, remote with Obsidian Sync, AWS reference — plus MCP client configuration and the npx vault-cortex init CLI as the fastest path."
+      "purpose": "Quickstart paths from README.md and deploy/ — local Docker, remote with Obsidian Sync, AWS reference — plus MCP client configuration and the npx vault-cortex@latest init CLI as the fastest path."
     },
     {
       "title": "CLI",
-      "purpose": "The vault-cortex npm package under cli/ — the init, configure, upgrade, restart, logs, down, and get-sync-token commands, their interactive and non-interactive flows, and the module structure under cli/src/."
+      "purpose": "The vault-cortex npm package under cli/ — the deployment-management commands defined in cli/src/program.ts, their interactive and non-interactive flows, and the module structure under cli/src/. Enumerate the commands from program.ts at index time rather than restating them."
     },
     {
       "title": "Configuration Reference",
@@ -40,7 +40,7 @@
     },
     {
       "title": "Obsidian Markdown Parsing",
-      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, memory-entries.ts, canvas.ts, plaintext.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
+      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, memory-entries.ts, canvas.ts, plaintext.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
       "parent": "Architecture"
     },
     {
@@ -55,7 +55,17 @@
     },
     {
       "title": "Memory Layer",
-      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, daily-notes.ts, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
+      "purpose": "The About Me/ memory system: memory-store.ts, the memory-entry grammar in obsidian-markdown/memory-entries.ts, the entry-granular recall index, and the templates/memory/ bootstrap templates. The layer is opt-out via MEMORY_ENABLED.",
+      "parent": "Architecture"
+    },
+    {
+      "title": "Task Management",
+      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), task-updater.ts mutations, task-format-config.ts (the user's Tasks-plugin format configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
+      "parent": "Architecture"
+    },
+    {
+      "title": "Non-Markdown Files",
+      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read, browsed, and searched: asset-operations.ts as the use-case layer behind the file tools, the canvas.ts linearizer (JSON Canvas to readable markdown), the image byte-budget fitting utility (fit-image-to-byte-budget.ts), the pdfjs bootstrap (obsidian-markdown/pdf-engine.ts), PDF text extraction (obsidian-markdown/pdf.ts), and the file_content + file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
       "parent": "Architecture"
     },
     {
@@ -92,8 +102,18 @@
       "parent": "Deployment"
     },
     {
+      "title": "Container Image and Process Supervision",
+      "purpose": "The two-target Dockerfile building both images from one file — the local target (tini + the MCP server) and the remote target (s6-overlay supervising the obsidian-sync and MCP server processes) — plus the rootfs/ filesystem overlay (s6 service definitions and init chain), the lockfile-pinned obsidian-headless/ package, and runtime user handling (PUID/PGID). Derive base-image and version specifics from the Dockerfile at index time.",
+      "parent": "Deployment"
+    },
+    {
       "title": "Development Guide",
-      "purpose": "Contributing to Vault Cortex: local development setup (npm run dev, docker-compose.local.yml), the vitest test suite, the structured JSON logging system (logger.ts and the child-logger context chain), and release/CI conventions. References CONTRIBUTING.md."
+      "purpose": "Contributing to Vault Cortex: local development setup (npm run dev, docker-compose.local.yml), the vitest test suite, the structured JSON logging system (logger.ts and the child-logger context chain), and contribution conventions. References CONTRIBUTING.md."
+    },
+    {
+      "title": "Release and CI Pipeline",
+      "purpose": "The GitHub Actions workflows under .github/workflows/ — CI checks, server and CLI release automation, deployment workflows, security scanning, and registry publishing — plus the dev/ops helper scripts under scripts/. Enumerate the workflows and their triggers from the workflow files at index time; release conventions live in CONTRIBUTING.md.",
+      "parent": "Development Guide"
     }
   ]
 }

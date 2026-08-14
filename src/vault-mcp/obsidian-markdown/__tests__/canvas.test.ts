@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { linearizeCanvas } from "../canvas.js"
+import { linearizeCanvas, extractCanvasFileLinks } from "../canvas.js"
 
 /** Minimal node factories — geometry defaults keep tests focused on the
  *  fields under test. */
@@ -307,6 +307,166 @@ describe("linearizeCanvas", () => {
 
   it("throws on unparseable JSON", () => {
     expect(() => linearizeCanvas("{not json")).toThrow(
+      /^invalid \.canvas JSON: /,
+    )
+  })
+})
+
+describe("extractCanvasFileLinks", () => {
+  it("extracts file paths from file-type nodes", () => {
+    const json = canvasJson([
+      {
+        id: "f1",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Notes/Plan.md",
+      },
+      {
+        id: "f2",
+        type: "file",
+        x: 500,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Diagrams/arch.png",
+      },
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual([
+      "Notes/Plan.md",
+      "Diagrams/arch.png",
+    ])
+  })
+
+  it("does NOT extract wikilinks from text-type nodes", () => {
+    const json = canvasJson([
+      textNode({
+        id: "t1",
+        text: "See [[Projects/Plan]] and [[Ideas/Backlog]]",
+      }),
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual([])
+  })
+
+  it("deduplicates file paths", () => {
+    const json = canvasJson([
+      {
+        id: "f1",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Notes/Plan.md",
+      },
+      {
+        id: "f2",
+        type: "file",
+        x: 500,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Notes/Plan.md",
+      },
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md"])
+  })
+
+  it("returns empty array for an empty canvas", () => {
+    expect(extractCanvasFileLinks("{}")).toEqual([])
+  })
+
+  it("returns empty array for a text-only canvas", () => {
+    const json = canvasJson([
+      textNode({ id: "t1", text: "just text" }),
+      textNode({ id: "t2", text: "more text" }),
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual([])
+  })
+
+  it("skips file nodes with missing file field", () => {
+    const json = canvasJson([
+      {
+        id: "f1",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+      },
+      {
+        id: "f2",
+        type: "file",
+        x: 500,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Diagrams/arch.png",
+      },
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual(["Diagrams/arch.png"])
+  })
+
+  it("skips entries missing required geometry fields", () => {
+    const json = canvasJson([
+      { id: "bad", type: "file", file: "Notes/missing-geom.md" },
+      {
+        id: "good",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Notes/has-geom.md",
+      },
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/has-geom.md"])
+  })
+
+  it("ignores link-type and group-type nodes", () => {
+    const json = canvasJson([
+      {
+        id: "l1",
+        type: "link",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        url: "https://example.com",
+      },
+      {
+        id: "g1",
+        type: "group",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        label: "My Group",
+      },
+      {
+        id: "f1",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        file: "Notes/real.md",
+      },
+    ])
+
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/real.md"])
+  })
+
+  it("throws on unparseable JSON", () => {
+    expect(() => extractCanvasFileLinks("{not json")).toThrow(
       /^invalid \.canvas JSON: /,
     )
   })

@@ -13,12 +13,14 @@ import {
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
+  fileContentRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
   dayToEpochMsRange,
 } from "./search-helpers.js"
+import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
   VectorHit,
   SearchResult,
@@ -63,7 +65,6 @@ export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
 export type SearchQueryContext = {
   readonly db: Database.Database
-  readonly getDailyNotesFolder: () => string | null
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
@@ -84,6 +85,14 @@ export type SearchQueryContext = {
       MemoryEntryVectorHitRow
     > | null
     readonly selectEntryByIdStmt: Database.Statement<[number], MemoryEntryRow>
+  } | null
+  /** Null when FILE_TOOLS_ENABLED is off — hybridSearch skips the file
+   *  content FTS leg. */
+  readonly fileContentFts: {
+    readonly searchStmt: Database.Statement<
+      [number, string, number],
+      FileContentFtsRow
+    >
   } | null
 }
 
@@ -309,6 +318,30 @@ export const fullTextSearch = (
   }
 }
 
+// ── File content FTS (internal) ────────────────────────────────
+
+/** Runs the file_content_fts query (canvas content, etc.) and applies the
+ *  folder filter in TypeScript — returns [] when the feature is disabled. */
+const runFileContentFts = (
+  context: SearchQueryContext,
+  query: string,
+  snippetTokens: number,
+  limit: number,
+  folder?: string,
+): FileContentFtsRow[] => {
+  if (!context.fileContentFts) return []
+  const sanitizedQuery = sanitizeFtsQuery(query)
+  if (!sanitizedQuery) return []
+  const results = context.fileContentFts.searchStmt.all(
+    snippetTokens,
+    sanitizedQuery,
+    limit,
+  )
+  if (!folder) return results
+  const normalizedFolder = stripTrailingSlashes(folder) + "/"
+  return results.filter((row) => row.path.startsWith(normalizedFolder))
+}
+
 // ── Hybrid search ──────────────────────────────────────────────
 
 /** Hybrid search — combines FTS5 keyword search with sqlite-vec vector
@@ -334,6 +367,28 @@ export const hybridSearch = async (
     logger,
   )
 
+  // Skip file content search when note-specific filters are active —
+  // canvas files have no tags, type, related, properties, or created date,
+  // and runFileContentFts only applies folder filtering (not modified date),
+  // so any of these six filters would be bypassed by file content results.
+  const hasNoteSpecificFilters = Boolean(
+    params.filters?.tags ||
+    params.filters?.type ||
+    params.filters?.related ||
+    params.filters?.properties ||
+    params.filters?.created ||
+    params.filters?.modified,
+  )
+  const fileContentResults = hasNoteSpecificFilters
+    ? []
+    : runFileContentFts(
+        context,
+        params.query,
+        snippetTokens,
+        candidateLimit,
+        params.filters?.folder,
+      )
+
   // Attempt vector search — returns [] on any failure
   const vectorHits = await vectorSearch(
     context,
@@ -343,34 +398,83 @@ export const hybridSearch = async (
 
   // FTS-only fallback when no vectors are available
   if (vectorHits.length === 0) {
-    const fallbackResults = ftsResults.slice(0, userLimit)
+    if (fileContentResults.length === 0) {
+      const fallbackResults = ftsResults.slice(0, userLimit)
+      logger.info("hybrid search", {
+        query: params.query,
+        searchMode: "fts",
+        resultCount: fallbackResults.length,
+      })
+      return { results: fallbackResults, search_mode: "fts", reranked: false }
+    }
+    // Merge note FTS + file content FTS via 2-list RRF
+    const fallbackRrf = computeRrfScores({
+      rankedLists: [
+        ftsResults.map((result) => ({ identifier: result.path })),
+        fileContentResults.map((result) => ({ identifier: result.path })),
+      ],
+    })
+    const ftsResultsByPath = new Map(
+      ftsResults.map((result) => [result.path, result]),
+    )
+    const fileContentByPath = new Map(
+      fileContentResults.map((result) => [result.path, result]),
+    )
+    const fallbackMerged: SearchResult[] = []
+    for (const { identifier: path, score } of fallbackRrf) {
+      const noteFts = ftsResultsByPath.get(path)
+      if (noteFts) {
+        fallbackMerged.push({ ...noteFts, score })
+        continue
+      }
+      const fileResult = fileContentByPath.get(path)
+      if (fileResult) {
+        fallbackMerged.push(fileContentRowToSearchResult(fileResult, score))
+      }
+    }
+    const fallbackSliced = fallbackMerged.slice(0, userLimit)
     logger.info("hybrid search", {
       query: params.query,
       searchMode: "fts",
-      resultCount: fallbackResults.length,
+      resultCount: fallbackSliced.length,
+      fileContentResults: fileContentResults.length,
     })
-    return { results: fallbackResults, search_mode: "fts", reranked: false }
+    return { results: fallbackSliced, search_mode: "fts", reranked: false }
   }
 
-  // Compute RRF scores from both ranked lists
-  const rrfScores = computeRrfScores({
-    ftsRanked: ftsResults,
-    vectorRanked: vectorHits,
-  })
+  // Compute RRF scores from all ranked lists (notes FTS + vector + file content)
+  const rankedLists = [
+    ftsResults.map((result) => ({ identifier: result.path })),
+    vectorHits.map((hit) => ({ identifier: hit.path })),
+    ...(fileContentResults.length > 0
+      ? [fileContentResults.map((result) => ({ identifier: result.path }))]
+      : []),
+  ]
+  const rrfScores = computeRrfScores({ rankedLists })
 
-  // Index FTS results and vector hits by path for O(1) lookup
+  // Index FTS results, vector hits, and file content by path for O(1) lookup
   const ftsResultsByPath = new Map(
     ftsResults.map((result) => [result.path, result]),
   )
   const vectorHitsByPath = new Map(vectorHits.map((hit) => [hit.path, hit]))
+  const fileContentByPath = new Map(
+    fileContentResults.map((result) => [result.path, result]),
+  )
 
   // Build the merged result set, ordered by RRF score
   const mergedResults: SearchResult[] = []
-  for (const { path, score } of rrfScores) {
+  for (const { identifier: path, score } of rrfScores) {
     const ftsResult = ftsResultsByPath.get(path)
     if (ftsResult) {
-      // Path found via FTS — use its metadata and snippet, replace score
+      // Path found via note FTS — use its metadata and snippet, replace score
       mergedResults.push({ ...ftsResult, score })
+      continue
+    }
+
+    // Check file content results before falling through to vector-only
+    const fileResult = fileContentByPath.get(path)
+    if (fileResult) {
+      mergedResults.push(fileContentRowToSearchResult(fileResult, score))
       continue
     }
 
@@ -422,6 +526,7 @@ export const hybridSearch = async (
     reranked,
     ftsResults: ftsResults.length,
     vectorHits: vectorHits.length,
+    fileContentResults: fileContentResults.length,
     mergedResults: mergedResults.length,
     returnedResults: Math.min(finalResults.length, userLimit),
   })
@@ -743,8 +848,10 @@ export const memoryRecall = async (
 
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
-    ftsRanked: ftsRows.map((row) => ({ path: String(row.id) })),
-    vectorRanked: vectorRows.map((row) => ({ path: String(row.id) })),
+    rankedLists: [
+      ftsRows.map((row) => ({ identifier: String(row.id) })),
+      vectorRows.map((row) => ({ identifier: String(row.id) })),
+    ],
   })
   const rowsById = new Map<string, MemoryEntryRow>([
     ...ftsRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
@@ -758,7 +865,7 @@ export const memoryRecall = async (
   // Lexical hits always pass; only the lowest-fused vector-only candidates
   // fall off once the rerank window cap is reached.
   const candidates: MemoryRecallCandidate[] = []
-  for (const { path: entryId, score } of fusedScores) {
+  for (const { identifier: entryId, score } of fusedScores) {
     const row = rowsById.get(entryId)
     if (!row) continue
     const ftsHit = ftsIds.has(entryId)
@@ -1517,19 +1624,25 @@ export const searchByProperty = (
 
 // ── Link queries ───────────────────────────────────────────────
 
-/** Returns notes that link TO the given path (incoming links / backlinks). */
+/** Returns notes and files that link TO the given path (incoming links /
+ *  backlinks). Canvas file-node references are included — a canvas that
+ *  embeds a note via a `file`-type node appears as a backlink source. */
 export const getBacklinks = (
   context: SearchQueryContext,
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
-  assertPathHasExtension(params.path, ".md")
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   const sql = `
-    SELECT n.path, n.title, n.bytes
+    SELECT l.source as path,
+           COALESCE(n.title, f.basename) as title,
+           COALESCE(n.bytes, f.bytes, 0) as bytes
     FROM links l
-    JOIN notes n ON n.path = l.source
+    LEFT JOIN notes n ON n.path = l.source
+    LEFT JOIN non_md_files f ON f.path = l.source
     WHERE l.target = ?
-    ORDER BY n.title
+      AND (n.path IS NOT NULL OR f.path IS NOT NULL)
+    ORDER BY COALESCE(n.title, f.basename)
   `
   const rows = context.db
     .prepare<unknown[], { path: string; title: string; bytes: number }>(sql)
@@ -1549,13 +1662,17 @@ export const getBacklinks = (
 /** Returns notes and files that the given path links TO (outgoing links).
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
- *  defaulting to "note" for unresolved (broken) links. */
+ *  defaulting to "note" for unresolved (broken) links. Accepts both
+ *  .md and .canvas paths — canvas file-node references appear as outgoing.
+ *  When the caller passes the vault's daily notes folder (resolved fresh
+ *  via readDailyNotesConfig), broken links under it are flagged
+ *  daily_note_forward_ref — expected "create on click" navigation. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
-  params: { path: string },
+  params: { path: string; dailyNotesFolder?: string | null },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
-  assertPathHasExtension(params.path, ".md")
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `
@@ -1586,8 +1703,9 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const folder = context.getDailyNotesFolder()
-  const folderPrefix = folder !== null ? `${folder}/` : null
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${params.dailyNotesFolder}/`
+    : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1596,8 +1714,8 @@ export const getOutgoingLinks = (
     bytes: row.bytes ?? null,
     daily_note_forward_ref:
       row.exists_flag === 0 &&
-      folderPrefix !== null &&
-      row.path.startsWith(folderPrefix),
+      dailyNotesFolderPrefix !== null &&
+      row.path.startsWith(dailyNotesFolderPrefix),
   }))
   logger.info("get outgoing links", {
     path: params.path,
@@ -1653,19 +1771,20 @@ type BrokenLinkResult = {
 }
 
 /** Counts unique broken link targets — links whose targets exist in
- *  neither the notes table nor the non_md_files table. When a daily
- *  notes folder is configured, broken links under that folder are
- *  excluded — they are forward-references (intentional "create on
- *  click" navigation), not genuinely broken. Returns the count plus
- *  exclusion metadata so callers can communicate what was filtered. */
+ *  neither the notes table nor the non_md_files table. When the caller
+ *  passes the vault's daily notes folder (resolved fresh via
+ *  readDailyNotesConfig), broken links under it are excluded — they are
+ *  forward-references (intentional "create on click" navigation), not
+ *  genuinely broken. Returns the count plus exclusion metadata so
+ *  callers can communicate what was filtered. */
 export const brokenLinkCount = (
   context: SearchQueryContext,
-  _params: Record<string, never>,
+  params: { dailyNotesFolder?: string | null },
   logger: Logger,
 ): BrokenLinkResult => {
-  const folder = context.getDailyNotesFolder()
+  const excludedFolder = params.dailyNotesFolder ?? null
 
-  if (folder === null) {
+  if (excludedFolder === null) {
     const row = context.db
       .prepare<unknown[], { count: number }>(
         `SELECT COUNT(DISTINCT target) as count
@@ -1680,7 +1799,7 @@ export const brokenLinkCount = (
     return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const folderPrefix = `${folder}/`
+  const excludedFolderPrefix = `${excludedFolder}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target
@@ -1691,16 +1810,16 @@ export const brokenLinkCount = (
     .all()
 
   const count = brokenTargets.filter(
-    (row) => !row.target.startsWith(folderPrefix),
+    (row) => !row.target.startsWith(excludedFolderPrefix),
   ).length
   const excludedCount = brokenTargets.length - count
 
   logger.info("broken link count", {
     count,
-    dailyNotesFolder: folder,
+    dailyNotesFolder: excludedFolder,
     excludedForwardRefs: excludedCount,
   })
-  return { count, excludedFolder: folder, excludedCount }
+  return { count, excludedFolder, excludedCount }
 }
 
 /** Returns notes whose filesystem mtime falls within a calendar date

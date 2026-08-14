@@ -3,6 +3,8 @@
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
+import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
@@ -64,13 +66,34 @@ export const createOAuthRoutes = ({
     validate: false as const,
   }
 
+  const scopesSupported = ["vault"]
+
+  // RFC 9728 §3.1: a metadata document's `resource` must equal the resource
+  // identifier its well-known URL derives from, so this suffixed document
+  // advertises <origin>/mcp rather than copying the root document. It is an
+  // additive second mount (before mcpAuthRouter, via the SDK's own
+  // metadataHandler so CORS/OPTIONS/405 behavior matches the root route)
+  // because the SDK registers only ONE metadata path — steering it via
+  // `resourceServerUrl` would move the route and break every client that
+  // discovers via the root form.
+  const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
+    resource: new URL("/mcp", serverUrl).href,
+    authorization_servers: [serverUrl.href],
+    scopes_supported: scopesSupported,
+    resource_documentation: new URL(serviceDocumentationUrl).href,
+  }
+  router.use(
+    "/.well-known/oauth-protected-resource/mcp",
+    metadataHandler(mcpResourceMetadata),
+  )
+
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(
     mcpAuthRouter({
       provider,
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
-      scopesSupported: ["vault"],
+      scopesSupported,
       authorizationOptions: { rateLimit },
       clientRegistrationOptions: { rateLimit },
       revocationOptions: { rateLimit },

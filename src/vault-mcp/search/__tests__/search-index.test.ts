@@ -14,7 +14,10 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import { createSearchIndex } from "../search-index.js"
+import {
+  createSearchIndex,
+  INDEXABLE_TEXT_EXTENSIONS,
+} from "../search-index.js"
 import type {
   NoteMetadata,
   OutgoingLinkEntry,
@@ -1753,16 +1756,16 @@ describe("searchByProperty", () => {
 })
 
 describe("markdown path requirement", () => {
-  it("getBacklinks rejects a path without the .md extension", () => {
+  it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
+      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
     )
   })
 
-  it("getOutgoingLinks rejects a path without the .md extension", () => {
+  it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
     expect(() =>
       index.getOutgoingLinks({ path: "Projects/Plan" }, logger),
-    ).toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).toThrow('path must end in ".md" or ".canvas" (received "Projects/Plan")')
   })
 })
 
@@ -2271,8 +2274,7 @@ describe("getOutgoingLinks", () => {
     expect(broken!.bytes).toBeNull()
   })
 
-  it("flags daily note forward-refs when exclusion is set", () => {
-    index.setDailyNotesFolder("Daily Notes")
+  it("flags daily note forward-refs when the folder is passed", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2284,7 +2286,7 @@ describe("getOutgoingLinks", () => {
     )
 
     const links = index.getOutgoingLinks(
-      { path: "Daily Notes/2026-06-24.md" },
+      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
       logger,
     )
     const forwardRef = links.find(
@@ -2840,7 +2842,6 @@ describe("brokenLinkCount", () => {
   })
 
   it("excludes forward-reference links that are valid dates under the daily note folder", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2850,11 +2851,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(1)
   })
 
   it("excludes .md-suffixed forward-reference targets", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
@@ -2864,11 +2866,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(0)
   })
 
   it("still counts broken links outside the daily note folder", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2877,11 +2880,12 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(2)
+    expect(
+      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
+    ).toBe(2)
   })
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
-    index.setDailyNotesFolder("Daily Notes")
     index.upsertNote(
       {
         filePath: "source.md",
@@ -2891,7 +2895,10 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    const result = index.brokenLinkCount({}, logger)
+    const result = index.brokenLinkCount(
+      { dailyNotesFolder: "Daily Notes" },
+      logger,
+    )
     expect(result.count).toBe(1)
     expect(result.excludedCount).toBe(1)
   })
@@ -5069,6 +5076,570 @@ This is a note with many words that should be truncated when using a small snipp
       expect(reranked).toBe(false)
       // The reranker should not have been called — mergedResults.length <= 1
       expect(mockReranker.rerankPairs).not.toHaveBeenCalled()
+    })
+  })
+})
+
+// ── File content indexing constants ──────────────────────────
+
+describe("INDEXABLE_TEXT_EXTENSIONS", () => {
+  it("contains the expected set of extensions for FTS indexing", () => {
+    expect([...INDEXABLE_TEXT_EXTENSIONS].sort()).toEqual([
+      ".base",
+      ".csv",
+      ".json",
+      ".log",
+      ".pdf",
+      ".svg",
+      ".txt",
+      ".xml",
+      ".yaml",
+      ".yml",
+    ])
+  })
+})
+
+// ── Canvas file content + link graph ──────────────────────────
+
+describe("canvas file content and links", () => {
+  const CANVAS_WITH_FILE_NODES = JSON.stringify({
+    nodes: [
+      {
+        id: "t1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        text: "Architecture overview with deployment details",
+      },
+      {
+        id: "f1",
+        type: "file",
+        x: 300,
+        y: 0,
+        width: 400,
+        height: 200,
+        file: "Projects/vault-cortex.md",
+      },
+      {
+        id: "f2",
+        type: "file",
+        x: 300,
+        y: 250,
+        width: 400,
+        height: 200,
+        file: "Notes/design-doc.md",
+      },
+    ],
+    edges: [],
+  })
+
+  const CANVAS_TEXT_WITH_WIKILINKS = JSON.stringify({
+    nodes: [
+      {
+        id: "t1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        text: "See [[Projects/vault-cortex]] for details",
+      },
+    ],
+    edges: [],
+  })
+
+  describe("with fileToolsEnabled", () => {
+    it("upsertFileContent indexes canvas content into file_content_fts", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toEqual({
+        path: "Diagrams/arch.canvas",
+        title: "arch",
+        snippet: expect.any(String),
+        score: 0.06639,
+        tags: [],
+        folder: "Diagrams",
+        type: null,
+        kind: "file",
+        extension: ".canvas",
+        modified: isoFromMillis(5000),
+        bytes: 500,
+      })
+    })
+
+    it("canvas file-node references appear as backlinks", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nMain project note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Diagrams/arch.canvas",
+      ])
+    })
+
+    it("canvas outgoing links show file-node targets", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      const targetPaths = outgoing.map((link) => link.path)
+      expect(targetPaths).toEqual([
+        "Notes/design-doc.md",
+        "Projects/vault-cortex.md",
+      ])
+    })
+
+    it("canvas outgoing link to non-existent file shows exists: false", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      const brokenLink = outgoing.find(
+        (link) => link.path === "Notes/design-doc.md",
+      )
+      expect(brokenLink?.exists).toBe(false)
+    })
+
+    it("removeFileContent cleans up FTS and links", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      fileIndex.removeFileContent({ filePath: "Diagrams/arch.canvas" }, logger)
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks).toEqual([])
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toBeUndefined()
+    })
+  })
+
+  describe("without fileToolsEnabled", () => {
+    it("canvas links are extracted even without fileToolsEnabled", () => {
+      index.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      index.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const backlinks = index.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Diagrams/arch.canvas",
+      ])
+    })
+
+    it("canvas content is NOT indexed into FTS without fileToolsEnabled", async () => {
+      index.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await index.hybridSearch(
+        { query: "architecture deployment" },
+        logger,
+      )
+      const canvasResult = results.find(
+        (result) => result.path === "Diagrams/arch.canvas",
+      )
+      expect(canvasResult).toBeUndefined()
+    })
+  })
+
+  describe("mandatory negative: text-node wikilinks", () => {
+    it("text-node wikilinks do NOT create backlinks", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/text-only.canvas", 200)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/text-only.canvas",
+          rawContent: CANVAS_TEXT_WITH_WIKILINKS,
+          fileStat: testStat(5000, 200),
+        },
+        logger,
+      )
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Projects/vault-cortex.md" },
+        logger,
+      )
+      expect(backlinks).toEqual([])
+    })
+  })
+
+  describe("canvas backlinks target acceptance", () => {
+    it("getBacklinks accepts .canvas path as target", () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Notes/overview.md",
+          rawContent:
+            "# Overview\n\nSee [[Diagrams/arch.canvas]] for the diagram.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Diagrams/arch.canvas" },
+        logger,
+      )
+      expect(backlinks.map((backlink) => backlink.path)).toEqual([
+        "Notes/overview.md",
+      ])
+    })
+  })
+
+  describe("non-canvas files", () => {
+    it("indexes non-canvas text file content into FTS without link extraction", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // Canvas-shaped JSON as .json file content — verifies that
+      // non-canvas files get FTS indexed but don't produce graph links
+      // (even when the content contains file references).
+      const canvasLikeContent = JSON.stringify({
+        nodes: [
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "Searchable deployment content",
+          },
+          {
+            id: "f1",
+            type: "file",
+            x: 300,
+            y: 0,
+            width: 400,
+            height: 200,
+            file: "Notes/architecture.md",
+          },
+        ],
+        edges: [],
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Notes/architecture.md",
+          rawContent: "# Architecture\n\nOverview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("data/export.json", 200)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "data/export.json",
+          rawContent: canvasLikeContent,
+          fileStat: testStat(5000, 200),
+        },
+        logger,
+      )
+      // JSON content IS indexed into FTS — searchable as raw text
+      const { results } = await fileIndex.hybridSearch(
+        { query: "searchable deployment" },
+        logger,
+      )
+      expect(results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "data/export.json",
+            kind: "file",
+            extension: ".json",
+          }),
+        ]),
+      )
+      // No graph links created — link extraction is canvas-only
+      const backlinks = fileIndex.getBacklinks(
+        { path: "Notes/architecture.md" },
+        logger,
+      )
+      expect(backlinks).toEqual([])
+    })
+
+    it("indexes plain text file content", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("logs/server.log", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "logs/server.log",
+          rawContent: "Connection established to database cluster alpha",
+          fileStat: testStat(500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "database cluster alpha" },
+        logger,
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0]).toEqual(
+        expect.objectContaining({
+          path: "logs/server.log",
+          kind: "file",
+          extension: ".log",
+          title: "server",
+        }),
+      )
+    })
+
+    it("truncates content exceeding MAX_INDEXED_CONTENT_BYTES", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // Unique phrase at the start (within 100KB cap), filler to push past
+      // the cap, then a different unique phrase at the end (beyond 100KB).
+      // Truncation means the start phrase is searchable but the end is not.
+      const startPhrase = "alphanumeric beginning marker"
+      const filler = "x ".repeat(55_000) // ~110KB of filler
+      const endPhrase = "zyxwvut ending marker"
+      const largeContent = `${startPhrase}\n${filler}\n${endPhrase}`
+      fileIndex.upsertNonMdFile("data/big.csv", largeContent.length)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "data/big.csv",
+          rawContent: largeContent,
+          fileStat: testStat(largeContent.length),
+        },
+        logger,
+      )
+      // Content before the cap IS searchable
+      const { results: foundResults } = await fileIndex.hybridSearch(
+        { query: "alphanumeric beginning marker" },
+        logger,
+      )
+      expect(foundResults).toHaveLength(1)
+      expect(foundResults[0]?.path).toBe("data/big.csv")
+      // Content beyond the cap is NOT searchable — proves truncation
+      const { results: truncatedResults } = await fileIndex.hybridSearch(
+        { query: "zyxwvut ending marker" },
+        logger,
+      )
+      expect(truncatedResults).toHaveLength(0)
+    })
+
+    it("removeFileContent clears non-canvas file content from FTS", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNonMdFile("logs/app.log", 300)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "logs/app.log",
+          rawContent: "removable diagnostics content",
+          fileStat: testStat(300),
+        },
+        logger,
+      )
+      // Verify it was indexed first — without this, the removal assertion
+      // could pass by the content never being indexed (silent no-op).
+      const { results: beforeResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
+      expect(beforeResults).toHaveLength(1)
+      // Remove and verify it's gone
+      fileIndex.removeFileContent({ filePath: "logs/app.log" }, logger)
+      const { results: afterResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
+      expect(afterResults).toHaveLength(0)
+    })
+  })
+
+  describe("note-specific filter suppression", () => {
+    it("hybridSearch excludes file content results when a tag filter is active", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      // Seed a note that matches the tag filter
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/plan.md",
+          rawContent:
+            "---\ntags: [project]\n---\n# Plan\n\nArchitecture overview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      // Seed a canvas with matching text content
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      // Search with a tag filter — canvas has no tags, so it must be excluded
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture", filters: { tags: ["project"] } },
+        logger,
+      )
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("Projects/plan.md")
+      expect(paths).not.toContain("Diagrams/arch.canvas")
+    })
+
+    it("hybridSearch excludes file content results when a type filter is active", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Projects/plan.md",
+          rawContent:
+            "---\ntype: reference\n---\n# Plan\n\nArchitecture overview.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const { results } = await fileIndex.hybridSearch(
+        { query: "architecture", filters: { type: "reference" } },
+        logger,
+      )
+      const paths = results.map((result) => result.path)
+      expect(paths).toContain("Projects/plan.md")
+      expect(paths).not.toContain("Diagrams/arch.canvas")
     })
   })
 })

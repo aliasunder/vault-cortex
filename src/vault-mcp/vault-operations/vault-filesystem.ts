@@ -42,6 +42,7 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
 /** Canonicalizes a path for the protected-path prefix check: converts Windows
@@ -51,7 +52,11 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault, throwing on traversal attempts. */
+/** Resolves a note path within the vault; throws on traversal and hidden
+ *  paths (dot-prefixed segments — Obsidian ignores them). Hidden is checked
+ *  on the resolved relative path (so "./" and "../" normalize) before any
+ *  fs access (no existence leak). Internal ".obsidian/" config readers
+ *  deliberately bypass this via direct readFile. */
 export const resolveSafePath = (
   vaultPath: string,
   notePath: string,
@@ -60,6 +65,11 @@ export const resolveSafePath = (
   const resolved = resolve(normalizedVault, notePath)
   if (!resolved.startsWith(normalizedVault + "/")) {
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
+  }
+  if (hasHiddenPathSegment(relative(normalizedVault, resolved))) {
+    throw new Error(
+      `hidden path blocked: "${notePath}" targets a hidden file or folder`,
+    )
   }
   return resolved
 }
@@ -505,8 +515,7 @@ const listVaultFilePaths = async (
     relative(normalizedVault, join(entry.parentPath, entry.name)),
   )
   const visiblePaths = relativePaths.filter(
-    (relativePath) =>
-      !relativePath.split("/").some((segment) => segment.startsWith(".")),
+    (relativePath) => !hasHiddenPathSegment(relativePath),
   )
   return visiblePaths.sort()
 }

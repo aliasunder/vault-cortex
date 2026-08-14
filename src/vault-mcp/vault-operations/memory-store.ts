@@ -314,13 +314,29 @@ const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
 export const createMemoryStore = (options: { memoryDir: string }) => {
   const { memoryDir } = options
 
+  /** True for the .md entries the memory layer serves — excludes dot-prefixed
+   *  (hidden) filenames so a pre-existing hidden file on disk never leaks
+   *  through the no-file read or the list surfaces, mirroring the write-side
+   *  rejection in memoryFilePath. */
+  const isVisibleMemoryFile = (filename: string): boolean => {
+    return filename.endsWith(".md") && !filename.startsWith(".")
+  }
+
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
   // entirely, so reject it at the single point every memory path goes through.
+  // A dot-prefixed name would create a hidden file (invisible in Obsidian,
+  // excluded from listings and the index), so it is rejected the same way —
+  // memory paths bypass resolveSafePath's hidden-path guard via direct join.
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
       throw new Error(
         `memory file must be a bare name without path separators: "${file}"`,
+      )
+    }
+    if (file.startsWith(".")) {
+      throw new Error(
+        `memory file must not start with a dot: "${file}" would be a hidden file`,
       )
     }
     return join(vaultPath, memoryDir, `${file}.md`)
@@ -541,9 +557,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
         throw err
       }
-      const mdFiles = entries
-        .filter((filename) => filename.endsWith(".md"))
-        .sort()
+      const mdFiles = entries.filter(isVisibleMemoryFile).sort()
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readFile(join(dir, filename), "utf8")
@@ -786,9 +800,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw err
     }
 
-    const mdFiles = entries
-      .filter((filename) => filename.endsWith(".md"))
-      .sort()
+    const mdFiles = entries.filter(isVisibleMemoryFile).sort()
 
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
@@ -842,7 +854,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw err
     }
     const names = entries
-      .filter((filename) => filename.endsWith(".md"))
+      .filter(isVisibleMemoryFile)
       .map((filename) => basename(filename, ".md"))
       .sort()
     logger.debug("listed memory file names", { count: names.length })

@@ -144,7 +144,7 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading. `vault_replace_in_note` does exact text find-and-replace in the note body. `vault_delete_span` deletes a contiguous block of lines by short anchor substrings — more reliable than reproducing the full block as `old_text`, and the complement to `vault_replace_in_note` for deletion.
 
-`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
@@ -183,9 +183,9 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | `vault_list_property_values` | `key, folder?, limit?`        | readOnlyHint |
 | `vault_search_by_property`   | `key, value, folder?, limit?` | readOnlyHint |
 
-**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns.
+**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column, queryable via `json_extract` — functional for any schema, but without dedicated columns. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
-`vault_get_daily_note` reads `.obsidian/daily-notes.json` for the vault's folder and date format, falling back to `Daily Notes/YYYY-MM-DD.md`. Property tools query the `properties` JSON column in the notes table via `json_each`/`json_extract`, handling both scalar and array-valued properties.
+**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`). Only a successful config-file read is cached — a missing or malformed file is re-read on the next call, so a config file that arrives after boot is picked up without a restart. `task-format-config.ts` uses the same cache rule.
 
 ### Memory
 
@@ -241,14 +241,14 @@ whole files/sections; `vault_search` is note-granular).
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not (matching Obsidian's behavior). Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
 - **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
-- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: `Daily Notes`, `Templates`, and the memory dir).
+- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes` — plus `Templates` and the memory dir).
 
 ### Files
 
@@ -260,14 +260,27 @@ Link queries use a `links` table populated during indexing:
 `vault_read_file` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
-2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity.
-3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
-4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js). A document metadata header (title, page count, link count), heading hierarchy inferred from relative font sizes, fenced code blocks detected via monospace fonts, page separators, and a deduplicated links footer. `raw: true` switches to page-image mode: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
+3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
+4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
+   - A document metadata header (title, page count, link count)
+   - Heading hierarchy inferred from font sizes relative to the dominant
+     body size (the size carrying the most text) — only sizes larger than
+     body become headings
+   - Fenced code blocks for fully-monospace lines — with leading indentation
+     reconstructed from glyph positions — and inline code spans for monospace
+     runs inside mixed lines
+   - Page separators and a deduplicated links footer
+
+   `raw: true` switches to page-image mode: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
+
+   **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. Without this, unpdf's defaults silently degrade to system-font rendering, which drops all text glyphs where no fonts exist while vector graphics still draw.
+
 5. **Unknown types** return an error naming the readable set.
 
-The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal guard as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB).
+The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB).
 
-`vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Files are readable and browsable but not yet searchable — content indexing is a possible future tier.
+`vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Canvas, PDF, and text files (.txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base) are indexed for full-text search in the `file_content` + `file_content_fts` tables — see Canvas entry above for the canvas-specific link graph integration. PDF text is extracted via `obsidian-markdown/pdf.ts` (structured markdown reconstruction) — this works on PDFs with embedded text content; scanned or image-only PDFs produce no indexable text and are silently skipped. Text files are indexed as raw UTF-8 content. Content exceeding 100 KiB is truncated before FTS insertion.
 
 **Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
@@ -368,7 +381,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, and non-md tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
@@ -417,9 +430,9 @@ The search query and indexing layer is split into six modules (the embedding pip
 
 | Module              | Responsibility                                                                                                                                                                                                                                                                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`), embedder + reranker wiring                                                                                                                                                            |
+| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                  |
 | `search-queries.ts` | 17 query methods — `fullTextSearch`, `hybridSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
-| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                                         |
+| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                         |
 | `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                        |
 | `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                     |
 | `reranker.ts`       | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                 |
@@ -478,6 +491,9 @@ healthchecks.
 ```text
 1. Client → POST /mcp (no token)                          → 401 → client starts OAuth
 2. Client → GET /.well-known/oauth-protected-resource     → discover auth server
+   (also served at the RFC 9728 path-suffixed URL
+   /.well-known/oauth-protected-resource/mcp — same document,
+   with resource: <origin>/mcp)
 3. Client → GET /.well-known/oauth-authorization-server   → discover endpoints
 4. Client → POST /register                                → dynamic client registration
 5. Client → GET /authorize?...&code_challenge=...         → consent page in browser
@@ -500,7 +516,7 @@ sequenceDiagram
     Note over C,E: First-time OAuth Authorization
     C->>AG: POST /mcp (no token — initial probe)
     AG-->>C: 401 Unauthorized (identity source missing — Lambda not invoked)
-    Note over C: 401 → client enters OAuth flow,<br/>falls back to default discovery location
+    Note over C: 401 → client enters OAuth flow<br/>(both the RFC 9728 path-suffixed URL<br/>…/oauth-protected-resource/mcp and the<br/>root discovery location are served)
     C->>AG: GET /.well-known/oauth-protected-resource
     Note over AG: Open route — no authorizer
     AG->>E: Forward
@@ -730,19 +746,31 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on traversal (`../../etc/passwd`).
+  filesystem access. Throws on traversal (`../../etc/passwd`) and on
+  hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
+  checked on the resolved relative path so `a/../.obsidian/x` is caught
+  while `notes/./plan.md` passes. The predicate
+  (`utils/has-hidden-path-segment.ts`) is shared with the listing
+  filter, file watcher, and index rebuild — one definition of "hidden",
+  every layer ("one rule, every layer", like `assertPathHasExtension`).
+  The internal `.obsidian/` config readers (`daily-notes.ts`,
+  `task-format-config.ts`) deliberately bypass this guard via direct
+  `readFile`.
 - **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
   backslashes and collapses `../` _before_ the protected-path prefix
   check, so `X/../About Me/Principles.md` cannot evade protection.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
-- **Memory file separator rejection** (`memory-store.ts`):
+- **Memory file name rejection** (`memory-store.ts`):
   `memoryFilePath()` rejects `/` and `\` in memory file names — a name
-  like `../../outside` cannot escape the memory directory.
-- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR`,
-  `Daily Notes`) blocks deleting notes in, moving notes out of, and
-  moving notes into configured folders, checked after normalization.
+  like `../../outside` cannot escape the memory directory — and leading
+  dots, which would create hidden files (memory paths are built via
+  `join`, bypassing `resolveSafePath`'s hidden-path guard).
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
+  `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
+  notes in, moving notes out of, and moving notes into configured
+  folders, checked after normalization.
 
 #### SQL + search safety
 

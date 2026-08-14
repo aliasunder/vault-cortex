@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -74,7 +74,8 @@ captures the token for you:
 npx vault-cortex@latest get-sync-token
 ```
 
-Otherwise, run the Docker image directly:
+Otherwise, run the helper in a throwaway container — it prints the token
+and exits; nothing stays running:
 
 ```bash
 docker run --rm -it --entrypoint get-sync-token \
@@ -101,6 +102,9 @@ cp .env.example .env
 ```bash
 docker compose up -d
 ```
+
+No Compose? The **docker run (no Compose)** block below starts the same
+server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
 from Obsidian's servers. The initial sync takes 30–120 seconds depending on
@@ -262,8 +266,10 @@ curl http://localhost:8000/healthz
 
 # One log stream for both processes — MCP server lines are structured
 # JSON; init-chain lines carry an [obsidian-sync] prefix and the ongoing
-# sync output is plain text (filter with: docker logs vault-cortex 2>&1 | grep -v '^{'):
-docker logs vault-cortex
+# sync output is plain text:
+npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
+docker logs vault-cortex       # Compose or docker run
+# Sync output only: docker logs vault-cortex 2>&1 | grep -v '^{'
 ```
 
 Once [HTTPS access](#https-access) is set up, the same health check works
@@ -272,8 +278,9 @@ from any device: `curl <PUBLIC_URL>/healthz`.
 ## Monitoring
 
 ```bash
-# Follow the container logs (sync + MCP server):
-docker logs -f vault-cortex
+# Follow the container logs (sync + MCP server) until ctrl-C:
+npx vault-cortex@latest logs --follow   # set up with the CLI
+docker logs -f vault-cortex             # Compose or docker run
 
 # Container status — "healthy" tracks the MCP server's /healthz:
 docker ps
@@ -328,32 +335,37 @@ docker restart vault-cortex
 ```
 
 > **Changed `.env`?** A restart does **not** re-read `.env` — the container
-> has to be re-created. Set up with the CLI? Run `npx vault-cortex@latest upgrade`
-> (re-creates the container and also pulls the latest image). Using Compose?
-> Run `docker compose up -d` — it re-creates services whose configuration
-> changed.
+> has to be re-created. Set up with the CLI? Run
+> [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
+> `docker restart`, it re-creates the container, so your edits take effect
+> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
+> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> re-creates services whose configuration changed. Using `docker run`?
+> Remove the container (`docker rm -f vault-cortex`) and re-run the
+> `docker run` command from [Setup](#setup).
 
 The container also restarts automatically on crash (`restart: unless-stopped`
 policy), Docker daemon restart, or system reboot.
 
 ## Stop
 
-**Set up with the CLI (or `docker run`)?**
-
 ```bash
-# Stop (data persists in Docker volumes):
+# Stop and remove the container (data persists in Docker volumes):
+npx vault-cortex@latest down   # set up with the CLI
+docker compose down            # Compose
+
+# Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
+docker compose down -v         # Compose
+
+# Stop without removing (any setup method; docker start resumes):
 docker stop vault-cortex
 ```
 
-**Set up with Docker Compose?**
-
-```bash
-# Stop (data persists in Docker volumes):
-docker compose down
-
-# Stop and delete all volumes (vault re-syncs on next start; index rebuilds):
-docker compose down -v
-```
+**Set up with the CLI?** Start again any time with
+`npx vault-cortex@latest start` — your saved settings are reused
+([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
+reference). Otherwise resume with `docker compose up -d` or
+`docker start vault-cortex`.
 
 ## Memory
 
@@ -372,19 +384,58 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Daily notes
+
+`vault_get_daily_note` finds your daily notes using the folder and date
+format set in Obsidian's Daily notes options. Obsidian stores those settings
+in `.obsidian/daily-notes.json`, and in remote mode the server only receives
+that file when settings syncing is turned on in two places:
+
+- **Server side** — `SYNC_CONFIGS` defaults to
+  `core-plugin-data,community-plugin-data`, the two categories the server
+  reads: daily notes settings and community plugin settings (e.g. the Tasks
+  plugin's format). It takes a comma-separated list of Obsidian's settings
+  categories (`app`, `appearance`, `appearance-data`, `hotkey`,
+  `core-plugin`, `core-plugin-data`, `community-plugin`,
+  `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
+- **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
+  enabled per device. Obsidian only pushes categories you enable there.
+
+Some community plugins keep API keys in their settings. Server tools never
+read `.obsidian/`, and the server itself opens only the two config files
+above — synced settings otherwise just sit in the config volume.
+
+If the file hasn't arrived when the server boots (first sync still running),
+it's picked up automatically once it lands — no restart needed.
+
+If the settings can't sync — or you use the Periodic Notes plugin, whose
+settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
+vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
+(same tokens as Obsidian's date format setting) in `.env`. You can set one
+or both — a set value always wins over the config file. Without either
+source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
+
+`.env` edits take effect when the container is re-created: set up with the
+CLI, run `npx vault-cortex@latest restart`; with Compose, `docker compose up -d`;
+with `docker run`, re-create the container as described in the
+**Changed `.env`?** note under [Restart](#restart).
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting              | Default   | What it does                                                                                          |
-| -------------------- | --------- | ----------------------------------------------------------------------------------------------------- |
-| `TZ`                 | `UTC`     | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
-| `VAULT_PASSWORD`     | —         | Set this if your vault has end-to-end encryption enabled                                              |
-| `EMBEDDING_ENABLED`  | `true`    | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
-| `RERANK_MODE`        | `blended` | Set `none` to skip reranking for lower latency                                                        |
-| `MEMORY_ENABLED`     | `true`    | Set `false` to disable the structured memory layer                                                    |
-| `FILE_TOOLS_ENABLED` | `true`    | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| Setting              | Default                       | What it does                                                                                          |
+| -------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `TZ`                 | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
+| `VAULT_PASSWORD`     | —                             | Set this if your vault has end-to-end encryption enabled                                              |
+| `EMBEDDING_ENABLED`  | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
+| `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                        |
+| `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                    |
+| `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
+| `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
+| `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
+| `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

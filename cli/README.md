@@ -15,7 +15,7 @@ and data files — see the
 The server runs as a Docker container; this CLI scaffolds the config and
 manages the container so you don't have to.
 
-![npx vault-cortex init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif)
+![npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif)
 
 ## Commands
 
@@ -34,7 +34,7 @@ manages the container so you don't have to.
 - [`get-sync-token`](#get-sync-token) — generate an Obsidian Sync auth token
   for remote setups
 
-Run `npx vault-cortex <command> --help` for all flags.
+Run `npx vault-cortex@latest <command> --help` for all flags.
 
 ## init
 
@@ -49,9 +49,9 @@ What it does:
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync),
      reachable from any device
 2. Offers the most common optional settings — memory layer and folder,
-   file tools, semantic search, port, timezone (plus sync direction for
-   remote) — press enter to keep the defaults, or pick the ones you want to
-   change
+   daily notes folder and format, file tools, semantic search, port,
+   timezone (plus sync direction for remote) — press enter to keep the
+   defaults, or pick the ones you want to change
 3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
 4. Optionally starts the container and waits for the health check
 5. Prints your connection details — the MCP URL, your auth token, and how to
@@ -85,11 +85,13 @@ Change optional settings on an existing setup:
 npx vault-cortex@latest configure
 ```
 
-Shows the same settings chooser as [`init`](#init) — memory layer and
-folder, file tools, semantic search, port, timezone (plus sync direction
-for remote) — pre-filled with your current values, saves your picks to
-`.env`, and offers to restart the container so they take effect. Settings not in the chooser
-live in `.env` too: edit the value there, then run [`restart`](#restart).
+Shows the same settings chooser as [`init`](#init), pre-filled with your
+current values, saves your picks to `.env`, and offers to restart the
+container so they take effect.
+
+Settings not in the chooser live in `.env` too: edit the value there, then
+run [`restart`](#restart). That's also how you clear a daily notes setting
+back to your vault's own configuration — comment out or delete its line.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 

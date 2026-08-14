@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import {
   safeHandler,
   formatNoteMetadata,
@@ -27,6 +28,7 @@ export { TOOL_NAMES as SEARCH_TOOL_NAMES }
 export const registerSearchTools = ({
   server,
   search,
+  vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
@@ -59,7 +61,7 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
@@ -84,7 +86,7 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -561,23 +563,26 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes that link to a given note — captures [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
+      description: `Find all notes and files that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas file-node references. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
+Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
 
-When to use: Understanding what references a note, assessing its connectivity before editing or deleting, or finding related notes via the graph.
+When to use: Understanding what references a note or canvas, assessing its connectivity before editing or deleting, or finding related notes via the graph.
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
 
 Parameters:
-- path: exact vault-relative path including .md extension, case-sensitive. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.
+- path: exact vault-relative path including .md or .canvas extension, case-sensitive.
 
-Returns: JSON with path (the queried note), backlinks (array of { path, title, bytes } sorted by title), and count.`,
+Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).
+
+Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe(
-            'Exact vault-relative path including .md extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
+            'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
       },
       annotations: {
@@ -614,23 +619,26 @@ Returns: JSON with path (the queried note), backlinks (array of { path, title, b
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note links to via outgoing [[wikilinks]] or [markdown](links). Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and files a given note or canvas links to. For notes: outgoing [[wikilinks]] and [markdown](links). For canvas files: file-node references (vault-relative paths embedded in the canvas). Links inside code blocks are ignored; self-links are included.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
+Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
 
-When to use: Navigating the graph forward, auditing broken links in one note, or checking dependencies before editing.
+When to use: Navigating the graph forward, auditing broken links in one note or canvas, or checking dependencies before editing.
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path is matched against the search index, so the note must be indexed (file watcher processes new/moved files within seconds). A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
+- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.`,
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
+
+Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe(
-            'Exact vault-relative path including .md extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
+            'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
       },
       annotations: {
@@ -648,7 +656,16 @@ Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, b
       reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
-        async () => search.getOutgoingLinks({ path }, reqLogger),
+        async () => {
+          const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+            folder: config.dailyNotesFolder,
+            format: config.dailyNotesFormat,
+          })
+          return search.getOutgoingLinks(
+            { path, dailyNotesFolder: dailyNotesConfig.folder },
+            reqLogger,
+          )
+        },
         (outgoingLinks) => {
           reqLogger.info("tool_result", { resultCount: outgoingLinks.length })
           return JSON.stringify({

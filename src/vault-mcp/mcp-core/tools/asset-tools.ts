@@ -106,8 +106,8 @@ Example: vault_read_file({ path: "papers/research.pdf", raw: true }) — each pa
 What each type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds client response limits, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed to fit the budget.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes), fenced code blocks (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to ${config.maxPdfRenderPages} pages are rendered.
-- Text formats (.svg/.json/.txt/.csv/.xml/.log/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
+- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to ${config.maxPdfRenderPages} pages are rendered.
+- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 - Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
 
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. For .md notes use vault_read_note — this tool rejects them. To check a large file's size before reading it whole, request start_line: 1 with limit: 1 — one line plus the total line count.
@@ -115,6 +115,7 @@ When to use: whenever a note references a file you need to actually see or read 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
 - "file not found" — nothing exists at that path; discover valid paths via vault_list_files
+- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not readable, matching Obsidian
 - "file too large" — the file exceeds the server's read cap (MAX_FILE_BYTES, default 50 MiB)
 - "text output too large" — a text file or PDF renders past the output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
@@ -128,7 +129,7 @@ Errors:
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.
 
-Search coverage: vault_search indexes markdown notes; find files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
+Search coverage: vault_search indexes markdown notes plus canvas, PDF, and supported text-format content; find other files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
       inputSchema: {
         path: z
           .string()
@@ -238,8 +239,9 @@ Parameters:
 - limit: maximum entries returned (default 50). extension_counts and total always reflect the full filtered set, not just the returned page.
 
 Errors:
-- A folder containing no files — or a folder that doesn't exist — returns an empty listing, not an error.
+- A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Files of supported types are readable via vault_read_file; vault_search covers markdown notes.`,
       inputSchema: {

@@ -77,12 +77,21 @@ FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
-# Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
-# If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
+# Daily notes folder and filename format (default: read from the
+# vault's .obsidian/daily-notes.json, falling back to "Daily Notes" and
+# YYYY-MM-DD). Folder is any vault-relative path (Journal, Planner/Daily);
+# format takes the same tokens as Obsidian's date format setting.
+# DAILY_NOTES_FOLDER=Journal
+# DAILY_NOTES_FORMAT=YYYY-MM-DD
+
+# Comma-separated folders protected from deletion (default: MEMORY_DIR plus
+# the daily notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes").
+# A custom folder set only in daily-notes.json is not auto-protected.
 # PROTECTED_PATHS=About Me,Daily Notes
 
-# Comma-separated folders excluded from orphan detection
-# (default: Daily Notes, Templates, MEMORY_DIR).
+# Comma-separated folders excluded from orphan detection (default: the daily
+# notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes" — plus
+# Templates and MEMORY_DIR).
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata
@@ -172,12 +181,22 @@ FILE_TOOLS_ENABLED=true
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
-# Comma-separated folders protected from deletion (default: MEMORY_DIR, Daily Notes).
-# If your daily notes folder has a custom name (e.g. "Journal"), override to include it.
+# Daily notes folder and filename format (default: read from the
+# vault's .obsidian/daily-notes.json, synced to the server via SYNC_CONFIGS
+# below; falls back to "Daily Notes" and YYYY-MM-DD). Folder is any
+# vault-relative path (Journal, Planner/Daily); format takes the same tokens
+# as Obsidian's date format setting.
+# DAILY_NOTES_FOLDER=Journal
+# DAILY_NOTES_FORMAT=YYYY-MM-DD
+
+# Comma-separated folders protected from deletion (default: MEMORY_DIR plus
+# the daily notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes").
+# A custom folder set only in daily-notes.json is not auto-protected.
 # PROTECTED_PATHS=About Me,Daily Notes
 
-# Comma-separated folders excluded from orphan detection
-# (default: Daily Notes, Templates, MEMORY_DIR).
+# Comma-separated folders excluded from orphan detection (default: the daily
+# notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes" — plus
+# Templates and MEMORY_DIR).
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata
@@ -210,6 +229,17 @@ CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
 SYNC_MODE=bidirectional
+
+# Obsidian settings categories to sync into the server's .obsidian/ folder
+# (default: the two the server reads — daily notes settings and community
+# plugin settings such as the Tasks plugin's format; "none" disables).
+# A category only syncs after your desktop pushes it: Obsidian Settings →
+# Sync → "Vault configuration sync" (per device). Some community plugins
+# keep API keys in their settings — server tools never read .obsidian/,
+# but synced settings do live on the server volume. Values: app,
+# appearance, appearance-data, hotkey, core-plugin, core-plugin-data,
+# community-plugin, community-plugin-data — comma-separated.
+SYNC_CONFIGS=core-plugin-data,community-plugin-data
 `
 
 // sync:remote-optional:end

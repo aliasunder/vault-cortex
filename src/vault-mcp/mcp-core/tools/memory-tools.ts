@@ -38,6 +38,7 @@ Prefer vault_read_note for reading non-memory notes.
 Errors:
 - "section requires a file" — section was provided without file; pass both or just file
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
+- "memory file must not start with a dot" — a dot-prefixed name would be a hidden file; memory files are always visible notes
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 
 Returns: Raw markdown text.`,
@@ -116,6 +117,7 @@ Errors:
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - "entry/section contains a control character" — entry or section includes a non-printable control byte; remove it before writing.
+- "memory file must not start with a dot" — a dot-prefixed name would create a hidden file (invisible in Obsidian and to every listing); choose a visible name.
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
@@ -256,6 +258,7 @@ Parameters:
 - section scopes the match — an identical entry under a different heading is not found. Section matching is case-insensitive, with or without the "(newest first)" suffix.
 
 Errors:
+- "memory file must not start with a dot" — a dot-prefixed name would target a hidden file; memory files are always visible notes.
 - "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with vault_delete_span or a manual edit.
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).

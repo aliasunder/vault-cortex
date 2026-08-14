@@ -60,7 +60,7 @@ See the [README](./README.md#development) for full details on each mode.
 
 ## The `cli/` Package
 
-`cli/` is a separate npm package (`npx vault-cortex init`) that scaffolds the
+`cli/` is a separate npm package (`npx vault-cortex@latest init`) that scaffolds the
 [deploy quickstarts](./deploy/). It is **not** an npm workspace — its two
 runtime dependencies (`commander`, `@clack/prompts`) are also pinned in the
 root `devDependencies` at identical versions, so the root `npm ci` covers
