@@ -178,6 +178,19 @@ describe("init-first-sync gate script", () => {
     )
   })
 
+  it("treats MEMORY_ENABLED case-insensitively, matching config.ts asBool", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      memoryEnabled: "FALSE",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toContain(
+      "WARNING: First sync did not complete — starting services anyway.",
+    )
+  })
+
   it("makes a single tolerated attempt when VAULT_NAME is unset", () => {
     const run = runGateScript({ syncOutcomes: [1] })
 
