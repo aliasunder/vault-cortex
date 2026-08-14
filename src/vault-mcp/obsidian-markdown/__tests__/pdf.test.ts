@@ -145,6 +145,14 @@ describe("extractPdfText", () => {
       expect(result.text).toBe(`${HEADER}\n\nSUMMARY SECTION\non a to`)
     })
 
+    it("does not collapse spaced digit runs", async () => {
+      const pdfBuffer = buildPdf([
+        { text: "12 34 56", x: 100, y: 700, fontSize: 12 },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(`${HEADER}\n\n12 34 56`)
+    })
+
     it("joins items separated by a word-sized gap with exactly one space", async () => {
       const pdfBuffer = buildPdf([
         { text: "foo", x: 100, y: 700, fontSize: 12 },
@@ -209,17 +217,21 @@ describe("extractPdfText", () => {
       expect(result.text).toBe(`${HEADER}\n\n1. First thing\n2. Second thing`)
     })
 
-    it("rejoins lettered markers to their items", async () => {
-      // The marker and its item are separated in the stream by another line,
-      // so only the rejoin pass — not plain sequential grouping — can merge
-      // them (same shape as the numeric-marker test).
+    it("rejoins lettered markers, lowercase and uppercase, to their items", async () => {
+      // The markers and their items are separated in the stream by another
+      // line, so only the rejoin pass — not plain sequential grouping — can
+      // merge them (same shape as the numeric-marker test).
       const pdfBuffer = buildPdf([
         { text: "a.", x: 100, y: 700, fontSize: 12 },
-        { text: "closing line", x: 72, y: 660, fontSize: 12 },
+        { text: "A.", x: 100, y: 660, fontSize: 12 },
+        { text: "closing line", x: 72, y: 620, fontSize: 12 },
         { text: "Alpha item", x: 115, y: 700, fontSize: 12 },
+        { text: "Upper item", x: 115, y: 660, fontSize: 12 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nclosing line\na. Alpha item`)
+      expect(result.text).toBe(
+        `${HEADER}\n\nclosing line\na. Alpha item\nA. Upper item`,
+      )
     })
 
     it("rejoins bullet-glyph markers to their items", async () => {

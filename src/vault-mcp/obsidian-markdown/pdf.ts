@@ -23,10 +23,10 @@ const LINE_GROUP_Y_THRESHOLD = 2
 const WORD_GAP_THRESHOLD_EM = 0.2
 
 /** Matches a line that is nothing but a list marker — a numbered marker
- *  ("1.", "42."), a lettered marker ("a."), or a bullet glyph. Anchored so
- *  decimals ("3.14") and prose never match. A bare "-" is deliberately not a
- *  marker (indistinguishable from a stray dash or horizontal rule). */
-const MARKER_LINE_PATTERN = /^(?:\d{1,4}\.|[a-z]\.|[•◦▪‣●○·])$/
+ *  ("1.", "42."), a lettered marker ("a.", "A."), or a bullet glyph. Anchored
+ *  so decimals ("3.14") and prose never match. A bare "-" is deliberately not
+ *  a marker (indistinguishable from a stray dash or horizontal rule). */
+const MARKER_LINE_PATTERN = /^(?:\d{1,4}\.|[A-Za-z]\.|[•◦▪‣●○·])$/
 
 /** Groups text items into lines by y-coordinate proximity — items within
  *  `LINE_GROUP_Y_THRESHOLD` points of the previous item's y are on the same
@@ -155,12 +155,15 @@ const needsSpaceBetween = (
  *  shatter is intra-string and only a text-level collapse can undo it.
  *  Guardrails: every whitespace-separated token must be ≤2 characters, there
  *  must be at least three tokens, and the text must contain no lowercase
- *  letters — letter-spaced banners are caps/small-caps in practice, and the
- *  lowercase check keeps genuine short-word prose ("on a to") intact.
+ *  letters and no digits — letter-spaced banners are caps/small-caps in
+ *  practice, the lowercase check keeps genuine short-word prose ("on a to")
+ *  intact, and the digit check keeps spaced number runs ("12 34 56") from
+ *  gluing into a different number (digit-bearing banners like
+ *  "S E C T I O N 0 1" stay shattered — the safe direction).
  *  Applied per item, never across items, so a real word gap wide enough to
  *  split items keeps its space ("INTERVIEW PREPARATION"). */
 const collapseLetterSpacedText = (text: string): string => {
-  if (/[a-z]/.test(text)) return text
+  if (/[a-z]/.test(text) || /\d/.test(text)) return text
   const tokens = text.trim().split(/\s+/)
   const isShatteredRun =
     tokens.length >= 3 && tokens.every((token) => token.length <= 2)
@@ -304,8 +307,10 @@ const rejoinOrphanedMarkers = (
 
   return lines
     .map((line, lineIndex) => {
+      // Markers lead the merged line: for LTR lines the x-sort would order
+      // them anyway, but RTL lines skip the x-sort and keep this order.
       const rejoinedItems = rejoinedItemsByTarget.get(lineIndex)
-      return rejoinedItems ? [...line, ...rejoinedItems] : line
+      return rejoinedItems ? [...rejoinedItems, ...line] : line
     })
     .filter((_line, lineIndex) => !absorbedMarkerIndices.has(lineIndex))
 }
