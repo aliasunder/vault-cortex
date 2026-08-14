@@ -328,8 +328,8 @@ The container runs startup tasks on every boot: a quick catch-up sync brings
 the vault current before the server starts, then the server rebuilds the
 search index, creates memory template files if the memory folder doesn't
 exist, and starts the file watcher. Restarting the container re-runs this
-flow (useful when testing bootstrap behavior). The command is the same for every setup method,
-since all three name the container `vault-cortex`:
+flow (useful when testing bootstrap behavior). The command is the same for
+every setup method, since all three name the container `vault-cortex`:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
