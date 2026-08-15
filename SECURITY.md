@@ -87,6 +87,11 @@ mechanism-level detail.
   no write surface to call. The memory template bootstrap (the one
   server-initiated vault write) is skipped too; only infrastructure
   writes outside the vault (search index, OAuth database) remain.
+- `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
+  on but remove the delete tools. Same registration-time guarantee: a
+  disabled tool is never advertised, and no surviving tool description
+  suggests it. Unknown names stop the server at startup rather than
+  silently disabling nothing.
 
 ### TOCTOU race prevention
 

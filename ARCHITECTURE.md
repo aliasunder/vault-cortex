@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control than any group switch.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -126,7 +126,13 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 - `bytes` — each result's on-disk file size, so agents can decide whether to read a note in full or use `outline`/`heading` mode before committing
 - `leading_callout` — the note's top-of-file callout when present (opt-in via `include_leading_callout` on `vault_search`; automatic on the rest)
 
-**Read-only mode:** `READONLY_MODE=true` gates every vault-writing tool at registration — the write tools are never advertised to clients rather than rejected at call time. Surviving read tools drop the write-tool cross-references from their descriptions, server metadata omits write references, the `memory-review` prompt is unregistered (its purpose is proposing memory writes), and the memory bootstrap is skipped. Composes with the group toggles: memory write tools require `MEMORY_ENABLED` _and_ a writable server; `MEMORY_ENABLED=false` still removes the whole memory group including reads. Search, indexing, and the file watcher are unaffected — they write to the index database outside the vault, not to the vault itself.
+**Tool gating (registry-driven):** every tool is one entry in a declarative registry (`tool-registry.ts` — name, feature group, MCP annotations), and the served tool set is the registry filtered through one AND-chain of predicates:
+
+1. **Group toggles** — `MEMORY_ENABLED=false` removes the memory group (reads included), `FILE_TOOLS_ENABLED=false` removes the file tools.
+2. **Read-only mode** — `READONLY_MODE=true` keeps exactly the tools whose own `readOnlyHint` annotation says they don't write; write tools are never advertised to clients rather than rejected at call time. The `memory-review` prompt follows its write tool, and the memory bootstrap is skipped.
+3. **Per-tool disabling** — `DISABLED_TOOLS` subtracts individually named tools. Purely subtractive: it cannot re-enable a tool an earlier predicate removed. Unknown names fail the boot (a typo that silently disabled nothing would mislead the operator).
+
+Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Tool descriptions key their cross-references on the enabled set, so a sentence recommending a sibling tool disappears whenever that tool does, for any reason. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
 

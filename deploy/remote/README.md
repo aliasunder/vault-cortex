@@ -398,6 +398,10 @@ Want the server to browse and search your vault without ever changing it? Set
 or deletes notes is hidden, and the memory folder is not created. Useful for
 a first deployment you want to trust before enabling writes.
 
+Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
+comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
+keeps writes on but removes deleting and moving.
+
 ## Daily notes
 
 `vault_get_daily_note` finds your daily notes using the folder and date
@@ -449,6 +453,7 @@ required. These optional settings are worth knowing about:
 | `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                    |
 | `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
 | `READONLY_MODE`      | `false`                       | Set `true` to hide every tool that changes the vault — read and search only                           |
+| `DISABLED_TOOLS`     | none hidden                   | Hide individual tools by name, comma-separated (see [Read-only mode](#read-only-mode))                |
 | `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
 | `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
 | `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |

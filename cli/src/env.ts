@@ -78,6 +78,10 @@ FILE_TOOLS_ENABLED=true
 # Set to true to hide every tool that changes the vault — clients can only
 # read and search. The memory folder is not auto-created in this mode.
 READONLY_MODE=false
+# Hide individual tools by name, comma-separated (default: none hidden).
+# Subtractive only — it cannot re-enable a tool another setting hides; an
+# unknown tool name stops the server at startup so typos surface immediately.
+# DISABLED_TOOLS=vault_delete_note,vault_move_note
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
@@ -186,6 +190,10 @@ FILE_TOOLS_ENABLED=true
 # Set to true to hide every tool that changes the vault — clients can only
 # read and search. The memory folder is not auto-created in this mode.
 READONLY_MODE=false
+# Hide individual tools by name, comma-separated (default: none hidden).
+# Subtractive only — it cannot re-enable a tool another setting hides; an
+# unknown tool name stops the server at startup so typos surface immediately.
+# DISABLED_TOOLS=vault_delete_note,vault_move_note
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 

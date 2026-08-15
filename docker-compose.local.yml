@@ -31,6 +31,7 @@ services:
       # Note: the vault mount below is :ro, so write tool calls fail at the
       # filesystem — change the mount to :rw to exercise writes for real.
       READONLY_MODE: ${READONLY_MODE:-false}
+      DISABLED_TOOLS: ${DISABLED_TOOLS:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true when developing against a vault on a C: drive

@@ -285,11 +285,15 @@ Want the server to browse and search your vault without ever changing it? Set
 or deletes notes is hidden, and the memory folder is not created. Useful for
 a first deployment you want to trust before enabling writes.
 
+Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
+comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
+keeps writes on but removes deleting and moving.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 (memory folder, protected paths, orphan exclusions, file tools, read-only
-mode, daily notes folder and format, timezone), see the
+mode, per-tool disabling, daily notes folder and format, timezone), see the
 [Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting

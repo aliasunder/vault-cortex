@@ -142,7 +142,8 @@ src/
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
-      tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
+      tool-registry.ts                 # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
+      tool-definitions.ts              # Tool orchestrator — enabled-set filter chain + gated registration wrapper
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
@@ -217,16 +218,23 @@ on**, not just its topic:
   stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
   any file) isn't enough to demote something to `utils/` if it's load-bearing
   vault-I/O policy.
-- **`mcp-core/`** — the MCP protocol surface. `tool-definitions.ts` is the
-  orchestrator that composes `TOOL_NAMES` from the domain group modules under
-  `mcp-core/tools/` (vault-crud, search, memory, daily-note, task, asset) and
-  calls each register function — conditionally skipping memory tools when
-  `MEMORY_ENABLED` is `false`, file tools when `FILE_TOOLS_ENABLED` is
-  `false`, and every vault-writing tool when `READONLY_MODE` is `true` (the
-  mixed groups — vault-crud, memory, task — export read/write register
-  halves; the orchestrator owns the gating). Each group module is
-  self-contained: its own tool
-  name constants, register function, and data-layer imports. Shared helpers
+- **`mcp-core/`** — the MCP protocol surface. `tool-registry.ts` is the
+  declarative registry: every tool's wire name, feature group, and MCP
+  annotations in one leaf module with zero imports (config validation and
+  tests consume it without loading the tool layer). `tool-definitions.ts` is
+  the orchestrator: it computes the enabled tool set by filtering the
+  registry through one AND-chain of predicates — group flags
+  (`MEMORY_ENABLED`, `FILE_TOOLS_ENABLED`), read-only mode via each tool's
+  own `readOnlyHint` annotation, and the subtractive `DISABLED_TOOLS` list —
+  then invokes each group's register function with a gated `registerTool`
+  wrapper that skips disabled names and injects the registry's annotations
+  (the wrapper's config type has no `annotations` key, so restating them
+  inline is a compile error). A new gating axis is one new predicate, never
+  new branching in group modules. Description cross-references render
+  through `whenToolEnabled`/`isToolEnabled` against the enabled set, so a
+  reference disappears whenever its target does. Each group module is
+  self-contained: one register function and its data-layer imports, with
+  tool names imported from the registry. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
   `tool-helpers.ts`.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -361,8 +369,8 @@ root logger (src/logger.ts)
   transport only while it handles the initialize request)
 - Each tool group module (`mcp-core/tools/*.ts`) creates a **request
   logger** per tool call, adding `requestId` (from the MCP SDK's
-  `RequestHandlerExtra`) + `tool` name (from the module's own
-  `TOOL_NAMES` constant)
+  `RequestHandlerExtra`) + `tool` name (from the shared `TOOL_NAMES`
+  constant in `tool-registry.ts`)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
