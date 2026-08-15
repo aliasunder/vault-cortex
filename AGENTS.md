@@ -754,9 +754,13 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   identical assertion shapes (input → expected).
 - Error paths and boundaries are covered, not just the happy path.
   Zero/one/empty inputs expose the special-case bugs.
-- Never mock time/scheduling internals to make retry logic "testable"
-  — wrap the retrying operation behind a named function and mock the
-  wrapper to call through with controlled outcomes.
+- Prefer a controllable seam over fake timers for retry/polling logic
+  — an injected timeout/deadline param, or a named wrapper around the
+  retrying operation mocked with controlled outcomes. Fake timers
+  (`vi.useFakeTimers`) are legitimate when timing is itself the
+  contract (debounce, TTL, deadline expiry) or when a wrapper seam
+  would exist only for tests — but assert outcomes after advancing
+  the clock, never the tick-by-tick schedule.
 - Production type rules apply in tests: no `!` (guard or restructure
   instead) — but `?.` and `?? fallback` are legitimate narrowing.
 
