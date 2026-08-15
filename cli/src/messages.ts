@@ -163,10 +163,11 @@ const smokeTest = (healthUrl: string): string =>
   curl ${healthUrl}`
 
 /**
- * Remote health-check block. Started: the CLI verified localhost on the VPS,
- * but the public URL is a different check (ingress — DNS, TLS, proxy), so the
- * command stays, reworded as the works-from-any-device check. Not started:
- * the plain smoke test to run after starting.
+ * Remote health-check block. Running or starting: the CLI verified localhost
+ * on the VPS (or the container is still coming up), but the public URL is a
+ * different check (ingress — DNS, TLS, proxy), so the command stays, reworded
+ * as the works-from-any-device check. Not started: the plain smoke test to
+ * run after starting.
  */
 const remoteHealthCheckBlock = (
   healthUrl: string,

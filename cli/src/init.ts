@@ -240,8 +240,9 @@ const reportWrites = (
 /**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → user
- * consents → docker run succeeds → health check passes. Returns true only
- * when the server is confirmed up.
+ * consents → docker run succeeds → health check passes. Returns "running"
+ * when the server is confirmed up, "starting" when the container launched
+ * but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
   params: { targetDir: string; port: number; mode: Mode; vaultPath?: string },
