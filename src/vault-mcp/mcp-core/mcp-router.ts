@@ -11,8 +11,9 @@ import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
-import { registerTools } from "./tool-definitions.js"
+import { computeEnabledToolNames, registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
+import type { ToolName } from "./tool-registry.js"
 import { logger } from "../../logger.js"
 import { extractClientIp, headerAsString } from "../../auth.js"
 
@@ -39,6 +40,50 @@ const SERVER_ICONS = [
 ]
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
+
+/** Builds the session's server metadata (instructions + description) from
+ *  the config and the enabled tool set. Tool cross-references key on the
+ *  enabled set so they track every gating axis; the capability framing
+ *  (read-only notice, memory-layer mention, search flavor) keys on config —
+ *  those describe the deployment, not a specific tool. */
+const buildServerMetadata = (
+  config: VaultConfig,
+  enabledToolNames: ReadonlySet<ToolName>,
+): { instructions: string; description: string } => {
+  const whenToolEnabled = (name: ToolName, text: string): string =>
+    enabledToolNames.has(name) ? text : ""
+
+  const searchDescription = config.embeddingEnabled
+    ? "hybrid search"
+    : "full-text search"
+  const fileToolsClause = whenToolEnabled(
+    "vault_read_file",
+    "; vault_read_file for images, canvases, and other non-markdown files",
+  )
+  const getMemorySentence = whenToolEnabled(
+    "vault_get_memory",
+    ` Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
+  )
+  const writeSentence = enabledToolNames.has("vault_write_note")
+    ? enabledToolNames.has("vault_update_memory")
+      ? " Use vault_write_note and vault_update_memory for writes."
+      : " Use vault_write_note for writes."
+    : ""
+  const memoryClause = `.${getMemorySentence}${writeSentence}`
+  const accessDescription = config.readOnlyMode
+    ? "Read and search"
+    : "Read, write, and search"
+  const markdownClause = config.readOnlyMode
+    ? "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
+    : "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
+  const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
+
+${markdownClause}`
+  const description = config.memoryEnabled
+    ? `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
+    : `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`
+  return { instructions, description }
+}
 
 export const createMcpRouter = ({
   vaultPath,
@@ -90,38 +135,16 @@ export const createMcpRouter = ({
             })
           }
         }
-        const searchDescription = config.embeddingEnabled
-          ? "hybrid search"
-          : "full-text search"
-        const fileToolsClause = config.fileToolsEnabled
-          ? "; vault_read_file for images, canvases, and other non-markdown files"
-          : ""
-        // Read-only mode strips every write directive from the metadata —
-        // the write tools it would point at are not registered.
-        const memoryClause = config.memoryEnabled
-          ? config.readOnlyMode
-            ? `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`
-            : `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.`
-          : config.readOnlyMode
-            ? "."
-            : ". Use vault_write_note for writes."
-        const accessDescription = config.readOnlyMode
-          ? "Read and search"
-          : "Read, write, and search"
-        const markdownClause = config.readOnlyMode
-          ? "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
-          : "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
-        const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
-
-${markdownClause}`
+        const { instructions, description } = buildServerMetadata(
+          config,
+          computeEnabledToolNames(config),
+        )
         const server = new McpServer(
           {
             name: "vault-cortex",
             title: "Vault Cortex",
             version: "1.0.0",
-            description: config.memoryEnabled
-              ? `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
-              : `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`,
+            description,
             icons: SERVER_ICONS,
             websiteUrl: SERVER_WEBSITE_URL,
           },

@@ -48,7 +48,13 @@ vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isInitializeRequest: vi.fn(),
 }))
-vi.mock("../tool-definitions.js", () => ({ registerTools: vi.fn() }))
+// registerTools is stubbed (session wiring is under test, not registration),
+// but the real computeEnabledToolNames stays — buildServerMetadata derives
+// the instructions/description cross-references from it.
+vi.mock("../tool-definitions.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tool-definitions.js")>()
+  return { ...actual, registerTools: vi.fn() }
+})
 vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }))
 
 const FORWARDED_IP = "192.0.2.10"
@@ -291,6 +297,30 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(info.description).not.toContain("About Me/")
       expect(options.instructions).toContain("Profile/")
       expect(options.instructions).not.toContain("About Me/")
+    })
+
+    it("instructions degrade the write sentence when DISABLED_TOOLS hides vault_update_memory", async () => {
+      const disabledConfig = loadConfig({
+        DISABLED_TOOLS: "vault_update_memory",
+      })
+      const harness = await setupHarness({ config: disabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      // The memory layer is still on (vault_get_memory serves reads), but
+      // the write directive falls back to vault_write_note alone.
+      expect(options?.instructions).toContain("vault_get_memory")
+      expect(options?.instructions).toContain(
+        " Use vault_write_note for writes.",
+      )
+      expect(options?.instructions).not.toContain("vault_update_memory")
     })
 
     it("instructions omit vault_read_file when FILE_TOOLS_ENABLED is false", async () => {
