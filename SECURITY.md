@@ -107,9 +107,12 @@ mechanism-level detail.
 - Atomic writes: temp-then-rename — readers never see partial content
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
+- First-sync gate (remote image): the init chain runs Obsidian Sync to
+  completion before the server starts, so memory bootstrap can never race
+  an incoming sync
 - Memory shrink guard: refuses writes that would remove >50% of a file's
-  bytes — defense-in-depth against clobber-shaped write bugs (the remote
-  image's first-sync gate closes the Obsidian Sync startup race itself)
+  bytes — defense-in-depth against bugs that would silently erase most of
+  a memory file
 - Memory idempotency guard: exact-bullet dedup prevents duplicates from
   retried writes after gateway timeouts
 - Memory line-break rejection: entry, date, and section reject `\r`/`\n`
