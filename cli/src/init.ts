@@ -9,6 +9,7 @@ import {
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
   startCommand,
+  type StartStatus,
 } from "./messages.js"
 import {
   healthPollTimeoutMs,
@@ -239,13 +240,14 @@ const reportWrites = (
 /**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → user
- * consents → docker run succeeds → health check passes. Returns true only
- * when the server is confirmed up.
+ * consents → docker run succeeds → health check passes. Returns "running"
+ * when the server is confirmed up, "starting" when the container launched
+ * but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
   params: { targetDir: string; port: number; mode: Mode; vaultPath?: string },
   deps: InitDeps,
-): Promise<boolean> => {
+): Promise<StartStatus> => {
   const { targetDir, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
@@ -258,10 +260,10 @@ const offerDockerRun = async (
           })
         : buildDaemonNotRunningMessage(`, then run:\n  ${startHint}`),
     )
-    return false
+    return "not-started"
   }
   const startNow = await prompts.confirm("Start the server now?", true)
-  if (!startNow) return false
+  if (!startNow) return "not-started"
   const containerStarted = docker.dockerRun({
     mode,
     envFilePath: join(targetDir, ".env"),
@@ -270,7 +272,7 @@ const offerDockerRun = async (
   })
   if (!containerStarted) {
     prompts.error("docker run failed — see output above.")
-    return false
+    return "not-started"
   }
 
   const spinner = prompts.spinner()
@@ -284,10 +286,10 @@ const offerDockerRun = async (
   )
   if (!healthy) {
     spinner.stop(healthTimeoutMessage(mode, timeoutMs))
-    return false
+    return "starting"
   }
   spinner.stop("Server is up — health check passed.")
-  return true
+  return "running"
 }
 
 // Local flow: resolve vault path → resolve target dir → generate token →
@@ -396,11 +398,17 @@ const runLocalInit = async (
   const port = readEnvPort(join(targetDir, ".env"))
 
   // --yes is for scripts/CI, so it never starts Docker.
-  const started = flags.yes
-    ? false
+  const startStatus: StartStatus = flags.yes
+    ? "not-started"
     : await offerDockerRun({ targetDir, port, mode: "local", vaultPath }, deps)
   prompts.print(
-    buildLocalConnectMessage({ targetDir, token, started, port, tokenWritten }),
+    buildLocalConnectMessage({
+      targetDir,
+      token,
+      startStatus,
+      port,
+      tokenWritten,
+    }),
   )
   return 0
 }
@@ -509,13 +517,13 @@ const runRemoteInit = async (
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
-  const started =
+  const startStatus: StartStatus =
     obsidianAuthToken === ""
-      ? false
+      ? "not-started"
       : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
-  if (started) {
+  if (startStatus === "running") {
     await reportPublicUrlProbe(effectivePublicUrl, {
       prompts,
       fetchFn: deps.fetchFn,
@@ -526,7 +534,7 @@ const runRemoteInit = async (
       targetDir,
       token,
       publicUrl: effectivePublicUrl,
-      started,
+      startStatus,
       obsidianTokenMissing: obsidianAuthToken === "",
       tokenWritten,
     }),

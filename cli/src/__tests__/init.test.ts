@@ -7,11 +7,13 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit } from "../init.js"
-import type { DockerRunner } from "../docker.js"
+import { pollHealth, type DockerRunner } from "../docker.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
+
+vi.mock("../docker.js", { spy: true })
 import {
   createScriptedPrompts,
   dockerDaemonOnly,
@@ -1262,5 +1264,71 @@ describe("runInit guided optional settings", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
       "SYNC_MODE=pull-only",
     )
+  })
+})
+
+describe("runInit health-timeout returns starting status", () => {
+  it("shows 'starting in the background' when the local health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      [], // no optional settings
+      true, // start the server now
+    ])
+
+    const exitCode = await runInit(
+      {},
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The connect message must show the "starting" copy, not "Start the server:".
+    expect(scripted.prints[0]).toContain("starting in the background")
+    expect(scripted.prints[0]).not.toContain("Start the server:")
+  })
+
+  it("skips the public URL probe when the remote health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // pollHealth was mocked — fetchRecorder was never called. The public URL
+    // probe only runs for "running", not "starting", so no URLs were fetched.
+    expect(fetchedUrls).toEqual([])
+    // The connect message must show "starting", not the running or not-started copy.
+    expect(scripted.prints[0]).toContain("starting in the background")
+    expect(scripted.prints[0]).not.toContain("Start the server:")
+    expect(scripted.prints[0]).not.toContain("The server is running.")
   })
 })
