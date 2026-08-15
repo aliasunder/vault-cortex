@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { z } from "zod"
-import { registerTools } from "../tool-definitions.js"
+import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
 import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -14,41 +14,23 @@ import { logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
-const READ_ONLY_TOOLS = [
-  TOOL_NAMES.VAULT_READ_NOTE,
-  TOOL_NAMES.VAULT_LIST_NOTES,
-  TOOL_NAMES.VAULT_SEARCH,
-  TOOL_NAMES.VAULT_SEARCH_BY_TAG,
-  TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
-  TOOL_NAMES.VAULT_LIST_TASKS,
-  TOOL_NAMES.VAULT_LIST_TAGS,
-  TOOL_NAMES.VAULT_RECENT_NOTES,
-  TOOL_NAMES.VAULT_GET_MEMORY,
-  TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
-  TOOL_NAMES.VAULT_MEMORY_RECALL,
-  TOOL_NAMES.VAULT_GET_DAILY_NOTE,
-  TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
-  TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-  TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
-  TOOL_NAMES.VAULT_GET_BACKLINKS,
-  TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
-  TOOL_NAMES.VAULT_FIND_ORPHANS,
-  TOOL_NAMES.VAULT_READ_FILE,
-  TOOL_NAMES.VAULT_LIST_FILES,
-] as const
+// Expected sets derive from the registry so a new tool joins them
+// automatically; the literal spot-checks in tool-registry.test.ts anchor the
+// classification itself, so a registry typo cannot self-certify here.
+const READ_ONLY_TOOLS = TOOL_REGISTRY.filter(
+  (entry) => entry.annotations.readOnlyHint,
+).map((entry) => entry.name)
 
-const DESTRUCTIVE_TOOLS = [
-  TOOL_NAMES.VAULT_WRITE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_SPAN,
-  TOOL_NAMES.VAULT_MOVE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_MEMORY,
-  TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
-] as const
+const DESTRUCTIVE_TOOLS = TOOL_REGISTRY.filter(
+  (entry) => entry.annotations.destructiveHint,
+).map((entry) => entry.name)
 
 // Writers that only add to the vault — never overwrite or delete existing
 // content — so destructiveHint must be false even though readOnlyHint is too.
-const ADDITIVE_WRITE_TOOLS = [TOOL_NAMES.VAULT_UPDATE_MEMORY] as const
+const ADDITIVE_WRITE_TOOLS = TOOL_REGISTRY.filter(
+  (entry) =>
+    !entry.annotations.readOnlyHint && !entry.annotations.destructiveHint,
+).map((entry) => entry.name)
 
 const WRITE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
@@ -1125,18 +1107,9 @@ describe("FILE_TOOLS_ENABLED=false", () => {
 })
 
 describe("READONLY_MODE=true", () => {
-  const MUTATING_TOOLS = [
-    TOOL_NAMES.VAULT_WRITE_NOTE,
-    TOOL_NAMES.VAULT_PATCH_NOTE,
-    TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-    TOOL_NAMES.VAULT_DELETE_SPAN,
-    TOOL_NAMES.VAULT_DELETE_NOTE,
-    TOOL_NAMES.VAULT_MOVE_NOTE,
-    TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
-    TOOL_NAMES.VAULT_UPDATE_MEMORY,
-    TOOL_NAMES.VAULT_DELETE_MEMORY,
-    TOOL_NAMES.VAULT_UPDATE_TASK,
-  ] as const
+  const MUTATING_TOOLS = TOOL_REGISTRY.filter(
+    (entry) => !entry.annotations.readOnlyHint,
+  ).map((entry) => entry.name)
 
   const registerReadOnly = (
     extraEnv: Record<string, string> = {},
@@ -1921,4 +1894,45 @@ describe("DISABLED_TOOLS", () => {
     expect(description).not.toContain("vault_update_memory")
     expect(description).not.toContain("pruning entries")
   })
+})
+
+describe("flag-combination matrix", () => {
+  const BOOL_VALUES = ["false", "true"] as const
+  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) =>
+    BOOL_VALUES.flatMap((memoryValue) =>
+      BOOL_VALUES.flatMap((fileValue) =>
+        BOOL_VALUES.map((embeddingValue) => ({
+          READONLY_MODE: readonlyValue,
+          MEMORY_ENABLED: memoryValue,
+          FILE_TOOLS_ENABLED: fileValue,
+          EMBEDDING_ENABLED: embeddingValue,
+        })),
+      ),
+    ),
+  )
+  const disabledToolsCombos = [
+    { DISABLED_TOOLS: "vault_search" },
+    { READONLY_MODE: "true", DISABLED_TOOLS: "vault_get_daily_note" },
+    { MEMORY_ENABLED: "false", DISABLED_TOOLS: "vault_write_note" },
+  ]
+
+  it.each([...flagCombos, ...disabledToolsCombos])(
+    "registration matches computeEnabledToolNames for %o",
+    (env) => {
+      const server = { registerTool: vi.fn() }
+      const config = loadConfig(env)
+      registerTools({
+        server: server as unknown as McpServer,
+        vaultPath: "/test-vault",
+        search: {} as SearchIndex,
+        logger,
+        config,
+      })
+      const registeredCalls = server.registerTool.mock
+        .calls as RegisterToolCall[]
+      const registeredNames = registeredCalls.map(([toolName]) => toolName)
+      expect(new Set(registeredNames)).toEqual(computeEnabledToolNames(config))
+      expect(registeredNames).toHaveLength(computeEnabledToolNames(config).size)
+    },
+  )
 })
