@@ -9,35 +9,13 @@ import { noteMover } from "../../vault-operations/note-mover.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describeTextWindow,
   safeHandler,
   safeHandlerContent,
 } from "./tool-helpers.js"
-
-const READ_TOOL_NAMES = {
-  VAULT_READ_NOTE: "vault_read_note",
-  VAULT_LIST_NOTES: "vault_list_notes",
-} as const
-
-const WRITE_TOOL_NAMES = {
-  VAULT_WRITE_NOTE: "vault_write_note",
-  VAULT_PATCH_NOTE: "vault_patch_note",
-  VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
-  VAULT_DELETE_SPAN: "vault_delete_span",
-  VAULT_DELETE_NOTE: "vault_delete_note",
-  VAULT_MOVE_NOTE: "vault_move_note",
-  VAULT_UPDATE_PROPERTIES: "vault_update_properties",
-} as const
-
-const TOOL_NAMES = { ...READ_TOOL_NAMES, ...WRITE_TOOL_NAMES } as const
-
-export {
-  TOOL_NAMES as VAULT_CRUD_TOOL_NAMES,
-  READ_TOOL_NAMES as VAULT_CRUD_READ_TOOL_NAMES,
-  WRITE_TOOL_NAMES as VAULT_CRUD_WRITE_TOOL_NAMES,
-}
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note

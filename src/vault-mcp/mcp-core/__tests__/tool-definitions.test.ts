@@ -4,7 +4,8 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { z } from "zod"
-import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
+import { registerTools } from "../tool-definitions.js"
+import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
@@ -98,6 +99,12 @@ const requireCall = (name: string): RegisterToolCall => {
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
     expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
+  })
+
+  it("registered tools and TOOL_REGISTRY entries are the same set", () => {
+    const registeredNames = calls.map(([toolName]) => toolName).toSorted()
+    const registryNames = TOOL_REGISTRY.map((entry) => entry.name).toSorted()
+    expect(registeredNames).toEqual(registryNames)
   })
 
   it.each(ALL_TOOL_NAMES)("registers %s", (name) => {

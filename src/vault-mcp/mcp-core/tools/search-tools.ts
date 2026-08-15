@@ -1,6 +1,7 @@
 /** Search tool registrations — hybrid (FTS + vector), tag, property, folder, and graph queries. */
 
 import { z } from "zod"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import {
@@ -8,22 +9,6 @@ import {
   formatNoteMetadata,
   dateFilterSchema,
 } from "./tool-helpers.js"
-
-const TOOL_NAMES = {
-  VAULT_SEARCH: "vault_search",
-  VAULT_SEARCH_BY_TAG: "vault_search_by_tag",
-  VAULT_LIST_TAGS: "vault_list_tags",
-  VAULT_RECENT_NOTES: "vault_recent_notes",
-  VAULT_SEARCH_BY_FOLDER: "vault_search_by_folder",
-  VAULT_LIST_PROPERTY_KEYS: "vault_list_property_keys",
-  VAULT_LIST_PROPERTY_VALUES: "vault_list_property_values",
-  VAULT_SEARCH_BY_PROPERTY: "vault_search_by_property",
-  VAULT_GET_BACKLINKS: "vault_get_backlinks",
-  VAULT_GET_OUTGOING_LINKS: "vault_get_outgoing_links",
-  VAULT_FIND_ORPHANS: "vault_find_orphans",
-} as const
-
-export { TOOL_NAMES as SEARCH_TOOL_NAMES }
 
 export const registerSearchTools = ({
   server,

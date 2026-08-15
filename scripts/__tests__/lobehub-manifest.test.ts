@@ -6,7 +6,7 @@ import {
   type LobehubManifest,
 } from "../lobehub-manifest.js"
 import { loadConfig } from "../../src/vault-mcp/config.js"
-import { TOOL_NAMES } from "../../src/vault-mcp/mcp-core/tool-definitions.js"
+import { TOOL_NAMES } from "../../src/vault-mcp/mcp-core/tool-registry.js"
 import { PROMPT_NAMES } from "../../src/vault-mcp/mcp-core/prompt-definitions.js"
 import packageJson from "../../package.json" with { type: "json" }
 import serverJson from "../../server.json" with { type: "json" }

@@ -4,19 +4,13 @@ import { z } from "zod"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describeTextWindow,
   safeHandler,
   safeHandlerContent,
 } from "./tool-helpers.js"
-
-const TOOL_NAMES = {
-  VAULT_READ_FILE: "vault_read_file",
-  VAULT_LIST_FILES: "vault_list_files",
-} as const
-
-export { TOOL_NAMES as FILE_TOOL_NAMES }
 
 type ContentBlock =
   | { type: "text"; text: string }

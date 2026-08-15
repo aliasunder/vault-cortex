@@ -2,27 +2,9 @@
 
 import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
-
-const READ_TOOL_NAMES = {
-  VAULT_GET_MEMORY: "vault_get_memory",
-  VAULT_LIST_MEMORY_FILES: "vault_list_memory_files",
-  VAULT_MEMORY_RECALL: "vault_memory_recall",
-} as const
-
-const WRITE_TOOL_NAMES = {
-  VAULT_UPDATE_MEMORY: "vault_update_memory",
-  VAULT_DELETE_MEMORY: "vault_delete_memory",
-} as const
-
-const TOOL_NAMES = { ...READ_TOOL_NAMES, ...WRITE_TOOL_NAMES } as const
-
-export {
-  TOOL_NAMES as MEMORY_TOOL_NAMES,
-  READ_TOOL_NAMES as MEMORY_READ_TOOL_NAMES,
-  WRITE_TOOL_NAMES as MEMORY_WRITE_TOOL_NAMES,
-}
 
 export const registerMemoryReadTools = ({
   server,

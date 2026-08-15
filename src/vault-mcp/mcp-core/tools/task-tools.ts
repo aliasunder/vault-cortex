@@ -2,25 +2,10 @@
 
 import { z } from "zod"
 import type { TaskEntry } from "../../search/search-index.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
 import { taskUpdater } from "../../vault-operations/task-updater.js"
-
-const READ_TOOL_NAMES = {
-  VAULT_LIST_TASKS: "vault_list_tasks",
-} as const
-
-const WRITE_TOOL_NAMES = {
-  VAULT_UPDATE_TASK: "vault_update_task",
-} as const
-
-const TOOL_NAMES = { ...READ_TOOL_NAMES, ...WRITE_TOOL_NAMES } as const
-
-export {
-  TOOL_NAMES as TASK_TOOL_NAMES,
-  READ_TOOL_NAMES as TASK_READ_TOOL_NAMES,
-  WRITE_TOOL_NAMES as TASK_WRITE_TOOL_NAMES,
-}
 
 /** Drops null fields, false booleans, and empty arrays from a task entry
  *  so responses stay lean — most tasks carry only a few of the optional

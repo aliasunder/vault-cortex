@@ -2,14 +2,9 @@
 
 import { z } from "zod"
 import { getDailyNote } from "../../vault-operations/daily-notes.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
-
-const TOOL_NAMES = {
-  VAULT_GET_DAILY_NOTE: "vault_get_daily_note",
-} as const
-
-export { TOOL_NAMES as DAILY_NOTE_TOOL_NAMES }
 
 export const registerDailyNoteTools = ({
   server,

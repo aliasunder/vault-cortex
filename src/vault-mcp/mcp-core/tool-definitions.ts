@@ -1,45 +1,50 @@
-/** MCP tool definitions — orchestrates tool group registration. */
+/** MCP tool definitions — computes the enabled tool set from the registry
+ *  and orchestrates tool group registration. */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
+import { TOOL_REGISTRY } from "./tool-registry.js"
+import type { RegistryEntry, ToolName } from "./tool-registry.js"
 import {
-  VAULT_CRUD_TOOL_NAMES,
-  VAULT_CRUD_READ_TOOL_NAMES,
-  VAULT_CRUD_WRITE_TOOL_NAMES,
   registerVaultCrudReadTools,
   registerVaultCrudWriteTools,
 } from "./tools/vault-crud-tools.js"
-import { SEARCH_TOOL_NAMES, registerSearchTools } from "./tools/search-tools.js"
+import { registerSearchTools } from "./tools/search-tools.js"
 import {
-  MEMORY_TOOL_NAMES,
-  MEMORY_READ_TOOL_NAMES,
-  MEMORY_WRITE_TOOL_NAMES,
   registerMemoryReadTools,
   registerMemoryWriteTools,
 } from "./tools/memory-tools.js"
+import { registerDailyNoteTools } from "./tools/daily-note-tools.js"
 import {
-  DAILY_NOTE_TOOL_NAMES,
-  registerDailyNoteTools,
-} from "./tools/daily-note-tools.js"
-import {
-  TASK_TOOL_NAMES,
-  TASK_READ_TOOL_NAMES,
-  TASK_WRITE_TOOL_NAMES,
   registerTaskReadTools,
   registerTaskWriteTools,
 } from "./tools/task-tools.js"
-import { FILE_TOOL_NAMES, registerAssetTools } from "./tools/asset-tools.js"
+import { registerAssetTools } from "./tools/asset-tools.js"
 
-export const TOOL_NAMES = {
-  ...VAULT_CRUD_TOOL_NAMES,
-  ...SEARCH_TOOL_NAMES,
-  ...MEMORY_TOOL_NAMES,
-  ...DAILY_NOTE_TOOL_NAMES,
-  ...TASK_TOOL_NAMES,
-  ...FILE_TOOL_NAMES,
-} as const
+/** One AND-chain of independent predicates over the registry decides the
+ *  tool surface. Each axis contributes one predicate: the flag-gated groups
+ *  (memory, asset), then read-only mode — which keeps exactly the tools whose
+ *  own `readOnlyHint` annotation says they don't write. Subtractive only: no
+ *  predicate can re-enable a tool another predicate removed. */
+const isToolEnabled = (entry: RegistryEntry, config: VaultConfig): boolean => {
+  if (entry.group === "memory" && !config.memoryEnabled) return false
+  if (entry.group === "asset" && !config.fileToolsEnabled) return false
+  if (config.readOnlyMode && !entry.annotations.readOnlyHint) return false
+  return true
+}
+
+/** The set of tool names this config serves — shared by registration, the
+ *  router's server metadata, and prompt gating so they cannot disagree. */
+export const computeEnabledToolNames = (
+  config: VaultConfig,
+): ReadonlySet<ToolName> => {
+  const enabledEntries = TOOL_REGISTRY.filter((entry) =>
+    isToolEnabled(entry, config),
+  )
+  return new Set(enabledEntries.map((entry) => entry.name))
+}
 
 export const registerTools = (params: {
   server: McpServer
@@ -48,6 +53,8 @@ export const registerTools = (params: {
   logger: Logger
   config: VaultConfig
 }): void => {
+  const enabledToolNames = computeEnabledToolNames(params.config)
+
   // Read-only mode gates each mixed group's write half; the memory group is
   // additionally gated as a whole (reads included) by memoryEnabled.
   const writeToolsEnabled = !params.config.readOnlyMode
@@ -71,19 +78,5 @@ export const registerTools = (params: {
     registerAssetTools(params)
   }
 
-  const countNames = (names: Record<string, string>): number =>
-    Object.keys(names).length
-  const registeredCount =
-    countNames(VAULT_CRUD_READ_TOOL_NAMES) +
-    (writeToolsEnabled ? countNames(VAULT_CRUD_WRITE_TOOL_NAMES) : 0) +
-    countNames(SEARCH_TOOL_NAMES) +
-    (params.config.memoryEnabled
-      ? countNames(MEMORY_READ_TOOL_NAMES) +
-        (writeToolsEnabled ? countNames(MEMORY_WRITE_TOOL_NAMES) : 0)
-      : 0) +
-    countNames(DAILY_NOTE_TOOL_NAMES) +
-    countNames(TASK_READ_TOOL_NAMES) +
-    (writeToolsEnabled ? countNames(TASK_WRITE_TOOL_NAMES) : 0) +
-    (params.config.fileToolsEnabled ? countNames(FILE_TOOL_NAMES) : 0)
-  params.logger.info("registered tools", { count: registeredCount })
+  params.logger.info("registered tools", { count: enabledToolNames.size })
 }
