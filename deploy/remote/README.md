@@ -107,13 +107,14 @@ No Compose? The **docker run (no Compose)** block below starts the same
 server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
-from Obsidian's servers. The initial sync takes 30–120 seconds depending on
-vault size, and the MCP server waits for it to finish before starting — so
-on a normal boot it sees your synced vault, including your memory files,
-from its first moment. If the sync can't complete on a brand-new setup, the
-server stops rather than start with an incomplete vault (Docker retries
-automatically); on later boots it starts with the vault it already has and
-syncing keeps retrying in the background.
+from Obsidian's servers — 30–120 seconds, depending on vault size. The MCP
+server waits for that sync to finish before starting, so it begins with
+your full vault, memory files included.
+
+If the sync can't complete on a brand-new setup, the server stops instead
+of starting with an incomplete vault, and Docker retries automatically. On
+later boots the server starts with the vault it already has while sync
+catches up in the background.
 
 **docker run (no Compose):** The command the CLI runs for you, spelled out —
 for when you have neither Node.js nor Compose, invoke a different runtime
