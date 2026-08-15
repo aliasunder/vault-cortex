@@ -4,6 +4,8 @@ import { z } from "zod"
 import envVar from "env-var"
 import { DateTime } from "luxon"
 import { momentToLuxonFormat } from "./obsidian-markdown/moment-format.js"
+import { isToolName } from "./mcp-core/tool-registry.js"
+import type { ToolName } from "./mcp-core/tool-registry.js"
 
 // ── Validation ─────────────────────────────────────────────────
 
@@ -25,9 +27,9 @@ const vaultFolderName = z
       .refine((value) => !value.startsWith("/"), "absolute paths not allowed"),
   )
 
-/** Splits a comma-separated string into an array of folder names.
+/** Splits a comma-separated env value into its entries.
  *  Trims each entry; empty entries (from trailing commas) are filtered out. */
-const splitCommaSeparatedFolders = (raw: string): string[] =>
+const splitCommaSeparatedValues = (raw: string): string[] =>
   raw
     .split(",")
     .map((entry) => entry.trim())
@@ -81,6 +83,13 @@ export type VaultConfig = Readonly<{
    *  OAuth SQLite writes are unaffected — infrastructure, not vault writes.
    *  Set via READONLY_MODE. */
   readOnlyMode: boolean
+  /** Individual tools hidden from registration — the per-tool escape hatch.
+   *  Purely subtractive: it cannot re-enable a tool MEMORY_ENABLED,
+   *  FILE_TOOLS_ENABLED, or READONLY_MODE already hides, and it has no
+   *  effect on indexing, memory bootstrap, or the file watcher. Set via
+   *  DISABLED_TOOLS (comma-separated tool names; unknown names fail the
+   *  boot). */
+  disabledTools: ReadonlySet<ToolName>
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -154,13 +163,13 @@ export const loadConfig = (
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPaths = protectedPathsRaw
-    ? splitCommaSeparatedFolders(protectedPathsRaw).map((folder) =>
+    ? splitCommaSeparatedValues(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
     : [memoryDir, dailyNotesFolderOrDefault]
 
   const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-    ? splitCommaSeparatedFolders(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
+    ? splitCommaSeparatedValues(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
         (folder) => vaultFolderName.parse(folder),
       )
     : [dailyNotesFolderOrDefault, "Templates", memoryDir]
@@ -187,6 +196,23 @@ export const loadConfig = (
     .get("READONLY_MODE")
     .default("false")
     .asBool()
+
+  // Unknown names are rejected at boot: a typo that silently disabled
+  // nothing would leave the operator believing a tool is off when it isn't.
+  const disabledToolsRaw = env.DISABLED_TOOLS?.trim()
+  const disabledToolEntries = disabledToolsRaw
+    ? splitCommaSeparatedValues(disabledToolsRaw)
+    : []
+  const disabledTools: ReadonlySet<ToolName> = new Set(
+    disabledToolEntries.map((toolName) => {
+      if (!isToolName(toolName)) {
+        throw new Error(
+          `env-var: "DISABLED_TOOLS" contains an unknown tool name: "${toolName}"`,
+        )
+      }
+      return toolName
+    }),
+  )
 
   const embeddingEnabled = envVar
     .from(env)
@@ -239,6 +265,7 @@ export const loadConfig = (
     memoryEnabled,
     fileToolsEnabled,
     readOnlyMode,
+    disabledTools,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,

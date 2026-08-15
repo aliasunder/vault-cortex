@@ -1820,3 +1820,65 @@ describe("file tool handlers", () => {
     })
   })
 })
+
+describe("DISABLED_TOOLS", () => {
+  const registerWithConfig = (
+    env: Record<string, string>,
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig(env),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  it("hides exactly the named tools and keeps every other tool", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    const expectedNames = ALL_TOOL_NAMES.filter(
+      (toolName) =>
+        toolName !== TOOL_NAMES.VAULT_WRITE_NOTE &&
+        toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedNames))
+    expect(registeredNames).toHaveLength(expectedNames.length)
+  })
+
+  it("cannot resurrect a tool another flag already hides", () => {
+    const registeredCalls = registerWithConfig({
+      MEMORY_ENABLED: "false",
+      DISABLED_TOOLS: "vault_get_memory",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_GET_MEMORY)
+    // The whole 5-tool memory group is flag-hidden; the overlap adds nothing.
+    expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 5)
+  })
+
+  it("composes with READONLY_MODE — subtracts a read tool from the read-only surface", () => {
+    const readOnlyCalls = registerWithConfig({ READONLY_MODE: "true" })
+    const subtractedCalls = registerWithConfig({
+      READONLY_MODE: "true",
+      DISABLED_TOOLS: "vault_search",
+    })
+    const subtractedNames = subtractedCalls.map(([toolName]) => toolName)
+    expect(subtractedNames).not.toContain(TOOL_NAMES.VAULT_SEARCH)
+    expect(subtractedCalls).toHaveLength(readOnlyCalls.length - 1)
+  })
+
+  it("disabling every tool of a group registers none of that group", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_read_file,vault_list_files",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_READ_FILE)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_LIST_FILES)
+    expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 2)
+  })
+})

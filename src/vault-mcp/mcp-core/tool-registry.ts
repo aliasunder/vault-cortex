@@ -263,3 +263,13 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
  *  DISABLED_TOOLS entries against its keys. */
 export const TOOL_REGISTRY_BY_NAME: ReadonlyMap<ToolName, RegistryEntry> =
   new Map(TOOL_REGISTRY.map((entry) => [entry.name, entry]))
+
+const TOOL_NAME_SET: ReadonlySet<string> = new Set(
+  TOOL_REGISTRY.map((entry) => entry.name),
+)
+
+/** Type guard for a wire tool name — true exactly when the registry has an
+ *  entry for it. Config validation uses this to reject DISABLED_TOOLS typos
+ *  at boot. */
+export const isToolName = (value: string): value is ToolName =>
+  TOOL_NAME_SET.has(value)

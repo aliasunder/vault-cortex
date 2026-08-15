@@ -20,13 +20,15 @@ import { registerAssetTools } from "./tools/asset-tools.js"
 
 /** One AND-chain of independent predicates over the registry decides the
  *  tool surface. Each axis contributes one predicate: the flag-gated groups
- *  (memory, asset), then read-only mode — which keeps exactly the tools whose
- *  own `readOnlyHint` annotation says they don't write. Subtractive only: no
- *  predicate can re-enable a tool another predicate removed. */
+ *  (memory, asset), read-only mode — which keeps exactly the tools whose own
+ *  `readOnlyHint` annotation says they don't write — and the DISABLED_TOOLS
+ *  per-tool list. Subtractive only: no predicate can re-enable a tool
+ *  another predicate removed. */
 const isToolEnabled = (entry: RegistryEntry, config: VaultConfig): boolean => {
   if (entry.group === "memory" && !config.memoryEnabled) return false
   if (entry.group === "asset" && !config.fileToolsEnabled) return false
   if (config.readOnlyMode && !entry.annotations.readOnlyHint) return false
+  if (config.disabledTools.has(entry.name)) return false
   return true
 }
 

@@ -510,6 +510,62 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("DISABLED_TOOLS (comma-separated)", () => {
+    it("defaults to an empty set when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.disabledTools.size).toBe(0)
+    })
+
+    it("is an empty set when set to an empty string", () => {
+      const config = loadConfig({ DISABLED_TOOLS: "" })
+      expect(config.disabledTools.size).toBe(0)
+    })
+
+    it("parses a single tool name", () => {
+      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note" })
+      expect([...config.disabledTools]).toEqual(["vault_write_note"])
+    })
+
+    it("parses multiple tool names and trims whitespace around each", () => {
+      const config = loadConfig({
+        DISABLED_TOOLS: "vault_write_note, vault_delete_note ,vault_move_note",
+      })
+      expect([...config.disabledTools].toSorted()).toEqual([
+        "vault_delete_note",
+        "vault_move_note",
+        "vault_write_note",
+      ])
+    })
+
+    it("drops empty entries from trailing or doubled commas", () => {
+      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note,," })
+      expect([...config.disabledTools]).toEqual(["vault_write_note"])
+    })
+
+    it("deduplicates repeated names", () => {
+      const config = loadConfig({
+        DISABLED_TOOLS: "vault_write_note,vault_write_note",
+      })
+      expect([...config.disabledTools]).toEqual(["vault_write_note"])
+    })
+
+    it("rejects an unknown tool name, naming the offender", () => {
+      expect(() => loadConfig({ DISABLED_TOOLS: "vault_wrote_note" })).toThrow(
+        'env-var: "DISABLED_TOOLS" contains an unknown tool name: "vault_wrote_note"',
+      )
+    })
+
+    it("rejects an unknown name even when valid names surround it", () => {
+      expect(() =>
+        loadConfig({
+          DISABLED_TOOLS: "vault_write_note,not_a_tool,vault_delete_note",
+        }),
+      ).toThrow(
+        'env-var: "DISABLED_TOOLS" contains an unknown tool name: "not_a_tool"',
+      )
+    })
+  })
+
   describe("MAX_FILE_BYTES", () => {
     it("defaults to 50 MiB (52428800) when unset", () => {
       const config = loadConfig(EMPTY_ENV)
