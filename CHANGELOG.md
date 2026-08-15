@@ -69,6 +69,27 @@
 
 
 
+
+## [0.36.4] — 2026-08-15
+
+### Bug Fixes
+
+- **remote:** Gate service startup on first-sync completion (#440) (#441)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.36.3
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.3.6 and wire the request timeout (#443)
+
+### Maintenance
+
+- **deps:** Bump the production group with 2 updates (#438)
+- **deps:** Bump node from `ac39e4b` to `0711b54` (#437)
+- **deps-dev:** Bump the development group with 6 updates (#439)
+
 ## [0.36.3] — 2026-08-14
 
 ### Features

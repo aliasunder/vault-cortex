@@ -690,14 +690,14 @@ describe("runRestart", () => {
         prompts: scripted.prompts,
         docker: dockerReady,
         fetchFn: fetchFail,
-        healthTimeoutMs: 20,
+        healthTimeoutMs: 0,
       },
     )
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
+      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
     ])
   })
 

@@ -10,7 +10,12 @@ import {
   buildRemoteConnectMessage,
   startCommand,
 } from "./messages.js"
-import { pollHealth, type DockerRunner } from "./docker.js"
+import {
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
+  pollHealth,
+  type DockerRunner,
+} from "./docker.js"
 import { reportPublicUrlProbe } from "./lifecycle.js"
 import {
   applyOptionalSettings,
@@ -272,14 +277,13 @@ const offerDockerRun = async (
   spinner.start(
     "Waiting for the server to come up (first run may take a moment)",
   )
+  const timeoutMs = healthPollTimeoutMs(mode)
   const healthy = await pollHealth(
-    { url: `http://127.0.0.1:${port}/healthz` },
+    { url: `http://127.0.0.1:${port}/healthz`, timeoutMs },
     fetchFn,
   )
   if (!healthy) {
-    spinner.stop(
-      "Server did not respond within 2 minutes — check: docker logs vault-cortex",
-    )
+    spinner.stop(healthTimeoutMessage(mode, timeoutMs))
     return false
   }
   spinner.stop("Server is up — health check passed.")

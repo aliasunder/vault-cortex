@@ -91,7 +91,7 @@ That runs, in order:
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
 3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, SCPs `docker-compose.yml` + `.env`, then `docker compose pull && up -d`
 
-On startup, Compose runs one `vault-cortex` container (the `:remote` image). Inside it, s6-overlay runs the init chain (Obsidian login → vault setup) and then supervises two processes in order: the sync process (mirrors your vault) → the MCP server. Both drop to the same UID (1000, adjustable via PUID/PGID) so they share the `/vault` volume. See [ARCHITECTURE.md § Container Startup](./ARCHITECTURE.md#container-startup) for the full diagram.
+On startup, Compose runs one `vault-cortex` container (the `:remote` image). Inside it, s6-overlay runs the init chain (Obsidian login → vault setup → first sync to completion) and then supervises two processes in order: the sync process (mirrors your vault) → the MCP server. Both drop to the same UID (1000, adjustable via PUID/PGID) so they share the `/vault` volume. See [ARCHITECTURE.md § Container Startup](./ARCHITECTURE.md#container-startup) for the full diagram.
 
 ## Verify
 

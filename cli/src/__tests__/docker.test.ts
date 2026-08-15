@@ -6,6 +6,8 @@ import {
   buildObsidianLoginArgs,
   classifyDaemonStatus,
   CONTAINER_NAME,
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
   LOCAL_IMAGE,
   pollHealth,
   probeHealth,
@@ -104,7 +106,7 @@ describe("buildDockerRunArgs", () => {
       "--health-retries",
       "5",
       "--health-start-period",
-      "60s",
+      "180s",
       "--log-driver",
       "json-file",
       "--log-opt",
@@ -187,7 +189,7 @@ describe("buildDockerRunArgs", () => {
     const retriesIndex = args.indexOf("--health-retries")
     expect(args[retriesIndex + 1]).toBe("5")
     const startPeriodIndex = args.indexOf("--health-start-period")
-    expect(args[startPeriodIndex + 1]).toBe("60s")
+    expect(args[startPeriodIndex + 1]).toBe("180s")
   })
 })
 
@@ -253,6 +255,30 @@ describe("buildObsidianLoginArgs", () => {
       REMOTE_IMAGE,
       "login",
     ])
+  })
+})
+
+describe("healthPollTimeoutMs", () => {
+  it("gives remote mode a 4-minute budget for the first-sync gate", () => {
+    expect(healthPollTimeoutMs("remote")).toBe(240_000)
+  })
+
+  it("keeps the local-mode budget at 2 minutes", () => {
+    expect(healthPollTimeoutMs("local")).toBe(120_000)
+  })
+})
+
+describe("healthTimeoutMessage", () => {
+  it("renders the local budget as 2 minutes", () => {
+    expect(healthTimeoutMessage("local", 120_000)).toBe(
+      "Server did not respond within 2 minutes — check: docker logs vault-cortex",
+    )
+  })
+
+  it("adds the first-sync hint to the remote 4-minute message", () => {
+    expect(healthTimeoutMessage("remote", 240_000)).toBe(
+      "Server did not respond within 4 minutes — check: docker logs vault-cortex (a long first sync may still be running — the container keeps starting in the background)",
+    )
   })
 })
 
