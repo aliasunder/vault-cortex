@@ -332,7 +332,7 @@ the server starts to bring the vault current, then the server rebuilds the
 search index, creates memory template files if the memory folder doesn't
 exist, and starts the file watcher. Restarting the container re-runs this
 flow (useful when testing bootstrap behavior). The command is the same for
-every setup method, since all three name the container `vault-cortex`:
+every setup method:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
