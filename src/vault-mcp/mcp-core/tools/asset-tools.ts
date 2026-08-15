@@ -78,12 +78,12 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
 }
 
 export const registerAssetTools = ({
-  server,
+  registerTool,
   vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_READ_FILE,
     {
       title: "Read File",
@@ -154,12 +154,6 @@ Search coverage: vault_search indexes markdown notes plus canvas, PDF, and suppo
             "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line. The output byte cap still applies to the window — reduce limit if it overflows.",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ path, raw, start_line, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -215,7 +209,7 @@ Search coverage: vault_search indexes markdown notes plus canvas, PDF, and suppo
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_FILES,
     {
       title: "List Files",
@@ -258,12 +252,6 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
           .min(1)
           .optional()
           .describe("Max entries returned (default 50)."),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ folder, extensions, limit }, extra) => {

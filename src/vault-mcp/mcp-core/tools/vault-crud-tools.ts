@@ -33,13 +33,14 @@ const describeDisplacedLeadingContent = ({
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
-export const registerVaultCrudReadTools = ({
-  server,
+export const registerVaultCrudTools = ({
+  registerTool,
   vaultPath,
+  search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
@@ -120,12 +121,6 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
           .describe(
             "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line.",
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async (
@@ -296,7 +291,7 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_NOTES,
     {
       title: "List Notes",
@@ -331,12 +326,6 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
             'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ folder, glob }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -354,16 +343,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
       )
     },
   )
-}
-
-export const registerVaultCrudWriteTools = ({
-  server,
-  vaultPath,
-  search,
-  logger: sessionLogger,
-  config,
-}: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
@@ -411,12 +391,6 @@ Returns: Confirmation message.`,
             "Allow overwriting an existing note (default: false — errors if file exists).",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, body, properties, overwrite }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -443,7 +417,7 @@ Returns: Confirmation message.`,
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
@@ -523,12 +497,6 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
             "Heading level (1-6) for disambiguation when multiple headings share the same text",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, operation, content, heading, heading_level }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -567,7 +535,7 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
@@ -619,12 +587,6 @@ Returns: Confirmation message with replacement count (number of occurrences repl
             "Replace all occurrences (default: false — replaces first occurrence only)",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -660,7 +622,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
@@ -712,12 +674,6 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
             "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, start_anchor, end_anchor, first_match }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -750,7 +706,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
@@ -786,12 +742,6 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
             "When true, remove the note's parent folder(s) if deleting it leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — a folder still holding any file, including a hidden one like .DS_Store, is left alone.",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -824,7 +774,7 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
@@ -870,12 +820,6 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .describe(
             "When true, remove the source folder(s) if the move leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async (
@@ -934,7 +878,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
@@ -966,12 +910,6 @@ Returns: Confirmation message.`,
           .describe(
             "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ path, properties }, extra) => {

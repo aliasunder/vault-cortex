@@ -11,13 +11,13 @@ import {
 } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
-  server,
+  registerTool,
   search,
   vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
@@ -135,12 +135,6 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             "Optional structured filters — all conditions AND-combine with each other and with the text query",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ query, filters }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -166,7 +160,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
@@ -197,12 +191,6 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
           .optional()
           .describe("Exact match only (default: false, prefix match)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ tag, exact }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -221,7 +209,7 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
@@ -234,12 +222,6 @@ Prefer vault_search_by_tag once you know which tag to query — it supports hier
 
 Returns: JSON array of { tag, count } sorted by count descending. tag omits the "#" prefix; count is unique notes with this tag.`,
       inputSchema: {},
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async (_args, extra) => {
       const reqLogger = sessionLogger.child({
@@ -258,7 +240,7 @@ Returns: JSON array of { tag, count } sorted by count descending. tag omits the 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_RECENT_NOTES,
     {
       title: "Recent Notes",
@@ -288,12 +270,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .optional()
           .describe("Max results (default 20, no upper cap)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ sort_by, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -312,7 +288,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
@@ -345,12 +321,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe("Include subfolders (default: true)"),
         limit: z.number().optional().describe("Max results (default 20)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ folder, recursive, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -370,7 +340,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
@@ -392,12 +362,6 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
           .optional()
           .describe('Restrict to a folder (e.g. "Projects")'),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ folder }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -416,7 +380,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
@@ -451,12 +415,6 @@ Returns: JSON array of { value, count } sorted by count descending.`,
             "Max values to return (default 50). Increase for high-cardinality properties.",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ key, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -476,7 +434,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
@@ -519,12 +477,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             "Max results (default 20). Increase for broad metadata queries.",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ key, value, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -544,7 +496,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
@@ -570,12 +522,6 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
             'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -600,7 +546,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
   const fileBytesClause = config.fileToolsEnabled
     ? " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read"
     : ""
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
@@ -625,12 +571,6 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
           .describe(
             'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ path }, extra) => {
@@ -663,7 +603,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
@@ -690,12 +630,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
           ),
         limit: z.number().optional().describe("Max results (default 50)"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ exclude_folders, limit }, extra) => {

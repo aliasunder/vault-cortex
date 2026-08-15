@@ -6,8 +6,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
 
-export const registerMemoryReadTools = ({
-  server,
+export const registerMemoryTools = ({
+  registerTool,
   vaultPath,
   search,
   logger: sessionLogger,
@@ -15,7 +15,7 @@ export const registerMemoryReadTools = ({
 }: ToolRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
@@ -49,12 +49,6 @@ Returns: Raw markdown text.`,
             'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Call vault_list_memory_files first to discover valid names.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ file, section }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -85,7 +79,7 @@ Returns: Raw markdown text.`,
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
@@ -100,12 +94,6 @@ Errors:
 
 Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — bytes is the on-disk file size; entry_policy is "append-only" (the default — entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter); leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
       inputSchema: {},
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async (_args, extra) => {
       const reqLogger = sessionLogger.child({
@@ -154,7 +142,7 @@ Errors:
 
 Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into ${config.readOnlyMode ? "vault_get_memory" : "vault_get_memory or vault_delete_memory"}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,
     {
       title: "Memory Recall",
@@ -181,12 +169,6 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .describe(
             "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ query, file, max_results }, extra) => {
@@ -219,17 +201,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       )
     },
   )
-}
-
-export const registerMemoryWriteTools = ({
-  server,
-  vaultPath,
-  logger: sessionLogger,
-  config,
-}: ToolRegistrationContext): void => {
-  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
-
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
@@ -288,19 +260,6 @@ Returns: Confirmation message (notes when an identical entry already existed and
           .optional()
           .describe("Optional date and position overrides"),
       },
-      annotations: {
-        readOnlyHint: false,
-        // Append-only: entries are inserted, never overwritten or deleted
-        // (see memoryStore.updateMemory) — additive, not destructive.
-        destructiveHint: false,
-        // An exact duplicate (same date + text in the same section) is a
-        // no-op, so replayed calls are safe. Nuance: `date` defaults to
-        // today, so identical args replayed across a date boundary append a
-        // second, differently-dated entry — real client retries happen
-        // within seconds, so the hint reflects the retry-safety contract.
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ file, section, entry, options }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -338,7 +297,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_DELETE_MEMORY,
     {
       title: "Delete Memory Entry",
@@ -384,12 +343,6 @@ Returns: Confirmation message.`,
           .describe(
             'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async ({ file, section, date, entry }, extra) => {

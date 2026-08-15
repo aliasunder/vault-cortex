@@ -17,15 +17,16 @@ const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
     ),
   )
 
-export const registerTaskReadTools = ({
-  server,
+export const registerTaskTools = ({
+  registerTool,
+  vaultPath,
   search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
   // ── vault_list_tasks ────────────────────────────────────────────
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_TASKS,
     {
       title: "List Tasks",
@@ -151,12 +152,6 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
             'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async (
       {
@@ -235,16 +230,9 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
       )
     },
   )
-}
-
-export const registerTaskWriteTools = ({
-  server,
-  vaultPath,
-  logger: sessionLogger,
-}: ToolRegistrationContext): void => {
   // ── vault_update_task ───────────────────────────────────────────
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
@@ -322,12 +310,6 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
           .describe(
             "Field format for new metadata (done dates, priority). Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async ({ path, block_id, line, status, priority, lane, format }, extra) => {

@@ -7,12 +7,12 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
 
 export const registerDailyNoteTools = ({
-  server,
+  registerTool,
   vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
@@ -37,12 +37,6 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
           .describe(
             'YYYY-MM-DD (e.g. "2026-05-13", "2025-12-31"). Defaults to today in the server\'s timezone. Invalid formats like "May 13" return an error.',
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ date }, extra) => {
