@@ -410,9 +410,9 @@ Some community plugins keep API keys in their settings. Server tools never
 read `.obsidian/`, and the server itself opens only the two config files
 above — synced settings otherwise just sit in the config volume.
 
-If `daily-notes.json` arrives after the server is already running — say
-you turned on one of the two sync settings above after the first boot —
-it's picked up automatically once it lands; no restart needed.
+If you turn on **Core plugin settings** syncing after the server is
+already running, `daily-notes.json` is picked up automatically once it
+lands; no restart needed.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
