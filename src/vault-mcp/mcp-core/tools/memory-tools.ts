@@ -4,16 +4,26 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler } from "./tool-helpers.js"
+import { formatOrList, safeHandler } from "./tool-helpers.js"
 
 export const registerMemoryTools = ({
   registerTool,
+  isToolEnabled,
+  whenToolEnabled,
   vaultPath,
   search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+
+  // Tools a reader follows vault_list_memory_files with — the write tools
+  // appear only when the config actually serves them.
+  const discoveryFollowUpTools = formatOrList([
+    "vault_get_memory",
+    ...(isToolEnabled("vault_update_memory") ? ["vault_update_memory"] : []),
+    ...(isToolEnabled("vault_delete_memory") ? ["vault_delete_memory"] : []),
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_GET_MEMORY,
@@ -87,7 +97,7 @@ Returns: Raw markdown text.`,
 
 Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, each file's entry policy, and its scope callout.
 
-When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${config.readOnlyMode ? "vault_get_memory. Always call this first to get valid file and section names." : "vault_get_memory, vault_update_memory, or vault_delete_memory. Always call this first to get valid file and section names, and to check a file's entry policy before pruning entries."}
+When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}. Always call this first to get valid file and section names${whenToolEnabled("vault_delete_memory", ", and to check a file's entry policy before pruning entries")}.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
@@ -128,7 +138,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into ${config.readOnlyMode ? "vault_get_memory" : "vault_get_memory or vault_delete_memory"}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory${whenToolEnabled("vault_delete_memory", " or vault_delete_memory")}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
@@ -140,7 +150,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into ${config.readOnlyMode ? "vault_get_memory" : "vault_get_memory or vault_delete_memory"}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory${whenToolEnabled("vault_delete_memory", " or vault_delete_memory")}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,

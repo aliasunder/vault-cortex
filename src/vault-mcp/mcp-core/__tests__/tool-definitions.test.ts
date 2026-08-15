@@ -1881,4 +1881,33 @@ describe("DISABLED_TOOLS", () => {
     expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_LIST_FILES)
     expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 2)
   })
+
+  it("a disabled tool disappears from every surviving tool's description", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_patch_note",
+    })
+    for (const [, config] of registeredCalls) {
+      expect(config.description).not.toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+    }
+    // Guard against a vacuous pass: with nothing disabled, the reference IS
+    // present (vault_read_note's edit guidance names vault_patch_note).
+    const enabledCalls = registerWithConfig({})
+    const readNoteCall = enabledCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    expect(readNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+  })
+
+  it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_update_memory,vault_delete_memory",
+    })
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
+    const description = listFilesCall?.[1].description
+    expect(description).toContain("BEFORE calling vault_get_memory.")
+    expect(description).not.toContain("vault_update_memory")
+    expect(description).not.toContain("pruning entries")
+  })
 })

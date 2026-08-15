@@ -24,7 +24,7 @@ import { registerAssetTools } from "./tools/asset-tools.js"
  *  `readOnlyHint` annotation says they don't write — and the DISABLED_TOOLS
  *  per-tool list. Subtractive only: no predicate can re-enable a tool
  *  another predicate removed. */
-const isToolEnabled = (entry: RegistryEntry, config: VaultConfig): boolean => {
+const isEntryEnabled = (entry: RegistryEntry, config: VaultConfig): boolean => {
   if (entry.group === "memory" && !config.memoryEnabled) return false
   if (entry.group === "asset" && !config.fileToolsEnabled) return false
   if (config.readOnlyMode && !entry.annotations.readOnlyHint) return false
@@ -38,7 +38,7 @@ export const computeEnabledToolNames = (
   config: VaultConfig,
 ): ReadonlySet<ToolName> => {
   const enabledEntries = TOOL_REGISTRY.filter((entry) =>
-    isToolEnabled(entry, config),
+    isEntryEnabled(entry, config),
   )
   return new Set(enabledEntries.map((entry) => entry.name))
 }
@@ -86,8 +86,11 @@ export const registerTools = (params: {
   config: VaultConfig
 }): void => {
   const enabledToolNames = computeEnabledToolNames(params.config)
+  const isToolEnabled = (name: ToolName): boolean => enabledToolNames.has(name)
   const context: ToolRegistrationContext = {
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
+    isToolEnabled,
+    whenToolEnabled: (name, text) => (isToolEnabled(name) ? text : ""),
     vaultPath: params.vaultPath,
     search: params.search,
     logger: params.logger,

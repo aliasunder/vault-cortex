@@ -8,6 +8,8 @@ import { safeHandler } from "./tool-helpers.js"
 
 export const registerDailyNoteTools = ({
   registerTool,
+  isToolEnabled,
+  whenToolEnabled,
   vaultPath,
   logger: sessionLogger,
   config,
@@ -21,7 +23,7 @@ export const registerDailyNoteTools = ({
 Example: vault_get_daily_note({ date: "2026-05-13" })
 Example: vault_get_daily_note({}) — returns today's daily note
 
-When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. ${config.readOnlyMode ? "" : "To append content to a daily note section, use the returned path with vault_patch_note. "}Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).
+When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. ${whenToolEnabled("vault_patch_note", "To append content to a daily note section, use the returned path with vault_patch_note. ")}Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).
 
 Parameters:
 - date is ISO YYYY-MM-DD (e.g. "2026-05-13"). Defaults to today in the server's local timezone. Past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet. The path is derived from the server's daily-notes settings, so callers never need to construct daily note paths manually.
@@ -29,7 +31,7 @@ Parameters:
 Errors:
 - "invalid date" — use YYYY-MM-DD format (e.g. "2026-05-13", not "May 13")
 
-Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). ${config.readOnlyMode ? "When exists is false, the note has not been created yet." : "When exists is false, create the note with vault_write_note using the returned path."}`,
+Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). ${isToolEnabled("vault_write_note") ? "When exists is false, create the note with vault_write_note using the returned path." : "When exists is false, the note has not been created yet."}`,
       inputSchema: {
         date: z
           .string()

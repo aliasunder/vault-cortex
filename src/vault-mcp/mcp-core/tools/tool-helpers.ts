@@ -26,10 +26,27 @@ export type RegisterGatedTool = <
 
 export type ToolRegistrationContext = {
   registerTool: RegisterGatedTool
+  /** True when the config serves the named tool. Description builders key
+   *  cross-references on this instead of on config flags, so a reference
+   *  disappears whenever its target does — for any reason, including axes
+   *  added later. */
+  isToolEnabled: (name: ToolName) => boolean
+  /** The text when the named tool is enabled, "" otherwise — the building
+   *  block for availability-keyed description cross-references. */
+  whenToolEnabled: (name: ToolName, text: string) => string
   vaultPath: string
   search: SearchIndex
   logger: Logger
   config: VaultConfig
+}
+
+/** Formats tool names as a prose alternatives list — "A", "A or B",
+ *  "A, B, or C" — for descriptions that offer several follow-up tools. */
+export const formatOrList = (names: readonly string[]): string => {
+  if (names.length <= 2) return names.join(" or ")
+  const allButLast = names.slice(0, -1).join(", ")
+  const last = names.slice(-1).join("")
+  return `${allButLast}, or ${last}`
 }
 
 // Frontmatter keys that are already top-level fields on NoteMetadata.

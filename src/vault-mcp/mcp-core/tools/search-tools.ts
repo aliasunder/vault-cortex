@@ -12,6 +12,7 @@ import {
 
 export const registerSearchTools = ({
   registerTool,
+  whenToolEnabled,
   search,
   vaultPath,
   logger: sessionLogger,
@@ -540,12 +541,14 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
     },
   )
 
-  const fileReadableClause = config.fileToolsEnabled
-    ? " readable via vault_read_file"
-    : ""
-  const fileBytesClause = config.fileToolsEnabled
-    ? " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read"
-    : ""
+  const fileReadableClause = whenToolEnabled(
+    "vault_read_file",
+    " readable via vault_read_file",
+  )
+  const fileBytesClause = whenToolEnabled(
+    "vault_read_file",
+    " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
+  )
   registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
@@ -611,7 +614,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
 
 Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance — surfacing notes to integrate into the graph.${config.readOnlyMode ? "" : " Link an orphan by mentioning it from a relevant note with vault_patch_note."}
+When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabled("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
