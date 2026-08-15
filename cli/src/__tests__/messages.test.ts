@@ -25,7 +25,7 @@ const expectedSectionRule = (label: string): string =>
 const localDefaults = {
   targetDir: "/home/user/vault-cortex",
   token: "abc123deadbeef",
-  started: false,
+  startStatus: "not-started" as const,
   port: 8000,
   tokenWritten: true,
 }
@@ -34,7 +34,7 @@ const remoteDefaults = {
   targetDir: "/home/user/vault-cortex",
   token: "abc123deadbeef",
   publicUrl: "https://vault.example.com",
-  started: false,
+  startStatus: "not-started" as const,
   obsidianTokenMissing: false,
   tokenWritten: true,
 }
@@ -65,20 +65,20 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain("http://localhost:9999/healthz")
   })
 
-  it("shows 'The server is running.' when started is true", () => {
+  it("shows 'The server is running.' when startStatus is running", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
-      started: true,
+      startStatus: "running",
     })
 
     expect(message).toContain("The server is running.")
     expect(message).not.toContain("Start the server:")
   })
 
-  it("shows the start command when started is false", () => {
+  it("shows the start command when startStatus is not-started", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
-      started: false,
+      startStatus: "not-started",
     })
 
     // Bound to the start line specifically — the update-guidance block also
@@ -154,10 +154,31 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain("curl http://localhost:8000/healthz")
   })
 
-  it("omits the smoke test once the server is started", () => {
+  it("shows 'starting in the background' when startStatus is starting", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
-      started: true,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("starting in the background")
+    expect(message).toContain("docker logs vault-cortex")
+    expect(message).not.toContain("Start the server:")
+    expect(message).not.toContain("npx vault-cortex@latest start")
+  })
+
+  it("shows the smoke test when startStatus is starting", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("Smoke test:")
+  })
+
+  it("omits the smoke test once the server is running", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      startStatus: "running",
     })
 
     // The CLI just health-checked this exact URL. The curl auth guidance must
@@ -199,10 +220,10 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).toContain("https://my-vault.example.com/healthz")
   })
 
-  it("shows 'The server is running.' when started is true", () => {
+  it("shows 'The server is running.' when startStatus is running", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
-      started: true,
+      startStatus: "running",
     })
 
     expect(message).toContain("The server is running.")
@@ -210,10 +231,32 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).not.toContain("Fill in OBSIDIAN_AUTH_TOKEN")
   })
 
+  it("shows 'starting in the background' when startStatus is starting", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("starting in the background")
+    expect(message).toContain("docker logs vault-cortex")
+    expect(message).not.toContain("Start the server:")
+    expect(message).not.toContain("npx vault-cortex@latest start")
+  })
+
+  it("shows the health check block when startStatus is starting", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("Health check — works from any device")
+    expect(message).not.toContain("Smoke test:")
+  })
+
   it("shows 'Fill in OBSIDIAN_AUTH_TOKEN' when obsidianTokenMissing and not started", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
-      started: false,
+      startStatus: "not-started",
       obsidianTokenMissing: true,
     })
 
@@ -225,7 +268,7 @@ describe("buildRemoteConnectMessage", () => {
   it("shows the start command when not started and obsidian token present", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
-      started: false,
+      startStatus: "not-started",
       obsidianTokenMissing: false,
     })
 
@@ -323,10 +366,10 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).not.toContain("works from any device")
   })
 
-  it("rewords the health check as the any-device check once started", () => {
+  it("rewords the health check as the any-device check once running", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
-      started: true,
+      startStatus: "running",
     })
 
     // Unlike local, the command survives a confirmed start: the CLI verified
