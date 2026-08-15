@@ -424,7 +424,7 @@ throughout the codebase.
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-07-20; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-08-15; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. Several are lint-enforced in `eslint.config.ts`
@@ -461,6 +461,14 @@ undefined) return`) or schema validation to narrow types instead.
   ("this can't be null") behind an expression that looks like "null is
   fine, just use empty." A throw documents the invariant explicitly and
   surfaces the bug immediately if the assumption ever breaks.
+- Model states in the type system — reach for a discriminated union, a
+  user-defined type guard, or `never`-exhaustiveness before reshaping
+  an API to route around the checker. Optional fields doc-commented
+  "present only in mode X" are the cue for a discriminated union; a
+  callback param with a closed set of instantiations becomes a
+  discriminated field naming the domain choice. Keep `x is T` guard
+  bodies to one boolean expression — predicates are compiler-trusted,
+  not verified.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
@@ -478,11 +486,28 @@ undefined) return`) or schema validation to narrow types instead.
   mutation (`date.setDate()`). Use `DateTime.now()` for current time,
   `.toISO()` for timestamps, `.toISODate()` for date-only strings,
   `.toUnixInteger()` for epoch seconds.
+- Platform built-ins over manual string parsing — before hand-rolling
+  `split`/slice/regex over structured data (URLs, paths, headers,
+  dates), check Node 24's stdlib (e.g. static `URL.parse` returning
+  `URL | null`). A regex is the floor only when no built-in parser
+  exists for the format, and then it gets a doc comment.
+- Standalone scripts are TypeScript (`.ts`, tsx-compatible) — never
+  `.mjs`/`.js`; `scripts/` meets the same type-safety and readability
+  bar as `src/`.
+- Default-on features get an explicit sentinel off switch
+  (`SYNC_CONFIGS=none`), never empty/unset semantics — the sentinel is
+  greppable and keeps `${VAR:-default}` compose interpolation working.
+- Public config switches are named for the user's mental model
+  (`READONLY_MODE` — the term users search for), not internal family
+  symmetry (`WRITE_TOOLS_ENABLED`); consistency governs internal code,
+  not the public surface.
 - Immutable by default. Avoid `let` — carry state in a reduce that
   returns a _new_ accumulator each step, use early returns, or
   destructure conditional results. A bit of duplication is acceptable to
   keep code immutable and clear. When `let` is necessary (caching, parser
   state), add a comment justifying why mutation is needed here.
+  Readability is the deciding gate — never refactor working, readable
+  code into a more "functional" shape for its own sake.
 - Don't disguise mutation as a fold. A `reduce` that mutates its
   accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
   the worst of both worlds — it reads as declarative but isn't, so a
@@ -538,8 +563,14 @@ undefined) return`) or schema validation to narrow types instead.
 - Function and helper names state what they _do_, specifically — a reader
   should know what a function does without reading its body
   (`collectWikilinksFrom` not `collect`,
-  `convertFrontmatterDatesToIsoStrings` not `normalizeDates`). A docstring
+  `convertFrontmatterDatesToIsoStrings` not `normalizeDates`).
+  Value-returning functions name what they _return_ (`getPdfEngine`,
+  not `ensurePdfEngine` — "ensure" reads side-effect when the return is
+  the point). A docstring
   complements a self-documenting name; it never excuses a vague one.
+- No planning-session coinages in identifiers — a term invented during
+  design means nothing to a stranger reading one file; sweep new
+  identifiers before landing.
 - Regex constants get doc comments explaining what they match.
   Inline regexes used more than once should be extracted to a named
   `const` with a doc comment.
@@ -757,11 +788,35 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   identical assertion shapes (input → expected).
 - Error paths and boundaries are covered, not just the happy path.
   Zero/one/empty inputs expose the special-case bugs.
-- Never mock time/scheduling internals to make retry logic "testable"
-  — wrap the retrying operation behind a named function and mock the
-  wrapper to call through with controlled outcomes.
+- Prefer a controllable seam over fake timers for retry/polling logic
+  — an injected timeout/deadline param, or a named wrapper around the
+  retrying operation mocked with controlled outcomes. Fake timers
+  (`vi.useFakeTimers`) are legitimate when timing is itself the
+  contract (debounce, TTL, deadline expiry) or when a wrapper seam
+  would exist only for tests — but assert outcomes after advancing
+  the clock, never the tick-by-tick schedule.
 - Production type rules apply in tests: no `!` (guard or restructure
   instead) — but `?.` and `?? fallback` are legitimate narrowing.
+- Test-owned expected values for drift-catching tests — when a test
+  verifies the content of a production constant (prompt text, config
+  defaults, rendered output), define the expected value in the test
+  file; importing the constant means both sides drift together and the
+  test passes trivially on any change.
+- Assert mock interactions through the matcher API —
+  `toHaveBeenCalledTimes(1)` + `toHaveBeenCalledWith(exactArgs)` —
+  never positional call-log readback (`mock.calls[0][0]` + `toEqual`).
+  When an expected value needs derivation (resolved paths, URLs),
+  derive it test-side with the same mechanism production uses —
+  production must not be its own oracle.
+- Production code never carries test-serving structure — no cache
+  keying, extra branches, or widened semantics whose only job is
+  isolating tests from shared state. Tests own their isolation
+  (`vi.resetModules`, factory-created instances per test); review
+  findings proposing production changes for test-only scenarios get
+  declined.
+- CI shell snippets are tested under `bash -e` before committing —
+  Actions runs `run:` steps with errexit, so a failing
+  `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
 
 ## SST conventions
 
@@ -819,6 +874,19 @@ the sentence? If not, rewrite it.
   capabilities are stated conditionally.
 - Mechanism language is earned — "caches", "batches", "switches
   automatically" only when the code implements that mechanism.
+- Corrections leave no residue — fixing an over-claim states the
+  current design directly, never a walk-back parenthetical explaining
+  what "actually" handles it; in inventory-style sections, one
+  mechanism per bullet.
+- Concrete referents at the point of use — when a specific name exists
+  (a UI toggle, a filename, a section title), state it where the reader
+  is; a "see below" names its target. Vague referents force backwards
+  sentences — lead with the reader's action as the conditional's
+  subject (cause → effect).
+- Opt-outs surface at the point of decision — a section describing
+  opinionated behavior (auto-created files, background writes) states
+  its disable switch inline in that section, not only in the config
+  reference.
 
 Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
