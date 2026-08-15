@@ -635,8 +635,9 @@ graph LR
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
    with `--device-name`, plus optional sync-config) → `init-first-sync`
-   (one-shot `ob sync` run to _completion_, with retries — failure
-   handling below). Any fatal init failure stops the container
+   (one-shot `ob sync` run to _completion_, with retries; failure
+   branches under "`init-first-sync` gates vault state" below). Any
+   fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
    (`ob sync --continuous`). Stores sync state in the config volume at
