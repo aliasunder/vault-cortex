@@ -4,11 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runConfigure } from "../configure.js"
-import {
-  healthTimeoutMessage,
-  type DockerRunParams,
-  type DockerRunner,
-} from "../docker.js"
+import type { DockerRunParams, DockerRunner } from "../docker.js"
 import {
   createScriptedPrompts,
   dockerDown,
@@ -412,7 +408,7 @@ describe("runConfigure with picked settings", () => {
     // container started (spinner ran) and the poll timed out.
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      `stop: ${healthTimeoutMessage("local", 0)}`,
+      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
     ])
   })
 

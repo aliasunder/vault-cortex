@@ -3,11 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
-import {
-  healthTimeoutMessage,
-  type DockerLogsParams,
-  type DockerRunner,
-} from "../docker.js"
+import type { DockerLogsParams, DockerRunner } from "../docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
@@ -694,14 +690,14 @@ describe("runRestart", () => {
         prompts: scripted.prompts,
         docker: dockerReady,
         fetchFn: fetchFail,
-        healthTimeoutMs: 20,
+        healthTimeoutMs: 0,
       },
     )
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      `stop: ${healthTimeoutMessage("local", 20)}`,
+      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
     ])
   })
 
