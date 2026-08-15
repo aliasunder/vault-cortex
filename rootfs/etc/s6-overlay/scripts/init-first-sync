@@ -1,26 +1,20 @@
 #!/command/with-contenv sh
 # One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
-# svc-obsidian-sync and svc-vault-mcp start. Closes the fresh-volume race
-# (#440): without this gate the MCP server boots against a still-empty
-# vault, bootstraps default About Me/ templates, and bidirectional sync
-# pushes those newer defaults over the user's real memory files.
+# svc-obsidian-sync and svc-vault-mcp start — otherwise the server boots
+# against a still-empty vault, bootstraps default About Me/ templates, and
+# bidirectional sync pushes them over the user's real memory files (#440).
 #
-# Failure policy after retries are exhausted, keyed on whether the server's
-# memory bootstrap could clobber real files. Bootstrap writes templates only
-# when the memory layer is enabled AND the memory folder is missing — so
-# that exact combination (which covers both a fresh empty vault and a
-# partially synced one where the folder hasn't arrived yet) is the only
-# dangerous state:
-# - VAULT_NAME set + memory enabled + memory folder missing: FATAL.
-#   Starting the server would create templates that sync pushes over the
-#   user's real memory files once it recovers; S6_BEHAVIOUR_IF_STAGE2_FAILS=2
-#   stops the container and the restart policy owns the outer retry.
-# - Memory folder present, or memory layer disabled: warn and continue —
-#   bootstrap is a no-op, so the server can safely serve the existing vault
-#   while continuous sync keeps retrying.
-# - VAULT_NAME unset (possibly unconfigured, matching init-setup-vault's
-#   skip): single attempt, warn and continue — preserves the pre-gate
-#   behavior for unconfigured vaults.
+# Failure policy once attempts are exhausted, keyed on whether that clobber
+# is possible — bootstrap writes templates only when the memory layer is
+# enabled AND the memory folder is missing (fresh volume, or partial sync
+# where the folder hasn't arrived), so:
+# - VAULT_NAME set + memory enabled + folder missing: FATAL —
+#   S6_BEHAVIOUR_IF_STAGE2_FAILS=2 stops the container; the restart policy
+#   owns the outer retry.
+# - Folder present, or memory disabled: warn and continue — bootstrap is a
+#   no-op; continuous sync keeps retrying.
+# - VAULT_NAME unset: single attempt, warn and continue — matches
+#   init-setup-vault's skip for unconfigured vaults.
 set -e
 
 VAULT_PATH="${VAULT_PATH:-/vault}"
