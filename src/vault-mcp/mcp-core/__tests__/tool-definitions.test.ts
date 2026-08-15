@@ -1882,20 +1882,31 @@ describe("DISABLED_TOOLS", () => {
     expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 2)
   })
 
-  it("a disabled tool disappears from every surviving tool's description", () => {
+  it("a disabled tool disappears from availability-keyed cross-references", () => {
+    // vault_read_note's edit guidance is an availability-keyed reference:
+    // it names vault_patch_note only while that tool is served. (Mentions in
+    // prose that was never flag-conditional — e.g. vault_write_note's
+    // partial-edit error remediation — deliberately stay; DISABLED_TOOLS is
+    // an escape hatch, and re-templating every sibling mention isn't worth
+    // the description churn.)
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_patch_note",
     })
-    for (const [, config] of registeredCalls) {
-      expect(config.description).not.toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
-    }
-    // Guard against a vacuous pass: with nothing disabled, the reference IS
-    // present (vault_read_note's edit guidance names vault_patch_note).
-    const enabledCalls = registerWithConfig({})
-    const readNoteCall = enabledCalls.find(
+    const readNoteCall = registeredCalls.find(
       ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
     )
-    expect(readNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+    expect(readNoteCall?.[1].description).not.toContain(
+      TOOL_NAMES.VAULT_PATCH_NOTE,
+    )
+    // Guard against a vacuous pass: with nothing disabled, the reference IS
+    // present.
+    const enabledCalls = registerWithConfig({})
+    const enabledReadNoteCall = enabledCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    expect(enabledReadNoteCall?.[1].description).toContain(
+      TOOL_NAMES.VAULT_PATCH_NOTE,
+    )
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
