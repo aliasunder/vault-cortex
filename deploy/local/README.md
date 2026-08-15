@@ -189,7 +189,8 @@ docker compose pull && docker compose up -d
 ## Restart
 
 The server runs startup tasks on every boot: it rebuilds the search index,
-creates memory template files if the memory folder doesn't exist, and starts
+creates memory template files if the memory folder doesn't exist (skipped
+when `MEMORY_ENABLED=false` or `READONLY_MODE=true`), and starts
 the file watcher. Restarting the container re-runs this flow (useful when
 testing bootstrap behavior). The command is the same for both setup methods,
 since both name the container `vault-cortex`:
