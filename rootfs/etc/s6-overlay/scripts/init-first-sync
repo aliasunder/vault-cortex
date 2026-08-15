@@ -1,0 +1,73 @@
+#!/command/with-contenv sh
+# One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
+# svc-obsidian-sync and svc-vault-mcp start — otherwise the server boots
+# against a still-empty vault, bootstraps default About Me/ templates, and
+# bidirectional sync pushes them over the user's real memory files (#440).
+#
+# Failure policy once attempts are exhausted, keyed on whether that clobber
+# is possible — bootstrap writes templates only when the memory layer is
+# enabled AND the memory folder is missing (fresh volume, or partial sync
+# where the folder hasn't arrived), so:
+# - VAULT_NAME set + memory enabled + folder missing: FATAL —
+#   S6_BEHAVIOUR_IF_STAGE2_FAILS=2 stops the container; the restart policy
+#   owns the outer retry.
+# - Folder present, or memory disabled: warn and continue — bootstrap is a
+#   no-op; continuous sync keeps retrying.
+# - VAULT_NAME unset: single attempt, warn and continue — matches
+#   init-setup-vault's skip for unconfigured vaults.
+set -e
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# Defaults mirror the server's config.ts (MEMORY_DIR falls back to
+# "About Me"; MEMORY_ENABLED defaults to true) — keep them in lockstep.
+# MEMORY_DIR strips leading/trailing whitespace to mirror config.ts's
+# .trim() (whitespace-only falls through to the default); MEMORY_ENABLED
+# is lowercased to match config.ts's case-insensitive boolean parsing
+# (env-var's asBool accepts TRUE/FALSE/True/False/1/0).
+MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+MEMORY_DIR="${MEMORY_DIR:-About Me}"
+MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
+
+# VAULT_NAME unset means either a persisted config volume (sync succeeds
+# anyway) or a truly unconfigured vault (sync fails fast) — retry only when
+# configuration is certain, so the unconfigured path stays quick.
+if [ -n "$VAULT_NAME" ]; then
+  MAX_ATTEMPTS=3
+else
+  MAX_ATTEMPTS=1
+fi
+
+ATTEMPT=1
+while :; do
+  echo "[obsidian-sync] First sync (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — waiting for completion before starting services..."
+  if s6-setuidgid obsidian ob sync; then
+    echo "[obsidian-sync] First sync complete."
+    exit 0
+  fi
+  if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  echo "[obsidian-sync] First sync failed — retrying in 10s..." >&2
+  sleep 10
+done
+
+# Checked at decision time, not before the attempts: a failed sync may still
+# have delivered the memory folder, and a partially delivered folder already
+# defuses the bootstrap (it only writes templates when the folder is absent).
+if [ -n "$VAULT_NAME" ] && [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
+  echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
+  echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
+  echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2
+  echo "[obsidian-sync] Check network and credentials — the container's restart policy retries." >&2
+  exit 1
+fi
+
+echo "[obsidian-sync] WARNING: First sync did not complete — starting services anyway." >&2
+echo "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists." >&2
+exit 0

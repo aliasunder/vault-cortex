@@ -107,9 +107,14 @@ No Compose? The **docker run (no Compose)** block below starts the same
 server directly.
 
 First start pulls the image, logs in to Obsidian Sync, and syncs your vault
-from Obsidian's servers. The initial sync takes 30–120 seconds depending on
-vault size. The MCP server starts once sync is running and builds its search
-index as files arrive.
+from Obsidian's servers — 30–120 seconds, depending on vault size. The MCP
+server waits for that sync to finish before starting, so it begins with
+your full vault, memory files included.
+
+If the sync can't complete on a brand-new setup, the server stops instead
+of starting with an incomplete vault, and Docker retries automatically. On
+later boots the server starts with the vault it already has while sync
+catches up in the background.
 
 **docker run (no Compose):** The command the CLI runs for you, spelled out —
 for when you have neither Node.js nor Compose, invoke a different runtime
@@ -129,7 +134,7 @@ docker run -d --name vault-cortex \
   --restart unless-stopped \
   --health-cmd "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" \
   --health-interval 15s --health-timeout 5s --health-retries 5 \
-  --health-start-period 60s \
+  --health-start-period 180s \
   --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
@@ -323,11 +328,12 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-The server runs startup tasks on every boot: it rebuilds the search index,
-creates memory template files if the memory folder doesn't exist, and starts
-the file watcher. Restarting the container re-runs this flow (useful when
-testing bootstrap behavior). The command is the same for every setup method,
-since all three name the container `vault-cortex`:
+The container runs startup tasks on every boot: a catch-up sync runs before
+the server starts to bring the vault current, then the server rebuilds the
+search index, creates memory template files if the memory folder doesn't
+exist, and starts the file watcher. Restarting the container re-runs this
+flow (useful when testing bootstrap behavior). The command is the same for
+every setup method:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
@@ -405,8 +411,9 @@ Some community plugins keep API keys in their settings. Server tools never
 read `.obsidian/`, and the server itself opens only the two config files
 above — synced settings otherwise just sit in the config volume.
 
-If the file hasn't arrived when the server boots (first sync still running),
-it's picked up automatically once it lands — no restart needed.
+If you turn on **Core plugin settings** syncing after the server is
+already running, `daily-notes.json` is picked up automatically once it
+lands; no restart needed.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any

@@ -153,7 +153,10 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
     args.push("--health-retries", "5")
-    args.push("--health-start-period", "60s")
+    // 180s: the remote image's init chain runs the first vault sync to
+    // completion before the MCP server boots, so /healthz appears late on
+    // fresh deploys.
+    args.push("--health-start-period", "180s")
     args.push("--log-driver", "json-file")
     args.push("--log-opt", "max-size=10m")
     args.push("--log-opt", "max-file=3")
@@ -281,6 +284,30 @@ export const probeHealth = async (
   } catch {
     return false
   }
+}
+
+/**
+ * Health-poll budget by deployment mode. Remote gets a longer window because
+ * the container's init chain runs the first vault sync to completion before
+ * the server boots — /healthz can legitimately take minutes to appear on a
+ * fresh deploy (matches the 180s container health start period plus boot
+ * margin).
+ */
+export const healthPollTimeoutMs = (mode: Mode): number => {
+  return mode === "remote" ? 240_000 : 120_000
+}
+
+/** Health-poll failure message with the duration derived from the actual
+ *  timeout, so mode-specific budgets can't drift out of the copy. Remote
+ *  adds a first-sync hint: the container's init chain retries the first
+ *  sync with no upper time bound, so an expired poll does not mean the
+ *  server failed — it may flip healthy after the CLI stops waiting. */
+export const healthTimeoutMessage = (mode: Mode, timeoutMs: number): string => {
+  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+  if (mode === "remote") {
+    return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`
+  }
+  return baseMessage
 }
 
 /**
