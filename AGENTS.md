@@ -276,6 +276,35 @@ The dependency-direction rule is lint-enforced: `eslint.config.ts` bans runtime
 cross-layer imports per folder via `@typescript-eslint/no-restricted-imports`
 (type-only imports allowed — erased at compile time; tests exempt).
 
+**Tool-surface rules are lint-enforced too** — the registry owns tool identity,
+and gating is derived once rather than re-decided per call site:
+
+- **`config.readOnlyMode` is banned throughout `mcp-core/`** except
+  `tool-definitions.ts`, which is where the predicate lives. Everything
+  downstream — descriptions, prompt steps, router metadata — keys on the enabled
+  set through `isToolEnabled` / `whenToolEnabled`. The flag knows nothing about
+  `DISABLED_TOOLS` or any axis added later, so branching on it is how a prompt
+  ends up naming a tool the server never registered. Banned as a member access
+  and as a destructured binding.
+- **A local `TOOL_NAMES` in `mcp-core/tools/` or `mcp-core/prompts/` is an
+  error** — import it from `tool-registry.ts`. Per-group name constants were a
+  real duplicate source of truth before the registry replaced them, and a local
+  copy compiles and passes tests while drifting.
+- **`prompts/` and `tools/` cannot import each other at runtime.** They are
+  sibling surfaces, not a layer stack; a helper both need is either generic
+  enough for `utils/` or belongs in that group's own helpers module.
+
+Two mechanics worth knowing before editing these rules. `no-restricted-syntax`
+options **replace** rather than merge across overlapping config blocks, so a
+block that narrows the file set must restate every selector it still wants —
+the shared selector arrays at the top of `eslint.config.ts` exist so a new
+restriction cannot silently lapse in the narrower block. And
+`no-restricted-imports` patterns match the **import string as written**, not the
+resolved path, so a sibling-import pattern keys on the folder segment the
+specifier actually carries (`**/tools/**`, matching `"../tools/…"`) — a pattern
+written against the full path (`**/mcp-core/tools/**`) matches nothing and the
+rule sits inert. Validate any new rule with a planted violation.
+
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
 bars. `import type` from infrastructure modules (`Logger`, config types) is fine —
