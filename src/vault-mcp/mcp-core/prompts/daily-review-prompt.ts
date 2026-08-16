@@ -13,7 +13,6 @@ import {
   readDailyNotesConfig,
 } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
-import { formatOrList } from "../../../utils/format-or-list.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
@@ -122,6 +121,7 @@ export const registerDailyReviewPrompt = ({
   config,
   isToolEnabled,
   whenToolEnabled,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   server.registerPrompt(
     PROMPT_NAMES.DAILY_REVIEW,
@@ -297,14 +297,10 @@ export const registerDailyReviewPrompt = ({
         // vault_update_task is the atomic path for status, priority, and lane
         // moves, but it takes no date fields — rescheduling is still a note
         // edit. Each sentence stands alone so any subset reads correctly.
-        const rescheduleTools = formatOrList(
-          (
-            [
-              TOOL_NAMES.VAULT_PATCH_NOTE,
-              TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-            ] as const
-          ).filter(isToolEnabled),
-        )
+        const rescheduleTools = formatEnabledToolList([
+          TOOL_NAMES.VAULT_PATCH_NOTE,
+          TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+        ])
         const taskUpdateDirective = [
           whenToolEnabled(
             TOOL_NAMES.VAULT_UPDATE_TASK,

@@ -143,6 +143,7 @@ src/
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
       tool-registry.ts                 # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
+      tool-availability.ts             # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabled / tool-name lists
       tool-definitions.ts              # Tool orchestrator — enabled-set filter chain + gated registration wrapper
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
@@ -230,9 +231,15 @@ on**, not just its topic:
   wrapper that skips disabled names and injects the registry's annotations
   (the wrapper's config type has no `annotations` key, so restating them
   inline is a compile error). A new gating axis is one new predicate, never
-  new branching in group modules. Description cross-references render
-  through `whenToolEnabled`/`isToolEnabled` against the enabled set, so a
-  reference disappears whenever its target does. Each group module is
+  new branching in group modules. `tool-availability.ts` is where "given the
+  enabled set, how do you talk about tools" lives — `isToolEnabled`,
+  `whenToolEnabled`, and `formatEnabledToolList` (which narrows a list of tool
+  names to the served ones and renders it as prose, empty when none survives).
+  All three text surfaces — tool descriptions, prompt steps, and the router's
+  server metadata — build on that one view, so a cross-reference disappears
+  whenever its target does. It sits at `mcp-core/` root precisely because
+  `tools/` and `prompts/` both need it and cannot import each other. Each group
+  module is
   self-contained: one register function and its data-layer imports, with
   tool names imported from the registry. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in

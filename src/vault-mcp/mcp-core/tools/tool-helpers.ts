@@ -9,6 +9,7 @@ import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
+import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
 
 /** Registers one tool through the enabled-set gate: skips silently when the
@@ -24,16 +25,8 @@ export type RegisterGatedTool = <
   handler: ToolCallback<InputArgs>,
 ) => void
 
-export type ToolRegistrationContext = {
+export type ToolRegistrationContext = ToolAvailability & {
   registerTool: RegisterGatedTool
-  /** True when the config serves the named tool. Description builders key
-   *  cross-references on this instead of on config flags, so a reference
-   *  disappears whenever its target does — for any reason, including axes
-   *  added later. */
-  isToolEnabled: (name: ToolName) => boolean
-  /** The text when the named tool is enabled, "" otherwise — the building
-   *  block for availability-keyed description cross-references. */
-  whenToolEnabled: (name: ToolName, text: string) => string
   vaultPath: string
   search: SearchIndex
   logger: Logger

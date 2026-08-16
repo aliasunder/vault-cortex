@@ -5,11 +5,10 @@ import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler } from "./tool-helpers.js"
-import { formatOrList } from "../../../utils/format-or-list.js"
 
 export const registerMemoryTools = ({
   registerTool,
-  isToolEnabled,
+  formatEnabledToolList,
   whenToolEnabled,
   vaultPath,
   search,
@@ -22,15 +21,11 @@ export const registerMemoryTools = ({
   // the read tool included — can be dropped individually via DISABLED_TOOLS,
   // so the purpose sentence falls back to the discovery value alone rather
   // than rendering a dangling "BEFORE calling .".
-  const discoveryFollowUpTools = formatOrList(
-    (
-      [
-        TOOL_NAMES.VAULT_GET_MEMORY,
-        TOOL_NAMES.VAULT_UPDATE_MEMORY,
-        TOOL_NAMES.VAULT_DELETE_MEMORY,
-      ] as const
-    ).filter(isToolEnabled),
-  )
+  const discoveryFollowUpTools = formatEnabledToolList([
+    TOOL_NAMES.VAULT_GET_MEMORY,
+    TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
+  ])
   const discoveryPurpose =
     discoveryFollowUpTools.length > 0
       ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}.`
@@ -39,11 +34,10 @@ export const registerMemoryTools = ({
   // The tools a recall entry's file/section fields feed into. Rendered as a
   // trailing clause (semicolon included) so the surrounding sentence keeps its
   // punctuation when neither consumer is served.
-  const recallConsumerTools = formatOrList(
-    (
-      [TOOL_NAMES.VAULT_GET_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY] as const
-    ).filter(isToolEnabled),
-  )
+  const recallConsumerTools = formatEnabledToolList([
+    TOOL_NAMES.VAULT_GET_MEMORY,
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
+  ])
   const recallConsumerClause =
     recallConsumerTools.length > 0
       ? `; file and section feed directly into ${recallConsumerTools}`

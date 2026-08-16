@@ -7,6 +7,7 @@ import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
 import { TOOL_REGISTRY, TOOL_REGISTRY_BY_NAME } from "./tool-registry.js"
 import type { RegistryEntry, ToolGroup, ToolName } from "./tool-registry.js"
+import { createToolAvailability } from "./tool-availability.js"
 import type {
   RegisterGatedTool,
   ToolRegistrationContext,
@@ -86,11 +87,9 @@ export const registerTools = (params: {
   config: VaultConfig
 }): void => {
   const enabledToolNames = computeEnabledToolNames(params.config)
-  const isToolEnabled = (name: ToolName): boolean => enabledToolNames.has(name)
   const context: ToolRegistrationContext = {
+    ...createToolAvailability(enabledToolNames),
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
-    isToolEnabled,
-    whenToolEnabled: (name, text) => (isToolEnabled(name) ? text : ""),
     vaultPath: params.vaultPath,
     search: params.search,
     logger: params.logger,

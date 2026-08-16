@@ -15,6 +15,7 @@ import { computeEnabledToolNames, registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
 import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
+import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
 import { extractClientIp, headerAsString } from "../../auth.js"
 
@@ -51,8 +52,7 @@ const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
 ): { instructions: string; description: string } => {
-  const whenToolEnabled = (name: ToolName, text: string): string =>
-    enabledToolNames.has(name) ? text : ""
+  const { whenToolEnabled } = createToolAvailability(enabledToolNames)
 
   const searchDescription = config.embeddingEnabled
     ? "hybrid search"
