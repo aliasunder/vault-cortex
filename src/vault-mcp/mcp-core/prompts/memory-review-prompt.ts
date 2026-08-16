@@ -67,6 +67,7 @@ export const registerMemoryReviewPrompt = ({
   logger: sessionLogger,
   config,
   isToolEnabled,
+  whenToolEnabled,
 }: PromptRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
@@ -74,7 +75,11 @@ export const registerMemoryReviewPrompt = ({
     PROMPT_NAMES.MEMORY_REVIEW,
     {
       title: "Reflect on memory (read as an evolution)",
-      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.`,
+      // The pruning caveat describes a step the handler drops when
+      // vault_delete_memory isn't served, so the picker entry has to drop it
+      // too — otherwise prompts/list advertises maintenance no invocation
+      // performs. The append-only promise holds either way.
+      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates.${whenToolEnabled("vault_delete_memory", " Never prunes entries for being old, except expired entries in files marked entry-policy: living.")}`,
       argsSchema: {
         file: completable(
           z

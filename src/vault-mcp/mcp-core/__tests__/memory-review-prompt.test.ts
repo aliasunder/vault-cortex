@@ -448,3 +448,28 @@ describe("memory-review with DISABLED_TOOLS=vault_delete_memory", () => {
     expect(text).toContain("vault_delete_memory")
   })
 })
+
+// The picker entry has to track the handler: the pruning caveat describes a
+// step that drops with vault_delete_memory.
+describe("memory-review description under DISABLED_TOOLS=vault_delete_memory", () => {
+  it("drops the pruning caveat but keeps the append-only promise", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_delete_memory" }),
+    })
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .description
+
+    expect(description).toContain("propose append-only updates.")
+    expect(description).not.toContain("Never prunes entries")
+  })
+
+  it("keeps the pruning caveat when vault_delete_memory is served", async () => {
+    const { calls } = await setupVault({ config: loadConfig({}) })
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .description
+
+    expect(description).toContain(
+      "propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.",
+    )
+  })
+})
