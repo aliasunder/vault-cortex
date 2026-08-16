@@ -460,6 +460,31 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       )
     })
 
+    // The write framing and the sentence naming a write tool have to agree:
+    // advertising write capability while naming nothing leaves the model to
+    // discover the surface from tools/list.
+    it("names the surviving write tool when vault_write_note is disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain(
+        " Use vault_update_memory for writes.",
+      )
+      expect(options?.instructions).not.toContain("vault_write_note")
+    })
+
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
       expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(

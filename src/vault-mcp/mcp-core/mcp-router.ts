@@ -52,7 +52,8 @@ const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
 ): { instructions: string; description: string } => {
-  const { whenToolEnabled } = createToolAvailability(enabledToolNames)
+  const { isToolEnabled, whenToolEnabled } =
+    createToolAvailability(enabledToolNames)
 
   const searchDescription = config.embeddingEnabled
     ? "hybrid search"
@@ -65,11 +66,17 @@ const buildServerMetadata = (
     "vault_get_memory",
     ` Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
   )
-  const writeSentence = enabledToolNames.has("vault_write_note")
-    ? enabledToolNames.has("vault_update_memory")
-      ? " Use vault_write_note and vault_update_memory for writes."
-      : " Use vault_write_note for writes."
-    : ""
+  // Points at the primary write entry points that survive rather than
+  // inventorying every write tool — tools/list carries the full surface.
+  // Conjunctive ("and"): these are complementary entry points, not
+  // alternatives, which is why this doesn't go through formatEnabledToolList.
+  const namedWriteTools = (
+    ["vault_write_note", "vault_update_memory"] as const
+  ).filter(isToolEnabled)
+  const writeSentence =
+    namedWriteTools.length > 0
+      ? ` Use ${namedWriteTools.join(" and ")} for writes.`
+      : ""
   const memoryClause = `.${getMemorySentence}${writeSentence}`
   // Metadata describes the tool surface, which the enabled set defines —
   // DISABLED_TOOLS can empty the write set on its own, and the escaping
