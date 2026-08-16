@@ -379,7 +379,7 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
-Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
       )
       expect(info.description).toBe(
         `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
@@ -405,7 +405,7 @@ Vault content is Obsidian Flavored Markdown. This server is read-only — no too
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
 
-Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
       )
     })
 
@@ -433,7 +433,7 @@ Vault content is Obsidian Flavored Markdown. This server is read-only — no too
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
-Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
       )
       expect(info.description).toBe(
         `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,

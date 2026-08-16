@@ -71,11 +71,16 @@ const buildServerMetadata = (
       : " Use vault_write_note for writes."
     : ""
   const memoryClause = `.${getMemorySentence}${writeSentence}`
-  // Advertised access is derived from the enabled set, not from READONLY_MODE:
-  // DISABLED_TOOLS naming every mutating tool leaves the server just as
-  // read-only, and the escaping guidance below is only worth stating when a
-  // write tool actually exists to pass content through. Uses the same
-  // readOnlyHint annotation the read-only predicate does — one classification.
+  // Metadata describes the tool surface, which the enabled set defines —
+  // DISABLED_TOOLS can empty the write set on its own, and the escaping
+  // guidance is only worth stating when a write tool exists to pass content
+  // through. Derived from the same readOnlyHint annotation the read-only
+  // predicate uses, so there is one classification rather than two.
+  //
+  // It deliberately states what is available rather than naming READONLY_MODE:
+  // that flag is a deployment posture with effects past the tool surface (it
+  // also suppresses the memory bootstrap), so asserting it here would be wrong
+  // in exactly the DISABLED_TOOLS case this boolean is true for.
   const servesWriteTools = TOOL_REGISTRY.some(
     (entry) =>
       enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,
@@ -85,7 +90,7 @@ const buildServerMetadata = (
     : "Read and search"
   const markdownClause = servesWriteTools
     ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
-    : "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
+    : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
   const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
 
 ${markdownClause}`
