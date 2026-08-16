@@ -424,3 +424,52 @@ describe("vault-orientation genericness", () => {
     expect(text).not.toContain("About Me/")
   })
 })
+
+// ── DISABLED_TOOLS ──────────────────────────────────────────────
+
+// The survey's "go deeper" list is a menu of calls to make, so each line has
+// to track its own tool — not the group flag it used to key on.
+describe("vault-orientation with DISABLED_TOOLS", () => {
+  it("empty-memory fallback omits the suggestion when vault_update_memory is disabled", async () => {
+    const config = loadConfig({ DISABLED_TOOLS: "vault_update_memory" })
+    const { calls } = await setupVault({
+      config,
+      indexNotes: false,
+      memoryFiles: false,
+    })
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain(
+      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
+    )
+    expect(text).not.toContain("vault_update_memory")
+  })
+
+  it("drops only the disabled tool from the go-deeper menu", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_get_memory" }),
+    })
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).not.toContain("vault_get_memory")
+    // The rest of the menu survives — the memory group is still enabled.
+    expect(text).toContain("- `vault_read_note` — read any note's full content")
+    expect(text).toContain(
+      "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
+    )
+  })
+
+  it("drops the search line when vault_search is disabled", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_search" }),
+    })
+    const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("Go deeper with the vault tools:")
+    expect(text).not.toContain("vault_search`")
+    expect(text).toContain("- `vault_search_by_tag` — explore notes by tag")
+  })
+})

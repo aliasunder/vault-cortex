@@ -40,15 +40,6 @@ export type ToolRegistrationContext = {
   config: VaultConfig
 }
 
-/** Formats tool names as a prose alternatives list — "A", "A or B",
- *  "A, B, or C" — for descriptions that offer several follow-up tools. */
-export const formatOrList = (names: readonly string[]): string => {
-  if (names.length <= 2) return names.join(" or ")
-  const allButLast = names.slice(0, -1).join(", ")
-  const last = names.slice(-1).join("")
-  return `${allButLast}, or ${last}`
-}
-
 // Frontmatter keys that are already top-level fields on NoteMetadata.
 // These are stripped from `properties` before returning to clients
 // so the response doesn't contain the same data twice.

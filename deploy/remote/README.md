@@ -400,7 +400,9 @@ a first deployment you want to trust before enabling writes.
 
 Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
 comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
-keeps writes on but removes deleting and moving.
+keeps writes on but removes deleting and moving. It only ever takes tools
+away: it can't bring back one that read-only mode or another setting has
+already hidden.
 
 ## Daily notes
 

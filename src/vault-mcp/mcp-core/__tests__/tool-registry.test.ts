@@ -69,11 +69,11 @@ describe("TOOL_REGISTRY", () => {
     })
   })
 
-  it("vault_update_task is an additive, non-idempotent write", () => {
+  it("vault_update_task is a destructive, non-idempotent write", () => {
     expect(TOOL_REGISTRY_BY_NAME.get("vault_update_task")?.annotations).toEqual(
       {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: false,
       },

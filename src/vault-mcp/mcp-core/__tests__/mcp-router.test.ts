@@ -21,6 +21,7 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { registerTools } from "../tool-definitions.js"
 import { registerPrompts } from "../prompt-definitions.js"
+import { TOOL_REGISTRY } from "../tool-registry.js"
 import { logger } from "../../../logger.js"
 
 // `logger` is a real exported object; its methods become spies inside
@@ -405,6 +406,57 @@ Vault content is Obsidian Flavored Markdown. This server is read-only — no too
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
 
 Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+      )
+    })
+
+    // Advertised capability tracks the enabled set, not READONLY_MODE: an
+    // operator who names every mutating tool in DISABLED_TOOLS has built the
+    // same read-only server by another route, and must be described as one.
+    it("advertises read-only access when DISABLED_TOOLS removes every write tool", async () => {
+      const everyWriteTool = TOOL_REGISTRY.filter(
+        (entry) => !entry.annotations.readOnlyHint,
+      ).map((entry) => entry.name)
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: everyWriteTool.join(",") }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+
+Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available.`,
+      )
+      expect(info.description).toBe(
+        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+      )
+    })
+
+    it("still advertises write access when only one write tool is disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: "vault_delete_note" }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain(
+        "Write tools pass content through without escaping",
       )
     })
 

@@ -6,6 +6,7 @@ import { z } from "zod"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
+import type { ToolName } from "../tool-registry.js"
 
 export type PromptRegistrationContext = {
   server: McpServer
@@ -13,6 +14,14 @@ export type PromptRegistrationContext = {
   search: SearchIndex
   logger: Logger
   config: VaultConfig
+  /** True when the config serves the named tool. Prompt steps key their
+   *  tool directives on this rather than on config flags, so a prompt never
+   *  instructs the model to call a tool this deployment doesn't register —
+   *  for any reason, including axes added later. Mirrors the tool layer's
+   *  helper of the same name. */
+  isToolEnabled: (name: ToolName) => boolean
+  /** The text when the named tool is enabled, "" otherwise. */
+  whenToolEnabled: (name: ToolName, text: string) => string
 }
 
 /** Matches a positive integer with no leading zero — the wire format for the

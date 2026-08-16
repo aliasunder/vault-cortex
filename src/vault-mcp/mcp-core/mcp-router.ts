@@ -13,6 +13,7 @@ import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import { computeEnabledToolNames, registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
+import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
 import { logger } from "../../logger.js"
 import { extractClientIp, headerAsString } from "../../auth.js"
@@ -70,12 +71,21 @@ const buildServerMetadata = (
       : " Use vault_write_note for writes."
     : ""
   const memoryClause = `.${getMemorySentence}${writeSentence}`
-  const accessDescription = config.readOnlyMode
-    ? "Read and search"
-    : "Read, write, and search"
-  const markdownClause = config.readOnlyMode
-    ? "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
-    : "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
+  // Advertised access is derived from the enabled set, not from READONLY_MODE:
+  // DISABLED_TOOLS naming every mutating tool leaves the server just as
+  // read-only, and the escaping guidance below is only worth stating when a
+  // write tool actually exists to pass content through. Uses the same
+  // readOnlyHint annotation the read-only predicate does — one classification.
+  const servesWriteTools = TOOL_REGISTRY.some(
+    (entry) =>
+      enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,
+  )
+  const accessDescription = servesWriteTools
+    ? "Read, write, and search"
+    : "Read and search"
+  const markdownClause = servesWriteTools
+    ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
+    : "Vault content is Obsidian Flavored Markdown. This server is read-only — no tools that modify the vault are available."
   const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
 
 ${markdownClause}`

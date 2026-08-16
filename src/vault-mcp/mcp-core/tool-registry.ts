@@ -239,9 +239,13 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     group: "task",
     annotations: {
       readOnlyHint: false,
-      // State changes (checkbox, dates, lane moves) are additive — no note
-      // content is removed — hence non-destructive but not replay-safe.
-      destructiveHint: false,
+      // Status and priority changes remove existing signifiers, not just add
+      // them: reopening a task strips its ✅/❌ date, `priority: "none"` strips
+      // the priority marker, and a done/cancelled flip strips the other's date
+      // (see updateTaskLineStatus / updateTaskLinePriority). Those are
+      // user-authored fields the call cannot restore, so the update is
+      // destructive in the annotation's sense, and never replay-safe.
+      destructiveHint: true,
       idempotentHint: false,
       openWorldHint: false,
     },

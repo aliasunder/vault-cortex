@@ -13,7 +13,9 @@ import {
   readDailyNotesConfig,
 } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
+import { formatOrList } from "../../../utils/format-or-list.js"
 import type { TaskEntry } from "../../search/search-index.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -118,6 +120,7 @@ export const registerDailyReviewPrompt = ({
   search,
   logger: sessionLogger,
   config,
+  isToolEnabled,
 }: PromptRegistrationContext): void => {
   server.registerPrompt(
     PROMPT_NAMES.DAILY_REVIEW,
@@ -281,18 +284,27 @@ export const registerDailyReviewPrompt = ({
           dueOrOverdue.tasks.length > 0 ||
           scheduledToday.tasks.length > 0 ||
           dailyNoteTasks.tasks.length > 0
-        // Read-only variants keep each step's reflection value but replace
-        // write-tool directives with "tell me / list for me" phrasing — the
-        // write tools are not registered in read-only mode.
+        // Each step's write directive names only the tools this deployment
+        // actually serves — read-only mode and DISABLED_TOOLS both remove
+        // them. When none survives, the step keeps its full reflection value
+        // and asks for the result in conversation instead of a vault write.
         const memoryStep = config.memoryEnabled
-          ? config.readOnlyMode
-            ? "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
-            : `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+          ? isToolEnabled("vault_update_memory")
+            ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+            : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
           : ""
+        const taskUpdateTools = formatOrList(
+          (
+            [
+              TOOL_NAMES.VAULT_PATCH_NOTE,
+              TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+            ] as const
+          ).filter(isToolEnabled),
+        )
         const taskReviewStep = hasTaskData
-          ? config.readOnlyMode
-            ? "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
-            : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_patch_note or vault_replace_in_note."
+          ? taskUpdateTools.length > 0
+            ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with ${taskUpdateTools}.`
+            : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
           : daily.exists
             ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
             : ""
@@ -304,9 +316,9 @@ export const registerDailyReviewPrompt = ({
           : []
         const reviewSection = [
           "**Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
-          config.readOnlyMode
-            ? "**Capture follow-ups** as concrete next actions and list them for me to record."
-            : "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
+          isToolEnabled("vault_patch_note")
+            ? "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note."
+            : "**Capture follow-ups** as concrete next actions and list them for me to record.",
           memoryStep,
           taskReviewStep,
           ...noteContextSteps,
@@ -320,9 +332,9 @@ export const registerDailyReviewPrompt = ({
           "",
           daily.exists
             ? `Daily note: \`${daily.path}\``
-            : config.readOnlyMode
-              ? `No daily note found at \`${daily.path}\`.`
-              : `No daily note found at \`${daily.path}\`. If you'd like one, create it at that path with vault_write_note.`,
+            : isToolEnabled("vault_write_note")
+              ? `No daily note found at \`${daily.path}\`. If you'd like one, create it at that path with vault_write_note.`
+              : `No daily note found at \`${daily.path}\`.`,
           "",
           "## Daily note",
           "",

@@ -1894,6 +1894,53 @@ describe("DISABLED_TOOLS", () => {
     expect(description).not.toContain("vault_update_memory")
     expect(description).not.toContain("pruning entries")
   })
+
+  // vault_get_memory is itself disableable, so the follow-up list can empty
+  // out entirely — the sentence has to lose the clause, not render a dangling
+  // "BEFORE calling .".
+  it("drops the follow-up clause when every memory follow-up tool is disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS:
+        "vault_get_memory,vault_update_memory,vault_delete_memory",
+    })
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
+    const description = listFilesCall?.[1].description
+
+    expect(description).toContain(
+      "When to use: Discovering what memory files and sections exist — and what each file is for. Always call this first",
+    )
+    expect(description).not.toContain("BEFORE calling")
+  })
+
+  it("drops the recall consumer clause when both consumer tools are disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_get_memory,vault_delete_memory",
+    })
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+    const description = recallCall?.[1].description
+
+    expect(description).toContain(
+      "text is the raw entry markdown (wikilinks intact, continuation lines included). entries ascend by date",
+    )
+    expect(description).not.toContain("feed directly into")
+  })
+
+  it("names only the surviving consumer when vault_get_memory alone is disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_get_memory",
+    })
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+
+    expect(recallCall?.[1].description).toContain(
+      "file and section feed directly into vault_delete_memory.",
+    )
+  })
 })
 
 describe("flag-combination matrix", () => {

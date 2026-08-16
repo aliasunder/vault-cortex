@@ -66,6 +66,7 @@ export const registerMemoryReviewPrompt = ({
   vaultPath,
   logger: sessionLogger,
   config,
+  isToolEnabled,
 }: PromptRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
@@ -183,6 +184,32 @@ export const registerMemoryReviewPrompt = ({
             ? markedMemory
             : "_(the selected memory is empty)_"
 
+        // vault_update_memory is guaranteed here — this prompt is only
+        // registered when it is served. vault_delete_memory is not: it can be
+        // dropped on its own, and the deletion-shaped guidance (corrections,
+        // living-file pruning) has to go with it. Numbering is derived so a
+        // dropped step doesn't leave a gap in the list.
+        const canDeleteMemory = isToolEnabled("vault_delete_memory")
+        const correctionsStep = canDeleteMemory
+          ? "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts."
+          : "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Propose an appended dated correction that preserves the old entry — history matters."
+        const reflectionSteps = [
+          '**Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
+          "**Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
+          "**Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
+          correctionsStep,
+          "**Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
+          canDeleteMemory
+            ? "**Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files."
+            : "",
+        ]
+          .filter(Boolean)
+          .map((step, index) => `${index + 1}. ${step}`)
+          .join("\n")
+        const proposalDirective = canDeleteMemory
+          ? "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file."
+          : "Propose updates as explicit vault_update_memory calls. The server stamps update dates. **Confirm with me before writing anything.**"
+
         const memoryReview = [
           `# Memory review — ${args.file ?? "all files"}`,
           "",
@@ -198,14 +225,9 @@ export const registerMemoryReviewPrompt = ({
           "",
           "## How to reflect",
           "",
-          '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
-          "2. **Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
-          "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
-          `4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.`,
-          "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
-          "6. **Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files.",
+          reflectionSteps,
           "",
-          "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file.",
+          proposalDirective,
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",

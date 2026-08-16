@@ -684,3 +684,93 @@ describe("daily-review with READONLY_MODE=true", () => {
     }
   })
 })
+
+// ── DISABLED_TOOLS ──────────────────────────────────────────────
+
+// READONLY_MODE is not the only way a write tool disappears. These assert the
+// steps key on the tool each one actually names, so a per-tool removal narrows
+// the directive instead of falling back to the whole read-only variant.
+describe("daily-review with DISABLED_TOOLS", () => {
+  const taskNote = {
+    path: "todo.md",
+    content:
+      "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+  }
+
+  it("names only the surviving update tool when vault_patch_note is disabled", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
+      extraNotes: [taskNote],
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_replace_in_note.",
+    )
+    expect(text).not.toContain("vault_patch_note")
+    // Writes are still on, so the unrelated memory directive is untouched —
+    // this is a per-tool narrowing, not the read-only variant.
+    expect(text).toContain(
+      "propose saving it to About Me/ memory via vault_update_memory",
+    )
+  })
+
+  it("drops the patch-note follow-up directive when vault_patch_note is disabled", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
+      extraNotes: [taskNote],
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Capture follow-ups** as concrete next actions and list them for me to record.",
+    )
+  })
+
+  it("falls back to flagging when both task update tools are disabled", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      config: loadConfig({
+        DISABLED_TOOLS: "vault_patch_note,vault_replace_in_note",
+      }),
+      extraNotes: [taskNote],
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian.",
+    )
+    expect(text).not.toContain("vault_replace_in_note")
+  })
+
+  it("asks for durable facts in conversation when vault_update_memory is disabled", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_update_memory" }),
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them.",
+    )
+    expect(text).not.toContain("vault_update_memory")
+  })
+
+  it("omits the create suggestion when vault_write_note is disabled", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
+
+    expect(text).toContain(
+      "No daily note found at `Daily Notes/2020-01-01.md`.",
+    )
+    expect(text).not.toContain("vault_write_note")
+  })
+})
