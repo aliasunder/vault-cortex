@@ -622,6 +622,7 @@ describe("daily-review with READONLY_MODE=true", () => {
     "vault_patch_note",
     "vault_replace_in_note",
     "vault_write_note",
+    "vault_update_task",
   ] as const
 
   it("review steps keep their reflection content but direct no write tools", async () => {
@@ -697,7 +698,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
       "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
   }
 
-  it("names only the surviving update tool when vault_patch_note is disabled", async () => {
+  it("names only the surviving reschedule tool when vault_patch_note is disabled", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
@@ -707,7 +708,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
     expect(text).toContain(
-      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_replace_in_note.",
+      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task. Reschedule by editing the date with vault_replace_in_note.",
     )
     expect(text).not.toContain("vault_patch_note")
     // Writes are still on, so the unrelated memory directive is untouched —
@@ -715,6 +716,38 @@ describe("daily-review with DISABLED_TOOLS", () => {
     expect(text).toContain(
       "propose saving it to About Me/ memory via vault_update_memory",
     )
+  })
+
+  it("drops the reschedule sentence when both note-edit tools are disabled", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      config: loadConfig({
+        DISABLED_TOOLS: "vault_patch_note,vault_replace_in_note",
+      }),
+      extraNotes: [taskNote],
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task.",
+    )
+    expect(text).not.toContain("Reschedule by editing the date")
+  })
+
+  it("drops the status sentence when vault_update_task is disabled", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      config: loadConfig({ DISABLED_TOOLS: "vault_update_task" }),
+      extraNotes: [taskNote],
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(text).toContain(
+      "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Reschedule by editing the date with vault_patch_note or vault_replace_in_note.",
+    )
+    expect(text).not.toContain("vault_update_task")
   })
 
   it("drops the patch-note follow-up directive when vault_patch_note is disabled", async () => {
@@ -731,11 +764,12 @@ describe("daily-review with DISABLED_TOOLS", () => {
     )
   })
 
-  it("falls back to flagging when both task update tools are disabled", async () => {
+  it("falls back to flagging when every task update tool is disabled", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({
-        DISABLED_TOOLS: "vault_patch_note,vault_replace_in_note",
+        DISABLED_TOOLS:
+          "vault_update_task,vault_patch_note,vault_replace_in_note",
       }),
       extraNotes: [taskNote],
     })
@@ -746,6 +780,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
       "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian.",
     )
     expect(text).not.toContain("vault_replace_in_note")
+    expect(text).not.toContain("vault_update_task")
   })
 
   it("asks for durable facts in conversation when vault_update_memory is disabled", async () => {

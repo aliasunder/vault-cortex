@@ -121,6 +121,7 @@ export const registerDailyReviewPrompt = ({
   logger: sessionLogger,
   config,
   isToolEnabled,
+  whenToolEnabled,
 }: PromptRegistrationContext): void => {
   server.registerPrompt(
     PROMPT_NAMES.DAILY_REVIEW,
@@ -293,7 +294,10 @@ export const registerDailyReviewPrompt = ({
             ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
             : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
           : ""
-        const taskUpdateTools = formatOrList(
+        // vault_update_task is the atomic path for status, priority, and lane
+        // moves, but it takes no date fields — rescheduling is still a note
+        // edit. Each sentence stands alone so any subset reads correctly.
+        const rescheduleTools = formatOrList(
           (
             [
               TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -301,9 +305,20 @@ export const registerDailyReviewPrompt = ({
             ] as const
           ).filter(isToolEnabled),
         )
+        const taskUpdateDirective = [
+          whenToolEnabled(
+            TOOL_NAMES.VAULT_UPDATE_TASK,
+            "Update status or priority with vault_update_task.",
+          ),
+          rescheduleTools.length > 0
+            ? `Reschedule by editing the date with ${rescheduleTools}.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
         const taskReviewStep = hasTaskData
-          ? taskUpdateTools.length > 0
-            ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with ${taskUpdateTools}.`
+          ? taskUpdateDirective.length > 0
+            ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? ${taskUpdateDirective}`
             : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
           : daily.exists
             ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
