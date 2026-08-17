@@ -468,7 +468,7 @@ throughout the codebase.
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-08-15; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-08-17; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. Several are lint-enforced in `eslint.config.ts`
@@ -595,6 +595,9 @@ undefined) return`) or schema validation to narrow types instead.
 - Extract multi-step callbacks into named functions when a
   `.map()`/`.reduce()` callback builds multiple intermediates or nests
   chains — the parent becomes `items.map(formatItem).join("\n")`.
+  Conditional spreads (`...(cond ? [item] : [])`) and `.filter(Boolean)`
+  assembly are both fine — pick whichever reads clearer; don't convert
+  one to the other mechanically. Name non-trivial `.filter()` predicates.
 - A boolean mode param means the function does two things — split it;
   the caller owns the gating.
 - Block bodies `{}` for any multiline function response (guards,
@@ -662,6 +665,9 @@ continue }` over `if/else if` chains — each branch is
 - TS ≥5.5 infers `.filter()` predicate types from bare comparisons —
   `xs.filter((x) => x !== null)` narrows without `(x): x is T`.
   `filter(Boolean)` still does not narrow. `Boolean(x)` over `!!x`.
+- A param consumed only for truthiness is a boolean — a value-or-`""`
+  sentinel whose content is never read is a boolean wearing a string
+  costume; type it `boolean` and drop the dead value.
 - Don't use a thunk or callback when a plain value suffices. A
   function accepting `() => T` where `T` would do adds indirection
   without benefit — the caller has to reason about evaluation timing,
@@ -675,6 +681,19 @@ continue }` over `if/else if` chains — each branch is
 - Don't return observability data computed only for logging — the
   function has the logger; log at the site.
 - Prepared statements at factory scope — compile SQL once, not per call.
+- Multiplying config axes get a declarative registry + predicate chain,
+  never per-flag branching. Declare per-item metadata once (reuse
+  metadata items already carry) and compute the enabled set through
+  AND-composed predicates — a new axis is one predicate; generated
+  cross-references key on the enabled set, not on flags. Don't preserve
+  alias/indirection layers to dodge migration churn — price the actual
+  cost (usually mechanical import edits).
+- Lint-enforce the mechanically-checkable conventions — layering via
+  per-layer `no-restricted-imports` (`allowTypeImports: true`; tests
+  exempt), style via core/typescript-eslint rules. Trial candidates
+  against the codebase first; curated exceptions over blanket bans;
+  never adopt a rule that fights an established idiom; a justified
+  `eslint-disable` + why-comment beats weakening the rule.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
