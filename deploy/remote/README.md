@@ -393,10 +393,9 @@ Sync has attachment syncing disabled and no files exist on disk.
 
 ## Read-only mode
 
-Want the server to browse and search your vault without ever changing it? Set
-`READONLY_MODE=true` in your `.env` — every tool that edits, creates, moves,
-or deletes notes is hidden, and the memory folder is not created. Useful for
-a first deployment before enabling writes.
+Set `READONLY_MODE=true` in your `.env` to hide every tool that edits,
+creates, moves, or deletes notes. The memory folder is not auto-created.
+Connected clients can read and search but never edit.
 
 Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
 comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`

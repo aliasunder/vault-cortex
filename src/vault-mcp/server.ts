@@ -92,6 +92,8 @@ const startServer = async (): Promise<void> => {
     memoryEnabled: config.memoryEnabled,
     fileToolsEnabled: config.fileToolsEnabled,
     readOnlyMode: config.readOnlyMode,
+    disabledTools:
+      config.disabledTools.size > 0 ? [...config.disabledTools] : "none",
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,

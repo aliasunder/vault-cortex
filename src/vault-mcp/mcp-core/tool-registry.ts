@@ -244,7 +244,7 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
       // the priority marker, and a done/cancelled flip strips the other's date
       // (see updateTaskLineStatus / updateTaskLinePriority). Those are
       // user-authored fields the call cannot restore, so the update is
-      // destructive in the annotation's sense, and never replay-safe.
+      // destructive in the annotation's sense, and not guaranteed replay-safe.
       destructiveHint: true,
       idempotentHint: false,
       openWorldHint: false,
