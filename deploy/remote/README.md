@@ -455,7 +455,7 @@ required. These optional settings are worth knowing about:
 | `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                                                         |
 | `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                                                     |
 | `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                      |
-| `READONLY_MODE`      | `false`                       | Set `true` to hide every tool that changes the vault — read and search only; the memory folder is not auto-created                     |
+| `READONLY_MODE`      | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                       |
 | `DISABLED_TOOLS`     | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools) |
 | `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                   |
 | `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                          |

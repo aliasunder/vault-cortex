@@ -22,11 +22,9 @@ const LUXON_OVER_DATE_RESTRICTIONS = [
   },
 ]
 
-// READONLY_MODE is not a branch condition — it is one predicate in
-// computeEnabledToolNames, and everything downstream keys on the enabled tool
-// set instead. Branching on the flag directly is how a prompt ends up naming a
-// tool the server never registered: the flag knows nothing about DISABLED_TOOLS
-// or any axis added later, while the enabled set tracks all of them.
+/** Bans direct use of `config.readOnlyMode` in tool/prompt modules —
+ *  branching on the flag misses DISABLED_TOOLS and any future gating axis,
+ *  so tool references must key on the enabled set instead. */
 const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
   {
     selector: 'MemberExpression[property.name="readOnlyMode"]',

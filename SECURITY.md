@@ -81,19 +81,19 @@ mechanism-level detail.
 
 ### Read-only mode
 
-- `READONLY_MODE=true` removes write capability at tool registration:
-  every tool that changes the vault is never advertised to clients, not
-  merely rejected at call time — a compromised or over-eager client has
-  no write surface to call. The memory template bootstrap (the one
-  server-initiated vault write) is skipped too; only infrastructure
-  writes outside the vault (search index, OAuth database) remain.
+- `READONLY_MODE=true` hides every vault-writing tool at registration
+  time — clients never see a write surface, not even to be rejected.
+- The memory template bootstrap (the one server-initiated vault write)
+  is also skipped; only infrastructure writes outside the vault (search
+  index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
-  on but remove the delete tools. Same registration-time guarantee: a
-  disabled tool is never advertised. Availability-keyed cross-references
-  in surviving tool descriptions and prompts disappear; a small number
-  of durable API-level references remain (e.g. error-section alternatives
-  naming sibling tools). Unknown names stop the server at startup rather
-  than silently disabling nothing.
+  on but remove the delete tools. Same registration-time guarantee.
+- Availability-keyed cross-references in surviving descriptions and
+  prompts disappear automatically. A small number of durable API-level
+  references remain (e.g. error-section alternatives naming sibling
+  tools).
+- Unknown tool names stop the server at startup rather than silently
+  disabling nothing.
 
 ### TOCTOU race prevention
 
