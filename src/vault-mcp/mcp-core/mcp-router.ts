@@ -58,26 +58,6 @@ const buildServerMetadata = (
   const searchDescription = config.embeddingEnabled
     ? "hybrid search"
     : "full-text search"
-  const fileToolsClause = whenToolEnabled(
-    "vault_read_file",
-    "; vault_read_file for images, canvases, and other non-markdown files",
-  )
-  const getMemorySentence = whenToolEnabled(
-    "vault_get_memory",
-    ` Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
-  )
-  // Points at the primary write entry points that survive rather than
-  // inventorying every write tool — tools/list carries the full surface.
-  // Conjunctive ("and"): these are complementary entry points, not
-  // alternatives, which is why this doesn't go through formatEnabledToolList.
-  const namedWriteTools = (
-    ["vault_write_note", "vault_update_memory"] as const
-  ).filter(isToolEnabled)
-  const writeSentence =
-    namedWriteTools.length > 0
-      ? ` Use ${namedWriteTools.join(" and ")} for writes.`
-      : ""
-  const memoryClause = `.${getMemorySentence}${writeSentence}`
   // Metadata describes the tool surface, which the enabled set defines —
   // DISABLED_TOOLS can empty the write set on its own, and the escaping
   // guidance is only worth stating when a write tool exists to pass content
@@ -98,18 +78,40 @@ const buildServerMetadata = (
   const markdownClause = servesWriteTools
     ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
     : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
-  // Conjunctive ("and"): these are complementary entry points (search to
-  // find, read to inspect), not alternatives — same reasoning as the write
-  // sentence below, so this filters manually rather than using
-  // formatEnabledToolList (which is disjunctive).
+
+  // Build instruction sentences from separator-free fragments so any
+  // combination (including all-disabled) produces clean prose. Each filter
+  // is conjunctive: these are complementary entry points, not alternatives.
+  const fileToolsFragment = whenToolEnabled(
+    "vault_read_file",
+    "vault_read_file for images, canvases, and other non-markdown files",
+  )
   const namedDiscoveryTools = (
     ["vault_search", "vault_read_note"] as const
   ).filter(isToolEnabled)
-  const discoverySentence =
-    namedDiscoveryTools.length > 0
-      ? ` Use ${namedDiscoveryTools.join(" and ")} to find and read notes${fileToolsClause}${memoryClause}`
-      : `${fileToolsClause}${memoryClause}`
-  const instructions = `${accessDescription} an Obsidian vault.${discoverySentence}
+
+  const sentences: string[] = []
+  if (namedDiscoveryTools.length > 0) {
+    const suffix = fileToolsFragment ? `; ${fileToolsFragment}` : ""
+    sentences.push(
+      `Use ${namedDiscoveryTools.join(" and ")} to find and read notes${suffix}.`,
+    )
+  } else if (fileToolsFragment) {
+    sentences.push(`Use ${fileToolsFragment}.`)
+  }
+  if (isToolEnabled("vault_get_memory")) {
+    sentences.push(
+      `Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
+    )
+  }
+  const namedWriteTools = (
+    ["vault_write_note", "vault_update_memory"] as const
+  ).filter(isToolEnabled)
+  if (namedWriteTools.length > 0) {
+    sentences.push(`Use ${namedWriteTools.join(" and ")} for writes.`)
+  }
+  const instructionBody = sentences.length > 0 ? ` ${sentences.join(" ")}` : ""
+  const instructions = `${accessDescription} an Obsidian vault.${instructionBody}
 
 ${markdownClause}`
   const description = config.memoryEnabled

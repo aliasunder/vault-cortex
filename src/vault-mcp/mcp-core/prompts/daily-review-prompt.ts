@@ -242,7 +242,7 @@ export const registerDailyReviewPrompt = ({
           trimmedDaily,
           { source: daily.path, type: "daily-note", date: dateArg },
           maxChars,
-          "vault_get_daily_note",
+          whenToolEnabled("vault_get_daily_note", "vault_get_daily_note"),
         )
         const dailySection =
           daily.exists && trimmedDaily.length > 0

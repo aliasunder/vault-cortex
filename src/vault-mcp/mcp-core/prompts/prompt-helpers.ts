@@ -55,7 +55,7 @@ export const capContent = (
   toolHint: string,
 ): string =>
   maxChars !== undefined && text.length > maxChars
-    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters — use ${toolHint} for the full content)`
+    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolHint ? ` — use ${toolHint} for the full content` : ""})`
     : text
 
 /** Escapes any closing `</vault-content>` tag in the body so an attacker who

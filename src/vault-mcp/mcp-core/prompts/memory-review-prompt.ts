@@ -183,7 +183,7 @@ export const registerMemoryReviewPrompt = ({
           trimmedMemory,
           { source: memorySource, type: "memory" },
           maxChars,
-          "vault_get_memory",
+          whenToolEnabled("vault_get_memory", "vault_get_memory"),
         )
         const wrappedMemory =
           trimmedMemory.length > 0

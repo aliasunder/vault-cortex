@@ -349,7 +349,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 - **Smart defaults** — setting `MEMORY_DIR` or `DAILY_NOTES_FOLDER` automatically updates the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`; when `DAILY_NOTES_FOLDER` is unset, `Daily Notes` fills its slot. A daily notes folder configured only in `daily-notes.json` isn't picked up — add it to `PROTECTED_PATHS` yourself. You only set those explicitly for a fully custom list.
 - **`MEMORY_ENABLED=false`** fully disables the memory layer — memory tools are hidden and the memory folder is not auto-created.
 - **`FILE_TOOLS_ENABLED=false`** hides file tools entirely — useful when Obsidian Sync has attachment syncing disabled and no files exist on disk.
-- **`READONLY_MODE=true`** hides every vault-writing tool — useful for sharing a vault with an assistant that should browse and search but never edit, or for a first deployment you want to trust before enabling writes.
+- **`READONLY_MODE=true`** hides every vault-writing tool — useful for sharing a vault with an assistant that should browse and search but never edit, or for a first deployment before enabling writes.
 - **`DISABLED_TOOLS`** hides exactly the tools you name — for finer control than the switches above, e.g. keep writes on but remove `vault_delete_note` and `vault_move_note`. Availability-keyed cross-references in tool descriptions and prompts adjust automatically.
 
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
