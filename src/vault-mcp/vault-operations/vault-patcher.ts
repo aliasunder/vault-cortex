@@ -322,7 +322,7 @@ const patchNote = async (
           childHeadings.length === 1 ? "child heading" : "child headings"
         throw new Error(
           `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList}); ` +
-            `set includeChildren to replace the full section`,
+            `pass include_children: true to replace them too`,
         )
       }
     }
