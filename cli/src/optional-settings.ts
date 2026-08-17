@@ -342,13 +342,14 @@ const askSettingValue = async (
   const { setting, currentValue } = params
   switch (setting.kind) {
     case "toggle": {
-      // An unset var means the server default applies — seed the confirm
-      // from defaultEnabled, not from the enabled-unless-"false" heuristic
-      // (wrong for default-off toggles like READONLY_MODE).
-      const currentlyEnabled =
-        currentValue === undefined
-          ? (setting.defaultEnabled ?? true)
-          : isEnabledToggleValue(currentValue)
+      // An unset or empty var means the server default applies — seed the
+      // confirm from defaultEnabled, not from the enabled-unless-"false"
+      // heuristic (wrong for default-off toggles like READONLY_MODE).
+      // Empty string matters: `READONLY_MODE=` in .env is read as unset
+      // by Compose's `${VAR:-default}` and env-var's `.default()`.
+      const currentlyEnabled = !currentValue
+        ? (setting.defaultEnabled ?? true)
+        : isEnabledToggleValue(currentValue)
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }

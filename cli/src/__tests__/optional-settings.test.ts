@@ -304,6 +304,25 @@ describe("askOptionalSettings per-setting prompts", () => {
     ])
   })
 
+  it("seeds a default-off toggle's confirm as disabled when the var is empty", async () => {
+    // READONLY_MODE= (empty string) is treated as unset by Compose's
+    // ${VAR:-default} and env-var's .default() — the CLI must match.
+    const scripted = createScriptedPrompts([["READONLY_MODE"], false])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "READONLY_MODE=\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message:
+          "Run the server in read-only mode (hide all tools that change the vault)?",
+        initialValue: false,
+      },
+    ])
+  })
+
   it("seeds a default-off toggle's confirm from the .env value when set", async () => {
     const scripted = createScriptedPrompts([["READONLY_MODE"], true])
 
