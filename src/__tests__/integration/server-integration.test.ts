@@ -145,6 +145,7 @@ describe("default config", () => {
         args: { query: "integration testing" },
       })
       expect(result.isError).not.toBe(true)
+      expect(textContent(result)).toContain("alpha")
     })
 
     it("vault_search_by_tag", async () => {
@@ -166,6 +167,7 @@ describe("default config", () => {
     it("vault_recent_notes", async () => {
       const result = await callTool({ client, name: "vault_recent_notes" })
       expect(result.isError).not.toBe(true)
+      expect(textContent(result)).toContain(".md")
     })
 
     it("vault_search_by_folder", async () => {
@@ -267,6 +269,7 @@ describe("default config", () => {
         args: { query: "dark mode" },
       })
       expect(result.isError).not.toBe(true)
+      expect(textContent(result)).toContain("dark mode")
     })
 
     it("vault_update_memory + vault_delete_memory cycle", async () => {
@@ -436,7 +439,7 @@ describe("default config", () => {
   describe("prompts", () => {
     it("vault-orientation — assembles live vault data", async () => {
       const result = await client.getPrompt({ name: "vault-orientation" })
-      expect(promptText(result)).toContain("project")
+      expect(promptText(result)).toContain("Projects/alpha.md")
     })
 
     it("memory-review — includes memory content", async () => {
@@ -452,7 +455,7 @@ describe("default config", () => {
         name: "daily-review",
         arguments: { date: "2026-01-15" },
       })
-      expect(promptText(result).length).toBeGreaterThan(0)
+      expect(promptText(result)).toContain("integration test results")
     })
   })
 })
