@@ -98,7 +98,18 @@ const buildServerMetadata = (
   const markdownClause = servesWriteTools
     ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
     : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
-  const instructions = `${accessDescription} an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
+  // Conjunctive ("and"): these are complementary entry points (search to
+  // find, read to inspect), not alternatives — same reasoning as the write
+  // sentence below, so this filters manually rather than using
+  // formatEnabledToolList (which is disjunctive).
+  const namedDiscoveryTools = (
+    ["vault_search", "vault_read_note"] as const
+  ).filter(isToolEnabled)
+  const discoverySentence =
+    namedDiscoveryTools.length > 0
+      ? ` Use ${namedDiscoveryTools.join(" and ")} to find and read notes${fileToolsClause}${memoryClause}`
+      : `${fileToolsClause}${memoryClause}`
+  const instructions = `${accessDescription} an Obsidian vault.${discoverySentence}
 
 ${markdownClause}`
   const description = config.memoryEnabled
