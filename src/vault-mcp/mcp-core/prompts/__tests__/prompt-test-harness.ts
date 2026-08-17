@@ -6,14 +6,14 @@ import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
-import { registerPrompts } from "../prompt-definitions.js"
-import { loadConfig } from "../../config.js"
+import { registerPrompts } from "../../prompt-definitions.js"
+import { loadConfig } from "../../../config.js"
 import {
   createSearchIndex,
   type SearchIndex,
-} from "../../search/search-index.js"
+} from "../../../search/search-index.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { logger, type Logger } from "../../../logger.js"
+import { logger, type Logger } from "../../../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -291,10 +291,10 @@ export const textOf = (result: PromptResult): string => {
 
 // Re-export dependencies that per-prompt test files need without adding
 // their own import of these modules.
-export { PROMPT_NAMES } from "../prompt-definitions.js"
-export { loadConfig } from "../../config.js"
+export { PROMPT_NAMES } from "../../prompt-definitions.js"
+export { loadConfig } from "../../../config.js"
 export {
   createSearchIndex,
   type SearchIndex,
-} from "../../search/search-index.js"
-export { logger } from "../../../logger.js"
+} from "../../../search/search-index.js"
+export { logger } from "../../../../logger.js"

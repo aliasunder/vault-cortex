@@ -2,7 +2,7 @@ import { describe, it, expect, vi, onTestFinished, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { registerPrompts } from "../prompt-definitions.js"
+import { registerPrompts } from "../../prompt-definitions.js"
 import { getCompleter } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {

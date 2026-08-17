@@ -58,16 +58,8 @@ const buildServerMetadata = (
   const searchDescription = config.embeddingEnabled
     ? "hybrid search"
     : "full-text search"
-  // Metadata describes the tool surface, which the enabled set defines —
-  // DISABLED_TOOLS can empty the write set on its own, and the escaping
-  // guidance is only worth stating when a write tool exists to pass content
-  // through. Derived from the same readOnlyHint annotation the read-only
-  // predicate uses, so there is one classification rather than two.
-  //
-  // It deliberately states what is available rather than naming READONLY_MODE:
-  // that flag is a deployment posture with effects past the tool surface (it
-  // also suppresses the memory bootstrap), so asserting it here would be wrong
-  // in exactly the DISABLED_TOOLS case this boolean is true for.
+  // Keyed on the enabled set, not config.readOnlyMode — the lint rule
+  // enforces this; see tool-availability.ts.
   const servesWriteTools = TOOL_REGISTRY.some(
     (entry) =>
       enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import { registerPrompts } from "../prompt-definitions.js"
+import { registerPrompts } from "../../prompt-definitions.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   type RegisterPromptCall,

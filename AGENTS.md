@@ -710,6 +710,39 @@ continue }` over `if/else if` chains — each branch is
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
 
+### Adding a new tool
+
+1. **Registry entry** — add to `TOOL_REGISTRY` in `tool-registry.ts`:
+   name, group, and annotations. The registry is a leaf module with
+   zero imports.
+2. **Handler** — add the tool in the appropriate `tools/*.ts` group
+   module. The `registerTool` wrapper auto-injects annotations from
+   the registry and enforces the enabled-tool gate.
+3. **Tests** — co-located at `tools/__tests__/` (or the group's
+   `__tests__/`). Cover the handler's behavior, not just the schema.
+4. **Availability keying** — if the tool's description names other
+   tools, use `whenToolEnabledText` so references disappear when their
+   target is disabled.
+5. **Feature-surface docs** — see the "Files that track feature
+   surface" table below for which files to update (README tools table,
+   ARCHITECTURE.md, DOCKERHUB regen, etc.).
+
+### Adding a new prompt
+
+1. **Group module** — create or extend a module in `prompts/`. Export
+   `PROMPT_NAMES` and a `register*Prompt` function taking
+   `PromptRegistrationContext`.
+2. **Registration** — add the register call in
+   `prompt-definitions.ts`. If the prompt depends on a specific tool,
+   gate it on `enabledToolNames.has(TOOL_NAMES.*)`.
+3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
+   `prompt-test-harness.ts` for registration capture.
+4. **Availability keying** — use `whenToolEnabledText`,
+   `isToolEnabled`, and `formatEnabledToolList` from the context for
+   any tool references in the prompt text or fallback paths.
+5. **Feature-surface docs** — update the README prompts table and
+   regenerate DOCKERHUB.md.
+
 ### MCP prompt conventions
 
 Prompts (`mcp-core/prompts/`) are user-initiated workflows, distinct
@@ -843,7 +876,9 @@ createTestIndex()` at the top of each test. `beforeEach` is only
 - No cleanup after assertions — trailing `rm`/`close()` at the end
   of a test body is skipped when an assertion throws; register
   cleanup in `afterEach`/`onTestFinished` at creation time.
-- Every test file maps to a real source module — don't spawn a
+- Every test file maps to a real source module and lives in the
+  `__tests__/` folder next to the module it tests — not in a
+  centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
 - Separate `it()` blocks over callback-pattern `it.each` when
@@ -1016,12 +1051,10 @@ pattern:
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
    — maintainer/contributor surfaces (if applicable)
 7. **Deploy workflows** (`.github/workflows/deploy.yml`,
-   `.github/workflows/test_deploy.yml`) — these write the Lightsail instance's
-   `.env` from repo Variables, so a var the compose file interpolates but the
-   workflows never write can never be set on that deployment. Required (`PUID`)
-   and always-defaulted (`MEMORY_ENABLED`) vars go in the heredoc; anything
-   that should fall back to the server's own default goes in the
-   conditional-append block below it, so an unset Variable writes no line.
+   `.github/workflows/test_deploy.yml`) — write the Lightsail `.env` from
+   repo Variables. A var the workflows never write can never reach the
+   instance. Required vars go in the always-written block; optional vars
+   go in the conditional block (unset Variable = no line written).
 
 CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.
