@@ -19,10 +19,10 @@ describe("isToolEnabled", () => {
   })
 })
 
-describe("whenToolEnabled", () => {
+describe("whenToolEnabledText", () => {
   it("returns the text when the tool is served", () => {
     expect(
-      availabilityFor("vault_delete_memory").whenToolEnabled(
+      availabilityFor("vault_delete_memory").whenToolEnabledText(
         "vault_delete_memory",
         " or vault_delete_memory",
       ),
@@ -31,7 +31,7 @@ describe("whenToolEnabled", () => {
 
   it("returns an empty string when the tool is not served", () => {
     expect(
-      availabilityFor("vault_get_memory").whenToolEnabled(
+      availabilityFor("vault_get_memory").whenToolEnabledText(
         "vault_delete_memory",
         " or vault_delete_memory",
       ),

@@ -12,7 +12,7 @@ import {
 
 export const registerSearchTools = ({
   registerTool,
-  whenToolEnabled,
+  whenToolEnabledText,
   search,
   vaultPath,
   logger: sessionLogger,
@@ -541,11 +541,11 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
     },
   )
 
-  const fileReadableClause = whenToolEnabled(
+  const fileReadableClause = whenToolEnabledText(
     "vault_read_file",
     " readable via vault_read_file",
   )
-  const fileBytesClause = whenToolEnabled(
+  const fileBytesClause = whenToolEnabledText(
     "vault_read_file",
     " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
   )
@@ -564,7 +564,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabled("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
 
 Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
@@ -614,7 +614,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
 
 Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabled("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
+When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:

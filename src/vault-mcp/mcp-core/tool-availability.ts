@@ -23,7 +23,7 @@ export type ToolAvailability = {
   isToolEnabled: (name: ToolName) => boolean
   /** The text when the named tool is enabled, "" otherwise — the building
    *  block for availability-keyed cross-references. */
-  whenToolEnabled: (name: ToolName, text: string) => string
+  whenToolEnabledText: (name: ToolName, text: string) => string
   /** The served subset of `names`, rendered as a prose alternatives list.
    *  Empty when none is served, so a sentence built around it must handle
    *  that case rather than trailing off — every tool in a list can be
@@ -38,7 +38,7 @@ export const createToolAvailability = (
   const isToolEnabled = (name: ToolName): boolean => enabledToolNames.has(name)
   return {
     isToolEnabled,
-    whenToolEnabled: (name, text) => (isToolEnabled(name) ? text : ""),
+    whenToolEnabledText: (name, text) => (isToolEnabled(name) ? text : ""),
     formatEnabledToolList: (names) =>
       TOOL_LIST_FORMAT.format(names.filter(isToolEnabled)),
   }

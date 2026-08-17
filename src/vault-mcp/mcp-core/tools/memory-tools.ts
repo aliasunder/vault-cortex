@@ -9,7 +9,7 @@ import { safeHandler } from "./tool-helpers.js"
 export const registerMemoryTools = ({
   registerTool,
   formatEnabledToolList,
-  whenToolEnabled,
+  whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
@@ -115,7 +115,7 @@ Returns: Raw markdown text.`,
 
 Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, each file's entry policy, and its scope callout.
 
-When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabled("vault_delete_memory", ", and to check a file's entry policy before pruning entries")}.
+When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry policy before pruning entries")}.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
@@ -342,10 +342,10 @@ Parameters:
 
 Errors:
 - "memory file must not start with a dot" — a dot-prefixed name would target a hidden file; memory files are always visible notes.
-- "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with ${whenToolEnabled("vault_delete_span", "vault_delete_span or ")}a manual edit.
+- "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
-- "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with ${whenToolEnabled("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
+- "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content before retrying.
 
 Returns: Confirmation message.`,

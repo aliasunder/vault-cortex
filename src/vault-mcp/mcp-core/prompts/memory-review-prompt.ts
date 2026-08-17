@@ -67,7 +67,7 @@ export const registerMemoryReviewPrompt = ({
   logger: sessionLogger,
   config,
   isToolEnabled,
-  whenToolEnabled,
+  whenToolEnabledText,
   formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
@@ -80,7 +80,7 @@ export const registerMemoryReviewPrompt = ({
       // vault_delete_memory isn't served, so the picker entry has to drop it
       // too — otherwise prompts/list advertises maintenance no invocation
       // performs. The append-only promise holds either way.
-      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates.${whenToolEnabled("vault_delete_memory", " Never prunes entries for being old, except expired entries in files marked entry-policy: living.")}`,
+      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates.${whenToolEnabledText("vault_delete_memory", " Never prunes entries for being old, except expired entries in files marked entry-policy: living.")}`,
       argsSchema: {
         file: completable(
           z
@@ -179,15 +179,17 @@ export const registerMemoryReviewPrompt = ({
         const memorySource = args.file
           ? `${config.memoryDir}/${args.file}`
           : config.memoryDir
-        const markedMemory = wrapWithDataMarkers(
-          trimmedMemory,
-          { source: memorySource, type: "memory" },
+        const cappedMemoryContent = wrapWithDataMarkers({
+          content: trimmedMemory,
+          markerAttributes: { source: memorySource, type: "memory" },
           maxChars,
-          whenToolEnabled("vault_get_memory", "vault_get_memory"),
-        )
-        const wrappedMemory =
+          truncationToolName: isToolEnabled("vault_get_memory")
+            ? "vault_get_memory"
+            : undefined,
+        })
+        const memoryContentOrEmpty =
           trimmedMemory.length > 0
-            ? markedMemory
+            ? cappedMemoryContent
             : "_(the selected memory is empty)_"
 
         // vault_update_memory is guaranteed here — this prompt is only
@@ -227,7 +229,7 @@ export const registerMemoryReviewPrompt = ({
           "",
           "## Current memory",
           "",
-          wrappedMemory,
+          memoryContentOrEmpty,
           "",
           "## How to reflect",
           "",

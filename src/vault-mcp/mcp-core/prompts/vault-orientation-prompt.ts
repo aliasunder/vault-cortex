@@ -130,7 +130,7 @@ export const registerVaultOrientationPrompt = ({
   logger: sessionLogger,
   config,
   isToolEnabled,
-  whenToolEnabled,
+  whenToolEnabledText,
   formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = config.memoryEnabled
@@ -242,7 +242,7 @@ export const registerVaultOrientationPrompt = ({
         const memorySection = config.memoryEnabled
           ? memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)
-            : `No memory files yet — the ${config.memoryDir}/ layer is empty.${whenToolEnabled("vault_update_memory", " Use vault_update_memory to start it.")}`
+            : `No memory files yet — the ${config.memoryDir}/ layer is empty.${whenToolEnabledText("vault_update_memory", " Use vault_update_memory to start it.")}`
           : ""
 
         // The "go deeper" menu is a list of calls to make, so every line is

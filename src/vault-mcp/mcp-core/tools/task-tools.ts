@@ -19,7 +19,7 @@ const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
 
 export const registerTaskTools = ({
   registerTool,
-  whenToolEnabled,
+  whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
@@ -55,7 +55,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
 
-Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards${whenToolEnabled("vault_update_task", "; use to determine the done lane for vault_update_task")}), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move${whenToolEnabled("vault_update_task", " via vault_update_task")}, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards${whenToolEnabledText("vault_update_task", "; use to determine the done lane for vault_update_task")}), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move${whenToolEnabledText("vault_update_task", " via vault_update_task")}, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .union([

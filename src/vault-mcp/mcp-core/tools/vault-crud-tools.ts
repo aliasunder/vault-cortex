@@ -35,7 +35,7 @@ const describeDisplacedLeadingContent = ({
 
 export const registerVaultCrudTools = ({
   registerTool,
-  whenToolEnabled,
+  whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
@@ -55,7 +55,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
-Prefer vault_search when you don't know the path.${whenToolEnabled("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabled("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
+Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
@@ -65,12 +65,12 @@ Errors:
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
-- 'path must end in ".md"' — the path names a non-markdown file${whenToolEnabled("vault_read_file", "; read files (images, .canvas, data files) with vault_read_file instead")}
+- 'path must end in ".md"' — the path names a non-markdown file${whenToolEnabledText("vault_read_file", "; read files (images, .canvas, data files) with vault_read_file instead")}
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabled("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -354,7 +354,7 @@ Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProje
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
 When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.
-Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabled("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
+Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
 
 Limitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
@@ -716,12 +716,12 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
-When to use: Removing a note you no longer need.${whenToolEnabled("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}
+When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}
 
 Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.
 
 Errors:
-- "cannot delete protected path" — the path sits under a protected folder${whenToolEnabled("vault_delete_memory", "; use vault_delete_memory for memory entries")}
+- "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry

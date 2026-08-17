@@ -52,10 +52,10 @@ export const textResult = (text: string): GetPromptResult => ({
 export const capContent = (
   text: string,
   maxChars: number | undefined,
-  toolHint: string,
+  toolName: string | undefined,
 ): string =>
   maxChars !== undefined && text.length > maxChars
-    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolHint ? ` — use ${toolHint} for the full content` : ""})`
+    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
     : text
 
 /** Escapes any closing `</vault-content>` tag in the body so an attacker who
@@ -66,21 +66,20 @@ export const escapeVaultContentClosingTag = (text: string): string =>
   text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
 
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
- *  not instruction — defense-in-depth for shared/synced vault scenarios. The cap
- *  (via capContent) is applied to the inner content; the opening and closing tags
- *  always survive truncation. Any `</vault-content>` in the body is escaped to
- *  prevent tag-breakout injection.
- *  @param content — raw vault text to wrap
- *  @param markerAttributes — key-value pairs rendered as XML attributes on the
- *    opening tag (source, type, date) to identify the content's origin
- *  @param maxChars — optional cap forwarded to capContent
- *  @param toolHint — tool name shown in the truncation message */
-export const wrapWithDataMarkers = (
-  content: string,
-  markerAttributes: Record<string, string>,
-  maxChars: number | undefined,
-  toolHint: string,
-): string => {
+ *  not instruction — defense-in-depth for shared/synced vault scenarios. Content
+ *  is truncated at maxChars when set; the XML tags always survive truncation.
+ *  Any `</vault-content>` in the body is escaped to prevent tag-breakout injection. */
+export const wrapWithDataMarkers = ({
+  content,
+  markerAttributes,
+  maxChars,
+  truncationToolName,
+}: {
+  content: string
+  markerAttributes: Record<string, string>
+  maxChars: number | undefined
+  truncationToolName: string | undefined
+}): string => {
   const attributeString = Object.entries(markerAttributes)
     .map(
       ([key, value]) =>
@@ -89,7 +88,9 @@ export const wrapWithDataMarkers = (
     .join(" ")
   return [
     `<vault-content ${attributeString}>`,
-    escapeVaultContentClosingTag(capContent(content, maxChars, toolHint)),
+    escapeVaultContentClosingTag(
+      capContent(content, maxChars, truncationToolName),
+    ),
     "</vault-content>",
   ].join("\n")
 }

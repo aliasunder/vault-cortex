@@ -52,7 +52,7 @@ const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
 ): { instructions: string; description: string } => {
-  const { isToolEnabled, whenToolEnabled } =
+  const { isToolEnabled, whenToolEnabledText } =
     createToolAvailability(enabledToolNames)
 
   const searchDescription = config.embeddingEnabled
@@ -82,7 +82,7 @@ const buildServerMetadata = (
   // Build instruction sentences from separator-free fragments so any
   // combination (including all-disabled) produces clean prose. Each filter
   // is conjunctive: these are complementary entry points, not alternatives.
-  const fileToolsFragment = whenToolEnabled(
+  const fileToolsFragment = whenToolEnabledText(
     "vault_read_file",
     "vault_read_file for images, canvases, and other non-markdown files",
   )
