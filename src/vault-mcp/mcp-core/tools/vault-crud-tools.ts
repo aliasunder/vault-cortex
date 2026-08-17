@@ -568,7 +568,7 @@ Parameters:
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
-- "old_text cannot be empty" — old_text must be at least one character
+- "oldText cannot be empty" — old_text must be at least one character
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
