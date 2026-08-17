@@ -25,11 +25,17 @@ type ServerHandle = {
   cleanup: () => Promise<void>
 }
 
-/** Boot the real server against a copy of the fixture vault. */
-export const startServer = async (
+type SpawnedServer = {
+  child: ChildProcess
+  vaultPath: string
+  dataDir: string
+}
+
+/** Copy the fixture vault to a tempdir and spawn the server process. */
+const spawnServerProcess = async (
   port: number,
-  envOverrides: Record<string, string> = {},
-): Promise<ServerHandle> => {
+  envOverrides: Record<string, string>,
+): Promise<SpawnedServer> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"))
   await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
 
@@ -53,6 +59,19 @@ export const startServer = async (
     env,
     stdio: ["ignore", "pipe", "pipe"],
   })
+
+  return { child, vaultPath, dataDir }
+}
+
+/** Boot the real server against a copy of the fixture vault. */
+export const startServer = async (
+  port: number,
+  envOverrides: Record<string, string> = {},
+): Promise<ServerHandle> => {
+  const { child, vaultPath, dataDir } = await spawnServerProcess(
+    port,
+    envOverrides,
+  )
 
   try {
     await pollHealthz(port, 15_000)
@@ -84,28 +103,10 @@ export const startServerExpectingFailure = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
-  const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"))
-  await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
-  const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-data-"))
-
-  const env: Record<string, string> = {
-    VAULT_PATH: vaultPath,
-    MCP_AUTH_TOKEN: AUTH_TOKEN,
-    PUBLIC_URL: `http://127.0.0.1:${port}`,
-    INDEX_DB_PATH: join(dataDir, "search.db"),
-    EMBEDDING_ENABLED: "false",
-    PORT: String(port),
-    HOST: "127.0.0.1",
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: "test",
-    ...envOverrides,
-  }
-
-  const child = spawn("npx", ["tsx", SERVER_ENTRY], {
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  })
+  const { child, vaultPath, dataDir } = await spawnServerProcess(
+    port,
+    envOverrides,
+  )
 
   let stderr = ""
   child.stderr?.on("data", (chunk: Buffer) => {

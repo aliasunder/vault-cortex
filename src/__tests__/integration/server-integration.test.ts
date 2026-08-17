@@ -18,17 +18,29 @@ const BASE_PORT = 19400
 type TextBlock = { type: "text"; text: string }
 type ToolResult = { isError?: boolean; content: TextBlock[] }
 
-const callTool = async (
-  client: Client,
-  name: string,
-  args: Record<string, unknown> = {},
-): Promise<ToolResult> =>
+const callTool = async ({
+  client,
+  name,
+  args = {},
+}: {
+  client: Client
+  name: string
+  args?: Record<string, unknown>
+}): Promise<ToolResult> =>
   client.callTool({ name, arguments: args }) as Promise<ToolResult>
 
 const textContent = (result: ToolResult): string =>
   result.content
     .filter((block) => block.type === "text")
     .map((block) => block.text)
+    .join("\n")
+
+/** Extract joined text from a prompt result's messages. */
+const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
+  result.messages
+    .map((message) =>
+      message.content.type === "text" ? message.content.text : "",
+    )
     .join("\n")
 
 // ── Default config (30 tools, 3 prompts) ──────────────────────
@@ -67,49 +79,56 @@ describe("default config", () => {
 
   describe("vault-crud read tools", () => {
     it("vault_read_note — full content", async () => {
-      const result = await callTool(client, "vault_read_note", {
-        path: "Projects/alpha.md",
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Project Alpha")
     })
 
     it("vault_read_note — outline mode", async () => {
-      const result = await callTool(client, "vault_read_note", {
-        path: "Projects/alpha.md",
-        outline: true,
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Tasks")
     })
 
     it("vault_read_note — heading mode", async () => {
-      const result = await callTool(client, "vault_read_note", {
-        path: "Projects/alpha.md",
-        heading: "Tasks",
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha-task-1")
     })
 
     it("vault_read_note — properties_only", async () => {
-      const result = await callTool(client, "vault_read_note", {
-        path: "Projects/alpha.md",
-        properties_only: true,
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", properties_only: true },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("active")
     })
 
     it("vault_list_notes", async () => {
-      const result = await callTool(client, "vault_list_notes")
+      const result = await callTool({ client, name: "vault_list_notes" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_list_notes — folder filter", async () => {
-      const result = await callTool(client, "vault_list_notes", {
-        folder: "Projects",
+      const result = await callTool({
+        client,
+        name: "vault_list_notes",
+        args: { folder: "Projects" },
       })
       expect(result.isError).not.toBe(true)
       const text = textContent(result)
@@ -120,80 +139,96 @@ describe("default config", () => {
 
   describe("search tools", () => {
     it("vault_search", async () => {
-      const result = await callTool(client, "vault_search", {
-        query: "integration testing",
+      const result = await callTool({
+        client,
+        name: "vault_search",
+        args: { query: "integration testing" },
       })
       expect(result.isError).not.toBe(true)
     })
 
     it("vault_search_by_tag", async () => {
-      const result = await callTool(client, "vault_search_by_tag", {
-        tag: "project",
+      const result = await callTool({
+        client,
+        name: "vault_search_by_tag",
+        args: { tag: "project" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha")
     })
 
     it("vault_list_tags", async () => {
-      const result = await callTool(client, "vault_list_tags")
+      const result = await callTool({ client, name: "vault_list_tags" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("project")
     })
 
     it("vault_recent_notes", async () => {
-      const result = await callTool(client, "vault_recent_notes")
+      const result = await callTool({ client, name: "vault_recent_notes" })
       expect(result.isError).not.toBe(true)
     })
 
     it("vault_search_by_folder", async () => {
-      const result = await callTool(client, "vault_search_by_folder", {
-        folder: "Projects",
+      const result = await callTool({
+        client,
+        name: "vault_search_by_folder",
+        args: { folder: "Projects" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha")
     })
 
     it("vault_list_property_keys", async () => {
-      const result = await callTool(client, "vault_list_property_keys")
+      const result = await callTool({
+        client,
+        name: "vault_list_property_keys",
+      })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("status")
     })
 
     it("vault_list_property_values", async () => {
-      const result = await callTool(client, "vault_list_property_values", {
-        key: "status",
+      const result = await callTool({
+        client,
+        name: "vault_list_property_values",
+        args: { key: "status" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("active")
     })
 
     it("vault_search_by_property", async () => {
-      const result = await callTool(client, "vault_search_by_property", {
-        key: "status",
-        value: "active",
+      const result = await callTool({
+        client,
+        name: "vault_search_by_property",
+        args: { key: "status", value: "active" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha")
     })
 
     it("vault_get_backlinks", async () => {
-      const result = await callTool(client, "vault_get_backlinks", {
-        path: "Projects/beta.md",
+      const result = await callTool({
+        client,
+        name: "vault_get_backlinks",
+        args: { path: "Projects/beta.md" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha")
     })
 
     it("vault_get_outgoing_links", async () => {
-      const result = await callTool(client, "vault_get_outgoing_links", {
-        path: "Projects/alpha.md",
+      const result = await callTool({
+        client,
+        name: "vault_get_outgoing_links",
+        args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("beta")
     })
 
     it("vault_find_orphans", async () => {
-      const result = await callTool(client, "vault_find_orphans")
+      const result = await callTool({ client, name: "vault_find_orphans" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Orphan Note")
     })
@@ -201,29 +236,35 @@ describe("default config", () => {
 
   describe("memory tools", () => {
     it("vault_list_memory_files", async () => {
-      const result = await callTool(client, "vault_list_memory_files")
+      const result = await callTool({
+        client,
+        name: "vault_list_memory_files",
+      })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Preferences")
     })
 
     it("vault_get_memory — all", async () => {
-      const result = await callTool(client, "vault_get_memory")
+      const result = await callTool({ client, name: "vault_get_memory" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("dark mode")
     })
 
     it("vault_get_memory — file + section", async () => {
-      const result = await callTool(client, "vault_get_memory", {
-        file: "Preferences",
-        section: "Editor settings",
+      const result = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: { file: "Preferences", section: "Editor settings" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Vim keybindings")
     })
 
     it("vault_memory_recall", async () => {
-      const result = await callTool(client, "vault_memory_recall", {
-        query: "dark mode",
+      const result = await callTool({
+        client,
+        name: "vault_memory_recall",
+        args: { query: "dark mode" },
       })
       expect(result.isError).not.toBe(true)
     })
@@ -232,19 +273,27 @@ describe("default config", () => {
       // Use a fixed date so the delete matches regardless of timezone
       // (server defaults to Luxon local time; `new Date().toISOString()` is UTC)
       const testDate = "2026-01-15"
-      const updateResult = await callTool(client, "vault_update_memory", {
-        file: "Preferences",
-        section: "Editor settings",
-        entry: "Integration test entry — SDK Client",
-        options: { date: testDate },
+      const updateResult = await callTool({
+        client,
+        name: "vault_update_memory",
+        args: {
+          file: "Preferences",
+          section: "Editor settings",
+          entry: "Integration test entry — SDK Client",
+          options: { date: testDate },
+        },
       })
       expect(updateResult.isError).not.toBe(true)
 
-      const deleteResult = await callTool(client, "vault_delete_memory", {
-        file: "Preferences",
-        section: "Editor settings",
-        date: testDate,
-        entry: "Integration test entry — SDK Client",
+      const deleteResult = await callTool({
+        client,
+        name: "vault_delete_memory",
+        args: {
+          file: "Preferences",
+          section: "Editor settings",
+          date: testDate,
+          entry: "Integration test entry — SDK Client",
+        },
       })
       expect(deleteResult.isError).not.toBe(true)
     })
@@ -252,16 +301,20 @@ describe("default config", () => {
 
   describe("task tools", () => {
     it("vault_list_tasks", async () => {
-      const result = await callTool(client, "vault_list_tasks")
+      const result = await callTool({ client, name: "vault_list_tasks" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("alpha-task-1")
     })
 
     it("vault_update_task", async () => {
-      const result = await callTool(client, "vault_update_task", {
-        path: "Projects/alpha.md",
-        block_id: "alpha-task-1",
-        priority: "high",
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/alpha.md",
+          block_id: "alpha-task-1",
+          priority: "high",
+        },
       })
       expect(result.isError).not.toBe(true)
     })
@@ -269,8 +322,10 @@ describe("default config", () => {
 
   describe("daily note tool", () => {
     it("vault_get_daily_note", async () => {
-      const result = await callTool(client, "vault_get_daily_note", {
-        date: "2026-01-15",
+      const result = await callTool({
+        client,
+        name: "vault_get_daily_note",
+        args: { date: "2026-01-15" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("integration test results")
@@ -279,46 +334,72 @@ describe("default config", () => {
 
   describe("write chain", () => {
     it("write → patch → replace → delete_span → update_properties → move → delete", async () => {
-      const writeResult = await callTool(client, "vault_write_note", {
-        path: "Scratch/test-write.md",
-        body: "# Test Write\n\nCreated by integration test.\n\nRemovable line.",
+      const writeResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Scratch/test-write.md",
+          body: "# Test Write\n\nCreated by integration test.\n\nRemovable line.",
+        },
       })
       expect(writeResult.isError).not.toBe(true)
 
-      const patchResult = await callTool(client, "vault_patch_note", {
-        path: "Scratch/test-write.md",
-        operation: "append",
-        content: "\nAppended line.",
+      const patchResult = await callTool({
+        client,
+        name: "vault_patch_note",
+        args: {
+          path: "Scratch/test-write.md",
+          operation: "append",
+          content: "\nAppended line.",
+        },
       })
       expect(patchResult.isError).not.toBe(true)
 
-      const replaceResult = await callTool(client, "vault_replace_in_note", {
-        path: "Scratch/test-write.md",
-        old_text: "Appended line.",
-        new_text: "Replaced line.",
+      const replaceResult = await callTool({
+        client,
+        name: "vault_replace_in_note",
+        args: {
+          path: "Scratch/test-write.md",
+          old_text: "Appended line.",
+          new_text: "Replaced line.",
+        },
       })
       expect(replaceResult.isError).not.toBe(true)
 
-      const deleteSpanResult = await callTool(client, "vault_delete_span", {
-        path: "Scratch/test-write.md",
-        start_anchor: "Removable line",
+      const deleteSpanResult = await callTool({
+        client,
+        name: "vault_delete_span",
+        args: {
+          path: "Scratch/test-write.md",
+          start_anchor: "Removable line",
+        },
       })
       expect(deleteSpanResult.isError).not.toBe(true)
 
-      const propsResult = await callTool(client, "vault_update_properties", {
-        path: "Scratch/test-write.md",
-        properties: { tags: ["test"], type: "scratch" },
+      const propsResult = await callTool({
+        client,
+        name: "vault_update_properties",
+        args: {
+          path: "Scratch/test-write.md",
+          properties: { tags: ["test"], type: "scratch" },
+        },
       })
       expect(propsResult.isError).not.toBe(true)
 
-      const moveResult = await callTool(client, "vault_move_note", {
-        old_path: "Scratch/test-write.md",
-        new_path: "Scratch/test-moved.md",
+      const moveResult = await callTool({
+        client,
+        name: "vault_move_note",
+        args: {
+          old_path: "Scratch/test-write.md",
+          new_path: "Scratch/test-moved.md",
+        },
       })
       expect(moveResult.isError).not.toBe(true)
 
-      const deleteResult = await callTool(client, "vault_delete_note", {
-        path: "Scratch/test-moved.md",
+      const deleteResult = await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "Scratch/test-moved.md" },
       })
       expect(deleteResult.isError).not.toBe(true)
     })
@@ -326,22 +407,26 @@ describe("default config", () => {
 
   describe("asset tools", () => {
     it("vault_list_files", async () => {
-      const result = await callTool(client, "vault_list_files")
+      const result = await callTool({ client, name: "vault_list_files" })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("test-data.txt")
     })
 
     it("vault_read_file — text", async () => {
-      const result = await callTool(client, "vault_read_file", {
-        path: "test-data.txt",
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "test-data.txt" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("plain text file")
     })
 
     it("vault_read_file — canvas", async () => {
-      const result = await callTool(client, "vault_read_file", {
-        path: "Boards/test.canvas",
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Boards/test.canvas" },
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Node A")
@@ -351,12 +436,7 @@ describe("default config", () => {
   describe("prompts", () => {
     it("vault-orientation — assembles live vault data", async () => {
       const result = await client.getPrompt({ name: "vault-orientation" })
-      const text = result.messages
-        .map((message) =>
-          message.content.type === "text" ? message.content.text : "",
-        )
-        .join("\n")
-      expect(text).toContain("project")
+      expect(promptText(result)).toContain("project")
     })
 
     it("memory-review — includes memory content", async () => {
@@ -364,12 +444,7 @@ describe("default config", () => {
         name: "memory-review",
         arguments: {},
       })
-      const text = result.messages
-        .map((message) =>
-          message.content.type === "text" ? message.content.text : "",
-        )
-        .join("\n")
-      expect(text).toContain("Preferences")
+      expect(promptText(result)).toContain("Preferences")
     })
 
     it("daily-review — includes daily note content", async () => {
@@ -377,12 +452,7 @@ describe("default config", () => {
         name: "daily-review",
         arguments: { date: "2026-01-15" },
       })
-      const text = result.messages
-        .map((message) =>
-          message.content.type === "text" ? message.content.text : "",
-        )
-        .join("\n")
-      expect(text.length).toBeGreaterThan(0)
+      expect(promptText(result).length).toBeGreaterThan(0)
     })
   })
 })
@@ -422,16 +492,20 @@ describe("READONLY_MODE=true", () => {
   })
 
   it("read tools work", async () => {
-    const result = await callTool(client, "vault_read_note", {
-      path: "Projects/alpha.md",
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md" },
     })
     expect(result.isError).not.toBe(true)
     expect(textContent(result)).toContain("Project Alpha")
   })
 
   it("search works", async () => {
-    const result = await callTool(client, "vault_search", {
-      query: "project",
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "project" },
     })
     expect(result.isError).not.toBe(true)
   })
@@ -470,9 +544,13 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
   })
 
   it("surviving write tools work", async () => {
-    const result = await callTool(client, "vault_write_note", {
-      path: "Scratch/disabled-test.md",
-      body: "# Test\n\nWritten during DISABLED_TOOLS test.",
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Scratch/disabled-test.md",
+        body: "# Test\n\nWritten during DISABLED_TOOLS test.",
+      },
     })
     expect(result.isError).not.toBe(true)
   })
