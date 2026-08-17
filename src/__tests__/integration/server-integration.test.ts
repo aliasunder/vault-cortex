@@ -9,11 +9,11 @@ import {
   createTestClient,
   toolNames,
   promptNames,
+  randomPort,
+  expectUnauthenticatedRejection,
 } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
-
-const BASE_PORT = 19400
 
 type TextBlock = { type: "text"; text: string }
 type ToolResult = { isError?: boolean; content: TextBlock[] }
@@ -47,17 +47,19 @@ const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
 
 describe("default config", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT)
-    client = await createTestClient(server.port)
+    port = randomPort()
+    const server = await startServer(port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
   describe("surface", () => {
@@ -145,7 +147,7 @@ describe("default config", () => {
         args: { query: "integration testing" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_search_by_tag", async () => {
@@ -155,7 +157,7 @@ describe("default config", () => {
         args: { tag: "project" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_list_tags", async () => {
@@ -167,7 +169,7 @@ describe("default config", () => {
     it("vault_recent_notes", async () => {
       const result = await callTool({ client, name: "vault_recent_notes" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain(".md")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_search_by_folder", async () => {
@@ -177,7 +179,7 @@ describe("default config", () => {
         args: { folder: "Projects" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_list_property_keys", async () => {
@@ -206,7 +208,7 @@ describe("default config", () => {
         args: { key: "status", value: "active" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_get_backlinks", async () => {
@@ -216,7 +218,7 @@ describe("default config", () => {
         args: { path: "Projects/beta.md" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha")
+      expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
     it("vault_get_outgoing_links", async () => {
@@ -226,7 +228,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("beta")
+      const text = textContent(result)
+      expect(text).toContain("Projects/beta.md")
+      expect(text).toContain("About Me/Preferences.md")
     })
 
     it("vault_find_orphans", async () => {
@@ -273,8 +277,6 @@ describe("default config", () => {
     })
 
     it("vault_update_memory + vault_delete_memory cycle", async () => {
-      // Use a fixed date so the delete matches regardless of timezone
-      // (server defaults to Luxon local time; `new Date().toISOString()` is UTC)
       const testDate = "2026-01-15"
       const updateResult = await callTool({
         client,
@@ -288,6 +290,16 @@ describe("default config", () => {
       })
       expect(updateResult.isError).not.toBe(true)
 
+      // Verify the entry was added
+      const verifyResult = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: { file: "Preferences", section: "Editor settings" },
+      })
+      expect(textContent(verifyResult)).toContain(
+        "Integration test entry — SDK Client",
+      )
+
       const deleteResult = await callTool({
         client,
         name: "vault_delete_memory",
@@ -299,6 +311,16 @@ describe("default config", () => {
         },
       })
       expect(deleteResult.isError).not.toBe(true)
+
+      // Verify the entry was removed
+      const afterDelete = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: { file: "Preferences", section: "Editor settings" },
+      })
+      expect(textContent(afterDelete)).not.toContain(
+        "Integration test entry — SDK Client",
+      )
     })
   })
 
@@ -309,7 +331,7 @@ describe("default config", () => {
       expect(textContent(result)).toContain("alpha-task-1")
     })
 
-    it("vault_update_task", async () => {
+    it("vault_update_task — verify priority applied", async () => {
       const result = await callTool({
         client,
         name: "vault_update_task",
@@ -320,6 +342,14 @@ describe("default config", () => {
         },
       })
       expect(result.isError).not.toBe(true)
+
+      // Re-read the task section to verify the priority was applied
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", heading: "Tasks" },
+      })
+      expect(textContent(readback)).toContain("⏫")
     })
   })
 
@@ -337,6 +367,7 @@ describe("default config", () => {
 
   describe("write chain", () => {
     it("write → patch → replace → delete_span → update_properties → move → delete", async () => {
+      // write
       const writeResult = await callTool({
         client,
         name: "vault_write_note",
@@ -347,6 +378,7 @@ describe("default config", () => {
       })
       expect(writeResult.isError).not.toBe(true)
 
+      // patch
       const patchResult = await callTool({
         client,
         name: "vault_patch_note",
@@ -358,6 +390,7 @@ describe("default config", () => {
       })
       expect(patchResult.isError).not.toBe(true)
 
+      // replace — verify the replacement happened
       const replaceResult = await callTool({
         client,
         name: "vault_replace_in_note",
@@ -368,7 +401,15 @@ describe("default config", () => {
         },
       })
       expect(replaceResult.isError).not.toBe(true)
+      const afterReplace = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterReplace)).toContain("Replaced line.")
+      expect(textContent(afterReplace)).not.toContain("Appended line.")
 
+      // delete_span — verify the line was removed
       const deleteSpanResult = await callTool({
         client,
         name: "vault_delete_span",
@@ -378,7 +419,14 @@ describe("default config", () => {
         },
       })
       expect(deleteSpanResult.isError).not.toBe(true)
+      const afterSpan = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterSpan)).not.toContain("Removable line")
 
+      // update_properties — verify frontmatter merged
       const propsResult = await callTool({
         client,
         name: "vault_update_properties",
@@ -388,7 +436,14 @@ describe("default config", () => {
         },
       })
       expect(propsResult.isError).not.toBe(true)
+      const afterProps = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md", properties_only: true },
+      })
+      expect(textContent(afterProps)).toContain("scratch")
 
+      // move
       const moveResult = await callTool({
         client,
         name: "vault_move_note",
@@ -399,12 +454,19 @@ describe("default config", () => {
       })
       expect(moveResult.isError).not.toBe(true)
 
+      // delete — verify the note is gone
       const deleteResult = await callTool({
         client,
         name: "vault_delete_note",
         args: { path: "Scratch/test-moved.md" },
       })
       expect(deleteResult.isError).not.toBe(true)
+      const afterDelete = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-moved.md" },
+      })
+      expect(afterDelete.isError).toBe(true)
     })
   })
 
@@ -458,25 +520,32 @@ describe("default config", () => {
       expect(promptText(result)).toContain("integration test results")
     })
   })
+
+  describe("auth", () => {
+    it("unauthenticated /mcp request is rejected", async () => {
+      const status = await expectUnauthenticatedRejection(port)
+      expect(status).toBe(401)
+    })
+  })
 })
 
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────
 
 describe("READONLY_MODE=true", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT + 1, {
+    const server = await startServer(randomPort(), {
       READONLY_MODE: "true",
     })
-    client = await createTestClient(server.port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
   it("lists 20 tools", async () => {
@@ -491,7 +560,7 @@ describe("READONLY_MODE=true", () => {
   it("lists 2 prompts — no memory-review", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(2)
-    expect(names).not.toContain("memory-review")
+    expect(names).toEqual(["daily-review", "vault-orientation"])
   })
 
   it("read tools work", async () => {
@@ -511,6 +580,7 @@ describe("READONLY_MODE=true", () => {
       args: { query: "project" },
     })
     expect(result.isError).not.toBe(true)
+    expect(textContent(result)).toContain("Projects/alpha.md")
   })
 })
 
@@ -518,32 +588,40 @@ describe("READONLY_MODE=true", () => {
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT + 2, {
+    const server = await startServer(randomPort(), {
       DISABLED_TOOLS: "vault_delete_note,vault_move_note,vault_delete_memory",
     })
-    client = await createTestClient(server.port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
-  it("lists 27 tools", async () => {
+  it("lists 27 tools with expected survivors", async () => {
     const names = await toolNames(client)
     expect(names).toHaveLength(27)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
+    expect(names).toContain("vault_write_note")
+    expect(names).toContain("vault_read_note")
+    expect(names).toContain("vault_update_task")
   })
 
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
+    expect(names).toEqual([
+      "daily-review",
+      "memory-review",
+      "vault-orientation",
+    ])
   })
 
   it("surviving write tools work", async () => {
@@ -556,6 +634,14 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
       },
     })
     expect(result.isError).not.toBe(true)
+
+    // Verify the write took effect
+    const readback = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Scratch/disabled-test.md" },
+    })
+    expect(textContent(readback)).toContain("DISABLED_TOOLS test")
   })
 })
 
@@ -563,30 +649,32 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
 
 describe("DISABLED_TOOLS=vault_update_memory", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT + 3, {
+    const server = await startServer(randomPort(), {
       DISABLED_TOOLS: "vault_update_memory",
     })
-    client = await createTestClient(server.port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
   it("lists 29 tools", async () => {
     const names = await toolNames(client)
     expect(names).toHaveLength(29)
+    expect(names).not.toContain("vault_update_memory")
+    expect(names).toContain("vault_get_memory")
   })
 
   it("memory-review prompt hidden", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(2)
-    expect(names).not.toContain("memory-review")
+    expect(names).toEqual(["daily-review", "vault-orientation"])
   })
 })
 
@@ -594,19 +682,19 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
 
 describe("MEMORY_ENABLED=false", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT + 4, {
+    const server = await startServer(randomPort(), {
       MEMORY_ENABLED: "false",
     })
-    client = await createTestClient(server.port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
   it("lists 25 tools — no memory group", async () => {
@@ -622,7 +710,7 @@ describe("MEMORY_ENABLED=false", () => {
   it("memory-review prompt hidden", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(2)
-    expect(names).not.toContain("memory-review")
+    expect(names).toEqual(["daily-review", "vault-orientation"])
   })
 })
 
@@ -630,19 +718,19 @@ describe("MEMORY_ENABLED=false", () => {
 
 describe("FILE_TOOLS_ENABLED=false", () => {
   let client: Client
-  let cleanup: () => Promise<void>
+  let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(BASE_PORT + 5, {
+    const server = await startServer(randomPort(), {
       FILE_TOOLS_ENABLED: "false",
     })
-    client = await createTestClient(server.port)
     cleanup = server.cleanup
+    client = await createTestClient(server.port)
   }, 30_000)
 
   afterAll(async () => {
-    await client.close()
-    await cleanup()
+    if (client) await client.close()
+    if (cleanup) await cleanup()
   })
 
   it("lists 28 tools — no asset tools", async () => {
@@ -650,11 +738,17 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     expect(names).toHaveLength(28)
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
+    expect(names).toContain("vault_read_note")
   })
 
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
+    expect(names).toEqual([
+      "daily-review",
+      "memory-review",
+      "vault-orientation",
+    ])
   })
 })
 
@@ -663,7 +757,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(
-      BASE_PORT + 6,
+      randomPort(),
       { DISABLED_TOOLS: "vault_fake_tool" },
     )
     expect(exitCode).toBe(1)

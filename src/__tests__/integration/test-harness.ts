@@ -5,6 +5,7 @@ import { spawn } from "node:child_process"
 import { mkdtemp, cp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { randomInt } from "node:crypto"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
@@ -29,7 +30,30 @@ type SpawnedServer = {
   child: ChildProcess
   vaultPath: string
   dataDir: string
+  stderr: () => string
 }
+
+/** Allocate a random port in the dynamic/private range (49152-65535). */
+export const randomPort = (): number => randomInt(49152, 65535)
+
+const buildServerEnv = (
+  port: number,
+  vaultPath: string,
+  dataDir: string,
+  overrides: Record<string, string>,
+): Record<string, string> => ({
+  VAULT_PATH: vaultPath,
+  MCP_AUTH_TOKEN: AUTH_TOKEN,
+  PUBLIC_URL: `http://127.0.0.1:${port}`,
+  INDEX_DB_PATH: join(dataDir, "search.db"),
+  EMBEDDING_ENABLED: "false",
+  PORT: String(port),
+  HOST: "127.0.0.1",
+  PATH: process.env.PATH ?? "",
+  HOME: process.env.HOME ?? "",
+  NODE_ENV: "test",
+  ...overrides,
+})
 
 /** Copy the fixture vault to a tempdir and spawn the server process. */
 const spawnServerProcess = async (
@@ -40,27 +64,19 @@ const spawnServerProcess = async (
   await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
 
   const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-data-"))
-
-  const env: Record<string, string> = {
-    VAULT_PATH: vaultPath,
-    MCP_AUTH_TOKEN: AUTH_TOKEN,
-    PUBLIC_URL: `http://127.0.0.1:${port}`,
-    INDEX_DB_PATH: join(dataDir, "search.db"),
-    EMBEDDING_ENABLED: "false",
-    PORT: String(port),
-    HOST: "127.0.0.1",
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: "test",
-    ...envOverrides,
-  }
+  const env = buildServerEnv(port, vaultPath, dataDir, envOverrides)
 
   const child = spawn("npx", ["tsx", SERVER_ENTRY], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   })
 
-  return { child, vaultPath, dataDir }
+  let stderrBuf = ""
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderrBuf += chunk.toString()
+  })
+
+  return { child, vaultPath, dataDir, stderr: () => stderrBuf }
 }
 
 /** Boot the real server against a copy of the fixture vault. */
@@ -68,18 +84,20 @@ export const startServer = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir } = await spawnServerProcess(
+  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(
     port,
     envOverrides,
   )
 
   try {
     await pollHealthz(port, 15_000)
-  } catch (err) {
+  } catch {
     child.kill("SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
-    throw err
+    throw new Error(
+      `Server on port ${port} did not become healthy within 15000ms\n\nServer stderr:\n${stderr()}`,
+    )
   }
 
   const cleanup = async (): Promise<void> => {
@@ -103,18 +121,13 @@ export const startServerExpectingFailure = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
-  const { child, vaultPath, dataDir } = await spawnServerProcess(
+  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(
     port,
     envOverrides,
   )
 
-  let stderr = ""
-  child.stderr?.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString()
-  })
-
   const exitCode = await new Promise<number | null>((res) => {
-    child.on("exit", (code) => res(code))
+    child.on("close", (code) => res(code))
     setTimeout(() => {
       child.kill("SIGKILL")
       res(null)
@@ -124,7 +137,7 @@ export const startServerExpectingFailure = async (
   await rm(vaultPath, { recursive: true, force: true })
   await rm(dataDir, { recursive: true, force: true })
 
-  return { exitCode, stderr }
+  return { exitCode, stderr: stderr() }
 }
 
 /** Connect an MCP SDK Client to the running server. */
@@ -155,6 +168,27 @@ export const toolNames = async (client: Client): Promise<string[]> => {
 export const promptNames = async (client: Client): Promise<string[]> => {
   const result = await client.listPrompts()
   return result.prompts.map((prompt) => prompt.name).sort()
+}
+
+/** Verify auth is enforced — unauthenticated request returns 401. */
+export const expectUnauthenticatedRejection = async (
+  port: number,
+): Promise<number> => {
+  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "initialize",
+      id: 1,
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1.0.0" },
+      },
+    }),
+  })
+  return response.status
 }
 
 const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
