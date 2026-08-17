@@ -1211,7 +1211,7 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section "## Active" has 1 child heading (Subtasks); pass include_children: true to replace them too',
+      'section "## Active" has 1 child heading (Subtasks)',
     )
     expect(await readTestNote("note.md")).toBe(content)
   })
@@ -1232,7 +1232,7 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done); pass include_children: true to replace them too',
+      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)',
     )
     expect(await readTestNote("note.md")).toBe(content)
   })
