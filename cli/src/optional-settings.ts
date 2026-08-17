@@ -208,13 +208,13 @@ export const derivePublicUrlOverride = (
 }
 
 /**
- * The .env spellings the server reads as "off" — env-var's asBool accepts
- * 0/1 alongside true/false. An absent or unrecognized value falls to the
- * server default, declared per-toggle via defaultEnabled (enabled unless
+ * True unless the .env value is an explicit "off" spelling — env-var's asBool
+ * accepts 0/1 alongside true/false. An absent or unrecognized value falls to
+ * the server default, declared per-toggle via defaultEnabled (enabled unless
  * stated otherwise).
  */
-const isDisabledToggleValue = (value: string | undefined): boolean =>
-  ["false", "0"].includes((value ?? "").toLowerCase())
+const isEnabledToggleValue = (value: string | undefined): boolean =>
+  !["false", "0"].includes((value ?? "").toLowerCase())
 
 /**
  * Plain digits in the TCP port range. Number() coercion is not enough:
@@ -348,7 +348,7 @@ const askSettingValue = async (
       const currentlyEnabled =
         currentValue === undefined
           ? (setting.defaultEnabled ?? true)
-          : !isDisabledToggleValue(currentValue)
+          : isEnabledToggleValue(currentValue)
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
@@ -404,7 +404,7 @@ export const askOptionalSettings = async (
     )
     const dependencyNote =
       requiredToggle &&
-      isDisabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+      !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
         : ""
     return {
