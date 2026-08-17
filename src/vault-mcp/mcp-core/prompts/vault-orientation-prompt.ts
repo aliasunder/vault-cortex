@@ -131,6 +131,7 @@ export const registerVaultOrientationPrompt = ({
   config,
   isToolEnabled,
   whenToolEnabled,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = config.memoryEnabled
     ? createMemoryStore({ memoryDir: config.memoryDir })
@@ -331,10 +332,19 @@ export const registerVaultOrientationPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const fallbackTools = formatEnabledToolList([
+          "vault_list_tags",
+          "vault_list_property_keys",
+          "vault_find_orphans",
+          ...(config.memoryEnabled
+            ? (["vault_list_memory_files"] as const)
+            : []),
+        ])
+        const fallbackHint = fallbackTools
+          ? ` You can still explore it directly with the vault tools — try ${fallbackTools}.`
+          : ""
         return textResult(
-          config.memoryEnabled
-            ? `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, and vault_list_memory_files.`
-            : `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_find_orphans.`,
+          `Could not fully survey the vault (${message}).${fallbackHint}`,
         )
       }
     },

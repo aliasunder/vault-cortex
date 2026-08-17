@@ -89,9 +89,11 @@ mechanism-level detail.
   writes outside the vault (search index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
   on but remove the delete tools. Same registration-time guarantee: a
-  disabled tool is never advertised, and no surviving tool description
-  suggests it. Unknown names stop the server at startup rather than
-  silently disabling nothing.
+  disabled tool is never advertised. Availability-keyed cross-references
+  in surviving tool descriptions and prompts disappear; a small number
+  of durable API-level references remain (e.g. error-section alternatives
+  naming sibling tools). Unknown names stop the server at startup rather
+  than silently disabling nothing.
 
 ### TOCTOU race prevention
 

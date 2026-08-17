@@ -68,6 +68,7 @@ export const registerMemoryReviewPrompt = ({
   config,
   isToolEnabled,
   whenToolEnabled,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
@@ -245,8 +246,15 @@ export const registerMemoryReviewPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const fallbackTools = formatEnabledToolList([
+          "vault_list_memory_files",
+          "vault_get_memory",
+        ])
+        const fallbackHint = fallbackTools
+          ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
+          : ""
         return textResult(
-          `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
+          `Could not load memory for review (${message}).${fallbackHint}`,
         )
       }
     },

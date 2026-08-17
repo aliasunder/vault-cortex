@@ -95,12 +95,15 @@ const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
   return `- ${checkbox} ${task.description}${locationSuffix}${metadataSuffix}`
 }
 
-/** Assembles a task section with an overflow hint when results are capped. */
+/** Assembles a task section with an overflow hint when results are capped.
+ *  The caller passes the tool-specific overflow text (keyed on availability)
+ *  so the hint never names a tool the server doesn't serve. */
 const formatTasksSection = (
   tasks: readonly TaskEntry[],
   total: number,
   emptyMessage: string,
   includePath: boolean,
+  overflowToolHint: string,
 ): string => {
   if (tasks.length === 0) return emptyMessage
   const lines = tasks
@@ -108,7 +111,7 @@ const formatTasksSection = (
     .join("\n")
   const overflowHint =
     total > tasks.length
-      ? `\n\n_Showing ${tasks.length} of ${total}. Use vault_list_tasks for the full list._`
+      ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_`
       : ""
   return `${lines}${overflowHint}`
 }
@@ -260,17 +263,23 @@ export const registerDailyReviewPrompt = ({
             ? modifiedOnDate.map(formatNoteLine).join("\n")
             : `No notes were modified on ${dateArg}.`
 
+        const taskOverflowHint = whenToolEnabled(
+          "vault_list_tasks",
+          " Use vault_list_tasks for the full list.",
+        )
         const dueSection = formatTasksSection(
           dueOrOverdue.tasks,
           dueOrOverdue.total,
           `No tasks are due on ${dateArg} or overdue.`,
           true,
+          taskOverflowHint,
         )
         const scheduledSection = formatTasksSection(
           scheduledToday.tasks,
           scheduledToday.total,
           `No tasks scheduled for ${dateArg}.`,
           true,
+          taskOverflowHint,
         )
         const dailyTasksSection = daily.exists
           ? formatTasksSection(
@@ -278,6 +287,7 @@ export const registerDailyReviewPrompt = ({
               dailyNoteTasks.total,
               "No checkbox tasks in this daily note.",
               false,
+              taskOverflowHint,
             )
           : null
 
@@ -393,8 +403,12 @@ export const registerDailyReviewPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const dailyFallbackHint = whenToolEnabled(
+          "vault_get_daily_note",
+          " Try vault_get_daily_note to fetch the note directly.",
+        )
         return textResult(
-          `Could not assemble the daily review (${message}). Try vault_get_daily_note to fetch the note directly.`,
+          `Could not assemble the daily review (${message}).${dailyFallbackHint}`,
         )
       }
     },
