@@ -140,7 +140,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | ------------------------- | --------------------------------------------------------------------------------- | --------------- |
 | `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?, start_line?, limit?` | readOnlyHint    |
 | `vault_write_note`        | `path, body, properties?, overwrite?`                                             | destructiveHint |
-| `vault_patch_note`        | `path, operation, content, heading?, heading_level?`                              | destructiveHint |
+| `vault_patch_note`        | `path, operation, content, heading?, heading_level?, include_children?`            | destructiveHint |
 | `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint |
 | `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint |
 | `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint    |
