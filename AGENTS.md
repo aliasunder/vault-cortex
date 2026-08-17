@@ -996,6 +996,13 @@ pattern:
 5. **Root .env.example** — Lightsail reference deployment (if applicable)
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
    — maintainer/contributor surfaces (if applicable)
+7. **Deploy workflows** (`.github/workflows/deploy.yml`,
+   `.github/workflows/test_deploy.yml`) — these write the Lightsail instance's
+   `.env` from repo Variables, so a var the compose file interpolates but the
+   workflows never write can never be set on that deployment. Required (`PUID`)
+   and always-defaulted (`MEMORY_ENABLED`) vars go in the heredoc; anything
+   that should fall back to the server's own default goes in the
+   conditional-append block below it, so an unset Variable writes no line.
 
 CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.
