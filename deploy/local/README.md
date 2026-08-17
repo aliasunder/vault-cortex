@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -189,7 +189,8 @@ docker compose pull && docker compose up -d
 ## Restart
 
 The server runs startup tasks on every boot: it rebuilds the search index,
-creates memory template files if the memory folder doesn't exist, and starts
+creates memory template files if the memory folder doesn't exist (skipped
+when `MEMORY_ENABLED=false` or `READONLY_MODE=true`), and starts
 the file watcher. Restarting the container re-runs this flow (useful when
 testing bootstrap behavior). The command is the same for both setup methods,
 since both name the container `vault-cortex`:
@@ -277,11 +278,24 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Read-only mode
+
+Set `READONLY_MODE=true` in your `.env` to hide every tool that edits,
+creates, moves, or deletes notes. The memory folder is not auto-created.
+Connected clients can read and search but never edit.
+
+Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
+comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
+keeps writes on but removes deleting and moving. Names match the Name column
+in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
+It only ever takes tools away: it can't bring back one that read-only mode
+or another setting has already hidden.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, file tools, daily notes
-folder and format, timezone), see the
+(memory folder, protected paths, orphan exclusions, file tools, read-only
+mode, per-tool disabling, daily notes folder and format, timezone), see the
 [Configuration](../../README.md#configuration) section in the main README.
 
 ## Troubleshooting

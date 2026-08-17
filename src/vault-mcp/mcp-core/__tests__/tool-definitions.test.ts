@@ -4,7 +4,8 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { z } from "zod"
-import { registerTools, TOOL_NAMES } from "../tool-definitions.js"
+import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
+import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
@@ -13,41 +14,23 @@ import { logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
-const READ_ONLY_TOOLS = [
-  TOOL_NAMES.VAULT_READ_NOTE,
-  TOOL_NAMES.VAULT_LIST_NOTES,
-  TOOL_NAMES.VAULT_SEARCH,
-  TOOL_NAMES.VAULT_SEARCH_BY_TAG,
-  TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
-  TOOL_NAMES.VAULT_LIST_TASKS,
-  TOOL_NAMES.VAULT_LIST_TAGS,
-  TOOL_NAMES.VAULT_RECENT_NOTES,
-  TOOL_NAMES.VAULT_GET_MEMORY,
-  TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
-  TOOL_NAMES.VAULT_MEMORY_RECALL,
-  TOOL_NAMES.VAULT_GET_DAILY_NOTE,
-  TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
-  TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-  TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
-  TOOL_NAMES.VAULT_GET_BACKLINKS,
-  TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
-  TOOL_NAMES.VAULT_FIND_ORPHANS,
-  TOOL_NAMES.VAULT_READ_FILE,
-  TOOL_NAMES.VAULT_LIST_FILES,
-] as const
+// Expected sets derive from the registry so a new tool joins them
+// automatically; the literal spot-checks in tool-registry.test.ts anchor the
+// classification itself, so a registry typo cannot self-certify here.
+const READ_ONLY_TOOLS = TOOL_REGISTRY.filter(
+  (entry) => entry.annotations.readOnlyHint,
+).map((entry) => entry.name)
 
-const DESTRUCTIVE_TOOLS = [
-  TOOL_NAMES.VAULT_WRITE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_SPAN,
-  TOOL_NAMES.VAULT_MOVE_NOTE,
-  TOOL_NAMES.VAULT_DELETE_MEMORY,
-  TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
-] as const
+const DESTRUCTIVE_TOOLS = TOOL_REGISTRY.filter(
+  (entry) => entry.annotations.destructiveHint,
+).map((entry) => entry.name)
 
 // Writers that only add to the vault — never overwrite or delete existing
 // content — so destructiveHint must be false even though readOnlyHint is too.
-const ADDITIVE_WRITE_TOOLS = [TOOL_NAMES.VAULT_UPDATE_MEMORY] as const
+const ADDITIVE_WRITE_TOOLS = TOOL_REGISTRY.filter(
+  (entry) =>
+    !entry.annotations.readOnlyHint && !entry.annotations.destructiveHint,
+).map((entry) => entry.name)
 
 const WRITE_TOOLS = [
   TOOL_NAMES.VAULT_WRITE_NOTE,
@@ -98,6 +81,12 @@ const requireCall = (name: string): RegisterToolCall => {
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
     expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
+  })
+
+  it("registered tools and TOOL_REGISTRY entries are the same set", () => {
+    const registeredNames = calls.map(([toolName]) => toolName).toSorted()
+    const registryNames = TOOL_REGISTRY.map((entry) => entry.name).toSorted()
+    expect(registeredNames).toEqual(registryNames)
   })
 
   it.each(ALL_TOOL_NAMES)("registers %s", (name) => {
@@ -1117,6 +1106,80 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   })
 })
 
+describe("READONLY_MODE=true", () => {
+  const MUTATING_TOOLS = TOOL_REGISTRY.filter(
+    (entry) => !entry.annotations.readOnlyHint,
+  ).map((entry) => entry.name)
+
+  const registerReadOnly = (
+    extraEnv: Record<string, string> = {},
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig({ READONLY_MODE: "true", ...extraEnv }),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  it("does not register mutating tools", () => {
+    const readOnlyCalls = registerReadOnly()
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    for (const mutatingTool of MUTATING_TOOLS) {
+      expect(registeredNames).not.toContain(mutatingTool)
+    }
+  })
+
+  it(`registers exactly the ${READ_ONLY_TOOLS.length} read-only tools`, () => {
+    const readOnlyCalls = registerReadOnly()
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    expect(new Set(registeredNames)).toEqual(new Set(READ_ONLY_TOOLS))
+    expect(registeredNames).toHaveLength(READ_ONLY_TOOLS.length)
+  })
+
+  it("surviving tool descriptions do not reference mutating tools", () => {
+    const readOnlyCalls = registerReadOnly()
+    for (const [, toolConfig] of readOnlyCalls) {
+      expect(toolConfig.description).toBeDefined()
+      for (const mutatingToolName of MUTATING_TOOLS) {
+        expect(toolConfig.description).not.toContain(mutatingToolName)
+      }
+    }
+  })
+
+  it("with MEMORY_ENABLED=false registers the read-only tools minus memory reads", () => {
+    const readOnlyCalls = registerReadOnly({ MEMORY_ENABLED: "false" })
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    const memoryReadTools = new Set<string>([
+      TOOL_NAMES.VAULT_GET_MEMORY,
+      TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+      TOOL_NAMES.VAULT_MEMORY_RECALL,
+    ])
+    const expectedTools = READ_ONLY_TOOLS.filter(
+      (toolName) => !memoryReadTools.has(toolName),
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedTools))
+    expect(registeredNames).toHaveLength(expectedTools.length)
+  })
+
+  it("with FILE_TOOLS_ENABLED=false registers the read-only tools minus file tools", () => {
+    const readOnlyCalls = registerReadOnly({ FILE_TOOLS_ENABLED: "false" })
+    const registeredNames = readOnlyCalls.map(([toolName]) => toolName)
+    const fileTools = new Set<string>([
+      TOOL_NAMES.VAULT_READ_FILE,
+      TOOL_NAMES.VAULT_LIST_FILES,
+    ])
+    const expectedTools = READ_ONLY_TOOLS.filter(
+      (toolName) => !fileTools.has(toolName),
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedTools))
+    expect(registeredNames).toHaveLength(expectedTools.length)
+  })
+})
+
 describe("vault_memory_recall handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
@@ -1729,4 +1792,194 @@ describe("file tool handlers", () => {
       truncated: true,
     })
   })
+})
+
+describe("DISABLED_TOOLS", () => {
+  const registerWithConfig = (
+    env: Record<string, string>,
+  ): RegisterToolCall[] => {
+    const server = { registerTool: vi.fn() }
+    registerTools({
+      server: server as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: {} as SearchIndex,
+      logger,
+      config: loadConfig(env),
+    })
+    return server.registerTool.mock.calls as RegisterToolCall[]
+  }
+
+  it("hides exactly the named tools and keeps every other tool", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    const expectedNames = ALL_TOOL_NAMES.filter(
+      (toolName) =>
+        toolName !== TOOL_NAMES.VAULT_WRITE_NOTE &&
+        toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
+    )
+    expect(new Set(registeredNames)).toEqual(new Set(expectedNames))
+    expect(registeredNames).toHaveLength(expectedNames.length)
+  })
+
+  it("cannot resurrect a tool another flag already hides", () => {
+    const registeredCalls = registerWithConfig({
+      MEMORY_ENABLED: "false",
+      DISABLED_TOOLS: "vault_get_memory",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_GET_MEMORY)
+    // The whole 5-tool memory group is flag-hidden; the overlap adds nothing.
+    expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 5)
+  })
+
+  it("composes with READONLY_MODE — subtracts a read tool from the read-only surface", () => {
+    const readOnlyCalls = registerWithConfig({ READONLY_MODE: "true" })
+    const subtractedCalls = registerWithConfig({
+      READONLY_MODE: "true",
+      DISABLED_TOOLS: "vault_search",
+    })
+    const subtractedNames = subtractedCalls.map(([toolName]) => toolName)
+    expect(subtractedNames).not.toContain(TOOL_NAMES.VAULT_SEARCH)
+    expect(subtractedCalls).toHaveLength(readOnlyCalls.length - 1)
+  })
+
+  it("disabling every tool of a group registers none of that group", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_read_file,vault_list_files",
+    })
+    const registeredNames = registeredCalls.map(([toolName]) => toolName)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_READ_FILE)
+    expect(registeredNames).not.toContain(TOOL_NAMES.VAULT_LIST_FILES)
+    expect(registeredCalls).toHaveLength(ALL_TOOL_NAMES.length - 2)
+  })
+
+  it("a disabled tool disappears from availability-keyed cross-references", () => {
+    // vault_read_note's edit guidance is an availability-keyed reference:
+    // it names vault_patch_note only while that tool is served. (Mentions in
+    // prose that was never flag-conditional — e.g. vault_write_note's
+    // partial-edit error remediation — deliberately stay; DISABLED_TOOLS is
+    // an escape hatch, and re-templating every sibling mention isn't worth
+    // the description churn.)
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_patch_note",
+    })
+    const readNoteCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    expect(readNoteCall?.[1].description).not.toContain(
+      TOOL_NAMES.VAULT_PATCH_NOTE,
+    )
+    // Guard against a vacuous pass: with nothing disabled, the reference IS
+    // present.
+    const enabledCalls = registerWithConfig({})
+    const enabledReadNoteCall = enabledCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
+    expect(enabledReadNoteCall?.[1].description).toContain(
+      TOOL_NAMES.VAULT_PATCH_NOTE,
+    )
+  })
+
+  it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_update_memory,vault_delete_memory",
+    })
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
+    const description = listFilesCall?.[1].description
+    expect(description).toContain("BEFORE calling vault_get_memory.")
+    expect(description).not.toContain("vault_update_memory")
+    expect(description).not.toContain("pruning entries")
+  })
+
+  // vault_get_memory is itself disableable, so the follow-up list can empty
+  // out entirely — the sentence has to lose the clause, not render a dangling
+  // "BEFORE calling .".
+  it("drops the follow-up clause when every memory follow-up tool is disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS:
+        "vault_get_memory,vault_update_memory,vault_delete_memory",
+    })
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
+    const description = listFilesCall?.[1].description
+
+    expect(description).toContain(
+      "When to use: Discovering what memory files and sections exist — and what each file is for. Always call this first",
+    )
+    expect(description).not.toContain("BEFORE calling")
+  })
+
+  it("drops the recall consumer clause when both consumer tools are disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_get_memory,vault_delete_memory",
+    })
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+    const description = recallCall?.[1].description
+
+    expect(description).toContain(
+      "text is the raw entry markdown (wikilinks intact, continuation lines included). entries ascend by date",
+    )
+    expect(description).not.toContain("feed directly into")
+  })
+
+  it("names only the surviving consumer when vault_get_memory alone is disabled", () => {
+    const registeredCalls = registerWithConfig({
+      DISABLED_TOOLS: "vault_get_memory",
+    })
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
+
+    expect(recallCall?.[1].description).toContain(
+      "file and section feed directly into vault_delete_memory.",
+    )
+  })
+})
+
+describe("flag-combination matrix", () => {
+  const BOOL_VALUES = ["false", "true"] as const
+  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) =>
+    BOOL_VALUES.flatMap((memoryValue) =>
+      BOOL_VALUES.flatMap((fileValue) =>
+        BOOL_VALUES.map((embeddingValue) => ({
+          READONLY_MODE: readonlyValue,
+          MEMORY_ENABLED: memoryValue,
+          FILE_TOOLS_ENABLED: fileValue,
+          EMBEDDING_ENABLED: embeddingValue,
+        })),
+      ),
+    ),
+  )
+  const disabledToolsCombos = [
+    { DISABLED_TOOLS: "vault_search" },
+    { READONLY_MODE: "true", DISABLED_TOOLS: "vault_get_daily_note" },
+    { MEMORY_ENABLED: "false", DISABLED_TOOLS: "vault_write_note" },
+  ]
+
+  it.each([...flagCombos, ...disabledToolsCombos])(
+    "registration matches computeEnabledToolNames for %o",
+    (env) => {
+      const server = { registerTool: vi.fn() }
+      const config = loadConfig(env)
+      registerTools({
+        server: server as unknown as McpServer,
+        vaultPath: "/test-vault",
+        search: {} as SearchIndex,
+        logger,
+        config,
+      })
+      const registeredCalls = server.registerTool.mock
+        .calls as RegisterToolCall[]
+      const registeredNames = registeredCalls.map(([toolName]) => toolName)
+      expect(new Set(registeredNames)).toEqual(computeEnabledToolNames(config))
+      expect(registeredNames).toHaveLength(computeEnabledToolNames(config).size)
+    },
+  )
 })

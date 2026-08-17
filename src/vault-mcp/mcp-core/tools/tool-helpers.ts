@@ -1,16 +1,32 @@
 /** Shared types and helpers for tool group modules. */
 
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { LineWindow } from "../../obsidian-markdown/lines.js"
+import type { ToolName } from "../tool-registry.js"
+import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
 
-export type ToolRegistrationContext = {
-  server: McpServer
+/** Registers one tool through the enabled-set gate: skips silently when the
+ *  config disables the tool, and injects the registry's annotations so group
+ *  modules never restate them — the config type carries no annotations key,
+ *  making an inline block a compile error. Throws on a name missing from the
+ *  registry (a typo'd registration would otherwise be invisible forever). */
+export type RegisterGatedTool = <
+  InputArgs extends undefined | ZodRawShapeCompat = undefined,
+>(
+  name: ToolName,
+  config: { title: string; description: string; inputSchema?: InputArgs },
+  handler: ToolCallback<InputArgs>,
+) => void
+
+export type ToolRegistrationContext = ToolAvailability & {
+  registerTool: RegisterGatedTool
   vaultPath: string
   search: SearchIndex
   logger: Logger

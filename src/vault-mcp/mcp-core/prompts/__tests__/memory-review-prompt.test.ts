@@ -2,7 +2,7 @@ import { describe, it, expect, vi, onTestFinished, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { registerPrompts } from "../prompt-definitions.js"
+import { registerPrompts } from "../../prompt-definitions.js"
 import { getCompleter } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
@@ -397,5 +397,79 @@ describe("memory-review full prompt output", () => {
     // The policy must reach the overview line — this fails if the frontmatter
     // property stops flowing through listMemoryFiles into the prompt.
     expect(text).toContain("bytes, living)")
+  })
+})
+
+// ── DISABLED_TOOLS ──────────────────────────────────────────────
+
+// memory-review survives losing vault_delete_memory (it follows
+// vault_update_memory), but its deletion-shaped guidance must not.
+describe("memory-review with DISABLED_TOOLS=vault_delete_memory", () => {
+  const config = loadConfig({ DISABLED_TOOLS: "vault_delete_memory" })
+
+  it("still registers the prompt", async () => {
+    const { calls } = await setupVault({ config })
+
+    expect(calls.map((call) => call[0])).toContain(PROMPT_NAMES.MEMORY_REVIEW)
+  })
+
+  it("drops the pruning step and renumbers the remaining ones contiguously", async () => {
+    const { calls } = await setupVault({ config })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    // Guard against a silent no-op: the reflection steps are still there.
+    expect(text).toContain("1. **Read it as an evolution.**")
+    expect(text).toContain("4. **Corrections (rare, separate).**")
+    expect(text).toContain("5. **Coverage analysis.**")
+    // Step 6 was the living-file pruning step — the only vault_delete_memory
+    // step — so the list ends at 5 with no gap.
+    expect(text).not.toContain("6. ")
+    expect(text).not.toContain("Expired current-state entries")
+  })
+
+  it("names no deletion tool anywhere in the assembled prompt", async () => {
+    const { calls } = await setupVault({ config })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).not.toContain("vault_delete_memory")
+    expect(text).toContain(
+      "Propose updates as explicit vault_update_memory calls. The server stamps update dates. **Confirm with me before writing anything.**",
+    )
+  })
+
+  it("keeps the pruning step when vault_delete_memory is served", async () => {
+    const { calls } = await setupVault({ config: loadConfig({}) })
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+    const text = textOf(await handler({}, fakeExtra))
+
+    expect(text).toContain("6. **Expired current-state entries")
+    expect(text).toContain("vault_delete_memory")
+  })
+})
+
+// The picker entry has to track the handler: the pruning caveat describes a
+// step that drops with vault_delete_memory.
+describe("memory-review description under DISABLED_TOOLS=vault_delete_memory", () => {
+  it("drops the pruning caveat but keeps the append-only promise", async () => {
+    const { calls } = await setupVault({
+      config: loadConfig({ DISABLED_TOOLS: "vault_delete_memory" }),
+    })
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .description
+
+    expect(description).toContain("propose append-only updates.")
+    expect(description).not.toContain("Never prunes entries")
+  })
+
+  it("keeps the pruning caveat when vault_delete_memory is served", async () => {
+    const { calls } = await setupVault({ config: loadConfig({}) })
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
+      .description
+
+    expect(description).toContain(
+      "propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.",
+    )
   })
 })

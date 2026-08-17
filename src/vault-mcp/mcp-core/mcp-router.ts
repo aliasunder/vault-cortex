@@ -11,8 +11,11 @@ import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
-import { registerTools } from "./tool-definitions.js"
+import { computeEnabledToolNames, registerTools } from "./tool-definitions.js"
 import { registerPrompts } from "./prompt-definitions.js"
+import { TOOL_REGISTRY } from "./tool-registry.js"
+import type { ToolName } from "./tool-registry.js"
+import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
 import { extractClientIp, headerAsString } from "../../auth.js"
 
@@ -39,6 +42,75 @@ const SERVER_ICONS = [
 ]
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
+
+/** Builds the session's server metadata (instructions + description) from
+ *  the config and the enabled tool set. Tool cross-references key on the
+ *  enabled set so they track every gating axis; the capability framing
+ *  (read-only notice, memory-layer mention, search flavor) keys on config —
+ *  those describe the deployment, not a specific tool. */
+const buildServerMetadata = (
+  config: VaultConfig,
+  enabledToolNames: ReadonlySet<ToolName>,
+): { instructions: string; description: string } => {
+  const { isToolEnabled, whenToolEnabledText } =
+    createToolAvailability(enabledToolNames)
+
+  const searchDescription = config.embeddingEnabled
+    ? "hybrid search"
+    : "full-text search"
+  // Keyed on the enabled set, not config.readOnlyMode — the lint rule
+  // enforces this; see tool-availability.ts.
+  const servesWriteTools = TOOL_REGISTRY.some(
+    (entry) =>
+      enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,
+  )
+  const accessDescription = servesWriteTools
+    ? "Read, write, and search"
+    : "Read and search"
+  const markdownClause = servesWriteTools
+    ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
+    : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
+
+  // Build instruction sentences from separator-free fragments so any
+  // combination (including all-disabled) produces clean prose. Each filter
+  // is conjunctive: these are complementary entry points, not alternatives.
+  const fileToolsFragment = whenToolEnabledText(
+    "vault_read_file",
+    "vault_read_file for images, canvases, and other non-markdown files",
+  )
+  const namedDiscoveryTools = (
+    ["vault_search", "vault_read_note"] as const
+  ).filter(isToolEnabled)
+
+  const sentences: string[] = []
+  if (namedDiscoveryTools.length > 0) {
+    const suffix = fileToolsFragment ? `; ${fileToolsFragment}` : ""
+    sentences.push(
+      `Use ${namedDiscoveryTools.join(" and ")} to find and read notes${suffix}.`,
+    )
+  } else if (fileToolsFragment) {
+    sentences.push(`Use ${fileToolsFragment}.`)
+  }
+  if (isToolEnabled("vault_get_memory")) {
+    sentences.push(
+      `Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
+    )
+  }
+  const namedWriteTools = (
+    ["vault_write_note", "vault_update_memory"] as const
+  ).filter(isToolEnabled)
+  if (namedWriteTools.length > 0) {
+    sentences.push(`Use ${namedWriteTools.join(" and ")} for writes.`)
+  }
+  const instructionBody = sentences.length > 0 ? ` ${sentences.join(" ")}` : ""
+  const instructions = `${accessDescription} an Obsidian vault.${instructionBody}
+
+${markdownClause}`
+  const description = config.memoryEnabled
+    ? `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
+    : `${accessDescription} an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`
+  return { instructions, description }
+}
 
 export const createMcpRouter = ({
   vaultPath,
@@ -90,26 +162,16 @@ export const createMcpRouter = ({
             })
           }
         }
-        const searchDescription = config.embeddingEnabled
-          ? "hybrid search"
-          : "full-text search"
-        const fileToolsClause = config.fileToolsEnabled
-          ? "; vault_read_file for images, canvases, and other non-markdown files"
-          : ""
-        const memoryClause = config.memoryEnabled
-          ? `. Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.`
-          : ". Use vault_write_note for writes."
-        const instructions = `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes${fileToolsClause}${memoryClause}
-
-Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`
+        const { instructions, description } = buildServerMetadata(
+          config,
+          computeEnabledToolNames(config),
+        )
         const server = new McpServer(
           {
             name: "vault-cortex",
             title: "Vault Cortex",
             version: "1.0.0",
-            description: config.memoryEnabled
-              ? `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and a structured memory layer (${config.memoryDir}/) for personalization across conversations.`
-              : `Read, write, and search an Obsidian vault. Provides ${searchDescription}, tag queries, and property-based filtering.`,
+            description,
             icons: SERVER_ICONS,
             websiteUrl: SERVER_WEBSITE_URL,
           },

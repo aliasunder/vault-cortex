@@ -9,26 +9,13 @@ import { noteMover } from "../../vault-operations/note-mover.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describeTextWindow,
   safeHandler,
   safeHandlerContent,
 } from "./tool-helpers.js"
-
-const TOOL_NAMES = {
-  VAULT_READ_NOTE: "vault_read_note",
-  VAULT_WRITE_NOTE: "vault_write_note",
-  VAULT_PATCH_NOTE: "vault_patch_note",
-  VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
-  VAULT_DELETE_SPAN: "vault_delete_span",
-  VAULT_LIST_NOTES: "vault_list_notes",
-  VAULT_DELETE_NOTE: "vault_delete_note",
-  VAULT_MOVE_NOTE: "vault_move_note",
-  VAULT_UPDATE_PROPERTIES: "vault_update_properties",
-} as const
-
-export { TOOL_NAMES as VAULT_CRUD_TOOL_NAMES }
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -47,13 +34,14 @@ const describeDisplacedLeadingContent = ({
 }
 
 export const registerVaultCrudTools = ({
-  server,
+  registerTool,
+  whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
@@ -67,7 +55,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
-Prefer vault_search when you don't know the path.${config.memoryEnabled ? ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).` : ""} To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
+Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
@@ -77,12 +65,12 @@ Errors:
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
-- 'path must end in ".md"' — the path names a non-markdown file${config.fileToolsEnabled ? "; read files (images, .canvas, data files) with vault_read_file instead" : ""}
+- 'path must end in ".md"' — the path names a non-markdown file${whenToolEnabledText("vault_read_file", "; read files (images, .canvas, data files) with vault_read_file instead")}
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note, and edit via vault_replace_in_note.`,
+Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -134,12 +122,6 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
           .describe(
             "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line.",
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async (
@@ -310,7 +292,59 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
     },
   )
 
-  server.registerTool(
+  registerTool(
+    TOOL_NAMES.VAULT_LIST_NOTES,
+    {
+      title: "List Notes",
+      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
+
+Example: vault_list_notes({ folder: "Projects" })
+Example: vault_list_notes({ glob: "**/*session-log*.md" })
+
+When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
+Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
+
+Parameters:
+- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). When combined with glob, the glob pattern is applied within the folder's scope.
+- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.
+
+Errors:
+- A nonexistent folder or no glob matches returns an empty array, not an error.
+- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
+
+Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
+      inputSchema: {
+        folder: z
+          .string()
+          .optional()
+          .describe(
+            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
+          ),
+        glob: z
+          .string()
+          .optional()
+          .describe(
+            'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
+          ),
+      },
+    },
+    async ({ folder, glob }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_LIST_NOTES,
+      })
+      reqLogger.info("tool_call", { folder, glob })
+      return safeHandler(
+        reqLogger,
+        () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
+        (paths) => {
+          reqLogger.info("tool_result", { resultCount: paths.length })
+          return JSON.stringify(paths)
+        },
+      )
+    },
+  )
+  registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
@@ -320,7 +354,7 @@ Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProje
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
 When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.
-Prefer vault_update_properties for property-only edits (no body round-trip).${config.memoryEnabled ? `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.` : ""}
+Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
 
 Limitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
@@ -358,12 +392,6 @@ Returns: Confirmation message.`,
             "Allow overwriting an existing note (default: false — errors if file exists).",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, body, properties, overwrite }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -390,7 +418,7 @@ Returns: Confirmation message.`,
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
@@ -470,12 +498,6 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
             "Heading level (1-6) for disambiguation when multiple headings share the same text",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, operation, content, heading, heading_level }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -514,7 +536,7 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
@@ -566,12 +588,6 @@ Returns: Confirmation message with replacement count (number of occurrences repl
             "Replace all occurrences (default: false — replaces first occurrence only)",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -607,7 +623,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
@@ -659,12 +675,6 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
             "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
           ),
       },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
     },
     async ({ path, start_anchor, end_anchor, first_match }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -697,66 +707,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     },
   )
 
-  server.registerTool(
-    TOOL_NAMES.VAULT_LIST_NOTES,
-    {
-      title: "List Notes",
-      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
-
-Example: vault_list_notes({ folder: "Projects" })
-Example: vault_list_notes({ glob: "**/*session-log*.md" })
-
-When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
-Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
-
-Parameters:
-- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). When combined with glob, the glob pattern is applied within the folder's scope.
-- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.
-
-Errors:
-- A nonexistent folder or no glob matches returns an empty array, not an error.
-- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
-
-Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
-      inputSchema: {
-        folder: z
-          .string()
-          .optional()
-          .describe(
-            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
-          ),
-        glob: z
-          .string()
-          .optional()
-          .describe(
-            'Glob pattern for path filtering (e.g. "**/*session-log*.md"). Supports * and ** wildcards. Combined with folder when both are set.',
-          ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ folder, glob }, extra) => {
-      const reqLogger = sessionLogger.child({
-        requestId: extra.requestId,
-        tool: TOOL_NAMES.VAULT_LIST_NOTES,
-      })
-      reqLogger.info("tool_call", { folder, glob })
-      return safeHandler(
-        reqLogger,
-        () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
-        (paths) => {
-          reqLogger.info("tool_result", { resultCount: paths.length })
-          return JSON.stringify(paths)
-        },
-      )
-    },
-  )
-
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
@@ -765,12 +716,12 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
-When to use: Removing a note you no longer need.${config.memoryEnabled ? `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.` : ""}
+When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}
 
 Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.
 
 Errors:
-- "cannot delete protected path" — the path sits under a protected folder${config.memoryEnabled ? "; use vault_delete_memory for memory entries" : ""}
+- "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
@@ -791,12 +742,6 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
           .describe(
             "When true, remove the note's parent folder(s) if deleting it leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — a folder still holding any file, including a hidden one like .DS_Store, is left alone.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
@@ -830,7 +775,7 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
@@ -876,12 +821,6 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .describe(
             "When true, remove the source folder(s) if the move leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async (
@@ -940,7 +879,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
@@ -972,12 +911,6 @@ Returns: Confirmation message.`,
           .describe(
             "Properties to merge. New keys are added; existing keys are overwritten; a null value deletes that key; unmentioned keys are preserved.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ path, properties }, extra) => {

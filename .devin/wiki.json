@@ -70,7 +70,7 @@
     },
     {
       "title": "MCP Interface",
-      "purpose": "Parent page for the MCP protocol surface — tools (model-driven) and prompts (user-initiated), both assembling live vault content. Structure: tool group modules under mcp-core/tools/ composed by tool-definitions.ts; prompt group modules under mcp-core/prompts/ composed by prompt-definitions.ts."
+      "purpose": "Parent page for the MCP protocol surface — tools (model-driven) and prompts (user-initiated), both assembling live vault content. Structure: tool group modules under mcp-core/tools/, declared in tool-registry.ts and composed by tool-definitions.ts; prompt group modules under mcp-core/prompts/ composed by prompt-definitions.ts."
     },
     {
       "title": "Tool Reference",

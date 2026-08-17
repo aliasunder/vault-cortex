@@ -66,6 +66,9 @@ export const registerMemoryReviewPrompt = ({
   vaultPath,
   logger: sessionLogger,
   config,
+  isToolEnabled,
+  whenToolEnabledText,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
 
@@ -73,7 +76,11 @@ export const registerMemoryReviewPrompt = ({
     PROMPT_NAMES.MEMORY_REVIEW,
     {
       title: "Reflect on memory (read as an evolution)",
-      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.`,
+      // The pruning caveat describes a step the handler drops when
+      // vault_delete_memory isn't served, so the picker entry has to drop it
+      // too — otherwise prompts/list advertises maintenance no invocation
+      // performs. The append-only promise holds either way.
+      description: `Reflect on the ${config.memoryDir}/ memory layer — review its structure and scopes, read dated entries as a timeline, surface scope-fit issues and coverage gaps, and propose append-only updates.${whenToolEnabledText("vault_delete_memory", " Never prunes entries for being old, except expired entries in files marked entry-policy: living.")}`,
       argsSchema: {
         file: completable(
           z
@@ -172,16 +179,44 @@ export const registerMemoryReviewPrompt = ({
         const memorySource = args.file
           ? `${config.memoryDir}/${args.file}`
           : config.memoryDir
-        const markedMemory = wrapWithDataMarkers(
-          trimmedMemory,
-          { source: memorySource, type: "memory" },
+        const cappedMemoryContent = wrapWithDataMarkers({
+          content: trimmedMemory,
+          markerAttributes: { source: memorySource, type: "memory" },
           maxChars,
-          "vault_get_memory",
-        )
-        const wrappedMemory =
+          truncationToolName: isToolEnabled("vault_get_memory")
+            ? "vault_get_memory"
+            : undefined,
+        })
+        const memoryContentOrEmpty =
           trimmedMemory.length > 0
-            ? markedMemory
+            ? cappedMemoryContent
             : "_(the selected memory is empty)_"
+
+        // vault_update_memory is guaranteed here — this prompt is only
+        // registered when it is served. vault_delete_memory is not: it can be
+        // dropped on its own, and the deletion-shaped guidance (corrections,
+        // living-file pruning) has to go with it. Numbering is derived so a
+        // dropped step doesn't leave a gap in the list.
+        const canDeleteMemory = isToolEnabled("vault_delete_memory")
+        const correctionsStep = canDeleteMemory
+          ? "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts."
+          : "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Propose an appended dated correction that preserves the old entry — history matters."
+        const reflectionSteps = [
+          '**Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
+          "**Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
+          "**Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
+          correctionsStep,
+          "**Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
+          canDeleteMemory
+            ? "**Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files."
+            : "",
+        ]
+          .filter(Boolean)
+          .map((step, index) => `${index + 1}. ${step}`)
+          .join("\n")
+        const proposalDirective = canDeleteMemory
+          ? "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file."
+          : "Propose updates as explicit vault_update_memory calls. The server stamps update dates. **Confirm with me before writing anything.**"
 
         const memoryReview = [
           `# Memory review — ${args.file ?? "all files"}`,
@@ -194,18 +229,13 @@ export const registerMemoryReviewPrompt = ({
           "",
           "## Current memory",
           "",
-          wrappedMemory,
+          memoryContentOrEmpty,
           "",
           "## How to reflect",
           "",
-          '1. **Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
-          "2. **Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
-          "3. **Backfill gaps.** Point out durable facts that are implied but not yet captured, and propose them as dated append entries (bullet + target file + section).",
-          `4. **Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts.`,
-          "5. **Coverage analysis.** What areas of the user's life, work, or preferences are NOT yet represented? Use the file scopes and section names above to identify gaps worth filling.",
-          "6. **Expired current-state entries (living files only).** A file marked `living` in the Structure section is a current-state snapshot, not a history ledger — flag entries whose date or commitment has passed and propose pruning them (vault_delete_memory), with the outcome appended to a history section when worth keeping. Never propose this for append-only files.",
+          reflectionSteps,
           "",
-          "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file.",
+          proposalDirective,
         ].join("\n")
         reqLogger.info("prompt_result", {
           outcome: "ok",
@@ -218,8 +248,15 @@ export const registerMemoryReviewPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const fallbackTools = formatEnabledToolList([
+          "vault_list_memory_files",
+          "vault_get_memory",
+        ])
+        const fallbackHint = fallbackTools
+          ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
+          : ""
         return textResult(
-          `Could not load memory for review (${message}). Try vault_list_memory_files and vault_get_memory to inspect the ${config.memoryDir}/ layer directly.`,
+          `Could not load memory for review (${message}).${fallbackHint}`,
         )
       }
     },

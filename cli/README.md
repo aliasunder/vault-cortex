@@ -49,9 +49,9 @@ What it does:
    - **Remote** — a VPS with [Obsidian Sync](https://obsidian.md/sync),
      reachable from any device
 2. Offers the most common optional settings — memory layer and folder,
-   daily notes folder and format, file tools, semantic search, port,
-   timezone (plus sync direction for remote) — press enter to keep the
-   defaults, or pick the ones you want to change
+   daily notes folder and format, file tools, read-only mode, semantic
+   search, port, timezone (plus sync direction for remote) — press enter
+   to keep the defaults, or pick the ones you want to change
 3. Generates a `.env` file with a securely generated `MCP_AUTH_TOKEN`
 4. Optionally starts the container and waits for the health check
 5. Prints your connection details — the MCP URL, your auth token, and how to

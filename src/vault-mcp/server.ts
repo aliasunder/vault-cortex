@@ -13,6 +13,7 @@ import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { loadConfig } from "./config.js"
+import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
@@ -57,6 +58,20 @@ export const createShutdownHandler =
     }, forceExitMs).unref()
   }
 
+/**
+ * Runs the memory template bootstrap unless config forbids it — memory
+ * disabled, or read-only mode (a read-only server never writes to the vault,
+ * and this is the one server-initiated vault write).
+ */
+export const bootstrapMemoryIfEnabled = async (
+  config: VaultConfig,
+  vaultPath: string,
+): Promise<void> => {
+  if (!config.memoryEnabled || config.readOnlyMode) return
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
+}
+
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
@@ -76,6 +91,9 @@ const startServer = async (): Promise<void> => {
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,
     fileToolsEnabled: config.fileToolsEnabled,
+    readOnlyMode: config.readOnlyMode,
+    disabledTools:
+      config.disabledTools.size > 0 ? [...config.disabledTools] : "none",
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,
@@ -94,10 +112,7 @@ const startServer = async (): Promise<void> => {
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
-  if (config.memoryEnabled) {
-    const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
-    await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
-  }
+  await bootstrapMemoryIfEnabled(config, vaultPath)
   await startFileWatcher(vaultPath, search, {
     usePolling: config.windowsBindMount,
   })

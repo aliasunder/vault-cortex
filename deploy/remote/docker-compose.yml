@@ -46,6 +46,8 @@ services:
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
       FILE_TOOLS_ENABLED: ${FILE_TOOLS_ENABLED:-true}
+      READONLY_MODE: ${READONLY_MODE:-false}
+      DISABLED_TOOLS: ${DISABLED_TOOLS:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ${LOG_DIR:-/data/logs}

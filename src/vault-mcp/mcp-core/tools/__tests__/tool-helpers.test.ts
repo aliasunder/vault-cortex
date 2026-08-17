@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { describeTextWindow } from "../tools/tool-helpers.js"
+import { describeTextWindow } from "../tool-helpers.js"
 
 describe("describeTextWindow", () => {
   it("reports zero lines for an empty rendition", () => {

@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -125,6 +125,14 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 - `bytes` — each result's on-disk file size, so agents can decide whether to read a note in full or use `outline`/`heading` mode before committing
 - `leading_callout` — the note's top-of-file callout when present (opt-in via `include_leading_callout` on `vault_search`; automatic on the rest)
+
+**Tool gating (registry-driven):** every tool is one entry in a declarative registry (`tool-registry.ts` — name, feature group, MCP annotations), and the served tool set is the registry filtered through one AND-chain of predicates:
+
+1. **Group toggles** — `MEMORY_ENABLED=false` removes the memory group (reads included), `FILE_TOOLS_ENABLED=false` removes the file tools.
+2. **Read-only mode** — `READONLY_MODE=true` keeps exactly the tools whose own `readOnlyHint` annotation says they don't write; write tools are never advertised to clients rather than rejected at call time. The `memory-review` prompt follows its write tool, and the memory bootstrap is skipped.
+3. **Per-tool disabling** — `DISABLED_TOOLS` subtracts individually named tools. Purely subtractive: it cannot re-enable a tool an earlier predicate removed. Unknown names fail the boot (a typo that silently disabled nothing would mislead the operator).
+
+Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
 
@@ -229,7 +237,7 @@ whole files/sections; `vault_search` is note-granular).
 - **Startup:** if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure.
 - **Write-time:** `vault_update_memory` auto-creates files and sections on write — agents can save preferences without manual setup; a newly-created file is seeded with a placeholder scope callout to fill in.
 
-**Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. The vault CRUD and search layers continue to work normally.
+**Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. `READONLY_MODE=true` also skips auto-initialization (no vault writes at startup). The vault CRUD and search layers continue to work normally.
 
 ### Link queries
 
@@ -286,10 +294,10 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                          | Annotation       |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint     |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   | !destructiveHint |
+| Tool                | Input                                                                                                                                          | Annotation      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint    |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   | destructiveHint |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
 
@@ -646,8 +654,8 @@ graph LR
 3. **`svc-vault-mcp`** — MCP server. Drops to the same `obsidian` user, so
    both processes read/write the shared `/vault` volume. On startup: builds
    the FTS5 search index, bootstraps memory templates if the memory folder
-   doesn't exist and `MEMORY_ENABLED` is not `false`, then starts the file
-   watcher.
+   doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
+   `READONLY_MODE`, then starts the file watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync

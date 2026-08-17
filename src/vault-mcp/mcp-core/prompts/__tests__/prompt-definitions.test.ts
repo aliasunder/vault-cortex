@@ -93,3 +93,52 @@ describe("MEMORY_ENABLED=false", () => {
     expect(calls).toHaveLength(2)
   })
 })
+
+// ── READONLY_MODE=true ──────────────────────────────────────────
+
+describe("READONLY_MODE=true", () => {
+  it("registers vault-orientation and daily-review but not memory-review", () => {
+    const calls = captureRegistration(loadConfig({ READONLY_MODE: "true" }))
+    const registeredNames = calls.map((call) => call[0])
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
+    expect(registeredNames).toHaveLength(2)
+  })
+
+  it("with MEMORY_ENABLED=false registers the same 2 prompts", () => {
+    const calls = captureRegistration(
+      loadConfig({ READONLY_MODE: "true", MEMORY_ENABLED: "false" }),
+    )
+    const registeredNames = calls.map((call) => call[0])
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
+    expect(registeredNames).toHaveLength(2)
+  })
+})
+
+// ── DISABLED_TOOLS ──────────────────────────────────────────────
+
+describe("DISABLED_TOOLS", () => {
+  it("hides memory-review when vault_update_memory is disabled", () => {
+    // memory-review proposes memory writes, so it follows its write tool.
+    const calls = captureRegistration(
+      loadConfig({ DISABLED_TOOLS: "vault_update_memory" }),
+    )
+    const registeredNames = calls.map((call) => call[0])
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
+    expect(registeredNames).toHaveLength(2)
+  })
+
+  it("keeps memory-review when an unrelated tool is disabled", () => {
+    const calls = captureRegistration(
+      loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
+    )
+    const registeredNames = calls.map((call) => call[0])
+    expect(registeredNames).toContain(PROMPT_NAMES.MEMORY_REVIEW)
+    expect(registeredNames).toHaveLength(3)
+  })
+})

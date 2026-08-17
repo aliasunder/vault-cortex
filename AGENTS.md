@@ -142,7 +142,9 @@ src/
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
-      tool-definitions.ts              # Tool orchestrator — TOOL_NAMES + conditional group registration
+      tool-registry.ts                 # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
+      tool-availability.ts             # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabled / tool-name lists
+      tool-definitions.ts              # Tool orchestrator — enabled-set filter chain + gated registration wrapper
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
@@ -217,13 +219,29 @@ on**, not just its topic:
   stays in `vault-filesystem.ts`. "Mechanically generic" (an atomic write works on
   any file) isn't enough to demote something to `utils/` if it's load-bearing
   vault-I/O policy.
-- **`mcp-core/`** — the MCP protocol surface. `tool-definitions.ts` is the
-  orchestrator that composes `TOOL_NAMES` from the domain group modules under
-  `mcp-core/tools/` (vault-crud, search, memory, daily-note, task, asset) and
-  calls each register function — conditionally skipping memory tools when
-  `MEMORY_ENABLED` is `false` and file tools when `FILE_TOOLS_ENABLED` is
-  `false`. Each group module is self-contained: its own tool
-  name constants, register function, and data-layer imports. Shared helpers
+- **`mcp-core/`** — the MCP protocol surface. `tool-registry.ts` is the
+  declarative registry: every tool's wire name, feature group, and MCP
+  annotations in one leaf module with zero imports (config validation and
+  tests consume it without loading the tool layer). `tool-definitions.ts` is
+  the orchestrator: it computes the enabled tool set by filtering the
+  registry through one AND-chain of predicates — group flags
+  (`MEMORY_ENABLED`, `FILE_TOOLS_ENABLED`), read-only mode via each tool's
+  own `readOnlyHint` annotation, and the subtractive `DISABLED_TOOLS` list —
+  then invokes each group's register function with a gated `registerTool`
+  wrapper that skips disabled names and injects the registry's annotations
+  (the wrapper's config type has no `annotations` key, so restating them
+  inline is a compile error). A new gating axis is one new predicate, never
+  new branching in group modules. `tool-availability.ts` is where "given the
+  enabled set, how do you talk about tools" lives — `isToolEnabled`,
+  `whenToolEnabled`, and `formatEnabledToolList` (which narrows a list of tool
+  names to the served ones and renders it as prose, empty when none survives).
+  All three text surfaces — tool descriptions, prompt steps, and the router's
+  server metadata — build on that one view, so a cross-reference disappears
+  whenever its target does. It sits at `mcp-core/` root precisely because
+  `tools/` and `prompts/` both need it and cannot import each other. Each group
+  module is
+  self-contained: one register function and its data-layer imports, with
+  tool names imported from the registry. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
   `tool-helpers.ts`.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -264,6 +282,35 @@ Two rules keep this honest:
 The dependency-direction rule is lint-enforced: `eslint.config.ts` bans runtime
 cross-layer imports per folder via `@typescript-eslint/no-restricted-imports`
 (type-only imports allowed — erased at compile time; tests exempt).
+
+**Tool-surface rules are lint-enforced too** — the registry owns tool identity,
+and gating is derived once rather than re-decided per call site:
+
+- **`config.readOnlyMode` is banned throughout `mcp-core/`** except
+  `tool-definitions.ts`, which is where the predicate lives. Everything
+  downstream — descriptions, prompt steps, router metadata — keys on the enabled
+  set through `isToolEnabled` / `whenToolEnabled`. The flag knows nothing about
+  `DISABLED_TOOLS` or any axis added later, so branching on it is how a prompt
+  ends up naming a tool the server never registered. Banned as a member access
+  and as a destructured binding.
+- **A local `TOOL_NAMES` in `mcp-core/tools/` or `mcp-core/prompts/` is an
+  error** — import it from `tool-registry.ts`. Per-group name constants were a
+  real duplicate source of truth before the registry replaced them, and a local
+  copy compiles and passes tests while drifting.
+- **`prompts/` and `tools/` cannot import each other at runtime.** They are
+  sibling surfaces, not a layer stack; a helper both need is either generic
+  enough for `utils/` or belongs in that group's own helpers module.
+
+Two mechanics worth knowing before editing these rules. `no-restricted-syntax`
+options **replace** rather than merge across overlapping config blocks, so a
+block that narrows the file set must restate every selector it still wants —
+the shared selector arrays at the top of `eslint.config.ts` exist so a new
+restriction cannot silently lapse in the narrower block. And
+`no-restricted-imports` patterns match the **import string as written**, not the
+resolved path, so a sibling-import pattern keys on the folder segment the
+specifier actually carries (`**/tools/**`, matching `"../tools/…"`) — a pattern
+written against the full path (`**/mcp-core/tools/**`) matches nothing and the
+rule sits inert. Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
@@ -358,8 +405,8 @@ root logger (src/logger.ts)
   transport only while it handles the initialize request)
 - Each tool group module (`mcp-core/tools/*.ts`) creates a **request
   logger** per tool call, adding `requestId` (from the MCP SDK's
-  `RequestHandlerExtra`) + `tool` name (from the module's own
-  `TOOL_NAMES` constant)
+  `RequestHandlerExtra`) + `tool` name (from the shared `TOOL_NAMES`
+  constant in `tool-registry.ts`)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
@@ -421,7 +468,7 @@ throughout the codebase.
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-08-15; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-08-17; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. Several are lint-enforced in `eslint.config.ts`
@@ -548,6 +595,9 @@ undefined) return`) or schema validation to narrow types instead.
 - Extract multi-step callbacks into named functions when a
   `.map()`/`.reduce()` callback builds multiple intermediates or nests
   chains — the parent becomes `items.map(formatItem).join("\n")`.
+  Conditional spreads (`...(cond ? [item] : [])`) and `.filter(Boolean)`
+  assembly are both fine — pick whichever reads clearer; don't convert
+  one to the other mechanically. Name non-trivial `.filter()` predicates.
 - A boolean mode param means the function does two things — split it;
   the caller owns the gating.
 - Block bodies `{}` for any multiline function response (guards,
@@ -615,6 +665,9 @@ continue }` over `if/else if` chains — each branch is
 - TS ≥5.5 infers `.filter()` predicate types from bare comparisons —
   `xs.filter((x) => x !== null)` narrows without `(x): x is T`.
   `filter(Boolean)` still does not narrow. `Boolean(x)` over `!!x`.
+- A param consumed only for truthiness is a boolean — a value-or-`""`
+  sentinel whose content is never read is a boolean wearing a string
+  costume; type it `boolean` and drop the dead value.
 - Don't use a thunk or callback when a plain value suffices. A
   function accepting `() => T` where `T` would do adds indirection
   without benefit — the caller has to reason about evaluation timing,
@@ -628,6 +681,19 @@ continue }` over `if/else if` chains — each branch is
 - Don't return observability data computed only for logging — the
   function has the logger; log at the site.
 - Prepared statements at factory scope — compile SQL once, not per call.
+- Multiplying config axes get a declarative registry + predicate chain,
+  never per-flag branching. Declare per-item metadata once (reuse
+  metadata items already carry) and compute the enabled set through
+  AND-composed predicates — a new axis is one predicate; generated
+  cross-references key on the enabled set, not on flags. Don't preserve
+  alias/indirection layers to dodge migration churn — price the actual
+  cost (usually mechanical import edits).
+- Lint-enforce the mechanically-checkable conventions — layering via
+  per-layer `no-restricted-imports` (`allowTypeImports: true`; tests
+  exempt), style via core/typescript-eslint rules. Trial candidates
+  against the codebase first; curated exceptions over blanket bans;
+  never adopt a rule that fights an established idiom; a justified
+  `eslint-disable` + why-comment beats weakening the rule.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
@@ -643,6 +709,39 @@ continue }` over `if/else if` chains — each branch is
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
+
+### Adding a new tool
+
+1. **Registry entry** — add to `TOOL_REGISTRY` in `tool-registry.ts`:
+   name, group, and annotations. The registry is a leaf module with
+   zero imports.
+2. **Handler** — add the tool in the appropriate `tools/*.ts` group
+   module. The `registerTool` wrapper auto-injects annotations from
+   the registry and enforces the enabled-tool gate.
+3. **Tests** — co-located at `tools/__tests__/` (or the group's
+   `__tests__/`). Cover the handler's behavior, not just the schema.
+4. **Availability keying** — if the tool's description names other
+   tools, use `whenToolEnabledText` so references disappear when their
+   target is disabled.
+5. **Feature-surface docs** — see the "Files that track feature
+   surface" table below for which files to update (README tools table,
+   ARCHITECTURE.md, DOCKERHUB regen, etc.).
+
+### Adding a new prompt
+
+1. **Group module** — create or extend a module in `prompts/`. Export
+   `PROMPT_NAMES` and a `register*Prompt` function taking
+   `PromptRegistrationContext`.
+2. **Registration** — add the register call in
+   `prompt-definitions.ts`. If the prompt depends on a specific tool,
+   gate it on `enabledToolNames.has(TOOL_NAMES.*)`.
+3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
+   `prompt-test-harness.ts` for registration capture.
+4. **Availability keying** — use `whenToolEnabledText`,
+   `isToolEnabled`, and `formatEnabledToolList` from the context for
+   any tool references in the prompt text or fallback paths.
+5. **Feature-surface docs** — update the README prompts table and
+   regenerate DOCKERHUB.md.
 
 ### MCP prompt conventions
 
@@ -777,7 +876,9 @@ createTestIndex()` at the top of each test. `beforeEach` is only
 - No cleanup after assertions — trailing `rm`/`close()` at the end
   of a test body is skipped when an assertion throws; register
   cleanup in `afterEach`/`onTestFinished` at creation time.
-- Every test file maps to a real source module — don't spawn a
+- Every test file maps to a real source module and lives in the
+  `__tests__/` folder next to the module it tests — not in a
+  centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
 - Separate `it()` blocks over callback-pattern `it.each` when
@@ -949,6 +1050,11 @@ pattern:
 5. **Root .env.example** — Lightsail reference deployment (if applicable)
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
    — maintainer/contributor surfaces (if applicable)
+7. **Deploy workflows** (`.github/workflows/deploy.yml`,
+   `.github/workflows/test_deploy.yml`) — write the Lightsail `.env` from
+   repo Variables. A var the workflows never write can never reach the
+   instance. Required vars go in the always-written block; optional vars
+   go in the conditional block (unset Variable = no line written).
 
 CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4,
 but the checklist prevents them.

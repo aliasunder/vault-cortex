@@ -213,6 +213,8 @@ jobs:
           SYNC_CONFIGS: ${{ vars.SYNC_CONFIGS }}
           DAILY_NOTES_FOLDER: ${{ vars.DAILY_NOTES_FOLDER }}
           DAILY_NOTES_FORMAT: ${{ vars.DAILY_NOTES_FORMAT }}
+          READONLY_MODE: ${{ vars.READONLY_MODE }}
+          DISABLED_TOOLS: ${{ vars.DISABLED_TOOLS }}
           TZ: ${{ vars.TZ }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_DIR: ${{ vars.LOG_DIR }}
@@ -252,6 +254,8 @@ jobs:
           if [ -n "$SYNC_CONFIGS" ]; then echo "SYNC_CONFIGS=$SYNC_CONFIGS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$DAILY_NOTES_FOLDER" ]; then echo "DAILY_NOTES_FOLDER=$DAILY_NOTES_FOLDER" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$DAILY_NOTES_FORMAT" ]; then echo "DAILY_NOTES_FORMAT=$DAILY_NOTES_FORMAT" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$READONLY_MODE" ]; then echo "READONLY_MODE=$READONLY_MODE" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$DISABLED_TOOLS" ]; then echo "DISABLED_TOOLS=$DISABLED_TOOLS" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:
