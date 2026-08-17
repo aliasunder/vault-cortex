@@ -1210,9 +1210,7 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'section "## Active" has 1 child heading (Subtasks)',
-    )
+    ).rejects.toThrow('section "## Active" has 1 child heading (Subtasks)')
     expect(await readTestNote("note.md")).toBe(content)
   })
 
