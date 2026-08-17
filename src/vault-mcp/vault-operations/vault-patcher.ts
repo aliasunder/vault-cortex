@@ -322,7 +322,7 @@ const patchNote = async (
           childHeadings.length === 1 ? "child heading" : "child headings"
         throw new Error(
           `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList}); ` +
-            `pass include_children: true to replace them too`,
+            `set includeChildren to replace the full section`,
         )
       }
     }
@@ -363,7 +363,7 @@ const replaceInNote = async (
   const { path, oldText, newText, replaceAllOccurrences } = params
 
   if (oldText.length === 0) {
-    throw new Error("old_text cannot be empty")
+    throw new Error("oldText cannot be empty")
   }
   assertNoControlCharacters(newText, "new_text")
 
@@ -430,10 +430,10 @@ const deleteSpan = async (
   const { path, startAnchor, endAnchor, firstMatch } = params
 
   if (startAnchor.length === 0) {
-    throw new Error("start_anchor cannot be empty")
+    throw new Error("startAnchor cannot be empty")
   }
   if (endAnchor !== undefined && endAnchor.length === 0) {
-    throw new Error("end_anchor cannot be empty")
+    throw new Error("endAnchor cannot be empty")
   }
 
   const lockPath = resolveSafePath(params.vaultPath, path)

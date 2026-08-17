@@ -1211,7 +1211,7 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section "## Active" has 1 child heading (Subtasks); pass include_children: true to replace them too',
+      'section "## Active" has 1 child heading (Subtasks); set includeChildren to replace the full section',
     )
     expect(await readTestNote("note.md")).toBe(content)
   })
@@ -1232,7 +1232,7 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done); pass include_children: true to replace them too',
+      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done); set includeChildren to replace the full section',
     )
     expect(await readTestNote("note.md")).toBe(content)
   })
@@ -2378,7 +2378,7 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow("old_text cannot be empty")
+    ).rejects.toThrow("oldText cannot be empty")
   })
 
   it("rejects new_text containing a control character", async () => {
@@ -3037,7 +3037,7 @@ title: WholeBody
         { vaultPath: vault, path: "note.md", startAnchor: "" },
         logger,
       ),
-    ).rejects.toThrow("start_anchor cannot be empty")
+    ).rejects.toThrow("startAnchor cannot be empty")
   })
 
   it("errors on empty end_anchor", async () => {
@@ -3052,7 +3052,7 @@ title: WholeBody
         },
         logger,
       ),
-    ).rejects.toThrow("end_anchor cannot be empty")
+    ).rejects.toThrow("endAnchor cannot be empty")
   })
 
   it("errors when the start anchor is not found, leaving the file unchanged", async () => {
