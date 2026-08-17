@@ -438,7 +438,7 @@ Prefer vault_write_note for creating new notes, or full rewrites (with overwrite
 Operations:
 - append: add content at end of section (or end of file if no heading)
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
-- replace: replace section body (heading preserved; requires heading)
+- replace: replace section body (heading preserved; requires heading; errors if the target has child headings unless include_children is set)
 - insert_before: insert content above the heading line (requires heading)
 
 Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).
@@ -455,6 +455,7 @@ Errors:
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
+- "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
@@ -497,9 +498,19 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
           .describe(
             "Heading level (1-6) for disambiguation when multiple headings share the same text",
           ),
+        include_children: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, allows replace to overwrite a section that contains child headings. " +
+              "Without this, replace errors if children exist — preventing silent data loss.",
+          ),
       },
     },
-    async ({ path, operation, content, heading, heading_level }, extra) => {
+    async (
+      { path, operation, content, heading, heading_level, include_children },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -509,6 +520,7 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
         operation,
         heading,
         headingLevel: heading_level,
+        includeChildren: include_children,
       })
       return safeHandler(
         reqLogger,
@@ -521,6 +533,7 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
               content,
               heading,
               headingLevel: heading_level,
+              includeChildren: include_children,
             },
             reqLogger,
           ),

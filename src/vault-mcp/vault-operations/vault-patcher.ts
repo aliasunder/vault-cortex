@@ -234,10 +234,12 @@ const patchNote = async (
     content: string
     heading?: string | undefined
     headingLevel?: number | undefined
+    includeChildren?: boolean | undefined
   },
   logger: Logger,
 ): Promise<PatchNoteResult> => {
-  const { path, operation, content, heading, headingLevel } = params
+  const { path, operation, content, heading, headingLevel, includeChildren } =
+    params
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
@@ -304,6 +306,25 @@ const patchNote = async (
         `content begins with the heading "${targetDesc}", which would duplicate it — ` +
           `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
       )
+    }
+
+    // Replace on a section with child headings requires explicit opt-in —
+    // without it, the caller may not realize children will be destroyed.
+    if (operation === "replace" && !includeChildren) {
+      const childHeadings = headings.filter(
+        (candidate) =>
+          candidate.startLine >= target.bodyStartLine &&
+          candidate.startLine < target.bodyEndLine,
+      )
+      if (childHeadings.length > 0) {
+        const childList = childHeadings.map((child) => child.text).join(", ")
+        const noun =
+          childHeadings.length === 1 ? "child heading" : "child headings"
+        throw new Error(
+          `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList}); ` +
+            `pass include_children: true to replace them too`,
+        )
+      }
     }
 
     const updatedLines = applySectionOperation(
