@@ -34,7 +34,7 @@ type SpawnedServer = {
 }
 
 /** Allocate a random port in the dynamic/private range (49152-65535). */
-export const randomPort = (): number => randomInt(49152, 65535)
+export const randomPort = (): number => randomInt(49152, 65536)
 
 const buildServerEnv = (
   port: number,
