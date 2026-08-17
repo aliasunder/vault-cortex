@@ -1216,7 +1216,7 @@ describe("patchNote — child-section guard", () => {
     expect(await readTestNote("note.md")).toBe(content)
   })
 
-  it("blocks replace when H1 has multiple H2 children", async () => {
+  it("blocks replace when H1 has multiple child headings", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     const content = await readTestNote("note.md")
     await expect(
@@ -1302,7 +1302,7 @@ More content.
     expect(updated).toContain("## Third")
   })
 
-  it("does not guard append or prepend on sections with children", async () => {
+  it("does not guard append on sections with children", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
@@ -1317,7 +1317,10 @@ More content.
     const afterAppend = await readTestNote("note.md")
     expect(afterAppend).toContain("Appended task")
     expect(afterAppend).toContain("Subtasks")
+  })
 
+  it("does not guard prepend on sections with children", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
