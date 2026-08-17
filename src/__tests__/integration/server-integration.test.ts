@@ -229,17 +229,21 @@ describe("default config", () => {
     })
 
     it("vault_update_memory + vault_delete_memory cycle", async () => {
+      // Use a fixed date so the delete matches regardless of timezone
+      // (server defaults to Luxon local time; `new Date().toISOString()` is UTC)
+      const testDate = "2026-01-15"
       const updateResult = await callTool(client, "vault_update_memory", {
         file: "Preferences",
         section: "Editor settings",
         entry: "Integration test entry — SDK Client",
+        options: { date: testDate },
       })
       expect(updateResult.isError).not.toBe(true)
 
       const deleteResult = await callTool(client, "vault_delete_memory", {
         file: "Preferences",
         section: "Editor settings",
-        date: new Date().toISOString().slice(0, 10),
+        date: testDate,
         entry: "Integration test entry — SDK Client",
       })
       expect(deleteResult.isError).not.toBe(true)

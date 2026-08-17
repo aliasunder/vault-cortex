@@ -54,7 +54,14 @@ export const startServer = async (
     stdio: ["ignore", "pipe", "pipe"],
   })
 
-  await pollHealthz(port, 15_000)
+  try {
+    await pollHealthz(port, 15_000)
+  } catch (err) {
+    child.kill("SIGKILL")
+    await rm(vaultPath, { recursive: true, force: true })
+    await rm(dataDir, { recursive: true, force: true })
+    throw err
+  }
 
   const cleanup = async (): Promise<void> => {
     child.kill("SIGTERM")
