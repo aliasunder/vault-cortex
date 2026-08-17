@@ -10,7 +10,7 @@ import {
   toolNames,
   promptNames,
   randomPort,
-  expectUnauthenticatedRejection,
+  mcpInitStatus,
 } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
@@ -97,7 +97,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Tasks")
+      const text = textContent(result)
+      expect(text).toContain("Tasks")
+      expect(text).not.toContain("alpha-task-1")
     })
 
     it("vault_read_note — heading mode", async () => {
@@ -107,7 +109,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha-task-1")
+      const text = textContent(result)
+      expect(text).toContain("alpha-task-1")
+      expect(text).not.toContain("Some notes about the project")
     })
 
     it("vault_read_note — properties_only", async () => {
@@ -522,8 +526,13 @@ describe("default config", () => {
   })
 
   describe("auth", () => {
-    it("unauthenticated /mcp request is rejected", async () => {
-      const status = await expectUnauthenticatedRejection(port)
+    it("missing Authorization header is rejected", async () => {
+      const status = await mcpInitStatus(port)
+      expect(status).toBe(401)
+    })
+
+    it("invalid token is rejected", async () => {
+      const status = await mcpInitStatus(port, "Bearer wrong-token")
       expect(status).toBe(401)
     })
   })
@@ -552,9 +561,16 @@ describe("READONLY_MODE=true", () => {
     const names = await toolNames(client)
     expect(names).toHaveLength(20)
     expect(names).not.toContain("vault_write_note")
-    expect(names).not.toContain("vault_update_memory")
-    expect(names).not.toContain("vault_update_task")
+    expect(names).not.toContain("vault_patch_note")
+    expect(names).not.toContain("vault_replace_in_note")
+    expect(names).not.toContain("vault_delete_span")
     expect(names).not.toContain("vault_delete_note")
+    expect(names).not.toContain("vault_move_note")
+    expect(names).not.toContain("vault_update_properties")
+    expect(names).not.toContain("vault_update_memory")
+    expect(names).not.toContain("vault_delete_memory")
+    expect(names).not.toContain("vault_update_task")
+    expect(names).toContain("vault_search")
   })
 
   it("lists 2 prompts — no memory-review", async () => {

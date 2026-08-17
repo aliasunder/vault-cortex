@@ -170,13 +170,19 @@ export const promptNames = async (client: Client): Promise<string[]> => {
   return result.prompts.map((prompt) => prompt.name).sort()
 }
 
-/** Verify auth is enforced — unauthenticated request returns 401. */
-export const expectUnauthenticatedRejection = async (
+/** Send an MCP initialize request with optional auth, return the HTTP status. */
+export const mcpInitStatus = async (
   port: number,
+  authHeader?: string,
 ): Promise<number> => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (authHeader) headers["Authorization"] = authHeader
+
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       method: "initialize",
