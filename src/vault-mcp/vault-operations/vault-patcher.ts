@@ -211,7 +211,7 @@ const resolveAnchorLine = (params: {
   }
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
-      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}. Use a longer, unique anchor, or set first_match: true.`,
+      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
     )
   }
   const matchedIndex = matchingLineIndices[0]
