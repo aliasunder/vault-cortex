@@ -70,6 +70,22 @@
 
 
 
+
+## [0.37.0] — 2026-08-17
+
+### Features
+
+- **config:** Read-only mode and per-tool disabling via a declarative tool registry (#442)
+
+### Bug Fixes
+
+- **cli:** Three-valued start status prevents destructive restart after health timeout (#446)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.36.4
+- **agents:** Re-distill code standards from vault notes (#444)
+
 ## [0.36.4] — 2026-08-15
 
 ### Bug Fixes
