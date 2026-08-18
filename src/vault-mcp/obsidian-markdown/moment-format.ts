@@ -1,9 +1,5 @@
 /** Moment.js → Luxon format-string conversion — Obsidian stores daily-note
- *  formats in moment tokens; the server renders with Luxon. A single-pass
- *  regex tokenizer replaces tokens longest-first so overlapping families
- *  (DDDD/DDD/DD/D) resolve without partial-replacement collisions. Pure
- *  and zero-import so config.ts can validate formats without fs/logger
- *  deps. */
+ *  formats in Moment tokens; the server renders with Luxon. */
 
 /** Moment token → Luxon token pairs, ordered longest-first. */
 const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
