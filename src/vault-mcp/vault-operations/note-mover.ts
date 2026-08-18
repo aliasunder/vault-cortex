@@ -469,10 +469,8 @@ const REWRITE_CONCURRENCY = 10
 const MAX_BACKLINK_VERIFY_RETRIES = 3
 
 /** Scans vault notes for links that resolve to targetPath, returning paths the
- *  caller didn't already know about. Uses a cheap string pre-filter (basename
- *  substring check) before parsing — only notes whose content includes the
- *  target's stem (or its percent-encoded form) are fully parsed and resolved.
- *  Read failures on individual notes are logged and skipped. */
+ *  caller didn't already know about. Pre-filters by basename substring before
+ *  parsing. Read failures on individual notes are logged and skipped. */
 const discoverBacklinksFromFilesystem = async (
   params: {
     vaultPath: string
