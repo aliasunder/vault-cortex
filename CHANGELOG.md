@@ -73,6 +73,21 @@
 
 
 
+
+## [0.37.3] — 2026-08-18
+
+### Bug Fixes
+
+- **search:** Pin ONNX threads to prevent healthz starvation during bulk embedding (#452)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.2
+
+### Maintenance
+
+- Bump umm-actually to v0.3.9 (#453)
+
 ## [0.37.2] — 2026-08-18
 
 ### Features
