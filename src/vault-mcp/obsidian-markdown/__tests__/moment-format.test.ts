@@ -110,7 +110,7 @@ describe("momentToLuxonFormat", () => {
       expected: "ddMM",
     },
     {
-      name: "[literal] containing Do is preserved while token Do is converted",
+      name: "[literal] Do is preserved while bare Do maps to d",
       input: "[Do] Do",
       expected: "'Do' d",
     },
