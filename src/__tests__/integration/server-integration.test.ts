@@ -493,6 +493,7 @@ describe("default config", () => {
         args: { path: "Scratch/test-write.md" },
       })
       expect(textContent(afterSpan)).not.toContain("Removable line")
+      expect(textContent(afterSpan)).toContain("Replaced line.")
 
       // update_properties — verify frontmatter merged
       const propsResult = await callTool({
@@ -521,6 +522,18 @@ describe("default config", () => {
         },
       })
       expect(moveResult.isError).not.toBe(true)
+      const afterMoveOld = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(afterMoveOld.isError).toBe(true)
+      const afterMoveNew = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-moved.md" },
+      })
+      expect(textContent(afterMoveNew)).toContain("Replaced line.")
 
       // delete — verify the note is gone
       const deleteResult = await callTool({
