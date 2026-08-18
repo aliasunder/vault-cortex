@@ -1,0 +1,3 @@
+This is a plain text file for testing vault_read_file.
+Line 2 of the test data.
+Line 3 of the test data.

@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    {"id": "1", "type": "text", "text": "Node A", "x": 0, "y": 0, "width": 200, "height": 100},
+    {"id": "2", "type": "text", "text": "Node B", "x": 300, "y": 0, "width": 200, "height": 100}
+  ],
+  "edges": [
+    {"id": "e1", "fromNode": "1", "toNode": "2", "label": "connects to"}
+  ]
+}

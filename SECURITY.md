@@ -169,6 +169,24 @@ mechanism-level detail.
 - Bounded concurrency (16) prevents resource exhaustion on large
   directories with many symlinks
 
+## Testing Verification
+
+Integration tests exercise the full server stack over real HTTP on every PR —
+Express, auth middleware, MCP transport, tool handlers, and vault I/O against
+a real fixture vault on disk. Security-relevant coverage:
+
+- **Auth enforcement** — both missing and invalid Bearer tokens are rejected
+  before any MCP handshake
+- **Config-gated surfaces** — `READONLY_MODE` hides every vault-writing tool
+  at registration (verified by asserting each write tool is absent and reads
+  still work); `DISABLED_TOOLS` removes exactly the named tools (verified by
+  asserting survivors by name, not just count); unknown names reject the boot
+- **Write mutation integrity** — each write tool (patch, replace, delete,
+  move, update properties) is read back after the call to prove the mutation
+  happened; a silent no-op fails the test
+- **Prompt-tool coupling** — when a prompt's prerequisite tool is disabled,
+  the prompt disappears from the server's prompt list
+
 ## Automated Scanning
 
 Several scanners already run against this repository:
