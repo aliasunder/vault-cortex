@@ -11,14 +11,10 @@
  *       (strings, arrays, nested objects). Markdown links are body-only.
  *    4. Whole-note rewriting — combines body + frontmatter into one call; returns
  *       null when nothing changed so the caller can skip the write.
- *    5. Orchestration (moveNote) — three-phase: filesystem verification scans
- *       for backlinks the search index missed, preflight reads every affected
- *       note and computes its rewrite (aborting on any failure before touching
- *       the vault), then commit writes the destination, updates backlink sources,
- *       and deletes the original last. Each attempt's verify/preflight/commit
- *       span runs under a multi-file write lock; the lock is released and
- *       reacquired when verification discovers sources the initial set missed
- *       (capped at MAX_BACKLINK_VERIFY_RETRIES). */
+ *    5. Orchestration (moveNote) — verify backlinks via filesystem scan,
+ *       preflight all rewrites, commit writes + delete original. Each
+ *       attempt runs under a multi-file lock; the lock releases and
+ *       reacquires when verification widens the source set. */
 
 import { readFile, mkdir, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
@@ -492,12 +488,12 @@ const discoverBacklinksFromFilesystem = async (
   // then lowercase — encodeURIComponent is codepoint-sensitive, so encoding
   // an already-lowered stem produces different percent sequences for non-ASCII
   // (É → %C3%89 vs é → %C3%A9).
-  const lowerStem = targetStem.toLowerCase()
-  const lowerEncodedStem = encodeURIComponent(targetStem).toLowerCase()
+  const lowercaseStem = targetStem.toLowerCase()
+  const lowercaseEncodedStem = encodeURIComponent(targetStem).toLowerCase()
   // encodeURIComponent leaves parentheses unencoded, but the rewriter's
   // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
   // produces a markdown link the first two forms can't match.
-  const lowerParenEncodedStem = lowerEncodedStem
+  const lowercaseParenEncodedStem = lowercaseEncodedStem
     .replace(/\(/g, "%28")
     .replace(/\)/g, "%29")
   const candidates = params.allNotePaths.filter(
@@ -515,23 +511,23 @@ const discoverBacklinksFromFilesystem = async (
       try {
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
-        const lowerContent = content.toLowerCase()
+        const lowercaseContent = content.toLowerCase()
         if (
-          !lowerContent.includes(lowerStem) &&
-          !lowerContent.includes(lowerEncodedStem) &&
-          !lowerContent.includes(lowerParenEncodedStem)
+          !lowercaseContent.includes(lowercaseStem) &&
+          !lowercaseContent.includes(lowercaseEncodedStem) &&
+          !lowercaseContent.includes(lowercaseParenEncodedStem)
         ) {
           return null
         }
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const rawTargets = links.extractAll(parsed.content, frontmatter)
-        const linksToTarget = rawTargets.some(
+        const hasLinkToTarget = rawTargets.some(
           (rawTarget) =>
             links.resolve(rawTarget, allNotePathsForResolve, candidatePath) ===
             params.targetPath,
         )
-        return linksToTarget ? candidatePath : null
+        return hasLinkToTarget ? candidatePath : null
       } catch (error) {
         logger.warn("backlink scan: skipping unreadable note", {
           path: candidatePath,
@@ -546,15 +542,20 @@ const discoverBacklinksFromFilesystem = async (
 }
 
 /** Moves a note and rewrites every link across the vault that resolves to it.
- *  Three phases: filesystem verification confirms the backlink set is complete
- *  (catching sources the search index hasn't indexed yet), preflight reads all
- *  files and computes rewrites (aborting on any failure before touching the
- *  vault), then commit writes everything and deletes the original last — so a
- *  failure never loses data. All three phases hold an exclusive multi-file lock
- *  on every affected file (moved note, destination, backlink sources); the move
- *  rejects fail-fast when any of them already has a write in flight, and vice
- *  versa. If verification discovers sources the caller missed, the lock releases,
- *  the set expands, and the lock reacquires — capped at MAX_BACKLINK_VERIFY_RETRIES. */
+ *
+ *  Three phases, each under an exclusive multi-file lock:
+ *    1. Verify — filesystem scan confirms the backlink set is complete,
+ *       catching sources the search index hasn't indexed yet.
+ *    2. Preflight — reads all files and computes rewrites, aborting on any
+ *       failure before touching the vault.
+ *    3. Commit — writes the destination, updates backlink sources, deletes
+ *       the original last (so a failure never loses data).
+ *
+ *  The lock covers every affected file (moved note, destination, backlink
+ *  sources); the move rejects fail-fast when any of them already has a write
+ *  in flight. If verification discovers sources the caller missed, the lock
+ *  releases, the set expands, and the lock reacquires — capped at
+ *  MAX_BACKLINK_VERIFY_RETRIES. */
 const moveNote = async (
   params: {
     vaultPath: string
@@ -611,8 +612,8 @@ const moveNote = async (
   let backlinkSourcePaths = [...params.backlinkSources]
 
   for (let attempt = 0; attempt <= MAX_BACKLINK_VERIFY_RETRIES; attempt++) {
-    const resolvedBacklinkSources = backlinkSourcePaths.map((rawSource) => {
-      const source = toVaultRelativePath(rawSource)
+    const resolvedBacklinkSources = backlinkSourcePaths.map((sourcePath) => {
+      const source = toVaultRelativePath(sourcePath)
       try {
         return { source, fullPath: resolveSafePath(vaultPath, source) }
       } catch (error) {
