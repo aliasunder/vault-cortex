@@ -254,6 +254,11 @@ describe("loadConfig", () => {
         'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',
       )
     })
+
+    it("accepts a Do format without throwing (lossy but structurally safe)", () => {
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
+      expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY")
+    })
   })
 
   describe("PROTECTED_PATHS (comma-separated)", () => {

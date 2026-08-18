@@ -3,7 +3,10 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
-import { momentToLuxonFormat } from "../obsidian-markdown/moment-format.js"
+import {
+  momentToLuxonFormat,
+  hasOrdinalDayToken,
+} from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
@@ -61,6 +64,11 @@ const readDailyNotesFileConfig = async (
         parsedConfig.format.length > 0
           ? parsedConfig.format
           : FALLBACK_CONFIG.format,
+    }
+    if (hasOrdinalDayToken(fileConfig.format)) {
+      logger.warn(
+        "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
+      )
     }
     cachedFileConfig = fileConfig
     return fileConfig

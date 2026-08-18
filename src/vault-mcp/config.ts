@@ -3,7 +3,11 @@
 import { z } from "zod"
 import envVar from "env-var"
 import { DateTime } from "luxon"
-import { momentToLuxonFormat } from "./obsidian-markdown/moment-format.js"
+import {
+  momentToLuxonFormat,
+  hasOrdinalDayToken,
+} from "./obsidian-markdown/moment-format.js"
+import { logger } from "../logger.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
 
@@ -36,10 +40,10 @@ const splitCommaSeparatedValues = (raw: string): string[] =>
     .filter((entry) => entry.length > 0)
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
- *  Structural checks only — moment tokens without a Luxon mapping pass
- *  through and may render differently than in Obsidian, so only
- *  structurally unsafe results (traversal, separators, empty) are
- *  rejected. Returns the raw moment string unchanged. */
+ *  Structural checks only — structurally unsafe results (traversal,
+ *  separators, empty) are rejected. Warns when the format contains Do
+ *  (ordinal day), which maps lossily (suffix dropped). Returns the raw
+ *  moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
     momentToLuxonFormat(momentFormat),
@@ -62,6 +66,11 @@ const validateDailyNotesFormat = (momentFormat: string): string => {
   if (momentFormat.endsWith("/") || renderedProbe.endsWith("/")) {
     throw new Error(
       `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
+    )
+  }
+  if (hasOrdinalDayToken(momentFormat)) {
+    logger.warn(
+      "DAILY_NOTES_FORMAT contains Do (ordinal day) — Luxon has no ordinal-suffix token; the server will use the day number without suffix, so filenames will differ from Obsidian's",
     )
   }
   return momentFormat
