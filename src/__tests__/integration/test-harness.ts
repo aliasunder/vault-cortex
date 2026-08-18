@@ -104,11 +104,7 @@ export const startServer = async (
     child.kill("SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
-    throw err instanceof Error
-      ? err
-      : new Error(
-          `Server on port ${port} did not become healthy within 15000ms\n\nServer stderr:\n${stderr()}`,
-        )
+    throw err
   }
 
   const cleanup = async (): Promise<void> => {
