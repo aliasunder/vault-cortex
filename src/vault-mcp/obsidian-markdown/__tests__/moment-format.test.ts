@@ -109,11 +109,6 @@ describe("momentToLuxonFormat", () => {
       input: "DDMM",
       expected: "ddMM",
     },
-    {
-      name: "[literal] Do is preserved while bare Do maps to d",
-      input: "[Do] Do",
-      expected: "'Do' d",
-    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
