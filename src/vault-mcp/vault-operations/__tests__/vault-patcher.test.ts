@@ -1174,7 +1174,7 @@ describe("patchNote — section-level replace", () => {
     expect(updated).toContain("## Done")
   })
 
-  it("replaces section with children (all children replaced)", async () => {
+  it("replaces section with children when include_children is set", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
@@ -1183,6 +1183,7 @@ describe("patchNote — section-level replace", () => {
         operation: "replace",
         content: "Replaced all active content.\n",
         heading: "Active",
+        includeChildren: true,
       },
       logger,
     )
@@ -1191,6 +1192,146 @@ describe("patchNote — section-level replace", () => {
     expect(updated).not.toContain("Subtasks")
     expect(updated).not.toContain("Sub-task 1")
     expect(updated).toContain("## Up Next")
+  })
+})
+
+describe("patchNote — child-section guard", () => {
+  it("blocks replace when the target has a child heading", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const content = await readTestNote("note.md")
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "replace",
+          content: "New content.\n",
+          heading: "Active",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('section "## Active" has 1 child heading (Subtasks)')
+    expect(await readTestNote("note.md")).toBe(content)
+  })
+
+  it("blocks replace when H1 has multiple child headings", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const content = await readTestNote("note.md")
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "replace",
+          content: "New content.\n",
+          heading: "Main Title",
+          headingLevel: 1,
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)',
+    )
+    expect(await readTestNote("note.md")).toBe(content)
+  })
+
+  it("allows replace with include_children: true", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "Replaced everything.\n",
+        heading: "Active",
+        includeChildren: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Active\nReplaced everything.\n")
+    expect(updated).not.toContain("Subtasks")
+    expect(updated).toContain("## Up Next")
+  })
+
+  it("does not guard replace on a childless section", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "replace",
+        content: "New up-next content.\n",
+        heading: "Up Next",
+      },
+      logger,
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Up Next\nNew up-next content.\n")
+    expect(updated).not.toContain("Task C")
+  })
+
+  it("does not guard replace on an empty section (back-to-back headings)", async () => {
+    const noteWithEmptySection = `---
+title: Test
+---
+
+## First
+Content here.
+
+## Empty
+
+## Third
+More content.
+`
+    await writeTestNote("empty.md", noteWithEmptySection)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "empty.md",
+        operation: "replace",
+        content: "Now has content.\n",
+        heading: "Empty",
+      },
+      logger,
+    )
+    const updated = await readTestNote("empty.md")
+    expect(updated).toContain("## Empty\nNow has content.\n")
+    expect(updated).toContain("## Third")
+  })
+
+  it("does not guard append on sections with children", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "append",
+        content: "- [ ] Appended task\n",
+        heading: "Active",
+      },
+      logger,
+    )
+    const afterAppend = await readTestNote("note.md")
+    expect(afterAppend).toContain("Appended task")
+    expect(afterAppend).toContain("Subtasks")
+  })
+
+  it("does not guard prepend on sections with children", async () => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: "prepend",
+        content: "Prepended line.\n",
+        heading: "Active",
+      },
+      logger,
+    )
+    const afterPrepend = await readTestNote("note.md")
+    expect(afterPrepend).toContain("Prepended line.")
+    expect(afterPrepend).toContain("Subtasks")
   })
 })
 
@@ -1343,6 +1484,7 @@ describe("patchNote — trailing comment block preservation", () => {
         operation: "replace",
         content: "Archived.\n",
         heading: "Done",
+        includeChildren: true,
       },
       logger,
     )
@@ -1750,10 +1892,11 @@ describe("frontmatter preservation", () => {
       name: op,
       op,
       heading: op === "append" || op === "prepend" ? undefined : "Active",
+      includeChildren: op === "replace" ? true : undefined,
     })),
   )(
     "$name preserves frontmatter and modifies body",
-    async ({ op, heading }) => {
+    async ({ op, heading, includeChildren }) => {
       await writeTestNote("note.md", NOTE_WITH_SECTIONS)
       await patchNote(
         {
@@ -1762,6 +1905,7 @@ describe("frontmatter preservation", () => {
           operation: op,
           content: `marker-${op}`,
           heading,
+          includeChildren,
         },
         logger,
       )
@@ -2235,7 +2379,7 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow("old_text cannot be empty")
+    ).rejects.toThrow("oldText cannot be empty")
   })
 
   it("rejects new_text containing a control character", async () => {
@@ -2894,7 +3038,7 @@ title: WholeBody
         { vaultPath: vault, path: "note.md", startAnchor: "" },
         logger,
       ),
-    ).rejects.toThrow("start_anchor cannot be empty")
+    ).rejects.toThrow("startAnchor cannot be empty")
   })
 
   it("errors on empty end_anchor", async () => {
@@ -2909,7 +3053,7 @@ title: WholeBody
         },
         logger,
       ),
-    ).rejects.toThrow("end_anchor cannot be empty")
+    ).rejects.toThrow("endAnchor cannot be empty")
   })
 
   it("errors when the start anchor is not found, leaving the file unchanged", async () => {
