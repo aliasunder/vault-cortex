@@ -52,9 +52,9 @@ const convertMomentTokens = (formatSpan: string): string =>
 /** Converts a Moment.js format string to Luxon format tokens. [literal]
  *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
  *  replacement runs only OUTSIDE literals so literal text containing token
- *  letters ("[Week A]") is preserved verbatim. Two Moment tokens have no
- *  Luxon equivalent — Do (ordinal day) and dd (2-letter weekday) — and are
- *  rejected by getDailyNotePath before the converter runs. */
+ *  letters ("[Week A]") is preserved verbatim. Moment tokens with no Luxon
+ *  equivalent (see findUnsupportedTokens) are rejected by getDailyNotePath
+ *  before the converter runs. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
   return momentFormat
     .split(MOMENT_ESCAPE_RE)
@@ -99,6 +99,7 @@ const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> =
  *  of [literal] escapes, or an empty array if none. Standalone — does not
  *  depend on the supported-token table or its ordering. */
 export const findUnsupportedTokens = (momentFormat: string): string[] => {
+  // Join with \0 so tokens can't match across segment boundaries
   const formatSegments = momentFormat
     .split(MOMENT_ESCAPE_RE)
     .filter((_, segmentIndex) => segmentIndex % 2 === 0)
