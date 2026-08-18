@@ -1970,6 +1970,12 @@ export const createSearchIndex = (
                 error: describeError(err),
               })
             }
+
+            // Yield to the event loop between notes so pending I/O callbacks
+            // (Express healthz, MCP tool handlers) can drain.
+            await new Promise<void>((resolve) => {
+              setImmediate(resolve)
+            })
           }
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,

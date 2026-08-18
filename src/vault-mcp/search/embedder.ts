@@ -40,6 +40,10 @@ export const createEmbedder = (logger: Logger) => {
         const { pipeline } = await import("@huggingface/transformers")
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
+          // Pin ONNX to 1 thread — bge-small-en-v1.5 Q8 is too small for
+          // intra-op parallelism to offset thread dispatch overhead, and the
+          // default (0 = all cores) saturates the CPU on low-vCPU hosts.
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         })
         const elapsedMs = Math.round(performance.now() - startMs)
         logger.info("embedding model loaded", { model: MODEL_NAME, elapsedMs })
