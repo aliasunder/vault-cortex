@@ -90,14 +90,25 @@ export const startServer = async (
   )
 
   try {
-    await pollHealthz(port, 15_000)
-  } catch {
+    const earlyExit = new Promise<never>((_, reject) => {
+      child.once("exit", (code) =>
+        reject(
+          new Error(
+            `Server exited early with code ${code}\n\nServer stderr:\n${stderr()}`,
+          ),
+        ),
+      )
+    })
+    await Promise.race([pollHealthz(port, 15_000), earlyExit])
+  } catch (err) {
     child.kill("SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
-    throw new Error(
-      `Server on port ${port} did not become healthy within 15000ms\n\nServer stderr:\n${stderr()}`,
-    )
+    throw err instanceof Error
+      ? err
+      : new Error(
+          `Server on port ${port} did not become healthy within 15000ms\n\nServer stderr:\n${stderr()}`,
+        )
   }
 
   const cleanup = async (): Promise<void> => {
