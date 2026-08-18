@@ -65,11 +65,6 @@ const readDailyNotesFileConfig = async (
           ? parsedConfig.format
           : FALLBACK_CONFIG.format,
     }
-    if (hasOrdinalDayToken(fileConfig.format)) {
-      logger.warn(
-        "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
-      )
-    }
     cachedFileConfig = fileConfig
     return fileConfig
   } catch (error) {
@@ -96,6 +91,13 @@ export const readDailyNotesConfig = async (
   }
 
   const fileConfig = await readDailyNotesFileConfig(vaultPath)
+  // Warn about Do only when the file format is the effective format —
+  // an env override makes the file's Do irrelevant.
+  if (!envSettings?.format && hasOrdinalDayToken(fileConfig.format)) {
+    logger.warn(
+      "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
+    )
+  }
   return {
     folder: envSettings?.folder ?? fileConfig.folder,
     format: envSettings?.format ?? fileConfig.format,

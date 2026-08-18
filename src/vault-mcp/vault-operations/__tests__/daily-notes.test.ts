@@ -148,6 +148,25 @@ describe("readDailyNotesConfig", () => {
     warnSpy.mockRestore()
   })
 
+  it("does not warn about Do in daily-notes.json when env format overrides it", async () => {
+    const loggerModule = await import("../../../logger.js")
+    const warnSpy = vi
+      .spyOn(loggerModule.logger, "warn")
+      .mockImplementation(() => {})
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
+      "utf8",
+    )
+    const config = await readDailyNotesConfig(vaultDir, {
+      format: "YYYY-MM-DD",
+    })
+    expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
   describe("overrides precedence", () => {
     it("folder-only override wins over the file's folder, file keeps format", async () => {
       const { readDailyNotesConfig } = await import("../daily-notes.js")
