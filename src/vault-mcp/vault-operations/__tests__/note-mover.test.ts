@@ -1757,4 +1757,27 @@ describe("moveNote — filesystem backlink verification", () => {
       "See [here](Renamed%20Note.md) for info.\n",
     )
   })
+
+  it("discovers a markdown-link backlink whose target uses %28/%29 encoding", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("New (Draft).md", "# Draft\n")
+    // The rewriter's encodeMarkdownLinkPath encodes parentheses as %28/%29,
+    // so the raw content holds neither "New (Draft)" nor "New%20(Draft)".
+    // The pre-filter's parenEncodedStem check catches this.
+    await writeFixture("Hub.md", "See [x](New%20%28Draft%29.md).\n")
+
+    const result = await moveNote({
+      oldPath: "New (Draft).md",
+      newPath: "Finished.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Finished.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Hub.md")).toBe("See [x](Finished.md).\n")
+  })
 })
