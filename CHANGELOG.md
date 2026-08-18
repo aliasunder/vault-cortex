@@ -71,6 +71,17 @@
 
 
 
+
+## [0.37.1] — 2026-08-18
+
+### Features
+
+- **patch:** Child-section guard on replace with include_children opt-in (#447)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.0
+
 ## [0.37.0] — 2026-08-17
 
 ### Features
