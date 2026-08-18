@@ -494,13 +494,13 @@ const discoverBacklinksFromFilesystem = async (
   const lowercaseParenEncodedStem = lowercaseEncodedStem
     .replace(/\(/g, "%28")
     .replace(/\)/g, "%29")
-  const candidates = params.allNotePaths.filter(
+  const pathsToScan = params.allNotePaths.filter(
     (notePath) =>
       notePath !== params.targetPath && !params.knownPaths.has(notePath),
   )
 
   const scanResults = await mapWithConcurrency({
-    items: candidates,
+    items: pathsToScan,
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
