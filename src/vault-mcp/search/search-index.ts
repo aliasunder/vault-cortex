@@ -4,6 +4,7 @@ import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Dirent } from "node:fs"
 import { join, basename, posix, relative, resolve } from "node:path"
+import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -1973,9 +1974,7 @@ export const createSearchIndex = (
 
             // Yield to the event loop between notes so pending I/O callbacks
             // (Express healthz, MCP tool handlers) can drain.
-            await new Promise<void>((resolve) => {
-              setImmediate(resolve)
-            })
+            await setImmediateAsync()
           }
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,
