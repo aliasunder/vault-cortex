@@ -3,7 +3,10 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
-import { momentToLuxonFormat } from "../obsidian-markdown/moment-format.js"
+import {
+  momentToLuxonFormat,
+  findUnsupportedTokens,
+} from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
@@ -109,6 +112,14 @@ export const getDailyNotePath = async (params: {
 }): Promise<string> => {
   const { vaultPath, date, envSettings } = params
   const config = await readDailyNotesConfig(vaultPath, envSettings)
+
+  const unsupportedTokens = findUnsupportedTokens(config.format)
+  if (unsupportedTokens.length > 0) {
+    throw new Error(
+      `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — the server cannot reproduce the filenames Obsidian creates with these tokens; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format`,
+    )
+  }
+
   const luxonFormat = momentToLuxonFormat(config.format)
 
   if (date && !STRICT_ISO_DATE_RE.test(date)) {

@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { loadConfig } from "../config.js"
+import { logger } from "../../logger.js"
 
 const EMPTY_ENV: Record<string, string | undefined> = {}
 
@@ -252,6 +253,28 @@ describe("loadConfig", () => {
     it("rejects a format that renders to an empty filename", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[ ]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',
+      )
+    })
+
+    it("accepts a Do format and warns about unsupported token", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
+      expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY")
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("unsupported token(s): Do"),
+      )
+    })
+
+    it("accepts a dd format and warns about unsupported token", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD dd" })
+      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD dd")
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("unsupported token(s): dd"),
       )
     })
   })
