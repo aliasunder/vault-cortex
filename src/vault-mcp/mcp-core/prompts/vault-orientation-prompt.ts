@@ -7,6 +7,7 @@ import {
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
+import type { ToolName } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -128,6 +129,9 @@ export const registerVaultOrientationPrompt = ({
   search,
   logger: sessionLogger,
   config,
+  isToolEnabled,
+  whenToolEnabledText,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   const memoryStore = config.memoryEnabled
     ? createMemoryStore({ memoryDir: config.memoryDir })
@@ -238,29 +242,49 @@ export const registerVaultOrientationPrompt = ({
         const memorySection = config.memoryEnabled
           ? memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)
-            : `No memory files yet — the ${config.memoryDir}/ layer is empty. Use vault_update_memory to start it.`
+            : `No memory files yet — the ${config.memoryDir}/ layer is empty.${whenToolEnabledText("vault_update_memory", " Use vault_update_memory to start it.")}`
           : ""
 
-        const orphanTools =
-          orphans.length > 0
-            ? "- `vault_find_orphans` — full orphan list with exclusion control"
-            : ""
-        const memoryTools = config.memoryEnabled
-          ? "- `vault_get_memory` — read memory files in detail"
-          : ""
-        const fileTools = config.fileToolsEnabled
-          ? "- `vault_list_files` — browse non-markdown files (images, canvases, data files)"
-          : ""
-        const goDeeper = [
-          `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
-          "- `vault_search_by_tag` — explore notes by tag",
-          "- `vault_list_property_values` — explore values for any property key",
-          orphanTools,
-          memoryTools,
-          "- `vault_read_note` — read any note's full content",
-          fileTools,
+        // The "go deeper" menu is a list of calls to make, so every line is
+        // keyed on its own tool being served — a suggestion the client cannot
+        // act on is worse than a shorter menu. The orphan line additionally
+        // requires orphans to exist.
+        const goDeeperEntries: ReadonlyArray<
+          readonly [name: ToolName, line: string, show?: boolean]
+        > = [
+          [
+            "vault_search",
+            `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
+          ],
+          [
+            "vault_search_by_tag",
+            "- `vault_search_by_tag` — explore notes by tag",
+          ],
+          [
+            "vault_list_property_values",
+            "- `vault_list_property_values` — explore values for any property key",
+          ],
+          [
+            "vault_find_orphans",
+            "- `vault_find_orphans` — full orphan list with exclusion control",
+            orphans.length > 0,
+          ],
+          [
+            "vault_get_memory",
+            "- `vault_get_memory` — read memory files in detail",
+          ],
+          [
+            "vault_read_note",
+            "- `vault_read_note` — read any note's full content",
+          ],
+          [
+            "vault_list_files",
+            "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
+          ],
         ]
-          .filter(Boolean)
+        const goDeeper = goDeeperEntries
+          .filter(([name, , show]) => isToolEnabled(name) && show !== false)
+          .map(([, line]) => line)
           .join("\n")
 
         const memorySectionBlock = config.memoryEnabled
@@ -308,10 +332,19 @@ export const registerVaultOrientationPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const fallbackTools = formatEnabledToolList([
+          "vault_list_tags",
+          "vault_list_property_keys",
+          "vault_find_orphans",
+          ...(config.memoryEnabled
+            ? (["vault_list_memory_files"] as const)
+            : []),
+        ])
+        const fallbackHint = fallbackTools
+          ? ` You can still explore it directly with the vault tools — try ${fallbackTools}.`
+          : ""
         return textResult(
-          config.memoryEnabled
-            ? `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, and vault_list_memory_files.`
-            : `Could not fully survey the vault (${message}). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, and vault_find_orphans.`,
+          `Could not fully survey the vault (${message}).${fallbackHint}`,
         )
       }
     },

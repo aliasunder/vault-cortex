@@ -1,5 +1,9 @@
 import { styleText } from "node:util"
 
+import { CONTAINER_NAME } from "./docker.js"
+
+export type StartStatus = "running" | "starting" | "not-started"
+
 // Connect instructions are printed as plain text (not a clack note box) so the
 // terminal soft-wraps long commands instead of hard-wrapping them behind a
 // "│ " border. A boxed command can't be copied without dragging in the border
@@ -88,14 +92,18 @@ export const startCommand = (targetDir: string): string =>
 const startServerLine = (targetDir: string): string =>
   `Start the server:\n  ${startCommand(targetDir)}`
 
-/** Remote start line: running, blocked on the missing sync token, or ready to start. */
+const startingInBackgroundLine = (): string =>
+  `The server is starting in the background — check progress:\n  docker logs ${CONTAINER_NAME}`
+
+/** Remote start line: running, starting, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
   targetDir: string
-  started: boolean
+  startStatus: StartStatus
   obsidianTokenMissing: boolean
 }): string => {
-  const { targetDir, started, obsidianTokenMissing } = params
-  if (started) return "The server is running."
+  const { targetDir, startStatus, obsidianTokenMissing } = params
+  if (startStatus === "running") return "The server is running."
+  if (startStatus === "starting") return startingInBackgroundLine()
   if (obsidianTokenMissing) {
     return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
   }
@@ -155,16 +163,17 @@ const smokeTest = (healthUrl: string): string =>
   curl ${healthUrl}`
 
 /**
- * Remote health-check block. Started: the CLI verified localhost on the VPS,
- * but the public URL is a different check (ingress — DNS, TLS, proxy), so the
- * command stays, reworded as the works-from-any-device check. Not started:
- * the plain smoke test to run after starting.
+ * Remote health-check block. Running or starting: the CLI verified localhost
+ * on the VPS (or the container is still coming up), but the public URL is a
+ * different check (ingress — DNS, TLS, proxy), so the command stays, reworded
+ * as the works-from-any-device check. Not started: the plain smoke test to
+ * run after starting.
  */
 const remoteHealthCheckBlock = (
   healthUrl: string,
-  started: boolean,
+  startStatus: StartStatus,
 ): string => {
-  if (started) {
+  if (startStatus === "running" || startStatus === "starting") {
     return `Health check — works from any device that can reach the URL:
   curl ${healthUrl}`
   }
@@ -183,17 +192,20 @@ const updateGuidance = (targetDir: string): string =>
 export const buildLocalConnectMessage = (params: {
   targetDir: string
   token: string
-  started: boolean
+  startStatus: StartStatus
   port: number
   tokenWritten: boolean
 }): string => {
-  const { targetDir, token, started, port, tokenWritten } = params
+  const { targetDir, token, startStatus, port, tokenWritten } = params
 
   const baseUrl = `http://localhost:${port}`
 
-  const startLine = started
-    ? "The server is running."
-    : startServerLine(targetDir)
+  const startLine =
+    startStatus === "running"
+      ? "The server is running."
+      : startStatus === "starting"
+        ? startingInBackgroundLine()
+        : startServerLine(targetDir)
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 
@@ -202,7 +214,7 @@ export const buildLocalConnectMessage = (params: {
   // Assembled as a filtered list so the omission leaves no stray blank line.
   const nonOauthBlocks = [
     curlGuidance(`${baseUrl}/mcp`),
-    started ? undefined : smokeTest(`${baseUrl}/healthz`),
+    startStatus === "running" ? undefined : smokeTest(`${baseUrl}/healthz`),
   ]
     .filter(Boolean)
     .join("\n\n")
@@ -265,7 +277,7 @@ export const buildRemoteConnectMessage = (params: {
   targetDir: string
   token: string
   publicUrl: string
-  started: boolean
+  startStatus: StartStatus
   obsidianTokenMissing: boolean
   tokenWritten: boolean
 }): string => {
@@ -273,14 +285,14 @@ export const buildRemoteConnectMessage = (params: {
     targetDir,
     token,
     publicUrl,
-    started,
+    startStatus,
     obsidianTokenMissing,
     tokenWritten,
   } = params
 
   const startLine = remoteStartLine({
     targetDir,
-    started,
+    startStatus,
     obsidianTokenMissing,
   })
 
@@ -320,7 +332,7 @@ ${sectionRule("Non-OAuth")}
 
 ${curlGuidance(`${publicUrl}/mcp`)}
 
-${remoteHealthCheckBlock(`${publicUrl}/healthz`, started)}
+${remoteHealthCheckBlock(`${publicUrl}/healthz`, startStatus)}
 
 ${sectionRule("Settings")}
 

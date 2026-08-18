@@ -21,6 +21,7 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { registerTools } from "../tool-definitions.js"
 import { registerPrompts } from "../prompt-definitions.js"
+import { TOOL_REGISTRY } from "../tool-registry.js"
 import { logger } from "../../../logger.js"
 
 // `logger` is a real exported object; its methods become spies inside
@@ -48,7 +49,13 @@ vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isInitializeRequest: vi.fn(),
 }))
-vi.mock("../tool-definitions.js", () => ({ registerTools: vi.fn() }))
+// registerTools is stubbed (session wiring is under test, not registration),
+// but the real computeEnabledToolNames stays — buildServerMetadata derives
+// the instructions/description cross-references from it.
+vi.mock("../tool-definitions.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tool-definitions.js")>()
+  return { ...actual, registerTools: vi.fn() }
+})
 vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }))
 
 const FORWARDED_IP = "192.0.2.10"
@@ -293,6 +300,30 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(options.instructions).not.toContain("About Me/")
     })
 
+    it("instructions degrade the write sentence when DISABLED_TOOLS hides vault_update_memory", async () => {
+      const disabledConfig = loadConfig({
+        DISABLED_TOOLS: "vault_update_memory",
+      })
+      const harness = await setupHarness({ config: disabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      // The memory layer is still on (vault_get_memory serves reads), but
+      // the write directive falls back to vault_write_note alone.
+      expect(options?.instructions).toContain("vault_get_memory")
+      expect(options?.instructions).toContain(
+        " Use vault_write_note for writes.",
+      )
+      expect(options?.instructions).not.toContain("vault_update_memory")
+    })
+
     it("instructions omit vault_read_file when FILE_TOOLS_ENABLED is false", async () => {
       const disabledConfig = loadConfig({ FILE_TOOLS_ENABLED: "false" })
       const harness = await setupHarness({ config: disabledConfig })
@@ -329,6 +360,198 @@ describe("createMcpRouter — POST /mcp", () => {
       expect(options?.instructions).not.toContain("vault_read_file")
       expect(options?.instructions).not.toContain("vault_get_memory")
       expect(options?.instructions).toContain("vault_write_note")
+    })
+
+    it("instructions and description omit write references when READONLY_MODE is true", async () => {
+      const readOnlyConfig = loadConfig({ READONLY_MODE: "true" })
+      const harness = await setupHarness({ config: readOnlyConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
+      )
+      expect(info.description).toBe(
+        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+      )
+    })
+
+    it("read-only instructions with MEMORY_ENABLED=false omit memory and write references", async () => {
+      const readOnlyNoMemoryConfig = loadConfig({
+        READONLY_MODE: "true",
+        MEMORY_ENABLED: "false",
+      })
+      const harness = await setupHarness({ config: readOnlyNoMemoryConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
+
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
+      )
+    })
+
+    // Advertised capability tracks the enabled set, not READONLY_MODE: an
+    // operator who names every mutating tool in DISABLED_TOOLS has built the
+    // same read-only server by another route, and must be described as one.
+    it("advertises read-only access when DISABLED_TOOLS removes every write tool", async () => {
+      const everyWriteTool = TOOL_REGISTRY.filter(
+        (entry) => !entry.annotations.readOnlyHint,
+      ).map((entry) => entry.name)
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: everyWriteTool.join(",") }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+
+Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
+      )
+      expect(info.description).toBe(
+        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+      )
+    })
+
+    it("still advertises write access when only one write tool is disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: "vault_delete_note" }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain(
+        "Write tools pass content through without escaping",
+      )
+    })
+
+    // The write framing and the sentence naming a write tool have to agree:
+    // advertising write capability while naming nothing leaves the model to
+    // discover the surface from tools/list.
+    it("names the surviving write tool when vault_write_note is disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain(
+        " Use vault_update_memory for writes.",
+      )
+      expect(options?.instructions).not.toContain("vault_write_note")
+    })
+
+    // Exact-string tests for discovery-tool edge cases — these catch
+    // leading-separator bugs that toContain misses.
+    it("produces clean prose when vault_search is disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ DISABLED_TOOLS: "vault_search" }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read, write, and search an Obsidian vault. Use vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+
+Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
+      )
+    })
+
+    it("produces clean prose when both discovery tools are disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({
+          DISABLED_TOOLS: "vault_search,vault_read_note",
+        }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read, write, and search an Obsidian vault. Use vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+
+Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
+      )
+    })
+
+    it("produces clean prose when discovery tools and vault_read_file are all disabled", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({
+          DISABLED_TOOLS: "vault_search,vault_read_note,vault_read_file",
+        }),
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
+      await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders },
+        body: JSON.stringify(initializeBody),
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as
+        { instructions?: string } | undefined
+      expect(options?.instructions).toBe(
+        `Read, write, and search an Obsidian vault. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+
+Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
+      )
     })
 
     it("connects the new server to the new transport", async () => {

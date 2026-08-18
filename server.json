@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
-  "version": "0.36.4",
+  "version": "0.37.1",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.36.4",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.37.1",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -100,6 +100,16 @@
           "name": "FILE_TOOLS_ENABLED",
           "description": "Enable or disable file tools (vault_read_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
           "default": "true"
+        },
+        {
+          "name": "READONLY_MODE",
+          "description": "Run the server read-only: every vault-writing tool is hidden, the memory folder is not auto-created, and server metadata omits write references.",
+          "default": "false"
+        },
+        {
+          "name": "DISABLED_TOOLS",
+          "description": "Hide individual tools by name, comma-separated. Subtractive only — it cannot re-enable a tool another setting hides; an unknown tool name stops the server at startup.",
+          "default": ""
         },
         {
           "name": "MEMORY_DIR",

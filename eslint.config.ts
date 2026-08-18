@@ -3,6 +3,41 @@ import { defineConfig } from "eslint/config"
 import tseslint from "typescript-eslint"
 import eslintConfigPrettier from "eslint-config-prettier"
 
+// no-restricted-syntax options replace rather than merge across overlapping
+// config blocks, so any block that narrows the file set has to restate every
+// selector it still wants. These shared arrays are spread into each such block
+// so a new restriction can't silently lapse in the narrower one.
+
+/** AGENTS.md → Code style: Luxon DateTime over the native Date API. */
+const LUXON_OVER_DATE_RESTRICTIONS = [
+  {
+    selector: 'NewExpression[callee.name="Date"]',
+    message:
+      "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
+  },
+  {
+    selector: 'CallExpression[callee.object.name="Date"]',
+    message:
+      "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
+  },
+]
+
+/** Bans direct use of `config.readOnlyMode` in tool/prompt modules —
+ *  branching on the flag misses DISABLED_TOOLS and any future gating axis,
+ *  so tool references must key on the enabled set instead. */
+const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
+  {
+    selector: 'MemberExpression[property.name="readOnlyMode"]',
+    message:
+      "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
+  },
+  {
+    selector: 'ObjectPattern > Property[key.name="readOnlyMode"]',
+    message:
+      "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
+  },
+]
+
 export default defineConfig(
   js.configs.recommended,
   tseslint.configs.strict,
@@ -49,19 +84,7 @@ export default defineConfig(
     files: ["src/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: 'NewExpression[callee.name="Date"]',
-          message:
-            "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
-        },
-        {
-          selector: 'CallExpression[callee.object.name="Date"]',
-          message:
-            "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
-        },
-      ],
+      "no-restricted-syntax": ["error", ...LUXON_OVER_DATE_RESTRICTIONS],
     },
   },
   {
@@ -201,6 +224,97 @@ export default defineConfig(
               allowTypeImports: true,
               message:
                 "search/ builds on parsers and utils only — never reaches sideways into vault-operations/ or up into mcp-core/ (AGENTS.md → Module layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // Tool-surface boundaries (see AGENTS.md → Module layering): the registry
+  // owns tool identity and annotations, and gating is derived from the enabled
+  // set — not re-decided downstream.
+  {
+    // mcp-core outside the group modules: the router and prompt orchestrator
+    // consume the enabled set. tool-definitions.ts is the sanctioned home of
+    // the READONLY_MODE predicate, so it is exempt.
+    files: ["src/vault-mcp/mcp-core/**/*.ts"],
+    ignores: [
+      "**/__tests__/**",
+      "**/*.test.ts",
+      "src/vault-mcp/mcp-core/tool-definitions.ts",
+      "src/vault-mcp/mcp-core/tools/**",
+      "src/vault-mcp/mcp-core/prompts/**",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...LUXON_OVER_DATE_RESTRICTIONS,
+        ...ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS,
+      ],
+    },
+  },
+  {
+    // The tool and prompt group modules. Same enabled-set rule, plus: tool
+    // names live in the registry alone. Per-group name constants were a real
+    // duplicate source of truth before the registry replaced them — a local
+    // TOOL_NAMES would compile and pass tests while drifting from it.
+    files: [
+      "src/vault-mcp/mcp-core/tools/**/*.ts",
+      "src/vault-mcp/mcp-core/prompts/**/*.ts",
+    ],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...LUXON_OVER_DATE_RESTRICTIONS,
+        ...ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS,
+        {
+          selector: 'VariableDeclarator[id.name="TOOL_NAMES"]',
+          message:
+            "Import TOOL_NAMES from tool-registry.js — the registry is the only source of tool names (AGENTS.md → Module layering)",
+        },
+      ],
+    },
+  },
+  {
+    // Tool and prompt group modules are sibling surfaces, not a layer stack:
+    // neither builds on the other. A helper both need is generic enough for
+    // utils/, or belongs in tool-helpers/prompt-helpers respectively.
+    files: ["src/vault-mcp/mcp-core/prompts/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Patterns match the import string as written, not the resolved
+              // path, so they key on the folder segment a sibling specifier
+              // actually carries ("../tools/…") — not the mcp-core prefix.
+              group: ["**/tools/**"],
+              allowTypeImports: true,
+              message:
+                "prompts/ and tools/ are sibling surfaces — share via utils/ or the group's own helpers module (AGENTS.md → Module layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/vault-mcp/mcp-core/tools/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // See the sibling block: matched against the written specifier.
+              group: ["**/prompts/**"],
+              allowTypeImports: true,
+              message:
+                "prompts/ and tools/ are sibling surfaces — share via utils/ or the group's own helpers module (AGENTS.md → Module layering)",
             },
           ],
         },

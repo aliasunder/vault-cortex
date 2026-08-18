@@ -14,6 +14,7 @@ import {
 } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -94,20 +95,29 @@ const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
   return `- ${checkbox} ${task.description}${locationSuffix}${metadataSuffix}`
 }
 
-/** Assembles a task section with an overflow hint when results are capped. */
-const formatTasksSection = (
-  tasks: readonly TaskEntry[],
-  total: number,
-  emptyMessage: string,
-  includePath: boolean,
-): string => {
+/** Assembles a task section with an overflow hint when results are capped.
+ *  overflowToolHint is keyed on availability so the hint never names a tool
+ *  the server doesn't serve. */
+const formatTasksSection = ({
+  tasks,
+  total,
+  emptyMessage,
+  includePath,
+  overflowToolHint,
+}: {
+  tasks: readonly TaskEntry[]
+  total: number
+  emptyMessage: string
+  includePath: boolean
+  overflowToolHint: string
+}): string => {
   if (tasks.length === 0) return emptyMessage
   const lines = tasks
     .map((task) => formatTaskForPrompt(task, includePath))
     .join("\n")
   const overflowHint =
     total > tasks.length
-      ? `\n\n_Showing ${tasks.length} of ${total}. Use vault_list_tasks for the full list._`
+      ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_`
       : ""
   return `${lines}${overflowHint}`
 }
@@ -118,6 +128,9 @@ export const registerDailyReviewPrompt = ({
   search,
   logger: sessionLogger,
   config,
+  isToolEnabled,
+  whenToolEnabledText,
+  formatEnabledToolList,
 }: PromptRegistrationContext): void => {
   server.registerPrompt(
     PROMPT_NAMES.DAILY_REVIEW,
@@ -166,7 +179,7 @@ export const registerDailyReviewPrompt = ({
           )
         }
 
-        const daily = await getDailyNote(
+        const dailyNote = await getDailyNote(
           {
             vaultPath,
             date: dateArg,
@@ -185,14 +198,17 @@ export const registerDailyReviewPrompt = ({
           folder: config.dailyNotesFolder,
           format: config.dailyNotesFormat,
         })
-        const outgoingLinks = daily.exists
+        const outgoingLinks = dailyNote.exists
           ? search.getOutgoingLinks(
-              { path: daily.path, dailyNotesFolder: dailyNotesConfig.folder },
+              {
+                path: dailyNote.path,
+                dailyNotesFolder: dailyNotesConfig.folder,
+              },
               reqLogger,
             )
           : []
-        const backlinks = daily.exists
-          ? search.getBacklinks({ path: daily.path }, reqLogger)
+        const backlinks = dailyNote.exists
+          ? search.getBacklinks({ path: dailyNote.path }, reqLogger)
           : []
 
         // Task queries — vault-wide due/scheduled + daily-note-scoped
@@ -216,10 +232,10 @@ export const registerDailyReviewPrompt = ({
         )
         // note_mtime is constant within a single note, so the tiebreaker
         // (t.line ASC) governs — tasks render in document order.
-        const dailyNoteTasks = daily.exists
+        const dailyNoteTasks = dailyNote.exists
           ? search.listTasks(
               {
-                path: daily.path,
+                path: dailyNote.path,
                 status: "all",
                 sortBy: "note_mtime",
                 limit: DAILY_TASK_LIMIT,
@@ -228,68 +244,108 @@ export const registerDailyReviewPrompt = ({
             )
           : { total: 0, tasks: [] }
 
-        const trimmedDaily = daily.content?.trim() ?? ""
+        const trimmedDaily = dailyNote.content?.trim() ?? ""
         const truncated =
           maxChars !== undefined && trimmedDaily.length > maxChars
-        const markedDaily = wrapWithDataMarkers(
-          trimmedDaily,
-          { source: daily.path, type: "daily-note", date: dateArg },
+        const cappedDailyContent = wrapWithDataMarkers({
+          content: trimmedDaily,
+          markerAttributes: {
+            source: dailyNote.path,
+            type: "daily-note",
+            date: dateArg,
+          },
           maxChars,
-          "vault_get_daily_note",
-        )
+          truncationToolName: isToolEnabled("vault_get_daily_note")
+            ? "vault_get_daily_note"
+            : undefined,
+        })
         const dailySection =
-          daily.exists && trimmedDaily.length > 0
-            ? markedDaily
-            : `_No daily note exists at \`${daily.path}\` yet._`
+          dailyNote.exists && trimmedDaily.length > 0
+            ? cappedDailyContent
+            : `_No daily note exists at \`${dailyNote.path}\` yet._`
 
         const brokenLinks = outgoingLinks.filter(
           (link) => !link.exists && !link.daily_note_forward_ref,
         )
         const outgoingSection = formatOutgoingLinksSection(
-          daily.exists,
+          dailyNote.exists,
           outgoingLinks,
           brokenLinks,
         )
-        const backlinksSection = formatBacklinksSection(daily.exists, backlinks)
+        const backlinksSection = formatBacklinksSection(
+          dailyNote.exists,
+          backlinks,
+        )
         const modifiedSection =
           modifiedOnDate.length > 0
             ? modifiedOnDate.map(formatNoteLine).join("\n")
             : `No notes were modified on ${dateArg}.`
 
-        const dueSection = formatTasksSection(
-          dueOrOverdue.tasks,
-          dueOrOverdue.total,
-          `No tasks are due on ${dateArg} or overdue.`,
-          true,
+        const taskOverflowHint = whenToolEnabledText(
+          "vault_list_tasks",
+          " Use vault_list_tasks for the full list.",
         )
-        const scheduledSection = formatTasksSection(
-          scheduledToday.tasks,
-          scheduledToday.total,
-          `No tasks scheduled for ${dateArg}.`,
-          true,
-        )
-        const dailyTasksSection = daily.exists
-          ? formatTasksSection(
-              dailyNoteTasks.tasks,
-              dailyNoteTasks.total,
-              "No checkbox tasks in this daily note.",
-              false,
-            )
+        const dueSection = formatTasksSection({
+          tasks: dueOrOverdue.tasks,
+          total: dueOrOverdue.total,
+          emptyMessage: `No tasks are due on ${dateArg} or overdue.`,
+          includePath: true,
+          overflowToolHint: taskOverflowHint,
+        })
+        const scheduledSection = formatTasksSection({
+          tasks: scheduledToday.tasks,
+          total: scheduledToday.total,
+          emptyMessage: `No tasks scheduled for ${dateArg}.`,
+          includePath: true,
+          overflowToolHint: taskOverflowHint,
+        })
+        const dailyTasksSection = dailyNote.exists
+          ? formatTasksSection({
+              tasks: dailyNoteTasks.tasks,
+              total: dailyNoteTasks.total,
+              emptyMessage: "No checkbox tasks in this daily note.",
+              includePath: false,
+              overflowToolHint: taskOverflowHint,
+            })
           : null
 
         const hasTaskData =
           dueOrOverdue.tasks.length > 0 ||
           scheduledToday.tasks.length > 0 ||
           dailyNoteTasks.tasks.length > 0
+        // Write directives name only served tools; without them, the step
+        // falls back to conversational output.
         const memoryStep = config.memoryEnabled
-          ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+          ? isToolEnabled("vault_update_memory")
+            ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+            : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
           : ""
+        // vault_update_task is the atomic path for status, priority, and lane
+        // moves, but it takes no date fields — rescheduling is still a note
+        // edit. Each sentence stands alone so any subset reads correctly.
+        const rescheduleTools = formatEnabledToolList([
+          TOOL_NAMES.VAULT_PATCH_NOTE,
+          TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+        ])
+        const taskUpdateDirective = [
+          whenToolEnabledText(
+            TOOL_NAMES.VAULT_UPDATE_TASK,
+            "Update status or priority with vault_update_task.",
+          ),
+          rescheduleTools.length > 0
+            ? `Reschedule by editing the date with ${rescheduleTools}.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
         const taskReviewStep = hasTaskData
-          ? "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status with vault_patch_note or vault_replace_in_note."
-          : daily.exists
+          ? taskUpdateDirective.length > 0
+            ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? ${taskUpdateDirective}`
+            : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
+          : dailyNote.exists
             ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
             : ""
-        const noteContextSteps = daily.exists
+        const noteContextSteps = dailyNote.exists
           ? [
               "**Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
               "**Pattern recognition** — look for recurring themes, repeated tasks, or persistent concerns across this note and recent activity.",
@@ -297,7 +353,9 @@ export const registerDailyReviewPrompt = ({
           : []
         const reviewSection = [
           "**Reconcile the day** — what got done, what's still open, what changed — cross-referencing the notes and links above.",
-          "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note.",
+          isToolEnabled("vault_patch_note")
+            ? "**Capture follow-ups** as concrete next actions; with my OK, append them to the daily note with vault_patch_note."
+            : "**Capture follow-ups** as concrete next actions and list them for me to record.",
           memoryStep,
           taskReviewStep,
           ...noteContextSteps,
@@ -309,9 +367,11 @@ export const registerDailyReviewPrompt = ({
         const dailyReview = [
           "# Daily review",
           "",
-          daily.exists
-            ? `Daily note: \`${daily.path}\``
-            : `No daily note found at \`${daily.path}\`. If you'd like one, create it at that path with vault_write_note.`,
+          dailyNote.exists
+            ? `Daily note: \`${dailyNote.path}\``
+            : isToolEnabled("vault_write_note")
+              ? `No daily note found at \`${dailyNote.path}\`. If you'd like one, create it at that path with vault_write_note.`
+              : `No daily note found at \`${dailyNote.path}\`.`,
           "",
           "## Daily note",
           "",
@@ -345,7 +405,7 @@ export const registerDailyReviewPrompt = ({
           reviewSection,
         ].join("\n")
         reqLogger.info("prompt_result", {
-          outcome: daily.exists ? "ok" : "no_note",
+          outcome: dailyNote.exists ? "ok" : "no_note",
           chars: dailyReview.length,
           truncated,
           outgoingLinks: outgoingLinks.length,
@@ -359,8 +419,12 @@ export const registerDailyReviewPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
+        const dailyFallbackHint = whenToolEnabledText(
+          "vault_get_daily_note",
+          " Try vault_get_daily_note to fetch the note directly.",
+        )
         return textResult(
-          `Could not assemble the daily review (${message}). Try vault_get_daily_note to fetch the note directly.`,
+          `Could not assemble the daily review (${message}).${dailyFallbackHint}`,
         )
       }
     },

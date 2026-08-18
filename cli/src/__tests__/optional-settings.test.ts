@@ -147,6 +147,7 @@ describe("askOptionalSettings chooser", () => {
       "DAILY_NOTES_FOLDER",
       "DAILY_NOTES_FORMAT",
       "FILE_TOOLS_ENABLED",
+      "READONLY_MODE",
       "EMBEDDING_ENABLED",
       "PORT",
       "TZ",
@@ -169,6 +170,7 @@ describe("askOptionalSettings chooser", () => {
       "DAILY_NOTES_FOLDER",
       "DAILY_NOTES_FORMAT",
       "FILE_TOOLS_ENABLED",
+      "READONLY_MODE",
       "EMBEDDING_ENABLED",
       "PORT",
       "TZ",
@@ -192,6 +194,7 @@ describe("askOptionalSettings chooser", () => {
       "DAILY_NOTES_FOLDER · currently not set",
       "DAILY_NOTES_FORMAT · currently not set",
       "FILE_TOOLS_ENABLED · currently not set",
+      "READONLY_MODE · currently not set",
       "EMBEDDING_ENABLED · currently not set",
       "PORT · currently 9000",
       "TZ · currently not set",
@@ -265,7 +268,7 @@ describe("askOptionalSettings per-setting prompts", () => {
   })
 
   it("seeds a toggle's confirm as enabled when the var is absent", async () => {
-    // Absent line = the server's built-in default (true for every curated
+    // Absent line = the server's built-in default (true for a default-on
     // toggle) — the confirm must start on Yes, not fall to false.
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
 
@@ -280,6 +283,62 @@ describe("askOptionalSettings per-setting prompts", () => {
         initialValue: true,
       },
     ])
+  })
+
+  it("seeds a default-off toggle's confirm as disabled when the var is absent", async () => {
+    // READONLY_MODE defaults to false on the server — an unset var must seed
+    // the confirm at No, not inherit the enabled-unless-"false" heuristic.
+    const scripted = createScriptedPrompts([["READONLY_MODE"], false])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message:
+          "Run the server in read-only mode (hide all tools that change the vault)?",
+        initialValue: false,
+      },
+    ])
+  })
+
+  it("seeds a default-off toggle's confirm as disabled when the var is empty", async () => {
+    // READONLY_MODE= (empty string) is treated as unset by Compose's
+    // ${VAR:-default} and env-var's .default() — the CLI must match.
+    const scripted = createScriptedPrompts([["READONLY_MODE"], false])
+
+    await askOptionalSettings(
+      { mode: "local", envContent: "READONLY_MODE=\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message:
+          "Run the server in read-only mode (hide all tools that change the vault)?",
+        initialValue: false,
+      },
+    ])
+  })
+
+  it("seeds a default-off toggle's confirm from the .env value when set", async () => {
+    const scripted = createScriptedPrompts([["READONLY_MODE"], true])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "READONLY_MODE=true\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.confirmCalls).toEqual([
+      {
+        message:
+          "Run the server in read-only mode (hide all tools that change the vault)?",
+        initialValue: true,
+      },
+    ])
+    expect(overrides).toEqual({ READONLY_MODE: "true" })
   })
 
   it("seeds the SYNC_MODE select with its default when the var is absent", async () => {

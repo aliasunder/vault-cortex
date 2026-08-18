@@ -1,6 +1,7 @@
 /** Search tool registrations — hybrid (FTS + vector), tag, property, folder, and graph queries. */
 
 import { z } from "zod"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import {
@@ -9,30 +10,15 @@ import {
   dateFilterSchema,
 } from "./tool-helpers.js"
 
-const TOOL_NAMES = {
-  VAULT_SEARCH: "vault_search",
-  VAULT_SEARCH_BY_TAG: "vault_search_by_tag",
-  VAULT_LIST_TAGS: "vault_list_tags",
-  VAULT_RECENT_NOTES: "vault_recent_notes",
-  VAULT_SEARCH_BY_FOLDER: "vault_search_by_folder",
-  VAULT_LIST_PROPERTY_KEYS: "vault_list_property_keys",
-  VAULT_LIST_PROPERTY_VALUES: "vault_list_property_values",
-  VAULT_SEARCH_BY_PROPERTY: "vault_search_by_property",
-  VAULT_GET_BACKLINKS: "vault_get_backlinks",
-  VAULT_GET_OUTGOING_LINKS: "vault_get_outgoing_links",
-  VAULT_FIND_ORPHANS: "vault_find_orphans",
-} as const
-
-export { TOOL_NAMES as SEARCH_TOOL_NAMES }
-
 export const registerSearchTools = ({
-  server,
+  registerTool,
+  whenToolEnabledText,
   search,
   vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
@@ -150,12 +136,6 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             "Optional structured filters — all conditions AND-combine with each other and with the text query",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ query, filters }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -181,7 +161,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
@@ -212,12 +192,6 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
           .optional()
           .describe("Exact match only (default: false, prefix match)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ tag, exact }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -236,7 +210,7 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
@@ -249,12 +223,6 @@ Prefer vault_search_by_tag once you know which tag to query — it supports hier
 
 Returns: JSON array of { tag, count } sorted by count descending. tag omits the "#" prefix; count is unique notes with this tag.`,
       inputSchema: {},
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async (_args, extra) => {
       const reqLogger = sessionLogger.child({
@@ -273,7 +241,7 @@ Returns: JSON array of { tag, count } sorted by count descending. tag omits the 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_RECENT_NOTES,
     {
       title: "Recent Notes",
@@ -303,12 +271,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .optional()
           .describe("Max results (default 20, no upper cap)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ sort_by, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -327,7 +289,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
@@ -360,12 +322,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe("Include subfolders (default: true)"),
         limit: z.number().optional().describe("Max results (default 20)"),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ folder, recursive, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -385,7 +341,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
@@ -407,12 +363,6 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
           .optional()
           .describe('Restrict to a folder (e.g. "Projects")'),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ folder }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -431,7 +381,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
@@ -466,12 +416,6 @@ Returns: JSON array of { value, count } sorted by count descending.`,
             "Max values to return (default 50). Increase for high-cardinality properties.",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ key, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -491,7 +435,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
@@ -534,12 +478,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             "Max results (default 20). Increase for broad metadata queries.",
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ key, value, folder, limit }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -559,7 +497,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
@@ -585,12 +523,6 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
             'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async ({ path }, extra) => {
       const reqLogger = sessionLogger.child({
@@ -609,13 +541,15 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
     },
   )
 
-  const fileReadableClause = config.fileToolsEnabled
-    ? " readable via vault_read_file"
-    : ""
-  const fileBytesClause = config.fileToolsEnabled
-    ? " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read"
-    : ""
-  server.registerTool(
+  const fileReadableClause = whenToolEnabledText(
+    "vault_read_file",
+    " readable via vault_read_file",
+  )
+  const fileBytesClause = whenToolEnabledText(
+    "vault_read_file",
+    " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
+  )
+  registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
@@ -630,7 +564,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
 
 Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
@@ -640,12 +574,6 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
           .describe(
             'Exact vault-relative path including .md or .canvas extension (e.g. "Projects/vault-cortex.md"). Case-sensitive.',
           ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ path }, extra) => {
@@ -678,7 +606,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
     },
   )
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
@@ -686,7 +614,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
 
 Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
 
-When to use: Vault maintenance — surfacing notes to integrate into the graph. Link an orphan by mentioning it from a relevant note with vault_patch_note.
+When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
@@ -705,12 +633,6 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
           ),
         limit: z.number().optional().describe("Max results (default 50)"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
       },
     },
     async ({ exclude_folders, limit }, extra) => {

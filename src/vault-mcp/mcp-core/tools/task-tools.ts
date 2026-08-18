@@ -2,16 +2,10 @@
 
 import { z } from "zod"
 import type { TaskEntry } from "../../search/search-index.js"
+import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
 import { taskUpdater } from "../../vault-operations/task-updater.js"
-
-const TOOL_NAMES = {
-  VAULT_LIST_TASKS: "vault_list_tasks",
-  VAULT_UPDATE_TASK: "vault_update_task",
-} as const
-
-export { TOOL_NAMES as TASK_TOOL_NAMES }
 
 /** Drops null fields, false booleans, and empty arrays from a task entry
  *  so responses stay lean — most tasks carry only a few of the optional
@@ -24,14 +18,15 @@ const formatTaskEntry = (entry: TaskEntry): Record<string, unknown> =>
   )
 
 export const registerTaskTools = ({
-  server,
+  registerTool,
+  whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
 }: ToolRegistrationContext): void => {
   // ── vault_list_tasks ────────────────────────────────────────────
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_LIST_TASKS,
     {
       title: "List Tasks",
@@ -60,7 +55,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
 
-Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards; use to determine the done lane for vault_update_task), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move via vault_update_task, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards${whenToolEnabledText("vault_update_task", "; use to determine the done lane for vault_update_task")}), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move${whenToolEnabledText("vault_update_task", " via vault_update_task")}, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .union([
@@ -157,12 +152,6 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
             'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
     },
     async (
       {
@@ -241,10 +230,9 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
       )
     },
   )
-
   // ── vault_update_task ───────────────────────────────────────────
 
-  server.registerTool(
+  registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
@@ -322,12 +310,6 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
           .describe(
             "Field format for new metadata (done dates, priority). Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
       },
     },
     async ({ path, block_id, line, status, priority, lane, format }, extra) => {

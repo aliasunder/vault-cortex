@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -331,9 +331,10 @@ and unchanged notes are not re-embedded.
 The container runs startup tasks on every boot: a catch-up sync runs before
 the server starts to bring the vault current, then the server rebuilds the
 search index, creates memory template files if the memory folder doesn't
-exist, and starts the file watcher. Restarting the container re-runs this
-flow (useful when testing bootstrap behavior). The command is the same for
-every setup method:
+exist (skipped when `MEMORY_ENABLED=false` or `READONLY_MODE=true`), and
+starts the file watcher. Restarting the container re-runs this flow (useful
+when testing bootstrap behavior). The command is the same for every setup
+method:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
@@ -390,6 +391,19 @@ File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
 Sync has attachment syncing disabled and no files exist on disk.
 
+## Read-only mode
+
+Set `READONLY_MODE=true` in your `.env` to hide every tool that edits,
+creates, moves, or deletes notes. The memory folder is not auto-created.
+Connected clients can read and search but never edit.
+
+Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
+comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
+keeps writes on but removes deleting and moving. Names match the Name column
+in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
+It only ever takes tools away: it can't bring back one that read-only mode
+or another setting has already hidden.
+
 ## Daily notes
 
 `vault_get_daily_note` finds your daily notes using the folder and date
@@ -432,17 +446,19 @@ with `docker run`, re-create the container as described in the
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting              | Default                       | What it does                                                                                          |
-| -------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `TZ`                 | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                |
-| `VAULT_PASSWORD`     | —                             | Set this if your vault has end-to-end encryption enabled                                              |
-| `EMBEDDING_ENABLED`  | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances |
-| `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                        |
-| `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                    |
-| `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                     |
-| `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables  |
-| `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                         |
-| `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                 |
+| Setting              | Default                       | What it does                                                                                                                           |
+| -------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                 | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                 |
+| `VAULT_PASSWORD`     | —                             | Set this if your vault has end-to-end encryption enabled                                                                               |
+| `EMBEDDING_ENABLED`  | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                  |
+| `RERANK_MODE`        | `blended`                     | Set `none` to skip reranking for lower latency                                                                                         |
+| `MEMORY_ENABLED`     | `true`                        | Set `false` to disable the structured memory layer                                                                                     |
+| `FILE_TOOLS_ENABLED` | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                      |
+| `READONLY_MODE`      | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                       |
+| `DISABLED_TOOLS`     | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools) |
+| `SYNC_CONFIGS`       | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                   |
+| `DAILY_NOTES_FOLDER` | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                          |
+| `DAILY_NOTES_FORMAT` | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                  |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

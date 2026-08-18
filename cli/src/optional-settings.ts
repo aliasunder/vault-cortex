@@ -23,7 +23,13 @@ type OptionalSettingBase = {
  * optionalText writes nothing when left blank, and choice uses a single select.
  */
 type OptionalSetting =
-  | (OptionalSettingBase & { kind: "toggle"; question: string })
+  | (OptionalSettingBase & {
+      kind: "toggle"
+      question: string
+      /** The server's default when the var is unset — seeds the confirm for
+       *  an unset toggle. Omitted means enabled (the common case). */
+      defaultEnabled?: boolean
+    })
   | (OptionalSettingBase & { kind: "port" })
   | (OptionalSettingBase & { kind: "timezone" })
   | (OptionalSettingBase & {
@@ -82,6 +88,14 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     label: "File tools",
     question:
       "Enable file tools (read images, PDFs, and other non-Markdown files)?",
+  },
+  {
+    kind: "toggle",
+    name: "READONLY_MODE",
+    label: "Read-only mode",
+    question:
+      "Run the server in read-only mode (hide all tools that change the vault)?",
+    defaultEnabled: false,
   },
   {
     kind: "toggle",
@@ -194,12 +208,13 @@ export const derivePublicUrlOverride = (
 }
 
 /**
- * The .env spellings the server reads as "off" — env-var's asBool accepts
- * 0/1 alongside true/false. An absent or unrecognized value falls to the
- * server default, which is enabled for every curated toggle.
+ * True unless the .env value is an explicit "off" spelling — env-var's asBool
+ * accepts 0/1 alongside true/false. An absent or unrecognized value falls to
+ * the server default, declared per-toggle via defaultEnabled (enabled unless
+ * stated otherwise).
  */
-const isDisabledToggleValue = (value: string | undefined): boolean =>
-  ["false", "0"].includes((value ?? "").toLowerCase())
+const isEnabledToggleValue = (value: string | undefined): boolean =>
+  !["false", "0"].includes((value ?? "").toLowerCase())
 
 /**
  * Plain digits in the TCP port range. Number() coercion is not enough:
@@ -327,10 +342,15 @@ const askSettingValue = async (
   const { setting, currentValue } = params
   switch (setting.kind) {
     case "toggle": {
-      const enabled = await prompts.confirm(
-        setting.question,
-        !isDisabledToggleValue(currentValue),
-      )
+      // An unset or empty var means the server default applies — seed the
+      // confirm from defaultEnabled, not from the enabled-unless-"false"
+      // heuristic (wrong for default-off toggles like READONLY_MODE).
+      // Empty string matters: `READONLY_MODE=` in .env is read as unset
+      // by Compose's `${VAR:-default}` and env-var's `.default()`.
+      const currentlyEnabled = !currentValue
+        ? (setting.defaultEnabled ?? true)
+        : isEnabledToggleValue(currentValue)
+      const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
     case "port":
@@ -385,7 +405,7 @@ export const askOptionalSettings = async (
     )
     const dependencyNote =
       requiredToggle &&
-      isDisabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+      !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
         : ""
     return {
