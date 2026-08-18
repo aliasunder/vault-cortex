@@ -610,8 +610,9 @@ const moveNote = async (
   // MAX_BACKLINK_VERIFY_RETRIES.
 
   const backlinkSourcePaths = [...params.backlinkSources]
+  let attempt = 0
 
-  for (let attempt = 0; ; attempt++) {
+  while (true) {
     const resolvedBacklinkSources = backlinkSourcePaths.map((sourcePath) => {
       const source = toVaultRelativePath(sourcePath)
       try {
@@ -890,6 +891,7 @@ const moveNote = async (
     // Expand the backlink set with the newly-discovered sources and retry
     // with the wider lock set.
     backlinkSourcePaths.push(...lockResult.additionalSources)
+    attempt++
   }
 }
 
