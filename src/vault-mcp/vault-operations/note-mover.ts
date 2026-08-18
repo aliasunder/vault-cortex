@@ -11,7 +11,8 @@
  *       (strings, arrays, nested objects). Markdown links are body-only.
  *    4. Whole-note rewriting — combines body + frontmatter into one call; returns
  *       null when nothing changed so the caller can skip the write.
- *    5. Orchestration (moveNote) — two-phase: preflight reads every affected
+ *    5. Orchestration (moveNote) — three-phase: filesystem verification scans
+ *       for backlinks the search index missed, preflight reads every affected
  *       note and computes its rewrite (aborting on any failure before touching
  *       the vault), then commit writes the destination, updates backlink sources,
  *       and deletes the original last. The whole span runs under a multi-file
@@ -504,13 +505,11 @@ const discoverBacklinksFromFilesystem = async (
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const rawTargets = links.extractAll(parsed.content, frontmatter)
+        const allNotePathsMutable = [...params.allNotePaths]
         const linksToTarget = rawTargets.some(
           (rawTarget) =>
-            links.resolve(
-              rawTarget,
-              [...params.allNotePaths],
-              candidatePath,
-            ) === params.targetPath,
+            links.resolve(rawTarget, allNotePathsMutable, candidatePath) ===
+            params.targetPath,
         )
         return linksToTarget ? candidatePath : null
       } catch (error) {
