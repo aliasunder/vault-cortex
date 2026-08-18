@@ -211,7 +211,7 @@ const resolveAnchorLine = (params: {
   }
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
-      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}. Use a longer, unique anchor, or set first_match: true.`,
+      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
     )
   }
   const matchedIndex = matchingLineIndices[0]
@@ -234,10 +234,12 @@ const patchNote = async (
     content: string
     heading?: string | undefined
     headingLevel?: number | undefined
+    includeChildren?: boolean | undefined
   },
   logger: Logger,
 ): Promise<PatchNoteResult> => {
-  const { path, operation, content, heading, headingLevel } = params
+  const { path, operation, content, heading, headingLevel, includeChildren } =
+    params
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
@@ -306,6 +308,24 @@ const patchNote = async (
       )
     }
 
+    // Replace on a section with child headings requires explicit opt-in —
+    // without it, the caller may not realize children will be destroyed.
+    if (operation === "replace" && !includeChildren) {
+      const childHeadings = headings.filter(
+        (candidate) =>
+          candidate.startLine >= target.bodyStartLine &&
+          candidate.startLine < target.bodyEndLine,
+      )
+      if (childHeadings.length > 0) {
+        const childList = childHeadings.map((child) => child.text).join(", ")
+        const noun =
+          childHeadings.length === 1 ? "child heading" : "child headings"
+        throw new Error(
+          `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList})`,
+        )
+      }
+    }
+
     const updatedLines = applySectionOperation(
       lines,
       contentLines,
@@ -342,7 +362,7 @@ const replaceInNote = async (
   const { path, oldText, newText, replaceAllOccurrences } = params
 
   if (oldText.length === 0) {
-    throw new Error("old_text cannot be empty")
+    throw new Error("oldText cannot be empty")
   }
   assertNoControlCharacters(newText, "new_text")
 
@@ -409,10 +429,10 @@ const deleteSpan = async (
   const { path, startAnchor, endAnchor, firstMatch } = params
 
   if (startAnchor.length === 0) {
-    throw new Error("start_anchor cannot be empty")
+    throw new Error("startAnchor cannot be empty")
   }
   if (endAnchor !== undefined && endAnchor.length === 0) {
-    throw new Error("end_anchor cannot be empty")
+    throw new Error("endAnchor cannot be empty")
   }
 
   const lockPath = resolveSafePath(params.vaultPath, path)

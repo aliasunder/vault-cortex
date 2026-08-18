@@ -79,8 +79,8 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 | --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
-|  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace, insert) |
-|  | `vault_replace_in_note` | Find-and-replace text in a note |
+|  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
+|  | `vault_replace_in_note` | Find-and-replace text in a note (first match or `replace_all_occurrences`) |
 |  | `vault_delete_span` | Delete a block of lines by short anchors, no full re-quote |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
 |  | `vault_delete_note` | Delete a note (protected paths enforced) |
