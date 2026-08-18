@@ -58,8 +58,11 @@ describe("default config", () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   describe("surface", () => {
@@ -640,8 +643,11 @@ describe("READONLY_MODE=true", () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   it("lists 20 tools", async () => {
@@ -702,8 +708,11 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   it("lists 27 tools with expected survivors", async () => {
@@ -763,8 +772,11 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   it("lists 29 tools", async () => {
@@ -796,8 +808,11 @@ describe("MEMORY_ENABLED=false", () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   it("lists 25 tools — no memory group", async () => {
@@ -832,8 +847,11 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (client) await client.close()
-    if (cleanup) await cleanup()
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
   })
 
   it("lists 28 tools — no asset tools", async () => {
