@@ -498,9 +498,6 @@ const discoverBacklinksFromFilesystem = async (
     (notePath) =>
       notePath !== params.targetPath && !params.knownPaths.has(notePath),
   )
-  // Mutable copy of allNotePaths for links.resolve (accepts string[], not readonly).
-  // Hoisted above the mapper so a single allocation is shared across all candidates.
-  const allNotePathsForResolve = [...params.allNotePaths]
 
   const scanResults = await mapWithConcurrency({
     items: candidates,
@@ -525,7 +522,7 @@ const discoverBacklinksFromFilesystem = async (
           return (
             links.resolve({
               target: linkTarget,
-              allPaths: allNotePathsForResolve,
+              allPaths: params.allNotePaths,
               sourcePath: candidatePath,
             }) === params.targetPath
           )

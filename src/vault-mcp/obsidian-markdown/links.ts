@@ -274,7 +274,7 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
  *  Returns null if unresolvable. */
 const resolve = (params: {
   target: string
-  allPaths: string[]
+  allPaths: readonly string[]
   sourcePath?: string
 }): string | null => {
   const { target, allPaths, sourcePath } = params
