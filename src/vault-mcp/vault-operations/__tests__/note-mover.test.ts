@@ -1596,10 +1596,13 @@ describe("moveNote — filesystem backlink verification", () => {
       backlinkSources: [],
     })
 
-    expect(result.updated_notes).toEqual(["Linker.md"])
-    expect(result.links_updated).toBe(1)
-    const linkerContent = await readNote("Linker.md")
-    expect(linkerContent).toBe("See [[Bar]] for details.\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n")
   })
 
   it("discovers backlinks in frontmatter the index missed", async () => {
@@ -1616,9 +1619,15 @@ describe("moveNote — filesystem backlink verification", () => {
       backlinkSources: [],
     })
 
-    expect(result.updated_notes).toEqual(["Related.md"])
-    const relatedContent = await readNote("Related.md")
-    expect(relatedContent).toContain("[[Renamed]]")
+    expect(result).toEqual({
+      moved_to: "Renamed.md",
+      links_updated: 1,
+      updated_notes: ["Related.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Related.md")).toBe(
+      '---\nrelated:\n  - "[[Renamed]]"\n---\nBody.\n',
+    )
   })
 
   it("does not false-positive on notes containing the basename as prose", async () => {
@@ -1635,7 +1644,13 @@ describe("moveNote — filesystem backlink verification", () => {
 
     // Prose.md passes the pre-filter (contains "Foo") but should NOT be
     // identified as a backlink source because "Foo" is prose, not a link.
-    expect(result.updated_notes).toEqual([])
+    // Full result assertion also proves the move executed (not a silent no-op).
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("skips unreadable notes during the scan without aborting", async () => {
@@ -1662,9 +1677,13 @@ describe("moveNote — filesystem backlink verification", () => {
     )
 
     // Good.md should still be discovered and rewritten
-    expect(result.updated_notes).toEqual(["Good.md"])
-    const goodContent = await readNote("Good.md")
-    expect(goodContent).toBe("Link: [[Bar]]\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Good.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n")
     // The ghost note should have been logged as a warning
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
       "backlink scan: skipping unreadable note",
@@ -1673,7 +1692,7 @@ describe("moveNote — filesystem backlink verification", () => {
   })
 
   it("handles index-known and filesystem-discovered sources together", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
     await writeFixture("Known.md", "Index knows: [[Foo]]\n")
     await writeFixture("Unknown.md", "Index missed: [[Foo]]\n")
@@ -1685,8 +1704,47 @@ describe("moveNote — filesystem backlink verification", () => {
       backlinkSources: ["Known.md"],
     })
 
-    expect(result.updated_notes).toEqual(["Known.md", "Unknown.md"])
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
+      updated_notes: ["Known.md", "Unknown.md"],
+      pruned_empty_folders: 0,
+    })
     expect(await readNote("Known.md")).toBe("Index knows: [[Bar]]\n")
     expect(await readNote("Unknown.md")).toBe("Index missed: [[Bar]]\n")
+    // The retry loop fires because Unknown.md was not in backlinkSources
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.objectContaining({
+        from: "Foo.md",
+        to: "Bar.md",
+        additionalSources: ["Unknown.md"],
+      }),
+    )
+  })
+
+  it("discovers a markdown-link backlink via percent-encoded pre-filter", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("My Note.md", "# My Note\n")
+    // Markdown link with percent-encoded space — the raw content contains
+    // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
+    // The pre-filter's encodedStem check catches this.
+    await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")
+
+    const result = await moveNote({
+      oldPath: "My Note.md",
+      newPath: "Renamed Note.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Renamed Note.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe(
+      "See [here](Renamed%20Note.md) for info.\n",
+    )
   })
 })
