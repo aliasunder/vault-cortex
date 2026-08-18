@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+  onTestFinished,
+} from "vitest"
 import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -133,6 +141,7 @@ describe("readDailyNotesConfig", () => {
     const warnSpy = vi
       .spyOn(loggerModule.logger, "warn")
       .mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
     const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
@@ -145,7 +154,6 @@ describe("readDailyNotesConfig", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
     )
-    warnSpy.mockRestore()
   })
 
   it("does not warn about Do in daily-notes.json when env format overrides it", async () => {
@@ -153,6 +161,7 @@ describe("readDailyNotesConfig", () => {
     const warnSpy = vi
       .spyOn(loggerModule.logger, "warn")
       .mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
     const { readDailyNotesConfig } = await import("../daily-notes.js")
     await writeFile(
       join(vaultDir, ".obsidian", "daily-notes.json"),
@@ -164,7 +173,6 @@ describe("readDailyNotesConfig", () => {
     })
     expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
     expect(warnSpy).not.toHaveBeenCalled()
-    warnSpy.mockRestore()
   })
 
   describe("overrides precedence", () => {

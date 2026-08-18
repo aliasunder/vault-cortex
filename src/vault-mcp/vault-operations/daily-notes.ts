@@ -38,6 +38,9 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
 // remote deploy the config file can arrive after boot (initial sync still
 // running), and retrying each call picks it up without a restart.
 let cachedFileConfig: DailyNotesConfig | null = null
+// Tracks whether the Do ordinal warning has already been emitted — the
+// warning is meaningful once (the format doesn't change at runtime).
+let ordinalDayWarningEmitted = false
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns the fallback config (uncached — see cache comment) when the
@@ -93,10 +96,15 @@ export const readDailyNotesConfig = async (
   const fileConfig = await readDailyNotesFileConfig(vaultPath)
   // Warn about Do only when the file format is the effective format —
   // an env override makes the file's Do irrelevant.
-  if (!envSettings?.format && hasOrdinalDayToken(fileConfig.format)) {
+  if (
+    !ordinalDayWarningEmitted &&
+    !envSettings?.format &&
+    hasOrdinalDayToken(fileConfig.format)
+  ) {
     logger.warn(
       "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
     )
+    ordinalDayWarningEmitted = true
   }
   return {
     folder: envSettings?.folder ?? fileConfig.folder,
