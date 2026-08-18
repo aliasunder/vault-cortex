@@ -169,7 +169,10 @@ describe("default config", () => {
     it("vault_list_tags", async () => {
       const result = await callTool({ client, name: "vault_list_tags" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("project")
+      const text = textContent(result)
+      expect(text).toContain("project")
+      expect(text).toContain("active")
+      expect(text).toContain("test")
     })
 
     it("vault_recent_notes", async () => {
@@ -194,7 +197,10 @@ describe("default config", () => {
         name: "vault_list_property_keys",
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("status")
+      const text = textContent(result)
+      expect(text).toContain("status")
+      expect(text).toContain("type")
+      expect(text).toContain("tags")
     })
 
     it("vault_list_property_values", async () => {
@@ -204,7 +210,9 @@ describe("default config", () => {
         args: { key: "status" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("active")
+      const text = textContent(result)
+      expect(text).toContain("active")
+      expect(text).toContain("planning")
     })
 
     it("vault_search_by_property", async () => {
@@ -259,7 +267,10 @@ describe("default config", () => {
     it("vault_get_memory — all", async () => {
       const result = await callTool({ client, name: "vault_get_memory" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("dark mode")
+      const text = textContent(result)
+      expect(text).toContain("dark mode")
+      expect(text).toContain("Vim keybindings")
+      expect(text).toContain("Font size 14px")
     })
 
     it("vault_get_memory — file + section", async () => {
@@ -334,7 +345,9 @@ describe("default config", () => {
     it("vault_list_tasks", async () => {
       const result = await callTool({ client, name: "vault_list_tasks" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("alpha-task-1")
+      const text = textContent(result)
+      expect(text).toContain("alpha-task-1")
+      expect(text).toContain("alpha-task-2")
     })
 
     it("vault_update_task — verify priority applied", async () => {
@@ -480,7 +493,9 @@ describe("default config", () => {
     it("vault_list_files", async () => {
       const result = await callTool({ client, name: "vault_list_files" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("test-data.txt")
+      const text = textContent(result)
+      expect(text).toContain("test-data.txt")
+      expect(text).toContain("Boards/test.canvas")
     })
 
     it("vault_read_file — text", async () => {
