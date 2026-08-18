@@ -92,11 +92,7 @@ export const startServer = async (
   try {
     const earlyExit = new Promise<never>((_, reject) => {
       child.once("exit", (code) =>
-        reject(
-          new Error(
-            `Server exited early with code ${code}\n\nServer stderr:\n${stderr()}`,
-          ),
-        ),
+        reject(new Error(`Server exited early with code ${code}`)),
       )
     })
     await Promise.race([pollHealthz(port, 15_000), earlyExit])
@@ -104,7 +100,8 @@ export const startServer = async (
     child.kill("SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
-    throw err
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: err })
   }
 
   const cleanup = async (): Promise<void> => {
