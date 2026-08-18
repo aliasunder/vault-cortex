@@ -65,7 +65,38 @@ describe("default config", () => {
   describe("surface", () => {
     it("lists 30 tools", async () => {
       const names = await toolNames(client)
-      expect(names).toHaveLength(30)
+      expect(names).toEqual([
+        "vault_delete_memory",
+        "vault_delete_note",
+        "vault_delete_span",
+        "vault_find_orphans",
+        "vault_get_backlinks",
+        "vault_get_daily_note",
+        "vault_get_memory",
+        "vault_get_outgoing_links",
+        "vault_list_files",
+        "vault_list_memory_files",
+        "vault_list_notes",
+        "vault_list_property_keys",
+        "vault_list_property_values",
+        "vault_list_tags",
+        "vault_list_tasks",
+        "vault_memory_recall",
+        "vault_move_note",
+        "vault_patch_note",
+        "vault_read_file",
+        "vault_read_note",
+        "vault_recent_notes",
+        "vault_replace_in_note",
+        "vault_search",
+        "vault_search_by_folder",
+        "vault_search_by_property",
+        "vault_search_by_tag",
+        "vault_update_memory",
+        "vault_update_properties",
+        "vault_update_task",
+        "vault_write_note",
+      ])
     })
 
     it("lists 3 prompts", async () => {

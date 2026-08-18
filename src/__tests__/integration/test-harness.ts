@@ -68,7 +68,7 @@ const spawnServerProcess = async (
 
   const child = spawn("npx", ["tsx", SERVER_ENTRY], {
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "ignore", "pipe"],
   })
 
   let stderrBuf = ""
