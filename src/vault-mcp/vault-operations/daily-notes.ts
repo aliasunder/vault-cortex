@@ -116,7 +116,7 @@ export const getDailyNotePath = async (params: {
   const unsupportedTokens = findUnsupportedTokens(config.format)
   if (unsupportedTokens.length > 0) {
     throw new Error(
-      `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — Luxon cannot reproduce what Obsidian writes, so the server would never find the note; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format`,
+      `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — the server cannot reproduce the filenames Obsidian creates with these tokens; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format`,
     )
   }
 
