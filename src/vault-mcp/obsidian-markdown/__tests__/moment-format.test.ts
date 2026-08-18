@@ -105,9 +105,9 @@ describe("momentToLuxonFormat", () => {
       expected: "MMMM MMM MM M",
     },
     {
-      name: "adjacency: unpadded month and day with comma",
-      input: "MMM D, YYYY",
-      expected: "MMM d, yyyy",
+      name: "adjacent tokens without separators resolve correctly",
+      input: "DDMM",
+      expected: "ddMM",
     },
     {
       name: "[literal] containing Do is preserved while token Do is converted",

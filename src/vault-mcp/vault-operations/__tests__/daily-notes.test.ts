@@ -128,6 +128,26 @@ describe("readDailyNotesConfig", () => {
     expect(afterFix).toEqual({ folder: "Journal", format: "DD-MM-YYYY" })
   })
 
+  it("warns when daily-notes.json format contains Do (ordinal day)", async () => {
+    const loggerModule = await import("../../../logger.js")
+    const warnSpy = vi
+      .spyOn(loggerModule.logger, "warn")
+      .mockImplementation(() => {})
+    const { readDailyNotesConfig } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
+      "utf8",
+    )
+    const config = await readDailyNotesConfig(vaultDir)
+    expect(config).toEqual({ folder: "Journal", format: "MMMM Do, YYYY" })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
+    )
+    warnSpy.mockRestore()
+  })
+
   describe("overrides precedence", () => {
     it("folder-only override wins over the file's folder, file keeps format", async () => {
       const { readDailyNotesConfig } = await import("../daily-notes.js")
