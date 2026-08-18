@@ -121,7 +121,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", properties_only: true },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("active")
+      const text = textContent(result)
+      expect(text).toContain("active")
+      expect(text).not.toContain("Some notes about the project")
     })
 
     it("vault_list_notes", async () => {
@@ -347,13 +349,13 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
 
-      // Re-read the task section to verify the priority was applied
+      // Re-read the task section and verify the priority landed on the right line
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
-      expect(textContent(readback)).toContain("⏫")
+      expect(textContent(readback)).toMatch(/First task for Alpha.*⏫/)
     })
   })
 
