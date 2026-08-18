@@ -136,7 +136,7 @@ describe("readDailyNotesConfig", () => {
     expect(afterFix).toEqual({ folder: "Journal", format: "DD-MM-YYYY" })
   })
 
-  it("warns when daily-notes.json format contains Do (ordinal day)", async () => {
+  it("warns once when daily-notes.json format contains unsupported tokens", async () => {
     const loggerModule = await import("../../../logger.js")
     const warnSpy = vi
       .spyOn(loggerModule.logger, "warn")
@@ -152,11 +152,11 @@ describe("readDailyNotesConfig", () => {
     expect(config).toEqual({ folder: "Journal", format: "MMMM Do, YYYY" })
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(
-      "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
+      "daily note format contains unsupported token(s): Do — daily note lookups will fail until the format is changed",
     )
   })
 
-  it("does not warn about Do in daily-notes.json when env format overrides it", async () => {
+  it("does not warn about unsupported tokens when env format overrides", async () => {
     const loggerModule = await import("../../../logger.js")
     const warnSpy = vi
       .spyOn(loggerModule.logger, "warn")
@@ -335,6 +335,30 @@ describe("getDailyNotePath", () => {
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" }),
     ).rejects.toThrow("invalid date")
+  })
+
+  it("rejects a format containing unsupported tokens (Do)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
+      "utf8",
+    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
+    ).rejects.toThrow("unsupported token(s): Do")
+  })
+
+  it("rejects a format containing unsupported tokens (dd)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD dd" }),
+      "utf8",
+    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
+    ).rejects.toThrow("unsupported token(s): dd")
   })
 })
 

@@ -21,6 +21,7 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
   ["MM", "MM"],
   ["DD", "dd"],
   ["Do", "d"], // ordinal day — lossy: suffix ("st","nd","th") dropped
+  ["dd", "ccc"], // 2-letter weekday — no Luxon equivalent; mapped to 3-letter as closest
   ["HH", "HH"],
   ["hh", "hh"],
   ["mm", "mm"],
@@ -53,12 +54,10 @@ const convertMomentTokens = (formatSpan: string): string =>
 /** Converts a Moment.js format string to Luxon format tokens. [literal]
  *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
  *  replacement runs only OUTSIDE literals so literal text containing token
- *  letters ("[Week A]") is preserved verbatim. Do (ordinal day) is mapped
- *  to d (day number) as a best-effort fallback — the ordinal suffix is
- *  lost, so filenames will differ from Obsidian's. Unmapped tokens (dd —
- *  Moment's 2-letter weekday abbreviation) pass through into Luxon's token
- *  grammar and may render differently than Obsidian would — config.ts's
- *  probe-render rejects only structurally unsafe results. */
+ *  letters ("[Week A]") is preserved verbatim. Two tokens are unsupported: Do (ordinal day, mapped to d — suffix
+ *  dropped) and dd (2-letter weekday, mapped to ccc — 3-letter). Both
+ *  produce filenames that differ from Obsidian's, so getDailyNotePath
+ *  rejects formats containing them before the converter runs. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
   return momentFormat
     .split(MOMENT_ESCAPE_RE)
@@ -76,13 +75,23 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
     .join("")
 }
 
-/** Returns true if the format contains the Moment `Do` (ordinal day) token
- *  outside of [literal] escapes. Do maps to `d` (day number without suffix)
- *  as a best-effort fallback — filenames will differ from Obsidian's. */
-export const hasOrdinalDayToken = (momentFormat: string): boolean =>
-  momentFormat
-    .split(MOMENT_ESCAPE_RE)
-    .some(
-      (segment, segmentIndex) =>
-        segmentIndex % 2 === 0 && segment.includes("Do"),
-    )
+/** Tokens that produce filenames differing from Obsidian's — Do is mapped
+ *  to d (suffix dropped), dd passes through as Luxon's dd (day-of-month,
+ *  not weekday). Neither can match the note Obsidian created. */
+const UNSUPPORTED_TOKEN_SET = new Set(["Do", "dd"])
+
+/** Returns unsupported tokens present in the format string outside of
+ *  [literal] escapes, or an empty array if none. Uses the same regex
+ *  tokenizer as the converter so ddd/dddd don't false-positive on dd. */
+export const findUnsupportedTokens = (momentFormat: string): string[] => {
+  const found = new Set<string>()
+  momentFormat.split(MOMENT_ESCAPE_RE).forEach((segment, segmentIndex) => {
+    if (segmentIndex % 2 === 1) return
+    for (const match of segment.matchAll(MOMENT_TOKEN_RE)) {
+      if (UNSUPPORTED_TOKEN_SET.has(match[0])) {
+        found.add(match[0])
+      }
+    }
+  })
+  return [...found]
+}

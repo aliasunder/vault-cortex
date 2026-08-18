@@ -5,7 +5,7 @@ import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 import {
   momentToLuxonFormat,
-  hasOrdinalDayToken,
+  findUnsupportedTokens,
 } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
@@ -38,9 +38,9 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
 // remote deploy the config file can arrive after boot (initial sync still
 // running), and retrying each call picks it up without a restart.
 let cachedFileConfig: DailyNotesConfig | null = null
-// Tracks whether the Do ordinal warning has already been emitted — the
-// warning is meaningful once (the format doesn't change at runtime).
-let ordinalDayWarningEmitted = false
+// Tracks whether the unsupported-token warning has already been emitted —
+// the format doesn't change at runtime, so one warning suffices.
+let unsupportedTokenWarningEmitted = false
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns the fallback config (uncached — see cache comment) when the
@@ -94,17 +94,17 @@ export const readDailyNotesConfig = async (
   }
 
   const fileConfig = await readDailyNotesFileConfig(vaultPath)
-  // Warn about Do only when the file format is the effective format —
-  // an env override makes the file's Do irrelevant.
-  if (
-    !ordinalDayWarningEmitted &&
-    !envSettings?.format &&
-    hasOrdinalDayToken(fileConfig.format)
-  ) {
-    logger.warn(
-      "daily-notes.json format contains Do (ordinal day) — the server will use the day number without suffix, so filenames will differ from Obsidian's",
-    )
-    ordinalDayWarningEmitted = true
+  const effectiveFormat = envSettings?.format ?? fileConfig.format
+  // Warn once in server logs — the throw in getDailyNotePath surfaces
+  // the error to MCP clients, but the log gives the operator visibility.
+  if (!unsupportedTokenWarningEmitted) {
+    const unsupportedTokens = findUnsupportedTokens(effectiveFormat)
+    if (unsupportedTokens.length > 0) {
+      logger.warn(
+        `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note lookups will fail until the format is changed`,
+      )
+      unsupportedTokenWarningEmitted = true
+    }
   }
   return {
     folder: envSettings?.folder ?? fileConfig.folder,
@@ -127,6 +127,14 @@ export const getDailyNotePath = async (params: {
 }): Promise<string> => {
   const { vaultPath, date, envSettings } = params
   const config = await readDailyNotesConfig(vaultPath, envSettings)
+
+  const unsupportedTokens = findUnsupportedTokens(config.format)
+  if (unsupportedTokens.length > 0) {
+    throw new Error(
+      `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — Luxon cannot reproduce what Obsidian writes, so the server would never find the note; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format`,
+    )
+  }
+
   const luxonFormat = momentToLuxonFormat(config.format)
 
   if (date && !STRICT_ISO_DATE_RE.test(date)) {

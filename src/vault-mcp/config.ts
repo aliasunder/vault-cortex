@@ -5,9 +5,8 @@ import envVar from "env-var"
 import { DateTime } from "luxon"
 import {
   momentToLuxonFormat,
-  hasOrdinalDayToken,
+  findUnsupportedTokens,
 } from "./obsidian-markdown/moment-format.js"
-import { logger } from "../logger.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
 
@@ -68,9 +67,10 @@ const validateDailyNotesFormat = (momentFormat: string): string => {
       `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
     )
   }
-  if (hasOrdinalDayToken(momentFormat)) {
-    logger.warn(
-      "DAILY_NOTES_FORMAT contains Do (ordinal day) — Luxon has no ordinal-suffix token; the server will use the day number without suffix, so filenames will differ from Obsidian's",
+  const unsupportedTokens = findUnsupportedTokens(momentFormat)
+  if (unsupportedTokens.length > 0) {
+    throw new Error(
+      `env-var: "DAILY_NOTES_FORMAT" contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note filenames would differ from Obsidian's, so the server could never find the notes Obsidian creates`,
     )
   }
   return momentFormat

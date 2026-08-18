@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { momentToLuxonFormat, hasOrdinalDayToken } from "../moment-format.js"
+import { momentToLuxonFormat, findUnsupportedTokens } from "../moment-format.js"
 
 describe("momentToLuxonFormat", () => {
   const scenarios = [
@@ -121,20 +121,33 @@ describe("momentToLuxonFormat", () => {
   })
 })
 
-describe("hasOrdinalDayToken", () => {
-  it("returns true when Do appears in a format string", () => {
-    expect(hasOrdinalDayToken("MMMM Do, YYYY")).toBe(true)
+describe("findUnsupportedTokens", () => {
+  it("returns Do when ordinal day is in the format", () => {
+    expect(findUnsupportedTokens("MMMM Do, YYYY")).toEqual(["Do"])
   })
 
-  it("returns false for a standard format without Do", () => {
-    expect(hasOrdinalDayToken("YYYY-MM-DD")).toBe(false)
+  it("returns dd when 2-letter weekday is in the format", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD dd")).toEqual(["dd"])
   })
 
-  it("returns false when Do is inside a [literal] escape", () => {
-    expect(hasOrdinalDayToken("[Do] DD")).toBe(false)
+  it("returns both when both appear", () => {
+    expect(findUnsupportedTokens("Do dd")).toEqual(["Do", "dd"])
   })
 
-  it("returns true when Do is outside a literal even if a literal exists", () => {
-    expect(hasOrdinalDayToken("[Note] Do")).toBe(true)
+  it("returns empty array for a standard format", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([])
+  })
+
+  it("ignores tokens inside [literal] escapes", () => {
+    expect(findUnsupportedTokens("[Do] DD")).toEqual([])
+  })
+
+  it("detects tokens outside a literal even when a literal exists", () => {
+    expect(findUnsupportedTokens("[Note] Do")).toEqual(["Do"])
+  })
+
+  it("does not false-positive on ddd or dddd (mapped tokens)", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD-ddd")).toEqual([])
+    expect(findUnsupportedTokens("YYYY-MM-DD-dddd")).toEqual([])
   })
 })

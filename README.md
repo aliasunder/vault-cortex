@@ -363,7 +363,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …). You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
 
-> **Note:** Most Moment.js tokens map directly to Luxon equivalents. The notable exception is `Do` (ordinal day — "1st", "13th"): Luxon has no ordinal-suffix token, so the server renders the day number without the suffix. If your format uses `Do`, daily note filenames will differ from Obsidian's.
+> **Note:** Two Moment.js tokens are unsupported: `Do` (ordinal day — "1st", "13th") and `dd` (2-letter weekday — "Mo", "Tu"). Luxon has no equivalent for either, so filenames would differ from Obsidian's and the server could never find the notes. If your format uses `Do` or `dd`, the server rejects it with a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
 
 ## Data Integrity
 

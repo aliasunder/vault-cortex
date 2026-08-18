@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, onTestFinished } from "vitest"
+import { describe, it, expect } from "vitest"
 import { loadConfig } from "../config.js"
-import { logger } from "../../logger.js"
 
 const EMPTY_ENV: Record<string, string | undefined> = {}
 
@@ -256,26 +255,16 @@ describe("loadConfig", () => {
       )
     })
 
-    it("accepts a Do format without throwing (lossy but structurally safe)", () => {
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
-      expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY")
-    })
-
-    it("warns when format contains Do (ordinal day)", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        "DAILY_NOTES_FORMAT contains Do (ordinal day) — Luxon has no ordinal-suffix token; the server will use the day number without suffix, so filenames will differ from Obsidian's",
+    it("rejects a format containing Do (ordinal day)", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" contains unsupported token(s): Do',
       )
     })
 
-    it("does not warn for a standard format without Do", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
-      expect(warnSpy).not.toHaveBeenCalled()
+    it("rejects a format containing dd (2-letter weekday)", () => {
+      expect(() => loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD dd" })).toThrow(
+        'env-var: "DAILY_NOTES_FORMAT" contains unsupported token(s): dd',
+      )
     })
   })
 
