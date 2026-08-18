@@ -609,7 +609,7 @@ const moveNote = async (
   // the lock releases, the set expands, and the lock reacquires — capped at
   // MAX_BACKLINK_VERIFY_RETRIES.
 
-  let backlinkSourcePaths = [...params.backlinkSources]
+  const backlinkSourcePaths = [...params.backlinkSources]
 
   for (let attempt = 0; attempt <= MAX_BACKLINK_VERIFY_RETRIES; attempt++) {
     const resolvedBacklinkSources = backlinkSourcePaths.map((sourcePath) => {
@@ -888,10 +888,7 @@ const moveNote = async (
 
     // Expand the backlink set with the newly-discovered sources and retry
     // with the wider lock set.
-    backlinkSourcePaths = [
-      ...backlinkSourcePaths,
-      ...lockResult.additionalSources,
-    ]
+    backlinkSourcePaths.push(...lockResult.additionalSources)
   }
 
   // Unreachable — the loop throws inside the lock on the last attempt when
