@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { DateTime } from "luxon"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -134,45 +126,6 @@ describe("readDailyNotesConfig", () => {
     )
     const afterFix = await readDailyNotesConfig(vaultDir)
     expect(afterFix).toEqual({ folder: "Journal", format: "DD-MM-YYYY" })
-  })
-
-  it("warns once when daily-notes.json format contains unsupported tokens", async () => {
-    const loggerModule = await import("../../../logger.js")
-    const warnSpy = vi
-      .spyOn(loggerModule.logger, "warn")
-      .mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
-    const { readDailyNotesConfig } = await import("../daily-notes.js")
-    await writeFile(
-      join(vaultDir, ".obsidian", "daily-notes.json"),
-      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
-      "utf8",
-    )
-    const config = await readDailyNotesConfig(vaultDir)
-    expect(config).toEqual({ folder: "Journal", format: "MMMM Do, YYYY" })
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      "daily note format contains unsupported token(s): Do — daily note lookups will fail until the format is changed",
-    )
-  })
-
-  it("does not warn about unsupported tokens when env format overrides", async () => {
-    const loggerModule = await import("../../../logger.js")
-    const warnSpy = vi
-      .spyOn(loggerModule.logger, "warn")
-      .mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
-    const { readDailyNotesConfig } = await import("../daily-notes.js")
-    await writeFile(
-      join(vaultDir, ".obsidian", "daily-notes.json"),
-      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
-      "utf8",
-    )
-    const config = await readDailyNotesConfig(vaultDir, {
-      format: "YYYY-MM-DD",
-    })
-    expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
-    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   describe("overrides precedence", () => {

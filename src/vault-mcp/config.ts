@@ -7,6 +7,7 @@ import {
   momentToLuxonFormat,
   findUnsupportedTokens,
 } from "./obsidian-markdown/moment-format.js"
+import { logger } from "../logger.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
 
@@ -69,8 +70,8 @@ const validateDailyNotesFormat = (momentFormat: string): string => {
   }
   const unsupportedTokens = findUnsupportedTokens(momentFormat)
   if (unsupportedTokens.length > 0) {
-    throw new Error(
-      `env-var: "DAILY_NOTES_FORMAT" contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note filenames would differ from Obsidian's, so the server could never find the notes Obsidian creates`,
+    logger.warn(
+      `DAILY_NOTES_FORMAT contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note lookups will fail; vault_get_daily_note will return an error until the format is changed`,
     )
   }
   return momentFormat

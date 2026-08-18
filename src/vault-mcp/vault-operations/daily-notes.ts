@@ -38,9 +38,6 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
 // remote deploy the config file can arrive after boot (initial sync still
 // running), and retrying each call picks it up without a restart.
 let cachedFileConfig: DailyNotesConfig | null = null
-// Tracks whether the unsupported-token warning has already been emitted —
-// the format doesn't change at runtime, so one warning suffices.
-let unsupportedTokenWarningEmitted = false
 
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns the fallback config (uncached — see cache comment) when the
@@ -94,18 +91,6 @@ export const readDailyNotesConfig = async (
   }
 
   const fileConfig = await readDailyNotesFileConfig(vaultPath)
-  const effectiveFormat = envSettings?.format ?? fileConfig.format
-  // Warn once in server logs — the throw in getDailyNotePath surfaces
-  // the error to MCP clients, but the log gives the operator visibility.
-  if (!unsupportedTokenWarningEmitted) {
-    const unsupportedTokens = findUnsupportedTokens(effectiveFormat)
-    if (unsupportedTokens.length > 0) {
-      logger.warn(
-        `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note lookups will fail until the format is changed`,
-      )
-      unsupportedTokenWarningEmitted = true
-    }
-  }
   return {
     folder: envSettings?.folder ?? fileConfig.folder,
     format: envSettings?.format ?? fileConfig.format,
