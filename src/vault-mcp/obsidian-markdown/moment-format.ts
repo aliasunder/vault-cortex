@@ -89,6 +89,10 @@ const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> =
     { pattern: /(?<!L)L(?![LT])/, token: "L" },
     { pattern: /LTS/, token: "LTS" },
     { pattern: /(?<!L)LT(?!S)/, token: "LT" },
+    { pattern: /(?<!Z)ZZ/, token: "ZZ" },
+    { pattern: /(?<!Z)Z(?!Z)/, token: "Z" },
+    { pattern: /(?<![A-Za-z])Q(?![A-Za-z])/, token: "Q" },
+    { pattern: /(?<![A-Za-z])w(?![A-Za-z])/, token: "w" },
   ]
 
 /** Returns unsupported Moment tokens present in the format string outside
