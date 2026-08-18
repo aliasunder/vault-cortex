@@ -1578,3 +1578,206 @@ describe("moveNote — hidden paths", () => {
     expect(await readNote("Visible.md")).toBe("# Visible\n")
   })
 })
+
+describe("moveNote — filesystem backlink verification", () => {
+  it("discovers and rewrites a backlink the index missed", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Linker.md", "See [[Foo]] for details.\n")
+
+    // Pass empty backlinkSources — simulates a stale index that hasn't
+    // indexed Linker.md's link yet. The filesystem scan should find it.
+    // Rename (not folder move) so the basename changes and the link needs
+    // rewriting — a folder move with unchanged basename keeps [[Foo]]
+    // resolvable via shortest-path matching and would be a no-op.
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n")
+  })
+
+  it("discovers backlinks in frontmatter the index missed", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture(
+      "Related.md",
+      '---\nrelated:\n  - "[[Foo]]"\n---\nBody.\n',
+    )
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Renamed.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Renamed.md",
+      links_updated: 1,
+      updated_notes: ["Related.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Related.md")).toBe(
+      '---\nrelated:\n  - "[[Renamed]]"\n---\nBody.\n',
+    )
+  })
+
+  it("does not false-positive on notes containing the basename as prose", async () => {
+    const { writeFixture, moveNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // Contains "Foo" as prose text, not as a link
+    await writeFixture("Prose.md", "The Foo concept is clear.\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: [],
+    })
+
+    // Prose.md passes the pre-filter (contains "Foo") but should NOT be
+    // identified as a backlink source because "Foo" is prose, not a link.
+    // Full result assertion also proves the move executed (not a silent no-op).
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    // The retry log must NOT have fired with Prose.md — a scan that
+    // false-positives on prose would still produce the same result (the
+    // preflight finds no links, planned rewrite is filtered out), so the
+    // result assertion alone can't catch the regression.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.objectContaining({
+        additionalSources: expect.arrayContaining(["Prose.md"]),
+      }),
+    )
+  })
+
+  it("skips unreadable notes during the scan without aborting", async () => {
+    const { vault, writeFixture, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Good.md", "Link: [[Foo]]\n")
+
+    // Call moveNote directly with allNotePaths including "Ghost.md" — a path
+    // that doesn't exist on disk. The filesystem scan will try to read it,
+    // fail with ENOENT, log a warning, and skip it without aborting.
+    const result = await noteMover.moveNote(
+      {
+        vaultPath: vault,
+        oldPath: "Foo.md",
+        newPath: "Bar.md",
+        protectedPaths: PROTECTED,
+        backlinkSources: [],
+        allNotePaths: ["Foo.md", "Ghost.md", "Good.md"],
+        allAssetPaths: [],
+        pruneEmptyFolders: false,
+        windowsBindMount: false,
+      },
+      logger,
+    )
+
+    // Good.md should still be discovered and rewritten
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Good.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n")
+    // The ghost note should have been logged as a warning
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      "backlink scan: skipping unreadable note",
+      expect.objectContaining({ path: "Ghost.md" }),
+    )
+  })
+
+  it("handles index-known and filesystem-discovered sources together", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Known.md", "Index knows: [[Foo]]\n")
+    await writeFixture("Unknown.md", "Index missed: [[Foo]]\n")
+
+    // Known.md is in backlinkSources (from the index); Unknown.md is not
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Known.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
+      updated_notes: ["Known.md", "Unknown.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Known.md")).toBe("Index knows: [[Bar]]\n")
+    expect(await readNote("Unknown.md")).toBe("Index missed: [[Bar]]\n")
+    // The retry loop fires because Unknown.md was not in backlinkSources
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.objectContaining({
+        from: "Foo.md",
+        to: "Bar.md",
+        additionalSources: ["Unknown.md"],
+      }),
+    )
+  })
+
+  it("discovers a markdown-link backlink via percent-encoded pre-filter", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("My Note.md", "# My Note\n")
+    // Markdown link with percent-encoded space — the raw content contains
+    // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
+    // The pre-filter's encodedStem check catches this.
+    await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")
+
+    const result = await moveNote({
+      oldPath: "My Note.md",
+      newPath: "Renamed Note.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Renamed Note.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe(
+      "See [here](Renamed%20Note.md) for info.\n",
+    )
+  })
+
+  it("discovers a markdown-link backlink whose target uses %28/%29 encoding", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("New (Draft).md", "# Draft\n")
+    // The rewriter's encodeMarkdownLinkPath encodes parentheses as %28/%29,
+    // so the raw content holds neither "New (Draft)" nor "New%20(Draft)".
+    // The pre-filter's parenEncodedStem check catches this.
+    await writeFixture("Hub.md", "See [x](New%20%28Draft%29.md).\n")
+
+    const result = await moveNote({
+      oldPath: "New (Draft).md",
+      newPath: "Finished.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Finished.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Hub.md")).toBe("See [x](Finished.md).\n")
+  })
+})

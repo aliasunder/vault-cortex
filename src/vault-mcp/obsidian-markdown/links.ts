@@ -272,11 +272,12 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
  *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
  *  is supplied — path from current file, including upward "../" segments.
  *  Returns null if unresolvable. */
-const resolve = (
-  target: string,
-  allPaths: string[],
-  sourcePath?: string,
-): string | null => {
+const resolve = (params: {
+  target: string
+  allPaths: readonly string[]
+  sourcePath?: string
+}): string | null => {
+  const { target, allPaths, sourcePath } = params
   const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
 
   // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"

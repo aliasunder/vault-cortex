@@ -592,60 +592,82 @@ describe("resolve", () => {
   ]
 
   it("resolves exact path match", () => {
-    expect(links.resolve("Projects/vault-cortex", allPaths)).toBe(
+    expect(links.resolve({ target: "Projects/vault-cortex", allPaths })).toBe(
       "Projects/vault-cortex.md",
     )
   })
 
   it("resolves exact path with .md extension", () => {
-    expect(links.resolve("Projects/vault-cortex.md", allPaths)).toBe(
-      "Projects/vault-cortex.md",
-    )
+    expect(
+      links.resolve({ target: "Projects/vault-cortex.md", allPaths }),
+    ).toBe("Projects/vault-cortex.md")
   })
 
   it("resolves basename match", () => {
-    expect(links.resolve("Principles", allPaths)).toBe("About Me/Principles.md")
+    expect(links.resolve({ target: "Principles", allPaths })).toBe(
+      "About Me/Principles.md",
+    )
   })
 
   it("resolves to shortest path when multiple basename matches exist", () => {
-    expect(links.resolve("note", allPaths)).toBe("note.md")
+    expect(links.resolve({ target: "note", allPaths })).toBe("note.md")
   })
 
   it("returns null for unresolvable target", () => {
-    expect(links.resolve("NonExistent", allPaths)).toBeNull()
+    expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull()
   })
 
   it("resolves an upward relative path against the source note's directory", () => {
     const paths = ["A/C/target.md", "A/B/note.md"]
-    expect(links.resolve("../C/target", paths, "A/B/note.md")).toBe(
-      "A/C/target.md",
-    )
+    expect(
+      links.resolve({
+        target: "../C/target",
+        allPaths: paths,
+        sourcePath: "A/B/note.md",
+      }),
+    ).toBe("A/C/target.md")
   })
 
   it("resolves a descending relative path to the source's own subfolder over a shorter same-named path elsewhere", () => {
     // "X/sub/target.md" is the shorter basename/suffix match, but the link is
     // relative to Areas/note.md, so it must resolve into Areas/sub/.
     const paths = ["Areas/sub/target.md", "X/sub/target.md", "Areas/note.md"]
-    expect(links.resolve("sub/target", paths, "Areas/note.md")).toBe(
-      "Areas/sub/target.md",
-    )
+    expect(
+      links.resolve({
+        target: "sub/target",
+        allPaths: paths,
+        sourcePath: "Areas/note.md",
+      }),
+    ).toBe("Areas/sub/target.md")
   })
 
   it("prefers an exact vault-absolute path over a relative-to-source match", () => {
     const paths = ["Projects/other.md", "A/B/Projects/other.md", "A/B/note.md"]
-    expect(links.resolve("Projects/other", paths, "A/B/note.md")).toBe(
-      "Projects/other.md",
-    )
+    expect(
+      links.resolve({
+        target: "Projects/other",
+        allPaths: paths,
+        sourcePath: "A/B/note.md",
+      }),
+    ).toBe("Projects/other.md")
   })
 
   it("cannot resolve an upward relative path without a source note", () => {
-    expect(links.resolve("../C/target", ["A/C/target.md"])).toBeNull()
+    expect(
+      links.resolve({ target: "../C/target", allPaths: ["A/C/target.md"] }),
+    ).toBeNull()
   })
 
   it("does not let an upward ../ path escape to a same-named vault-root note", () => {
     // "secret.md" exists at the vault root, but "../secret" from a root note
     // points above the vault — it must stay unresolved, not collapse onto it.
-    expect(links.resolve("../secret", ["secret.md"], "note.md")).toBeNull()
+    expect(
+      links.resolve({
+        target: "../secret",
+        allPaths: ["secret.md"],
+        sourcePath: "note.md",
+      }),
+    ).toBeNull()
   })
 })
 
