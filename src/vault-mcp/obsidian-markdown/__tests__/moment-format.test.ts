@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { momentToLuxonFormat } from "../moment-format.js"
+import { momentToLuxonFormat, findUnsupportedTokens } from "../moment-format.js"
 
 describe("momentToLuxonFormat", () => {
   const scenarios = [
@@ -63,9 +63,104 @@ describe("momentToLuxonFormat", () => {
       input: "[DD] DD",
       expected: "'DD' dd",
     },
+    // ── New token mappings ──────────────────────────────────────
+    {
+      name: "unpadded day of month",
+      input: "MMM D, YYYY",
+      expected: "MMM d, yyyy",
+    },
+    {
+      name: "unpadded month",
+      input: "M/D/YYYY",
+      expected: "M/d/yyyy",
+    },
+    {
+      name: "day of year",
+      input: "YYYY-DDD",
+      expected: "yyyy-o",
+    },
+    {
+      name: "day of year zero-padded",
+      input: "YYYY-DDDD",
+      expected: "yyyy-ooo",
+    },
+    {
+      name: "all D-family tokens in one format resolve correctly",
+      input: "DDDD DDD DD D",
+      expected: "ooo o dd d",
+    },
+    {
+      name: "all M-family tokens in one format resolve correctly",
+      input: "MMMM MMM MM M",
+      expected: "MMMM MMM MM M",
+    },
+    {
+      name: "adjacent tokens without separators resolve correctly",
+      input: "DDMM",
+      expected: "ddMM",
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     expect(momentToLuxonFormat(input)).toBe(expected)
+  })
+})
+
+describe("findUnsupportedTokens", () => {
+  it("returns Do when ordinal day is in the format", () => {
+    expect(findUnsupportedTokens("MMMM Do, YYYY")).toEqual(["Do"])
+  })
+
+  it("returns dd when 2-letter weekday is in the format", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD dd")).toEqual(["dd"])
+  })
+
+  it("returns both when both appear", () => {
+    expect(findUnsupportedTokens("Do dd")).toEqual(["Do", "dd"])
+  })
+
+  it("returns empty array for a standard format", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([])
+  })
+
+  it("ignores tokens inside [literal] escapes", () => {
+    expect(findUnsupportedTokens("[Do] DD")).toEqual([])
+  })
+
+  it("detects tokens outside a literal even when a literal exists", () => {
+    expect(findUnsupportedTokens("[Note] Do")).toEqual(["Do"])
+  })
+
+  it("does not false-positive on ddd or dddd (supported tokens)", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD-ddd")).toEqual([])
+    expect(findUnsupportedTokens("YYYY-MM-DD-dddd")).toEqual([])
+  })
+
+  it("detects ordinal tokens (Mo, DDDo, wo)", () => {
+    expect(findUnsupportedTokens("Mo")).toEqual(["Mo"])
+    expect(findUnsupportedTokens("DDDo")).toEqual(["DDDo"])
+    expect(findUnsupportedTokens("wo")).toEqual(["wo"])
+  })
+
+  it("detects weekday number d without false-positive on D or DD", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d")
+    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d")
+    expect(findUnsupportedTokens("D")).not.toContain("d")
+  })
+
+  it("detects localized format tokens (L, LL, LLL, LLLL, LT, LTS)", () => {
+    expect(findUnsupportedTokens("L")).toEqual(["L"])
+    expect(findUnsupportedTokens("LLLL")).toEqual(["LLLL"])
+    expect(findUnsupportedTokens("LT")).toEqual(["LT"])
+    expect(findUnsupportedTokens("LTS")).toEqual(["LTS"])
+  })
+
+  it("detects k/kk (1-24 hour)", () => {
+    expect(findUnsupportedTokens("kk:mm")).toEqual(["kk"])
+    expect(findUnsupportedTokens("k:mm")).toEqual(["k"])
+  })
+
+  it("detects e (locale weekday number)", () => {
+    expect(findUnsupportedTokens("YYYY e")).toEqual(["e"])
   })
 })

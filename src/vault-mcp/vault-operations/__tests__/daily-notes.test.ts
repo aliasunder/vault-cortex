@@ -289,6 +289,30 @@ describe("getDailyNotePath", () => {
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" }),
     ).rejects.toThrow("invalid date")
   })
+
+  it("rejects a format containing unsupported tokens (Do)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
+      "utf8",
+    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
+    ).rejects.toThrow("unsupported token(s): Do")
+  })
+
+  it("rejects a format containing unsupported tokens (dd)", async () => {
+    const { getDailyNotePath } = await import("../daily-notes.js")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD dd" }),
+      "utf8",
+    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
+    ).rejects.toThrow("unsupported token(s): dd")
+  })
 })
 
 // ── getDailyNote ─────────────────────────────────────────────────
