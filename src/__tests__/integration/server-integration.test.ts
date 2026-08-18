@@ -396,6 +396,12 @@ describe("default config", () => {
         },
       })
       expect(writeResult.isError).not.toBe(true)
+      const afterWrite = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterWrite)).toContain("Created by integration test.")
 
       // patch
       const patchResult = await callTool({
@@ -408,6 +414,12 @@ describe("default config", () => {
         },
       })
       expect(patchResult.isError).not.toBe(true)
+      const afterPatch = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterPatch)).toContain("Appended line.")
 
       // replace — verify the replacement happened
       const replaceResult = await callTool({
@@ -516,6 +528,30 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       expect(textContent(result)).toContain("Node A")
+    })
+
+    it("vault_read_file — canvas raw mode", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Boards/test.canvas", raw: true },
+      })
+      expect(result.isError).not.toBe(true)
+      const text = textContent(result)
+      expect(text).toContain('"type": "text"')
+      expect(text).toContain('"fromNode": "1"')
+    })
+
+    it("vault_read_file — text with line paging", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "test-data.txt", start_line: 2, limit: 1 },
+      })
+      expect(result.isError).not.toBe(true)
+      const text = textContent(result)
+      expect(text).toContain("Line 2")
+      expect(text).not.toContain("plain text file")
     })
   })
 
