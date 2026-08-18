@@ -430,6 +430,12 @@ npm test
 npm run prettier:check && npm run lint && npm test && npm run build
 ```
 
+`npm test` includes integration tests that boot a real server and call every
+tool and prompt over HTTP — verifying auth enforcement, config-gated tool
+surfaces, write mutation integrity (each write is read back), and boot
+rejection on misconfiguration. See [SECURITY.md](./SECURITY.md#testing-verification)
+for the security-relevant coverage.
+
 **MCP Inspector** — interactive browser UI for testing tools:
 
 ```bash
