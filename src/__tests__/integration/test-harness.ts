@@ -103,7 +103,7 @@ export const startServer = async (
   const cleanup = async (): Promise<void> => {
     child.kill("SIGTERM")
     await new Promise<void>((res) => {
-      child.on("exit", () => res())
+      child.on("close", () => res())
       setTimeout(() => {
         child.kill("SIGKILL")
         res()

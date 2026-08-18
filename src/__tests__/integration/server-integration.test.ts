@@ -160,7 +160,10 @@ describe("default config", () => {
     it("vault_list_notes", async () => {
       const result = await callTool({ client, name: "vault_list_notes" })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
+      const text = textContent(result)
+      expect(text).toContain("Projects/alpha.md")
+      expect(text).toContain("Projects/beta.md")
+      expect(text).toContain("Orphan Note.md")
     })
 
     it("vault_list_notes — folder filter", async () => {
