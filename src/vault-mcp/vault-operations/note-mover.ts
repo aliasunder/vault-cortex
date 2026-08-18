@@ -167,11 +167,11 @@ const rewriteTarget = (
 ): string | null => {
   const { rawTarget, originalExtension, grammar } = params
 
-  const resolvedNoteBefore = links.resolve(
-    rawTarget,
-    context.allNotePaths,
-    context.oldSourcePath,
-  )
+  const resolvedNoteBefore = links.resolve({
+    target: rawTarget,
+    allPaths: context.allNotePaths,
+    sourcePath: context.oldSourcePath,
+  })
   const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
   const resolvedBefore =
     resolvedNoteBefore ??
@@ -194,11 +194,11 @@ const rewriteTarget = (
   // shared by the "already resolves" check and the candidate verifier.
   const resolveFromNewSource = (candidate: string): string | null =>
     targetKind === "note"
-      ? links.resolve(
-          candidate,
-          context.allNotePathsAfter,
-          context.newSourcePath,
-        )
+      ? links.resolve({
+          target: candidate,
+          allPaths: context.allNotePathsAfter,
+          sourcePath: context.newSourcePath,
+        })
       : links.resolveAsset({
           target: candidate,
           allAssetPaths: context.allAssetPaths,
@@ -520,13 +520,14 @@ const discoverBacklinksFromFilesystem = async (
         // Full parse + resolve — confirm the candidate actually links to the target
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
-        const rawTargets = links.extractAll(parsed.content, frontmatter)
-        const hasLinkToTarget = rawTargets.some(
-          (rawTarget) =>
-            links.resolve(rawTarget, allNotePathsForResolve, candidatePath) ===
-            params.targetPath,
-        )
-        return hasLinkToTarget ? candidatePath : null
+        const linkTargets = links.extractAll(parsed.content, frontmatter)
+        const resolvesToMovedNote = (linkTarget: string): boolean =>
+          links.resolve({
+            target: linkTarget,
+            allPaths: allNotePathsForResolve,
+            sourcePath: candidatePath,
+          }) === params.targetPath
+        return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
         logger.warn("backlink scan: skipping unreadable note", {
           path: candidatePath,
@@ -832,12 +833,10 @@ const moveNote = async (
             }
           },
         })
-        const linksUpdated =
-          movedLinksRewritten +
-          plannedRewrites.reduce(
-            (sum, planned) => sum + planned.linksRewritten,
-            0,
-          )
+        const backlinkLinksRewritten = plannedRewrites
+          .map((planned) => planned.linksRewritten)
+          .reduce((sum, count) => sum + count, 0)
+        const linksUpdated = movedLinksRewritten + backlinkLinksRewritten
 
         // Delete the original last — if this fails, both copies exist but no data is lost.
         try {
