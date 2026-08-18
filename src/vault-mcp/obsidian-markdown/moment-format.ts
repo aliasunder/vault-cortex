@@ -92,8 +92,7 @@ const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> =
   ]
 
 /** Returns unsupported Moment tokens present in the format string outside
- *  of [literal] escapes, or an empty array if none. Standalone — does not
- *  depend on the supported-token table or its ordering. */
+ *  of [literal] escapes, or an empty array if none. */
 export const findUnsupportedTokens = (momentFormat: string): string[] => {
   // Join with \0 so tokens can't match across segment boundaries
   const formatSegments = momentFormat
