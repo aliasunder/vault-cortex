@@ -5,9 +5,7 @@
  *  Pure and zero-import so config.ts can validate formats without
  *  fs/logger deps. */
 
-/** Sorted longest-first so the regex alternation tries longer tokens before
- *  shorter prefixes at each position (e.g. DDDD before DDD before DD
- *  before Do before D). */
+/** Moment token → Luxon token pairs, ordered longest-first. */
 const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
   // 4-char tokens
   ["YYYY", "yyyy"],
@@ -36,9 +34,8 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
 /** Matches Moment.js [literal] escape groups — e.g. [Daily Note]. */
 const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
 
-/** Regex built from all Moment tokens, longest-first — the regex engine
- *  tries alternatives in listed order at each position, so longer tokens
- *  match before shorter prefixes (DDDD before DDD before DD before D). */
+/** Matches any known Moment token — alternation order is longest-first
+ *  (from MOMENT_TO_LUXON). */
 const MOMENT_TOKEN_RE = new RegExp(
   MOMENT_TO_LUXON.map(([momentToken]) => momentToken).join("|"),
   "g",
@@ -46,8 +43,7 @@ const MOMENT_TOKEN_RE = new RegExp(
 
 const MOMENT_TOKEN_MAP = new Map(MOMENT_TO_LUXON)
 
-/** Replaces moment date/time tokens with their Luxon equivalents via
- *  single-pass regex — each position matches the longest token first. */
+/** Replaces Moment tokens with their Luxon equivalents in a single pass. */
 const convertMomentTokens = (formatSpan: string): string =>
   formatSpan.replace(
     MOMENT_TOKEN_RE,
