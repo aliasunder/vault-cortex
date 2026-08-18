@@ -502,7 +502,7 @@ const discoverBacklinksFromFilesystem = async (
   // Hoisted above the mapper so a single allocation is shared across all candidates.
   const allNotePathsForResolve = [...params.allNotePaths]
 
-  const discoveredSources = await mapWithConcurrency({
+  const scanResults = await mapWithConcurrency({
     items: candidates,
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
@@ -536,7 +536,7 @@ const discoverBacklinksFromFilesystem = async (
     },
   })
 
-  return discoveredSources.filter((sourcePath) => sourcePath !== null)
+  return scanResults.filter((sourcePath) => sourcePath !== null)
 }
 
 /** Moves a note and rewrites every link across the vault that resolves to it.
