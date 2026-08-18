@@ -237,6 +237,24 @@ describe("createReranker", () => {
       })
     })
 
+    it("pins ONNX to single-threaded execution to prevent CPU saturation", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedAutoModel = vi.mocked(
+        transformers.AutoModelForSequenceClassification,
+      )
+
+      const reranker = await loadReranker()
+      await reranker.rerankPairs("trigger load", ["doc"])
+
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+        {
+          dtype: "q8",
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
+    })
+
     it("retries after a model load failure", async () => {
       const transformers = await import("@huggingface/transformers")
       const mockedAutoModel = vi.mocked(
