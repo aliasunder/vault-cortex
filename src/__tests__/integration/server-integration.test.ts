@@ -888,6 +888,43 @@ describe("FILE_TOOLS_ENABLED=false", () => {
 
 // ── Boot rejection ───────────────────────────────────────────
 
+describe("DAILY_NOTES_FORMAT with unsupported token", () => {
+  let client: Client
+  let cleanup: (() => Promise<void>) | undefined
+
+  beforeAll(async () => {
+    const port = randomPort()
+    const server = await startServer(port, {
+      DAILY_NOTES_FORMAT: "MMMM Do, YYYY",
+    })
+    cleanup = server.cleanup
+    client = await createTestClient(server.port)
+  }, 30_000)
+
+  afterAll(async () => {
+    try {
+      if (client) await client.close()
+    } finally {
+      if (cleanup) await cleanup()
+    }
+  })
+
+  it("server starts despite unsupported token in format", async () => {
+    const names = await toolNames(client)
+    expect(names).toContain("vault_get_daily_note")
+  })
+
+  it("vault_get_daily_note returns a tool error for unsupported Do token", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-01-15" },
+    })
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toContain("unsupported token(s): Do")
+  })
+})
+
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(

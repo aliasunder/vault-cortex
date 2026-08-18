@@ -881,6 +881,14 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
+  **Exception:** `src/__tests__/integration/server-integration.test.ts`
+  is the end-to-end integration suite — SDK Client +
+  StreamableHTTPClientTransport over real HTTP against a real server
+  with a fixture vault on disk. Each top-level `describe` boots a
+  server with a specific env config (default, READONLY_MODE,
+  DISABLED_TOOLS, etc.) and exercises tools/prompts over the wire.
+  New features that change tool behavior under specific configs
+  (e.g. unsupported token rejection) get a `describe` block here.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).
