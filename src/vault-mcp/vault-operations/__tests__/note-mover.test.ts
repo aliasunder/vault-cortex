@@ -1631,7 +1631,7 @@ describe("moveNote — filesystem backlink verification", () => {
   })
 
   it("does not false-positive on notes containing the basename as prose", async () => {
-    const { writeFixture, moveNote } = setupVault()
+    const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
     // Contains "Foo" as prose text, not as a link
     await writeFixture("Prose.md", "The Foo concept is clear.\n")
@@ -1651,6 +1651,16 @@ describe("moveNote — filesystem backlink verification", () => {
       updated_notes: [],
       pruned_empty_folders: 0,
     })
+    // The retry log must NOT have fired with Prose.md — a scan that
+    // false-positives on prose would still produce the same result (the
+    // preflight finds no links, planned rewrite is filtered out), so the
+    // result assertion alone can't catch the regression.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.objectContaining({
+        additionalSources: expect.arrayContaining(["Prose.md"]),
+      }),
+    )
   })
 
   it("skips unreadable notes during the scan without aborting", async () => {

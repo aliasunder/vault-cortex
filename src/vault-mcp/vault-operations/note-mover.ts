@@ -487,6 +487,12 @@ const discoverBacklinksFromFilesystem = async (
 ): Promise<string[]> => {
   const targetStem = posix.basename(params.targetPath, ".md")
   const encodedStem = encodeURIComponent(targetStem)
+  // encodeURIComponent leaves parentheses unencoded, but the rewriter's
+  // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
+  // produces a markdown link the first two forms can't match.
+  const parenEncodedStem = encodedStem
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")
   const candidates = params.allNotePaths.filter(
     (notePath) =>
       notePath !== params.targetPath && !params.knownPaths.has(notePath),
@@ -502,7 +508,11 @@ const discoverBacklinksFromFilesystem = async (
       try {
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
-        if (!content.includes(targetStem) && !content.includes(encodedStem)) {
+        if (
+          !content.includes(targetStem) &&
+          !content.includes(encodedStem) &&
+          !content.includes(parenEncodedStem)
+        ) {
           return null
         }
         const parsed = parseNote(content)
