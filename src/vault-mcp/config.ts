@@ -41,9 +41,9 @@ const splitCommaSeparatedValues = (raw: string): string[] =>
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
  *  Structural checks only — structurally unsafe results (traversal,
- *  separators, empty) are rejected. Warns when the format contains Do
- *  (ordinal day), which maps lossily (suffix dropped). Returns the raw
- *  moment string unchanged. */
+ *  separators, empty) are rejected. Warns when the format contains
+ *  unsupported tokens (Do, dd) whose Luxon mappings produce filenames
+ *  differing from Obsidian's. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
     momentToLuxonFormat(momentFormat),

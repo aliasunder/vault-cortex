@@ -76,8 +76,8 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
 }
 
 /** Tokens that produce filenames differing from Obsidian's — Do is mapped
- *  to d (suffix dropped), dd passes through as Luxon's dd (day-of-month,
- *  not weekday). Neither can match the note Obsidian created. */
+ *  to d (suffix dropped), dd is mapped to ccc (3-letter weekday instead of
+ *  Moment's 2-letter). Neither can match the note Obsidian created. */
 const UNSUPPORTED_TOKEN_SET = new Set(["Do", "dd"])
 
 /** Returns unsupported tokens present in the format string outside of
