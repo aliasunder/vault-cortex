@@ -611,7 +611,7 @@ const moveNote = async (
 
   const backlinkSourcePaths = [...params.backlinkSources]
 
-  for (let attempt = 0; attempt <= MAX_BACKLINK_VERIFY_RETRIES; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     const resolvedBacklinkSources = backlinkSourcePaths.map((sourcePath) => {
       const source = toVaultRelativePath(sourcePath)
       try {
@@ -666,11 +666,6 @@ const moveNote = async (
           logger,
         )
         if (additionalSources.length > 0) {
-          if (attempt >= MAX_BACKLINK_VERIFY_RETRIES) {
-            throw new Error(
-              `move aborted: backlink set did not stabilize after ${MAX_BACKLINK_VERIFY_RETRIES} retries (${additionalSources.length} new sources on last attempt). Nothing was written.`,
-            )
-          }
           logger.info(
             "backlink verification discovered sources the index missed",
             { from: oldPath, to: newPath, additionalSources, attempt },
@@ -886,16 +881,16 @@ const moveNote = async (
 
     if (!lockResult.retry) return lockResult.result
 
+    if (attempt >= MAX_BACKLINK_VERIFY_RETRIES) {
+      throw new Error(
+        `move aborted: backlink set did not stabilize after ${MAX_BACKLINK_VERIFY_RETRIES} retries (${lockResult.additionalSources.length} new sources on last attempt). Nothing was written.`,
+      )
+    }
+
     // Expand the backlink set with the newly-discovered sources and retry
     // with the wider lock set.
     backlinkSourcePaths.push(...lockResult.additionalSources)
   }
-
-  // Unreachable — the loop throws inside the lock on the last attempt when
-  // additionalSources is non-empty. Satisfies TypeScript's exhaustiveness check.
-  throw new Error(
-    `move aborted: backlink set did not stabilize after ${MAX_BACKLINK_VERIFY_RETRIES} retries. Nothing was written.`,
-  )
 }
 
 export const noteMover = {
