@@ -487,11 +487,13 @@ const discoverBacklinksFromFilesystem = async (
   logger: Logger,
 ): Promise<string[]> => {
   const targetStem = posix.basename(params.targetPath, ".md")
-  // Pre-filter stems are lowercased so a case-mismatched link (e.g. [[foo]]
-  // pointing at Foo.md) is never skipped — the resolver handles case, and the
-  // pre-filter must be at least as permissive.
+  // Pre-filter stems are lowercased so a case-mismatched link is never
+  // skipped before the resolver runs. Encode the original-case stem FIRST,
+  // then lowercase — encodeURIComponent is codepoint-sensitive, so encoding
+  // an already-lowered stem produces different percent sequences for non-ASCII
+  // (É → %C3%89 vs é → %C3%A9).
   const lowerStem = targetStem.toLowerCase()
-  const lowerEncodedStem = encodeURIComponent(lowerStem)
+  const lowerEncodedStem = encodeURIComponent(targetStem).toLowerCase()
   // encodeURIComponent leaves parentheses unencoded, but the rewriter's
   // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
   // produces a markdown link the first two forms can't match.
