@@ -15,9 +15,10 @@ updates:
       # Node >=22.12. Major bumps are a deliberate cli decision.
       - dependency-name: commander
         update-types: ["version-update:semver-major"]
-      # typescript is aliased to @typescript/typescript6 — the JS compiler
-      # API that typescript-eslint depends on. TS 7 (Go native) lives under
-      # @typescript/native. A TS major here would break eslint.
+      # typescript is aliased to @typescript/typescript6 (the JS compiler
+      # API that typescript-eslint depends on). TS 7 (Go native) has no JS
+      # API. This ignore prevents dependabot from replacing the TS 6 compat
+      # alias with a direct typescript@7.x dependency.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
 
