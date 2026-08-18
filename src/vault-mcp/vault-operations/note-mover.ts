@@ -491,6 +491,9 @@ const discoverBacklinksFromFilesystem = async (
     (notePath) =>
       notePath !== params.targetPath && !params.knownPaths.has(notePath),
   )
+  // Mutable copy of allNotePaths for links.resolve (accepts string[], not readonly).
+  // Hoisted above the mapper so a single allocation is shared across all candidates.
+  const allNotePathsForResolve = [...params.allNotePaths]
 
   const discoveredSources = await mapWithConcurrency({
     items: candidates,
@@ -505,10 +508,9 @@ const discoverBacklinksFromFilesystem = async (
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const rawTargets = links.extractAll(parsed.content, frontmatter)
-        const allNotePathsMutable = [...params.allNotePaths]
         const linksToTarget = rawTargets.some(
           (rawTarget) =>
-            links.resolve(rawTarget, allNotePathsMutable, candidatePath) ===
+            links.resolve(rawTarget, allNotePathsForResolve, candidatePath) ===
             params.targetPath,
         )
         return linksToTarget ? candidatePath : null
@@ -522,9 +524,7 @@ const discoverBacklinksFromFilesystem = async (
     },
   })
 
-  return discoveredSources.filter(
-    (sourcePath): sourcePath is string => sourcePath !== null,
-  )
+  return discoveredSources.filter((sourcePath) => sourcePath !== null)
 }
 
 /** Moves a note and rewrites every link across the vault that resolves to it.
