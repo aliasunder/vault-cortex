@@ -1,7 +1,7 @@
 /** Moment.js → Luxon format-string conversion — Obsidian stores daily-note
  *  formats in moment tokens; the server renders with Luxon. A single-pass
  *  regex tokenizer replaces tokens longest-first so overlapping families
- *  (DDDD/DDD/DD/Do/D) resolve without partial-replacement collisions.
+ *  (DDDD/DDD/DD/D) resolve without partial-replacement collisions.
  *  Pure and zero-import so config.ts can validate formats without
  *  fs/logger deps. */
 
@@ -20,8 +20,6 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
   ["YY", "yy"],
   ["MM", "MM"],
   ["DD", "dd"],
-  ["Do", "d"], // ordinal day — lossy: suffix ("st","nd","th") dropped
-  ["dd", "ccc"], // 2-letter weekday — no Luxon equivalent; mapped to 3-letter as closest
   ["HH", "HH"],
   ["hh", "hh"],
   ["mm", "mm"],
@@ -54,10 +52,9 @@ const convertMomentTokens = (formatSpan: string): string =>
 /** Converts a Moment.js format string to Luxon format tokens. [literal]
  *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
  *  replacement runs only OUTSIDE literals so literal text containing token
- *  letters ("[Week A]") is preserved verbatim. Two tokens are unsupported: Do (ordinal day, mapped to d — suffix
- *  dropped) and dd (2-letter weekday, mapped to ccc — 3-letter). Both
- *  produce filenames that differ from Obsidian's, so getDailyNotePath
- *  rejects formats containing them before the converter runs. */
+ *  letters ("[Week A]") is preserved verbatim. Two Moment tokens have no
+ *  Luxon equivalent — Do (ordinal day) and dd (2-letter weekday) — and are
+ *  rejected by getDailyNotePath before the converter runs. */
 export const momentToLuxonFormat = (momentFormat: string): string => {
   return momentFormat
     .split(MOMENT_ESCAPE_RE)
@@ -75,23 +72,42 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
     .join("")
 }
 
-/** Tokens that produce filenames differing from Obsidian's — Do is mapped
- *  to d (suffix dropped), dd is mapped to ccc (3-letter weekday instead of
- *  Moment's 2-letter). Neither can match the note Obsidian created. */
-const UNSUPPORTED_TOKEN_SET = new Set(["Do", "dd"])
+/** Moment tokens with no Luxon equivalent. Each entry is a standalone
+ *  regex pattern with boundary guards so it doesn't false-positive inside
+ *  a supported token (e.g. dd inside ddd, D inside DD, L inside LL).
+ *  Boundary guards use lookahead/lookbehind for the same letter family. */
+const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> =
+  [
+    { pattern: /DDDo/, token: "DDDo" },
+    { pattern: /(?<!D)Do/, token: "Do" },
+    { pattern: /Mo/, token: "Mo" },
+    { pattern: /wo/, token: "wo" },
+    { pattern: /(?<!d)dd(?!d)/, token: "dd" },
+    { pattern: /(?<!d)d(?!d)/, token: "d" },
+    { pattern: /(?<![A-Za-z])e(?![A-Za-z])/, token: "e" },
+    { pattern: /(?<!k)kk(?!k)/, token: "kk" },
+    { pattern: /(?<!k)k(?!k)/, token: "k" },
+    { pattern: /LLLL/, token: "LLLL" },
+    { pattern: /(?<!L)LLL(?!L)/, token: "LLL" },
+    { pattern: /(?<!L)LL(?!L)/, token: "LL" },
+    { pattern: /(?<!L)L(?![LT])/, token: "L" },
+    { pattern: /LTS/, token: "LTS" },
+    { pattern: /(?<!L)LT(?!S)/, token: "LT" },
+  ]
 
-/** Returns unsupported tokens present in the format string outside of
- *  [literal] escapes, or an empty array if none. Uses the same regex
- *  tokenizer as the converter so ddd/dddd don't false-positive on dd. */
+/** Returns unsupported Moment tokens present in the format string outside
+ *  of [literal] escapes, or an empty array if none. Standalone — does not
+ *  depend on the supported-token table or its ordering. */
 export const findUnsupportedTokens = (momentFormat: string): string[] => {
+  const formatSegments = momentFormat
+    .split(MOMENT_ESCAPE_RE)
+    .filter((_, segmentIndex) => segmentIndex % 2 === 0)
+    .join("\0")
   const found = new Set<string>()
-  momentFormat.split(MOMENT_ESCAPE_RE).forEach((segment, segmentIndex) => {
-    if (segmentIndex % 2 === 1) return
-    for (const match of segment.matchAll(MOMENT_TOKEN_RE)) {
-      if (UNSUPPORTED_TOKEN_SET.has(match[0])) {
-        found.add(match[0])
-      }
+  for (const { pattern, token } of UNSUPPORTED_PATTERNS) {
+    if (pattern.test(formatSegments)) {
+      found.add(token)
     }
-  })
+  }
   return [...found]
 }

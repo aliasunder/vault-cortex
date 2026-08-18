@@ -85,19 +85,9 @@ describe("momentToLuxonFormat", () => {
       expected: "yyyy-ooo",
     },
     {
-      name: "ordinal day maps to unpadded day (lossy — suffix dropped)",
-      input: "MMMM Do, YYYY",
-      expected: "MMMM d, yyyy",
-    },
-    {
-      name: "D does not corrupt Do — tokenizer matches Do before D",
-      input: "Do-DD",
-      expected: "d-dd",
-    },
-    {
       name: "all D-family tokens in one format resolve correctly",
-      input: "DDDD DDD DD Do D",
-      expected: "ooo o dd d d",
+      input: "DDDD DDD DD D",
+      expected: "ooo o dd d",
     },
     {
       name: "all M-family tokens in one format resolve correctly",
@@ -141,8 +131,36 @@ describe("findUnsupportedTokens", () => {
     expect(findUnsupportedTokens("[Note] Do")).toEqual(["Do"])
   })
 
-  it("does not false-positive on ddd or dddd (mapped tokens)", () => {
+  it("does not false-positive on ddd or dddd (supported tokens)", () => {
     expect(findUnsupportedTokens("YYYY-MM-DD-ddd")).toEqual([])
     expect(findUnsupportedTokens("YYYY-MM-DD-dddd")).toEqual([])
+  })
+
+  it("detects ordinal tokens (Mo, DDDo, wo)", () => {
+    expect(findUnsupportedTokens("Mo")).toEqual(["Mo"])
+    expect(findUnsupportedTokens("DDDo")).toEqual(["DDDo"])
+    expect(findUnsupportedTokens("wo")).toEqual(["wo"])
+  })
+
+  it("detects weekday number d without false-positive on D or DD", () => {
+    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d")
+    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d")
+    expect(findUnsupportedTokens("D")).not.toContain("d")
+  })
+
+  it("detects localized format tokens (L, LL, LLL, LLLL, LT, LTS)", () => {
+    expect(findUnsupportedTokens("L")).toEqual(["L"])
+    expect(findUnsupportedTokens("LLLL")).toEqual(["LLLL"])
+    expect(findUnsupportedTokens("LT")).toEqual(["LT"])
+    expect(findUnsupportedTokens("LTS")).toEqual(["LTS"])
+  })
+
+  it("detects k/kk (1-24 hour)", () => {
+    expect(findUnsupportedTokens("kk:mm")).toEqual(["kk"])
+    expect(findUnsupportedTokens("k:mm")).toEqual(["k"])
+  })
+
+  it("detects e (locale weekday number)", () => {
+    expect(findUnsupportedTokens("YYYY e")).toEqual(["e"])
   })
 })
