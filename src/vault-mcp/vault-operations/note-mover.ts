@@ -521,12 +521,15 @@ const discoverBacklinksFromFilesystem = async (
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const linkTargets = links.extractAll(parsed.content, frontmatter)
-        const resolvesToMovedNote = (linkTarget: string): boolean =>
-          links.resolve({
-            target: linkTarget,
-            allPaths: allNotePathsForResolve,
-            sourcePath: candidatePath,
-          }) === params.targetPath
+        const resolvesToMovedNote = (linkTarget: string): boolean => {
+          return (
+            links.resolve({
+              target: linkTarget,
+              allPaths: allNotePathsForResolve,
+              sourcePath: candidatePath,
+            }) === params.targetPath
+          )
+        }
         return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
         logger.warn("backlink scan: skipping unreadable note", {
