@@ -507,16 +507,17 @@ const discoverBacklinksFromFilesystem = async (
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
+        // Cheap substring pre-filter — skip notes that can't contain a link
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
         const lowercaseContent = content.toLowerCase()
-        if (
-          !lowercaseContent.includes(lowercaseStem) &&
-          !lowercaseContent.includes(lowercaseEncodedStem) &&
-          !lowercaseContent.includes(lowercaseParenEncodedStem)
-        ) {
-          return null
-        }
+        const couldContainLink =
+          lowercaseContent.includes(lowercaseStem) ||
+          lowercaseContent.includes(lowercaseEncodedStem) ||
+          lowercaseContent.includes(lowercaseParenEncodedStem)
+        if (!couldContainLink) return null
+
+        // Full parse + resolve — confirm the candidate actually links to the target
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const rawTargets = links.extractAll(parsed.content, frontmatter)
