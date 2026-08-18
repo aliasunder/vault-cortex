@@ -30,6 +30,7 @@ Parameters:
 
 Errors:
 - "invalid date" — use YYYY-MM-DD format (e.g. "2026-05-13", not "May 13")
+- "unsupported token(s): ..." — the configured format contains Do (ordinal day) or dd (2-letter weekday), which Luxon cannot reproduce; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported alternative
 
 Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). ${isToolEnabled("vault_write_note") ? "When exists is false, create the note with vault_write_note using the returned path." : "When exists is false, the note has not been created yet."}`,
       inputSchema: {
