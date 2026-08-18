@@ -15,9 +15,10 @@
  *       for backlinks the search index missed, preflight reads every affected
  *       note and computes its rewrite (aborting on any failure before touching
  *       the vault), then commit writes the destination, updates backlink sources,
- *       and deletes the original last. The whole span runs under a multi-file
- *       write lock covering the moved note, its destination, and every backlink
- *       source, so concurrent single-file writes fail fast instead of racing. */
+ *       and deletes the original last. Each attempt's verify/preflight/commit
+ *       span runs under a multi-file write lock; the lock is released and
+ *       reacquired when verification discovers sources the initial set missed
+ *       (capped at MAX_BACKLINK_VERIFY_RETRIES). */
 
 import { readFile, mkdir, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
@@ -486,11 +487,15 @@ const discoverBacklinksFromFilesystem = async (
   logger: Logger,
 ): Promise<string[]> => {
   const targetStem = posix.basename(params.targetPath, ".md")
-  const encodedStem = encodeURIComponent(targetStem)
+  // Pre-filter stems are lowercased so a case-mismatched link (e.g. [[foo]]
+  // pointing at Foo.md) is never skipped — the resolver handles case, and the
+  // pre-filter must be at least as permissive.
+  const lowerStem = targetStem.toLowerCase()
+  const lowerEncodedStem = encodeURIComponent(lowerStem)
   // encodeURIComponent leaves parentheses unencoded, but the rewriter's
   // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
   // produces a markdown link the first two forms can't match.
-  const parenEncodedStem = encodedStem
+  const lowerParenEncodedStem = lowerEncodedStem
     .replace(/\(/g, "%28")
     .replace(/\)/g, "%29")
   const candidates = params.allNotePaths.filter(
@@ -508,10 +513,11 @@ const discoverBacklinksFromFilesystem = async (
       try {
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
+        const lowerContent = content.toLowerCase()
         if (
-          !content.includes(targetStem) &&
-          !content.includes(encodedStem) &&
-          !content.includes(parenEncodedStem)
+          !lowerContent.includes(lowerStem) &&
+          !lowerContent.includes(lowerEncodedStem) &&
+          !lowerContent.includes(lowerParenEncodedStem)
         ) {
           return null
         }
