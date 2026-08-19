@@ -5990,15 +5990,14 @@ describe("hybridSearch — file content vector search", () => {
       logger,
     )
 
-    // The file appears via file content vector search only (no FTS match)
-    const fileResult = results.find(
-      (result) => result.path === "specs/api-spec.yaml",
-    )
-    expect(fileResult).toBeDefined()
-    expect(fileResult?.kind).toBe("file")
-    expect(fileResult?.extension).toBe(".yaml")
-    expect(fileResult?.folder).toBe("specs")
+    // Exactly one result — the file via vector-only (no FTS match)
     expect(search_mode).toBe("hybrid")
+    expect(results.map((result) => result.path)).toEqual([
+      "specs/api-spec.yaml",
+    ])
+    expect(results[0]?.kind).toBe("file")
+    expect(results[0]?.extension).toBe(".yaml")
+    expect(results[0]?.folder).toBe("specs")
   })
 
   it("skips file content vector search when note-specific filters are active", async () => {
