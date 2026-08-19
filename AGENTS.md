@@ -939,7 +939,9 @@ test.
 - New tool → happy-path test in `server-integration.test.ts` + fixture
   data if needed.
 - New error path in a tool's `Errors:` section → test in
-  `server-error-contracts.test.ts` asserting the exact error message.
+  `server-error-contracts.test.ts` asserting the distinctive message
+  prefix (include test-controlled variable parts like paths and
+  section names).
 - New config gating axis → config matrix test in
   `server-integration.test.ts` (tool count + key behavior).
 - New prompt → assembly test verifying live vault data, not just the
