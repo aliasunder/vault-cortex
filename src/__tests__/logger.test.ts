@@ -10,7 +10,10 @@ import {
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
+import { findSourceMap } from "node:module"
 import { createFileSinkExtension, pruneOldLogFiles, logger } from "../logger.js"
+
+vi.mock("node:module", { spy: true })
 
 const createTempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
@@ -190,6 +193,112 @@ describe("pruneOldLogFiles", () => {
 
     const remaining = readdirSync(logDir)
     expect(remaining).toHaveLength(0)
+  })
+})
+
+describe("source location resolution", () => {
+  /** Captures JSON log lines emitted to stdout while the spy is active. */
+  const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
+    const writtenChunks: string[] = []
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk) => {
+        writtenChunks.push(String(chunk))
+        return true
+      })
+    onTestFinished(() => stdoutSpy.mockRestore())
+    return () =>
+      writtenChunks
+        .filter((chunk) => chunk.startsWith("{"))
+        .map((chunk) => JSON.parse(chunk))
+  }
+
+  it("emits a source field with a .ts extension when source maps are available", () => {
+    const emittedLines = captureEmittedLines()
+
+    logger.info("source location test")
+
+    const source = emittedLines()[0]?.source
+    expect(source).toMatch(/\.ts:\d+$/)
+  })
+
+  it("emits a source field pointing to this test file", () => {
+    const emittedLines = captureEmittedLines()
+
+    logger.info("self-reference test")
+
+    const source = String(emittedLines()[0]?.source)
+    expect(source).toMatch(/^logger\.test\.ts:\d+$/)
+  })
+
+  it("uses findOrigin to resolve the original source location", () => {
+    const emittedLines = captureEmittedLines()
+    const fakeOrigin = {
+      name: undefined,
+      fileName: "file:///fake/path/resolved-module.ts",
+      lineNumber: 42,
+      columnNumber: 5,
+    }
+    vi.mocked(findSourceMap).mockReturnValueOnce({
+      findEntry: vi.fn(),
+      findOrigin: () => fakeOrigin,
+      payload: {
+        file: "",
+        version: 3,
+        sources: [],
+        sourcesContent: [],
+        names: [],
+        mappings: "",
+        sourceRoot: "",
+      },
+    })
+
+    logger.info("resolved via source map")
+
+    expect(emittedLines()[0]?.source).toBe("resolved-module.ts:42")
+  })
+
+  it("falls back to the compiled filename when findSourceMap returns undefined", () => {
+    const emittedLines = captureEmittedLines()
+    vi.mocked(findSourceMap).mockReturnValueOnce(undefined)
+
+    logger.info("no source map")
+
+    const source = String(emittedLines()[0]?.source)
+    expect(source).toMatch(/\.(ts|js):\d+$/)
+  })
+
+  it("falls back to the compiled filename when findOrigin returns an empty object", () => {
+    const emittedLines = captureEmittedLines()
+    vi.mocked(findSourceMap).mockReturnValueOnce({
+      findEntry: vi.fn(),
+      findOrigin: () => ({}),
+      payload: {
+        file: "",
+        version: 3,
+        sources: [],
+        sourcesContent: [],
+        names: [],
+        mappings: "",
+        sourceRoot: "",
+      },
+    })
+
+    logger.info("unmapped line")
+
+    const source = String(emittedLines()[0]?.source)
+    expect(source).toMatch(/\.(ts|js):\d+$/)
+  })
+
+  it("does not emit a source field for debug-level logs", () => {
+    const emittedLines = captureEmittedLines()
+
+    logger.debug("debug message")
+
+    const debugLines = emittedLines()
+    if (debugLines.length > 0) {
+      expect(debugLines[0]).not.toHaveProperty("source")
+    }
   })
 })
 

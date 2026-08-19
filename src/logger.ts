@@ -1,5 +1,6 @@
 import { env } from "node:process"
 import { mkdirSync, readdirSync, unlinkSync, appendFileSync } from "node:fs"
+import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
 
@@ -35,10 +36,16 @@ const LEVELS: Record<LogLevel, number> = {
 const isLogLevel = (value: string): value is LogLevel =>
   Object.hasOwn(LEVELS, value)
 
+/** findOrigin returns `SourceOrigin | {}` — discriminates the resolved case. */
+const isSourceOrigin = (value: SourceOrigin | object): value is SourceOrigin =>
+  "fileName" in value
+
 const envLevel = (env.LOG_LEVEL ?? "info").toLowerCase()
 const threshold = isLogLevel(envLevel) ? LEVELS[envLevel] : LEVELS.info
 
-/** Extracts "filename.ts:line" from the call stack — the frame that called the log method. */
+/** Extracts "filename.ts:line" from the call stack — the frame that called the log method.
+ *  Uses `node:module` source maps to resolve compiled .js locations back to the original
+ *  .ts source; falls back to the .js filename when source maps are unavailable. */
 const getCallerSource = (): string => {
   const original = Error.prepareStackTrace
   // Mutable — captured by the prepareStackTrace callback, which V8 calls during .stack access
@@ -54,8 +61,25 @@ const getCallerSource = (): string => {
   // V8 stack: [0] getCallerSource → [1] emit → [2] debug/info/warn/error → [3] actual caller
   const frame = capturedStack[3]
   if (!frame) return "unknown"
-  const file = frame.getFileName()?.split("/").pop() ?? "unknown"
-  return `${file}:${frame.getLineNumber()}`
+
+  const compiledFile = frame.getFileName()
+  const compiledLine = frame.getLineNumber()
+  if (!compiledFile || !compiledLine) return "unknown"
+
+  // Resolve .js → .ts via source map (requires --enable-source-maps at startup).
+  // findOrigin takes 1-indexed input (matching CallSite) and returns 1-indexed output.
+  const sourceMap = findSourceMap(compiledFile)
+  const origin = sourceMap?.findOrigin(
+    compiledLine,
+    frame.getColumnNumber() ?? 1,
+  )
+  if (origin && isSourceOrigin(origin)) {
+    const originalFile = URL.parse(origin.fileName)?.pathname?.split("/").pop()
+    if (originalFile) return `${originalFile}:${origin.lineNumber}`
+  }
+
+  const file = compiledFile.split("/").pop() ?? "unknown"
+  return `${file}:${compiledLine}`
 }
 
 // ── File sink extension ─────────────────────────────────────
