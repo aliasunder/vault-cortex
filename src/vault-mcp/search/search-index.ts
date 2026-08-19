@@ -4,6 +4,7 @@ import * as sqliteVec from "sqlite-vec"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Dirent } from "node:fs"
 import { join, basename, posix, relative, resolve } from "node:path"
+import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
@@ -1320,7 +1321,11 @@ export const createSearchIndex = (
 
       deleteLinksStmt.run(note.path)
       for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
-        const resolved = links.resolve(rawTarget, pathList, note.path)
+        const resolved = links.resolve({
+          target: rawTarget,
+          allPaths: pathList,
+          sourcePath: note.path,
+        })
         if (resolved !== null) {
           insertLinkStmt.run(note.path, resolved)
         } else {
@@ -1335,7 +1340,11 @@ export const createSearchIndex = (
       // Obsidian's "link first, create the note later" workflow.
       const unresolvedLinks = selectUnresolvedLinksStmt.all()
       for (const link of unresolvedLinks) {
-        const resolved = links.resolve(link.target, pathList, link.source)
+        const resolved = links.resolve({
+          target: link.target,
+          allPaths: pathList,
+          sourcePath: link.source,
+        })
         if (resolved !== null) {
           updateLinkTargetStmt.run({
             resolved,
@@ -1825,7 +1834,11 @@ export const createSearchIndex = (
       for (const note of noteContents) {
         const parsed = parseNote(note.content)
         for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-          const resolved = links.resolve(rawTarget, pathList, note.relativePath)
+          const resolved = links.resolve({
+            target: rawTarget,
+            allPaths: pathList,
+            sourcePath: note.relativePath,
+          })
           if (resolved !== null) {
             insertLinkStmt.run(note.relativePath, resolved)
           } else {
@@ -1958,6 +1971,10 @@ export const createSearchIndex = (
                 error: describeError(err),
               })
             }
+
+            // Yield to the event loop between notes so pending I/O callbacks
+            // (Express healthz, MCP tool handlers) can drain.
+            await setImmediateAsync()
           }
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,

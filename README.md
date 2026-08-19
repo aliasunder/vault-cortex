@@ -361,7 +361,9 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 - **Local mode** reads the file straight from your bind-mounted vault — nothing to set up.
 - **Remote mode** receives it through Obsidian Sync's vault configuration syncing. The server pulls it by default (the `SYNC_CONFIGS` setting in `.env`), but you'll likely need to enable the push side: Obsidian Settings → Sync → **Vault configuration sync**, per device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 
-When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, …). You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
+When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …). You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
+
+> **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
 
 ## Data Integrity
 
@@ -429,6 +431,12 @@ npm test
 # Full check suite
 npm run prettier:check && npm run lint && npm test && npm run build
 ```
+
+`npm test` includes integration tests that boot a real server and call every
+tool and prompt over HTTP — verifying auth enforcement, config-gated tool
+surfaces, write mutation integrity (each write is read back), and boot
+rejection on misconfiguration. See [SECURITY.md](./SECURITY.md#testing-verification)
+for the security-relevant coverage.
 
 **MCP Inspector** — interactive browser UI for testing tools:
 

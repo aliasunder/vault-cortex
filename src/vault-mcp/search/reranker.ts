@@ -55,6 +55,11 @@ export const createReranker = (logger: Logger) => {
           // pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
+            // Pin ONNX to 1 thread — ms-marco-MiniLM is scored one pair at
+            // a time and is too small for intra-op parallelism to help.
+            // Explicit pinning prevents CPU saturation on low-vCPU hosts
+            // (the default 0 = all cores).
+            session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
           }),
         ])
         const elapsedMs = Math.round(performance.now() - startMs)

@@ -749,11 +749,13 @@ Docker hardening, and durability seatbelts above.
   locks in one synchronous tick — used by note-mover, which must lock the
   source, destination, and every backlink source for the whole
   read-plan-write span.
-- **Preflight-then-commit move** (`note-mover.ts`): `moveNote` reads
-  every affected file and computes every rewrite _before_ touching
-  anything. If any read fails, no file is mutated. Destination is written
-  first via exclusive create; source is deleted last — a failure at any
-  step leaves both copies rather than losing content.
+- **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
+  lock, `moveNote` first scans the filesystem for backlinks the search
+  index missed (closing a lag race); then reads every affected file and
+  computes every rewrite _before_ touching anything. If any read fails, no
+  file is mutated. Destination is written first via exclusive create;
+  source is deleted last — a failure at any step leaves both copies rather
+  than losing content.
 - **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
   changed content re-embeds on both incremental updates and full rebuilds
   — a correctness guarantee (not just performance).

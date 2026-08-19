@@ -113,6 +113,11 @@ src/
     has-hidden-path-segment.ts         # Shared "is hidden path" predicate (listings, watcher, index, path guard)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
+  __tests__/
+    integration/                       # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
+      test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
+      server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
+      fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/

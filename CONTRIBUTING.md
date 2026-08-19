@@ -23,6 +23,13 @@ to get started.
    npm run build
    ```
 
+`npm test` runs the full suite: unit tests for individual modules, and
+integration tests that boot a real server as a child process and call
+every tool and prompt over real HTTP. The integration tests verify that
+each config combination serves the correct tool surface, that auth
+rejects invalid tokens, that write operations actually mutate the vault
+(read-back verified), and that misconfiguration fails fast at boot.
+
 ## Development Modes
 
 Vault Cortex can run in three modes during development:

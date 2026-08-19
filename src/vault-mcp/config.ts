@@ -3,7 +3,11 @@
 import { z } from "zod"
 import envVar from "env-var"
 import { DateTime } from "luxon"
-import { momentToLuxonFormat } from "./obsidian-markdown/moment-format.js"
+import {
+  momentToLuxonFormat,
+  findUnsupportedTokens,
+} from "./obsidian-markdown/moment-format.js"
+import { logger } from "../logger.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
 
@@ -36,10 +40,9 @@ const splitCommaSeparatedValues = (raw: string): string[] =>
     .filter((entry) => entry.length > 0)
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
- *  Structural checks only — moment tokens without a Luxon mapping pass
- *  through and may render differently than in Obsidian, so only
- *  structurally unsafe results (traversal, separators, empty) are
- *  rejected. Returns the raw moment string unchanged. */
+ *  Structural checks only — structurally unsafe results (traversal,
+ *  separators, empty) are rejected. Warns when the format contains
+ *  unsupported tokens. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
     momentToLuxonFormat(momentFormat),
@@ -62,6 +65,12 @@ const validateDailyNotesFormat = (momentFormat: string): string => {
   if (momentFormat.endsWith("/") || renderedProbe.endsWith("/")) {
     throw new Error(
       `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
+    )
+  }
+  const unsupportedTokens = findUnsupportedTokens(momentFormat)
+  if (unsupportedTokens.length > 0) {
+    logger.warn(
+      `DAILY_NOTES_FORMAT contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note lookups will fail; vault_get_daily_note will return an error until the format is changed`,
     )
   }
   return momentFormat

@@ -62,6 +62,23 @@ describe("createEmbedder", () => {
       infoSpy.mockRestore()
     })
 
+    it("pins ONNX to single-threaded execution to prevent CPU saturation", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+
+      const embedder = await loadEmbedder()
+      await embedder.embedText("trigger load")
+
+      expect(mockedPipeline).toHaveBeenCalledWith(
+        "feature-extraction",
+        "Xenova/bge-small-en-v1.5",
+        {
+          dtype: "q8",
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
+    })
+
     it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
       const transformers = await import("@huggingface/transformers")
       const mockedPipeline = vi.mocked(transformers.pipeline)

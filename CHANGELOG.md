@@ -71,6 +71,55 @@
 
 
 
+
+
+
+## [0.37.3] — 2026-08-18
+
+### Bug Fixes
+
+- **search:** Pin ONNX threads to prevent healthz starvation during bulk embedding (#452)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.2
+
+### Maintenance
+
+- Bump umm-actually to v0.3.9 (#453)
+
+## [0.37.2] — 2026-08-18
+
+### Features
+
+- **daily-notes:** Extend moment→Luxon token map, reject all unsupported tokens (#451)
+
+### Bug Fixes
+
+- **move:** Filesystem-verify backlinks under lock to close index-lag race (#450)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.1
+
+### Maintenance
+
+- Bump umm-actually to v0.3.7 (#449)
+
+### Other Changes
+
+- End-to-end integration tests over real HTTP+MCP transport (#448)
+
+## [0.37.1] — 2026-08-18
+
+### Features
+
+- **patch:** Child-section guard on replace with include_children opt-in (#447)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.0
+
 ## [0.37.0] — 2026-08-17
 
 ### Features
