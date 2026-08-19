@@ -984,12 +984,27 @@ contracts, by tool group, by config combo), not arbitrary size.
 
 ### CLI PTY tests — when to add
 
-PTY tests (`cli/src/__tests__/integration/`) drive the real binary in
-a terminal via node-pty. They verify what `createScriptedPrompts` DI
-can't: real keystroke processing and entry-point wiring. Add one for
-a new interactive command or new prompt; skip for output/flag/branching
-changes the unit tests already pin. Run via `npm run test:cli-pty`
-(separate vitest config, excluded from `npm test`).
+CLI PTY tests (`cli/src/__tests__/integration/`) drive the real CLI
+binary in a pseudo-terminal via node-pty. They catch what unit tests
+(which use `createScriptedPrompts` DI) structurally can't — real
+keystroke processing, terminal rendering, and entry-point wiring.
+Run via `npm run test:cli-pty` (separate vitest config, excluded
+from `npm test`).
+
+**Always add:**
+
+- New interactive command → happy-path test driving the full prompt
+  sequence.
+- New prompt in an existing command → extend or add a scenario.
+- Docker start/health-check changes → test with the docker shim's
+  health server.
+
+**Never add:**
+
+- Output/message changes — unit tests pin via `createScriptedPrompts`.
+- Flag parsing — `program.test.ts` covers Commander.
+- Prompt branching logic — unit tests cover via scripted answers.
+- Docker interaction — unit tests inject `DockerRunner` stubs.
 
 ## SST conventions
 
