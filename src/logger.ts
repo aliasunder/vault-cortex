@@ -36,7 +36,6 @@ const LEVELS: Record<LogLevel, number> = {
 const isLogLevel = (value: string): value is LogLevel =>
   Object.hasOwn(LEVELS, value)
 
-/** findOrigin returns `SourceOrigin | {}` — discriminates the resolved case. */
 const isSourceOrigin = (value: SourceOrigin | object): value is SourceOrigin =>
   "fileName" in value
 
