@@ -368,6 +368,11 @@ docker compose down -v         # Compose
 docker stop vault-cortex
 ```
 
+> **Never delete just the vault volume while keeping `obsidian_config`.**
+> The sync engine would interpret the empty vault as mass local deletions
+> and push them to every connected device. Delete all volumes together
+> (`docker compose down -v`) or none.
+
 **Set up with the CLI?** Start again any time with
 `npx vault-cortex@latest start` — your saved settings are reused
 ([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
