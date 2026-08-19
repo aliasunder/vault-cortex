@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Fake docker binary for CLI PTY integration tests.
+# Shadows the real docker when its directory is prepended to PATH.
+# Behavior is controllable via environment variables:
+#   DOCKER_SHIM_NO_CONTAINER=1  — `container inspect` exits 1 (no container)
+#   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
+#   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
+#   DOCKER_SHIM_PID_FILE        — where to write the health server PID
+
+set -euo pipefail
+
+HEALTH_PORT="${DOCKER_SHIM_HEALTH_PORT:-8000}"
+PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
+
+case "${1:-}" in
+  info)
+    echo '{"ServerVersion":"27.0.0","OSType":"linux"}'
+    ;;
+
+  run)
+    if [ "${DOCKER_SHIM_RUN_FAIL:-}" = "1" ]; then
+      exit 1
+    fi
+    # Start a background HTTP server that responds 200 to /healthz
+    node -e "
+      const s = require('http').createServer((q, r) => {
+        r.writeHead(200, {'Content-Type':'text/plain'});
+        r.end('ok');
+      });
+      s.listen(${HEALTH_PORT}, '127.0.0.1', () => {
+        require('fs').writeFileSync('${PID_FILE}', String(process.pid));
+      });
+    " &
+    ;;
+
+  container)
+    # docker container inspect <name> — check if container exists
+    if [ "${DOCKER_SHIM_NO_CONTAINER:-}" = "1" ]; then
+      exit 1
+    fi
+    echo '[{"Id":"abc123","State":{"Status":"running"}}]'
+    ;;
+
+  stop)
+    # Kill the background health server if it exists
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE")" 2>/dev/null || true
+      rm -f "$PID_FILE"
+    fi
+    ;;
+
+  rm)
+    # Kill the background health server if it exists
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE")" 2>/dev/null || true
+      rm -f "$PID_FILE"
+    fi
+    ;;
+
+  pull)
+    echo "Status: Image is up to date"
+    ;;
+
+  logs)
+    echo '{"timestamp":"2026-01-01T00:00:00Z","level":"info","message":"server started"}'
+    ;;
+
+  *)
+    ;;
+esac

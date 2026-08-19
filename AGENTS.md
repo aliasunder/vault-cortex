@@ -99,6 +99,13 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     vault.ts                           # Vault path validation
     node-version.ts                    # Node.js version compatibility check
     messages.ts                        # User-facing output formatting
+    __tests__/
+      integration/                     # Interactive flows via node-pty in a real PTY
+        pty-harness.ts                 #   PTY spawn + sequential prompt matching + transcript
+        cli-pty.test.ts                #   init (local + remote), configure, optional settings, non-interactive wiring
+        fixtures/
+          docker                       #   Fake docker binary (bash, configurable via env vars)
+          .obsidian/daily-notes.json   #   Vault path validation fixture
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)

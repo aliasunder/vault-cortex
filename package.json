@@ -65,6 +65,7 @@
     "lint:fix": "eslint --fix .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",
     "prepare": "husky",
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
@@ -117,6 +118,7 @@
     "husky": "9.1.7",
     "jiti": "2.7.0",
     "lint-staged": "17.3.0",
+    "node-pty": "1.1.0",
     "prettier": "3.9.6",
     "puppeteer": "25.7.0",
     "sst": "4.17.1",
@@ -126,7 +128,8 @@
     "vitest": "4.1.10"
   },
   "allowScripts": {
-    "puppeteer@25.3.0": true
+    "puppeteer@25.3.0": true,
+    "node-pty@1.1.0": true
   },
   "puppeteer": {
     "skipDownload": true
