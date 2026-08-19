@@ -356,10 +356,21 @@ describe("init-first-sync gate script", () => {
     expect(existsSync(run.sentinelPath)).toBe(true)
   })
 
-  it("does not write the sentinel file when sync fails", () => {
+  it("does not write the sentinel file when sync fails fatally", () => {
     const run = runGateScript({ syncOutcomes: [1], vaultName: "Test" })
 
     expect(run.status).toBe(1)
+    expect(existsSync(run.sentinelPath)).toBe(false)
+  })
+
+  it("does not write the sentinel file when sync fails but services start", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+    })
+
+    expect(run.status).toBe(0)
     expect(existsSync(run.sentinelPath)).toBe(false)
   })
 
