@@ -141,8 +141,8 @@ describe("init local", () => {
     expect(result.promptsAnswered).toBe(result.totalPrompts)
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
-    expect(envContent).toContain("PORT=9999")
-    expect(envContent).toContain("TZ=America/Toronto")
+    expect(envContent).toMatch(/^PORT=9999$/m)
+    expect(envContent).toMatch(/^TZ=America\/Toronto$/m)
   })
 })
 

@@ -7,15 +7,16 @@ import { createRequire } from "node:module"
 import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { onTestFinished } from "vitest"
 
 const require = createRequire(import.meta.url)
 
 const pty = require("node-pty") as typeof import("node-pty")
 
-const FIXTURES_DIR = resolve(new URL(".", import.meta.url).pathname, "fixtures")
-
-const CLI_BIN = resolve(new URL(".", import.meta.url).pathname, "../../bin.ts")
+const thisDir = fileURLToPath(new URL(".", import.meta.url))
+const FIXTURES_DIR = resolve(thisDir, "fixtures")
+const CLI_BIN = resolve(thisDir, "../../bin.ts")
 
 type PtyPrompt = { match: string; send: string; label: string }
 
