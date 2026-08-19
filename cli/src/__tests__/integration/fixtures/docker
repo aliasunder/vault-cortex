@@ -9,9 +9,6 @@
 
 set -euo pipefail
 
-HEALTH_PORT="${DOCKER_SHIM_HEALTH_PORT:-8000}"
-PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
-
 case "${1:-}" in
   info)
     echo '{"ServerVersion":"27.0.0","OSType":"linux"}'
@@ -21,16 +18,20 @@ case "${1:-}" in
     if [ "${DOCKER_SHIM_RUN_FAIL:-}" = "1" ]; then
       exit 1
     fi
-    # Start a background HTTP server that responds 200 to /healthz
-    node -e "
-      const s = require('http').createServer((q, r) => {
-        r.writeHead(200, {'Content-Type':'text/plain'});
-        r.end('ok');
+    # Start a background HTTP server that responds 200 to /healthz.
+    # Port and PID file path are read via process.env to avoid
+    # bash interpolation breaking on paths with special characters.
+    DOCKER_SHIM_HEALTH_PORT="${DOCKER_SHIM_HEALTH_PORT:-8000}" \
+    DOCKER_SHIM_PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}" \
+    node -e '
+      const s = require("http").createServer((q, r) => {
+        r.writeHead(200, {"Content-Type":"text/plain"});
+        r.end("ok");
       });
-      s.listen(${HEALTH_PORT}, '127.0.0.1', () => {
-        require('fs').writeFileSync('${PID_FILE}', String(process.pid));
+      s.listen(Number(process.env.DOCKER_SHIM_HEALTH_PORT), "127.0.0.1", () => {
+        require("fs").writeFileSync(process.env.DOCKER_SHIM_PID_FILE, String(process.pid));
       });
-    " &
+    ' &
     ;;
 
   container)
@@ -42,7 +43,7 @@ case "${1:-}" in
     ;;
 
   stop)
-    # Kill the background health server if it exists
+    PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
     if [ -f "$PID_FILE" ]; then
       kill "$(cat "$PID_FILE")" 2>/dev/null || true
       rm -f "$PID_FILE"
@@ -50,7 +51,7 @@ case "${1:-}" in
     ;;
 
   rm)
-    # Kill the background health server if it exists
+    PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
     if [ -f "$PID_FILE" ]; then
       kill "$(cat "$PID_FILE")" 2>/dev/null || true
       rm -f "$PID_FILE"
@@ -66,5 +67,7 @@ case "${1:-}" in
     ;;
 
   *)
+    echo "docker-shim: unhandled subcommand '$1'" >&2
+    exit 1
     ;;
 esac

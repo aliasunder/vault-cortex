@@ -3,18 +3,17 @@
 // by verifying actual terminal rendering, keystroke processing, and end-to-end
 // entry point wiring.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import {
   createPtyWorkDir,
   drivePty,
   killHealthServer,
+  seedEnv,
   type PtyPrompt,
 } from "./pty-harness.js"
-
-vi.setConfig({ testTimeout: 60_000 })
 
 // Down arrow in terminal escape sequences
 const DOWN = "\x1b[B"
@@ -210,13 +209,7 @@ describe("init remote", () => {
 describe("configure", () => {
   it("toggles READONLY_MODE and writes .env", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-
-    // Seed a minimal .env so configure finds an initialized deployment
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     // READONLY_MODE is index 5 in the settings list: 5× down, space, enter
     const navigateToReadonly = DOWN.repeat(5) + " \r"
@@ -251,12 +244,7 @@ describe("non-interactive commands", () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
     onTestFinished(() => killHealthServer(pidFile))
-
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     const result = await drivePty({
       args: ["upgrade", "--dir", configDir],
@@ -271,12 +259,7 @@ describe("non-interactive commands", () => {
 
   it("down reports no container when none exists", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     const result = await drivePty({
       args: ["down", "--dir", configDir],
@@ -291,12 +274,7 @@ describe("non-interactive commands", () => {
 
   it("down stops and removes an existing container", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     const result = await drivePty({
       args: ["down", "--dir", configDir],
@@ -312,12 +290,7 @@ describe("non-interactive commands", () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
     onTestFinished(() => killHealthServer(pidFile))
-
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     const result = await drivePty({
       args: ["restart", "--dir", configDir],
@@ -332,12 +305,7 @@ describe("non-interactive commands", () => {
 
   it("reports docker run failure", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(
-      join(configDir, ".env"),
-      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
-    )
+    seedEnv(configDir)
 
     const result = await drivePty({
       args: ["restart", "--dir", configDir],

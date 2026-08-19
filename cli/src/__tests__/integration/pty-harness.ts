@@ -4,7 +4,14 @@
 // render-settle delay, transcript cleaning).
 
 import { createRequire } from "node:module"
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,7 +19,7 @@ import { onTestFinished } from "vitest"
 
 const require = createRequire(import.meta.url)
 
-const pty = require("node-pty") as typeof import("node-pty")
+const pty: typeof import("node-pty") = require("node-pty")
 
 const thisDir = fileURLToPath(new URL(".", import.meta.url))
 const FIXTURES_DIR = resolve(thisDir, "fixtures")
@@ -94,8 +101,11 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
 
     const npxPath = process.env.NVM_BIN ? `${process.env.NVM_BIN}/npx` : "npx"
 
+    const envEntries = Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    )
     const childEnv: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+      ...Object.fromEntries(envEntries),
       PATH: `${FIXTURES_DIR}:${process.env.PATH}`,
       ...extraEnv,
     }
@@ -111,6 +121,7 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
     const finish = (exitCode: number): void => {
       if (exited) return
       exited = true
+      clearTimeout(timeoutHandle)
       const strippedOutput = stripAnsi(fullOutput)
       resolvePromise({
         exitCode,
@@ -140,7 +151,7 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       finish(exitCode)
     })
 
-    setTimeout(() => {
+    const timeoutHandle = setTimeout(() => {
       if (!exited) {
         child.kill()
         finish(1)
@@ -170,6 +181,15 @@ const createPtyWorkDir = (): { vaultDir: string; configDir: string } => {
   return { vaultDir, configDir }
 }
 
+/** Seed a minimal local-mode .env so lifecycle commands find an initialized deployment. */
+const seedEnv = (configDir: string): void => {
+  mkdirSync(configDir, { recursive: true })
+  writeFileSync(
+    join(configDir, ".env"),
+    "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
+  )
+}
+
 /**
  * Kill the background health server started by the docker shim.
  * Reads the PID from the file the shim writes, then sends SIGTERM.
@@ -181,10 +201,13 @@ const killHealthServer = (pidFile: string): void => {
       process.kill(pid, "SIGTERM")
     }
   } catch (error: unknown) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code !== "ENOENT" && code !== "ESRCH") throw error
+    const hasCode =
+      typeof error === "object" && error !== null && "code" in error
+    if (hasCode && error.code !== "ENOENT" && error.code !== "ESRCH")
+      throw error
+    if (!hasCode) throw error
   }
 }
 
-export { drivePty, createPtyWorkDir, killHealthServer }
+export { drivePty, createPtyWorkDir, seedEnv, killHealthServer }
 export type { PtyPrompt, PtyOptions, PtyResult }
