@@ -6,6 +6,9 @@ concurrency:
   group: cli-pty-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   pty-tests:
     runs-on: ubuntu-latest
