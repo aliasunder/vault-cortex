@@ -23,5 +23,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsc -p cli/tsconfig.json
+      - run: npx tsc -p cli/tsconfig.test.json
       - name: CLI interactive tests (node-pty)
         run: npm run test:cli-pty
