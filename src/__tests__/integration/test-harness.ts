@@ -8,7 +8,6 @@ import { join, resolve } from "node:path"
 import { randomInt } from "node:crypto"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import type { ChildProcess } from "node:child_process"
 
 const AUTH_TOKEN = "test-integration-token"
@@ -157,8 +156,9 @@ export const createTestClient = async (port: number): Promise<Client> => {
   const client = new Client({ name: "integration-test", version: "1.0.0" })
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under
-  // exactOptionalPropertyTypes. The SDK types are misaligned; safe to widen.
-  await client.connect(transport as unknown as Transport)
+  // exactOptionalPropertyTypes. Self-cleans when the SDK fixes the type.
+  // @ts-expect-error — SDK type misalignment (sessionId optionality)
+  await client.connect(transport)
   return client
 }
 
