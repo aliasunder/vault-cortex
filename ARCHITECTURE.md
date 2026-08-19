@@ -664,13 +664,17 @@ process has spawned. Two mechanisms with distinct jobs:
 - **The longrun dependency gates startup order only.** It does not wait for
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
-- **`init-first-sync` gates vault state.** When it succeeds, the first sync
-  has run to completion before any service starts. When it fails while the
-  memory bootstrap could still overwrite real files (memory layer enabled,
-  memory folder absent), the services refuse to start. On its
-  warn-and-continue branches — memory folder present, memory disabled, or
-  `VAULT_NAME` unset — the server starts with whatever vault state exists
-  while continuous sync keeps retrying.
+- **`init-first-sync` gates vault state.** Three outcomes, checked in order:
+  1. **Deletion-storm guard** (before sync runs): a sentinel on the config
+     volume records that a prior sync completed. If the sentinel exists but
+     the vault is empty (no visible files — dotfiles like `.obsidian/`
+     excluded), the container refuses to start.
+  2. **Sync succeeds**: the first sync runs to completion before any service
+     starts. The sentinel is written for subsequent boots.
+  3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
+     real files (memory layer enabled, memory folder absent). Warn-and-continue
+     when the memory folder is present, memory is disabled, or `VAULT_NAME`
+     is unset — the server starts while continuous sync keeps retrying.
 
 On a fresh volume, the gate closes the memory-bootstrap race: either the vault
 already holds the user's real `About Me/` files when the server's bootstrap
