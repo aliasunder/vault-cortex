@@ -395,7 +395,15 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared): Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks — first notes, then file content. The file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes, then returns so the server can start accepting requests:
+
+1. **Pass 1** — index notes (FTS5 + metadata)
+2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
+3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+
+Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks via content-hash gating.
+
+**Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
