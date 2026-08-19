@@ -74,6 +74,25 @@
 
 
 
+
+## [0.37.4] — 2026-08-19
+
+### Bug Fixes
+
+- **init:** Guard against empty-vault deletion storm on partial volume wipe (#458)
+- **logger:** Resolve source locations to .ts via source maps (#459)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.3
+
+### Maintenance
+
+- **deps:** Bump the production group with 2 updates (#455)
+- **deps-dev:** Bump puppeteer from 25.6.0 to 25.7.0 in the development group (#456)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.6 to 4.37.7 (#457)
+- Add TypeScript 7 via dual-install with npm aliasing (#454)
+
 ## [0.37.3] — 2026-08-18
 
 ### Bug Fixes
