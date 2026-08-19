@@ -1,7 +1,5 @@
-// PTY test harness — spawns the CLI in a real pseudo-terminal and drives
-// interactive prompts via sequential match/send pairs. Ported from the
-// pty-cli-driver's proven patterns (ANSI stripping, settled flag,
-// render-settle delay, transcript cleaning).
+// PTY test harness — simulates a user running the CLI in a real terminal,
+// watching for prompts and sending keystrokes in response.
 
 import { createRequire } from "node:module"
 import {
@@ -42,7 +40,6 @@ type PtyResult = {
   transcript: string
 }
 
-/** Strip ANSI escape codes for prompt matching. */
 const stripAnsi = (text: string): string =>
   text.replace(
     // eslint-disable-next-line no-control-regex
@@ -51,31 +48,18 @@ const stripAnsi = (text: string): string =>
   )
 
 /**
- * Clean per-keystroke echo redraws and spinner frame repeats from
- * stripped transcript output so the result reads like a human would
- * see the final state.
- *
- * Clack redraws the active line on every keystroke, producing runs like
- * "/█ /p█ /pr█ …" after ANSI stripping. Spinners likewise append one
- * glyph-prefixed fragment per frame. This function:
- *
- * 1. Trims everything before the last block cursor on each line (the
- *    final state follows it); lines that are purely cursor redraws with
- *    no trailing content are dropped entirely.
- * 2. Deduplicates consecutive spinner fragments that share the same
- *    text after the leading glyph.
+ * Produce a readable transcript from raw PTY output. Clack redraws
+ * on every keystroke ("/█ /p█ /pa█ …") — we keep only the text
+ * after the last cursor. Spinner animations (◒◐◓◑) get collapsed
+ * to one frame.
  */
 const SPINNER_GLYPHS = /(?=[◒◐◓◑⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏])/
 const cleanTranscript = (strippedOutput: string): string => {
   const cleanedLines = strippedOutput.split("\n").flatMap((line) => {
-    // Per-keystroke echo: everything before the last block cursor is a
-    // stale partial render — the final state follows it.
     const cursorTrimmed = line.includes("█")
       ? line.slice(line.lastIndexOf("█") + 1)
       : line
     if (line.includes("█") && cursorTrimmed.trim() === "") return []
-    // Spinner frames: identical text re-rendered behind a rotating
-    // glyph — keep the first of each consecutive identical fragment.
     const fragments = cursorTrimmed.split(SPINNER_GLYPHS)
     const withoutRepeats = fragments.filter(
       (fragment, index) =>
@@ -91,11 +75,8 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 
 /**
- * Spawn the CLI in a real PTY and drive its interactive prompts.
- *
- * The fixtures directory is prepended to PATH so the docker-shim
- * shadows the real docker binary. The NVM_BIN-resolved npx is used
- * to run tsx against the CLI source.
+ * Run the CLI in a real PTY with the fake docker shim on PATH,
+ * answering prompts in order as they appear on screen.
  */
 const drivePty = (options: PtyOptions): Promise<PtyResult> => {
   const {
@@ -113,17 +94,14 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
     let settled = false
     let exited = false
 
-    // npx may not be on PATH inside the PTY child's shell init —
-    // resolve explicitly via NVM_BIN when available.
     const npxPath = process.env.NVM_BIN ? `${process.env.NVM_BIN}/npx` : "npx"
 
-    // Filter undefined values from process.env so the child env
-    // satisfies Record<string, string> without a type assertion.
     const envEntries = Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
     )
     const childEnv: Record<string, string> = {
       ...Object.fromEntries(envEntries),
+      // Fake docker shim first on PATH so the CLI finds it
       PATH: `${FIXTURES_DIR}:${process.env.PATH}`,
       ...extraEnv,
     }
@@ -136,8 +114,6 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       env: childEnv,
     })
 
-    // Idempotent — called from both onExit (normal) and the timeout
-    // (hang). The exited flag ensures the promise resolves exactly once.
     const finish = (exitCode: number): void => {
       if (exited) return
       exited = true
@@ -151,10 +127,10 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       })
     }
 
-    // Sequential prompt matching: prompts fire in order. The buffer
-    // resets after each match so a matched prompt can't re-fire. The
-    // settled flag blocks re-entry while the 400ms render-settle sleep
-    // is pending (onData fires frequently during Clack redraws).
+    // Watch terminal output for the next expected prompt. Prompts are
+    // matched in order; after answering one we clear the buffer and
+    // look for the next. The settled flag prevents double-answering
+    // while we wait for the prompt to finish rendering.
     child.onData(async (data: string) => {
       fullOutput += data
       buffer += data
@@ -175,6 +151,7 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       finish(exitCode)
     })
 
+    // Kill the process if it hangs waiting for a prompt we didn't expect
     const timeoutHandle = setTimeout(() => {
       if (!exited) {
         child.kill()
@@ -185,9 +162,8 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
 }
 
 /**
- * Create a temp working directory with a vault subdirectory that
- * contains the .obsidian fixture, and a config subdirectory for
- * the CLI's output files. Registers cleanup via onTestFinished.
+ * Fresh workspace: a vault with .obsidian/ (so the CLI recognizes
+ * it) and a config dir for the CLI's output files.
  */
 const createPtyWorkDir = (): { vaultDir: string; configDir: string } => {
   const tempDir = mkdtempSync(join(tmpdir(), "pty-cli-"))
@@ -205,7 +181,7 @@ const createPtyWorkDir = (): { vaultDir: string; configDir: string } => {
   return { vaultDir, configDir }
 }
 
-/** Seed a minimal local-mode .env so lifecycle commands find an initialized deployment. */
+/** Simulate an already-initialized deployment for lifecycle commands. */
 const seedEnv = (configDir: string): void => {
   mkdirSync(configDir, { recursive: true })
   writeFileSync(
@@ -214,10 +190,7 @@ const seedEnv = (configDir: string): void => {
   )
 }
 
-/**
- * Kill the background health server started by the docker shim.
- * Reads the PID from the file the shim writes, then sends SIGTERM.
- */
+/** Stop the fake health server the docker shim starts on "docker run". */
 const killHealthServer = (pidFile: string): void => {
   try {
     const pid = parseInt(readFileSync(pidFile, "utf8").trim(), 10)

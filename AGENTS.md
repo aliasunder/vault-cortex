@@ -984,42 +984,12 @@ contracts, by tool group, by config combo), not arbitrary size.
 
 ### CLI PTY tests — when to add
 
-CLI PTY tests (`cli/src/__tests__/integration/`) drive the real CLI
-binary in a pseudo-terminal via node-pty. They catch what unit tests
-(which use `createScriptedPrompts` DI) structurally can't — real
-terminal rendering, keystroke processing, ANSI handling, and full
-entry-point wiring. The deciding question: **does this flow involve
-interactive prompts or entry-point routing that the DI-based unit
-tests can't exercise?**
-
-**Always add:**
-
-- New interactive CLI command → happy-path test driving the full
-  prompt sequence through to completion.
-- New prompt added to an existing command → extend the relevant
-  test scenario (or add one if the prompt appears conditionally).
-- Docker start/health-check path changes → test with the docker
-  shim's health server simulation.
-
-**Never add:**
-
-- Non-interactive output changes (message wording, formatting) —
-  unit tests pin these via `createScriptedPrompts`.
-- Flag parsing changes — `program.test.ts` covers Commander.
-- Prompt branching logic — unit tests cover via scripted answers.
-- Docker interaction details — unit tests inject `DockerRunner`
-  stubs.
-
-**File structure:**
-
-- `cli-pty.test.ts` — all PTY scenarios (init, configure,
-  lifecycle commands).
-- `pty-harness.ts` — PTY spawn, sequential prompt matching,
-  transcript cleaning, temp-dir management.
-- `fixtures/docker` — fake docker binary (env-var-controlled).
-- `fixtures/.obsidian/` — vault path validation fixture.
-- Separate vitest config (`vitest.cli-pty.config.ts`) — excluded
-  from `npm test`, run via `npm run test:cli-pty`.
+PTY tests (`cli/src/__tests__/integration/`) drive the real binary in
+a terminal via node-pty. They verify what `createScriptedPrompts` DI
+can't: real keystroke processing and entry-point wiring. Add one for
+a new interactive command or new prompt; skip for output/flag/branching
+changes the unit tests already pin. Run via `npm run test:cli-pty`
+(separate vitest config, excluded from `npm test`).
 
 ## SST conventions
 
