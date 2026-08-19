@@ -2192,8 +2192,16 @@ export const createSearchIndex = (
             deleteFileVectorsForPathStmt &&
             deleteFileChunksForPathStmt
           ) {
+            // Query the live table instead of the pre-loop snapshot — files
+            // the watcher indexed during the note embedding loop are in the
+            // table but absent from the snapshot.
             const currentFilePaths = new Set(
-              filesForEmbedding.map((file) => file.path),
+              db
+                .prepare<unknown[], { path: string }>(
+                  "SELECT path FROM file_content",
+                )
+                .all()
+                .map((row) => row.path),
             )
             const indexedFileChunkPaths = db
               .prepare<unknown[], { file_path: string }>(
