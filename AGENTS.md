@@ -796,14 +796,18 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 - **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
   note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
-  `old_path`/`new_path` on move — require the full filename with extension; a bare
+  `new_path` on move — require the full filename with extension; a bare
   `Projects/Plan` is rejected. Enforced by the generic
   `assertPathHasExtension(path, ".md")` util
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
   memory-file (`file`) inputs are exempt. **Backlinks/outgoing_links accept
   `.md` or `.canvas`** — both note and canvas paths are valid graph queries
-  (`assertPathHasExtension(path, [".md", ".canvas"])`).
+  (`assertPathHasExtension(path, [".md", ".canvas"])`). **`vault_move_note`'s
+  `old_path`** also accepts `.md` or `.canvas` at the handler boundary — the
+  handler runs a backlinks lookup before the data-layer move, so `old_path`
+  is validated by the wider extension set; the data-layer `.md`-only check
+  runs second.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
   rejects notes so the `.md` boundary stays a single rule with two sides
