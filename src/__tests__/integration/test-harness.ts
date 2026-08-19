@@ -174,6 +174,30 @@ export const promptNames = async (client: Client): Promise<string[]> => {
   return result.prompts.map((prompt) => prompt.name).sort()
 }
 
+// ── Shared tool-call helpers ────────────────────────────────────
+
+export type TextBlock = { type: "text"; text: string }
+export type ToolResult = { isError?: boolean; content: TextBlock[] }
+
+/** Call a tool and cast the result to the common text-block shape. */
+export const callTool = async ({
+  client,
+  name,
+  args = {},
+}: {
+  client: Client
+  name: string
+  args?: Record<string, unknown>
+}): Promise<ToolResult> =>
+  client.callTool({ name, arguments: args }) as Promise<ToolResult>
+
+/** Join all text blocks from a tool result into a single string. */
+export const textContent = (result: ToolResult): string =>
+  result.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+
 /** Send an MCP initialize request with optional auth, return the HTTP status. */
 export const mcpInitStatus = async (
   port: number,
