@@ -5767,9 +5767,13 @@ describe("file content vector embeddings", () => {
   })
 
   describe("removeFileContent cleans up vectors", () => {
-    it("re-embed after removal produces no embedder calls", async () => {
+    it("deletes chunk and vector rows from the database", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "file-chunk-remove-"))
+      onTestFinished(() => rm(dir, { recursive: true }))
+      const dbPath = join(dir, "search.db")
+
       const mockEmbedder = createMockEmbedder()
-      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      const index = createSearchIndex(dbPath, mockEmbedder, undefined, {
         fileToolsEnabled: true,
       })
 
@@ -5783,14 +5787,34 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+
+      const inspectDb = new Database(dbPath, { readonly: true })
+      sqliteVec.load(inspectDb)
+      onTestFinished(() => {
+        inspectDb.close()
+      })
+
+      const chunksBefore = inspectDb
+        .prepare(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
+        .get("docs/overview.txt") as { count: number }
+      expect(chunksBefore.count).toBe(1)
 
       index.removeFileContent({ filePath: "docs/overview.txt" }, logger)
-      mockEmbedder.embedText.mockClear()
 
-      // After removal, embedding the same path is a no-op (file_content row gone)
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      expect(mockEmbedder.embedText).not.toHaveBeenCalled()
+      const chunksAfter = inspectDb
+        .prepare(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
+        .get("docs/overview.txt") as { count: number }
+      expect(chunksAfter.count).toBe(0)
+
+      const vectorsAfter = inspectDb
+        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
+        .get() as { count: number }
+      expect(vectorsAfter.count).toBe(0)
     })
   })
 
@@ -5943,13 +5967,13 @@ describe("hybridSearch — file content vector search", () => {
       fileToolsEnabled: true,
     })
 
-    // Seed ONLY a text file — no note matches the query via FTS
+    // Seed ONLY a text file with no lexical overlap with the query
     fileIndex.upsertNonMdFile("specs/api-spec.yaml", 300)
     fileIndex.upsertFileContent(
       {
         filePath: "specs/api-spec.yaml",
         rawContent:
-          "openapi: 3.0.0\npaths:\n  /users:\n    get:\n      summary: List users",
+          "openapi: 3.0.0\npaths:\n  /accounts:\n    get:\n      summary: List ledger entries",
         fileStat: testStat(3000, 300),
       },
       logger,
@@ -5959,15 +5983,14 @@ describe("hybridSearch — file content vector search", () => {
       logger,
     )
 
-    // Query using a term NOT in the file content FTS (triggers vector-only path)
+    // Query shares no stems with the file content — FTS returns nothing,
     // but the mock embedder returns identical embeddings so KNN matches
     const { results, search_mode } = await fileIndex.hybridSearch(
-      { query: "user management endpoints" },
+      { query: "quarterly budget forecast" },
       logger,
     )
 
-    // The file should appear via file content vector search even without FTS match
-    // (note: FTS may also partially match "users" — check result presence regardless)
+    // The file appears via file content vector search only (no FTS match)
     const fileResult = results.find(
       (result) => result.path === "specs/api-spec.yaml",
     )

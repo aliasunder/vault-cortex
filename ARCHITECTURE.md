@@ -419,9 +419,11 @@ flowchart TD
     VF[Vault Files] --> RB[rebuildFromVault]
     RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
     P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
-    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+    P2 --> FC[Index File Content\ncanvas + PDF + text → FTS5]
+    FC --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+    P3 --> P3F[Embed File Content\nchunk → hash → embed → store]
 
-    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
+    FW[File Watcher\nchokidar] --> |.md add/change| UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
     UP --> EM[embedAndStoreChunks]
@@ -430,14 +432,28 @@ flowchart TD
     CH --> |changed| EMB[Embed chunk\nbge-small q8]
     EMB --> VEC[Store in\nnote_vectors]
 
-    FW --> |delete| RM[removeNote]
+    FW --> |non-.md add/change| UFC[upsertFileContent]
+    UFC --> FFTS[Update file_content_fts]
+    UFC --> EFC[embedAndStoreFileChunks]
+    EFC --> FCH{Content\nhash match?}
+    FCH --> |unchanged| FSK[Skip]
+    FCH --> |changed| FEMB[Embed chunk]
+    FEMB --> FVEC[Store in\nfile_content_vectors]
+
+    FW --> |.md delete| RM[removeNote]
     RM --> D1[Delete FTS + links]
     RM --> D2[Delete chunks + vectors]
+
+    FW --> |non-.md delete| RMF[removeFileContent]
+    RMF --> FD1[Delete FTS + links]
+    RMF --> FD2[Delete file chunks + vectors]
 
     style VF fill:#f9f,stroke:#333
     style FW fill:#f9f,stroke:#333
     style CH fill:#ffd,stroke:#333
+    style FCH fill:#ffd,stroke:#333
     style SK fill:#dfd,stroke:#333
+    style FSK fill:#dfd,stroke:#333
 ```
 
 ### Module decomposition
