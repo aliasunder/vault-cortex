@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -48,6 +54,8 @@ type GateRun = {
   stdout: string
   stderr: string
   syncCalls: number
+  /** Path to the sentinel file for post-run assertions. */
+  sentinelPath: string
 }
 
 type GateRunOptions = {
@@ -60,18 +68,27 @@ type GateRunOptions = {
   vaultDirs?: string[]
   /** When false, VAULT_PATH points at a directory that doesn't exist. */
   vaultExists?: boolean
+  /** When true, pre-creates the .vault-synced sentinel (simulates a prior sync). */
+  sentinel?: boolean
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-first-sync-"))
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
+  const homeDir = join(tempDir, "home")
+  const configDir = join(homeDir, ".config")
+  const sentinelPath = join(configDir, ".vault-synced")
   mkdirSync(stubBinDir)
+  mkdirSync(configDir, { recursive: true })
   if (options.vaultExists ?? true) {
     mkdirSync(vaultPath)
   }
   for (const vaultDir of options.vaultDirs ?? []) {
     mkdirSync(join(vaultPath, vaultDir), { recursive: true })
+  }
+  if (options.sentinel) {
+    writeFileSync(sentinelPath, "")
   }
 
   writeFileSync(join(stubBinDir, "ob"), OB_STUB, { mode: 0o755 })
@@ -89,6 +106,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     encoding: "utf8",
     env: {
       PATH: `${stubBinDir}:${process.env.PATH ?? ""}`,
+      HOME: homeDir,
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_OUTCOMES: outcomesPath,
@@ -113,6 +131,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     stdout: result.stdout,
     stderr: result.stderr,
     syncCalls,
+    sentinelPath,
   }
 }
 
@@ -276,6 +295,96 @@ describe("init-first-sync gate script", () => {
       "WARNING: First sync did not complete — starting services anyway.",
     )
   })
+
+  // -- Sync-state vault guard (empty vault + prior-sync sentinel) ----------
+
+  it("refuses to sync when the vault is empty but a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+    expect(run.stderr).toContain("remove the obsidian_config volume")
+  })
+
+  it("refuses when the vault has only hidden entries and a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+      vaultDirs: [".obsidian"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("allows sync when the vault has visible files and a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+      vaultDirs: ["About Me"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("allows sync on a fresh device with an empty vault (no sentinel)", () => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("writes the sentinel file after a successful sync", () => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
+
+    expect(run.status).toBe(0)
+    expect(existsSync(run.sentinelPath)).toBe(true)
+  })
+
+  it("does not write the sentinel file when sync fails fatally", () => {
+    const run = runGateScript({ syncOutcomes: [1], vaultName: "Test" })
+
+    expect(run.status).toBe(1)
+    expect(existsSync(run.sentinelPath)).toBe(false)
+  })
+
+  it("does not write the sentinel file when sync fails but services start", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(existsSync(run.sentinelPath)).toBe(false)
+  })
+
+  it("fires the guard regardless of VAULT_NAME", () => {
+    const run = runGateScript({ syncOutcomes: [0], sentinel: true })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  // -- Drift guard -----------------------------------------------------------
 
   it("matches the server's config defaults for the memory layer", () => {
     // Drift guard: the script hardcodes fallbacks for MEMORY_DIR and

@@ -4,6 +4,12 @@
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
+# Pre-sync guard: if a prior sync completed (sentinel on the config volume)
+# but the vault is empty, the sync engine would interpret every previously-
+# synced file as a local deletion and push mass deletions upstream (#440
+# incident 2026-08-15). FATAL in this case — the user must restore the vault
+# volume or wipe the config volume to re-register as a fresh device.
+#
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
 # enabled AND the memory folder is missing (fresh volume, or partial sync
@@ -20,6 +26,31 @@ set -e
 VAULT_PATH="${VAULT_PATH:-/vault}"
 if ! cd "$VAULT_PATH"; then
   echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# Sentinel on the config volume: written after the first successful sync,
+# cleared when obsidian_config is wiped (fresh device = no sentinel = safe).
+SYNC_SENTINEL="${HOME}/.config/.vault-synced"
+
+# Pre-sync guard: an empty vault with a prior-sync sentinel means the vault
+# volume was wiped while the config volume (device state) was kept — syncing
+# would push mass deletions. The glob excludes dotfiles, so .obsidian/ alone
+# counts as empty.
+vault_has_visible_files() {
+  for entry in "$VAULT_PATH"/*; do
+    [ -e "$entry" ] && return 0
+  done
+  return 1
+}
+
+if [ -f "$SYNC_SENTINEL" ] && ! vault_has_visible_files; then
+  echo "[obsidian-sync] ERROR: The vault is empty but this device has previously synced." >&2
+  echo "[obsidian-sync] Starting sync in this state would cause the sync engine to interpret" >&2
+  echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
+  echo "[obsidian-sync] deletions to all connected devices." >&2
+  echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
+  echo "[obsidian-sync] To start fresh: remove the obsidian_config volume (re-registers the device)." >&2
   exit 1
 fi
 
@@ -46,6 +77,7 @@ ATTEMPT=1
 while :; do
   echo "[obsidian-sync] First sync (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — waiting for completion before starting services..."
   if s6-setuidgid obsidian ob sync; then
+    touch "$SYNC_SENTINEL"
     echo "[obsidian-sync] First sync complete."
     exit 0
   fi
