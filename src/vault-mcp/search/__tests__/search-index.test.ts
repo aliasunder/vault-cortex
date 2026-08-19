@@ -3551,7 +3551,7 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
 
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
@@ -3563,16 +3563,14 @@ It has multiple sentences to verify chunking works correctly.
         { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
-      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       // Second embed with same content — should skip (hash match)
       await embeddingIndex.embedNote(
         { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
-      const secondCallCount = mockEmbedder.embedText.mock.calls.length
-
-      expect(secondCallCount).toBe(firstCallCount)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
     it("re-embeds when content changes", async () => {
@@ -3583,7 +3581,7 @@ It has multiple sentences to verify chunking works correctly.
         { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
-      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       const updatedNote = NOTE_FOR_EMBEDDING.replace(
         "multiple sentences",
@@ -3593,9 +3591,7 @@ It has multiple sentences to verify chunking works correctly.
         { notePath: "test.md", rawContent: updatedNote },
         logger,
       )
-      const secondCallCount = mockEmbedder.embedText.mock.calls.length
-
-      expect(secondCallCount).toBeGreaterThan(firstCallCount)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
     it("removeNote deletes associated chunks and vectors", async () => {
@@ -5682,7 +5678,7 @@ describe("file content vector embeddings", () => {
       )
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
 
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
@@ -5701,12 +5697,10 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      const secondCallCount = mockEmbedder.embedText.mock.calls.length
-
-      expect(secondCallCount).toBe(firstCallCount)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
     it("re-embeds when content changes", async () => {
@@ -5725,7 +5719,7 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       index.upsertFileContent(
         {
@@ -5737,9 +5731,7 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
-      const secondCallCount = mockEmbedder.embedText.mock.calls.length
-
-      expect(secondCallCount).toBeGreaterThan(firstCallCount)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
     it("is a no-op when file is not in file_content table", async () => {
@@ -5802,15 +5794,15 @@ describe("file content vector embeddings", () => {
     })
   })
 
-  describe("stale chunk cleanup", () => {
-    it("re-embeds fewer chunks when content shrinks", async () => {
+  describe("content shrink produces fewer chunks", () => {
+    it("embeds only one chunk after content shrinks from multi-chunk", async () => {
       const mockEmbedder = createMockEmbedder()
       const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
         fileToolsEnabled: true,
       })
 
       // Generate content that exceeds CHUNK_THRESHOLD_TOKENS (500) to produce multiple chunks.
-      // Each paragraph needs ~50 words to produce ~10 paragraphs × 50 words = 500+ words.
+      // Each paragraph needs ~50 words to produce ~10 paragraphs x 50 words = 500+ words.
       const longContent = Array.from(
         { length: 15 },
         (_, paragraphIndex) =>
@@ -5830,11 +5822,13 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
-      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+      // Long content produces multiple chunks — verify more than 1
+      const longChunkCount = mockEmbedder.embedText.mock.calls.length
+      expect(longChunkCount).toBeGreaterThan(1)
 
       mockEmbedder.embedText.mockClear()
 
-      // Replace with short content — fewer chunks, and the stale ones are cleaned up
+      // Replace with short content — produces exactly 1 chunk
       index.upsertFileContent(
         {
           filePath: "docs/long.txt",
@@ -5844,9 +5838,171 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
-      const secondCallCount = mockEmbedder.embedText.mock.calls.length
-
-      expect(secondCallCount).toBeLessThan(firstCallCount)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// ── hybridSearch — file content vector search integration ─────
+
+describe("hybridSearch — file content vector search", () => {
+  const EMBEDDING_DIMENSIONS = 384
+
+  const createHybridMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+    embedBatch: vi
+      .fn()
+      .mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+        ),
+      ),
+  })
+
+  it("includes file content vector hits in hybrid results", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    // Seed a note (FTS + vector) and a text file (FTS + vector)
+    fileIndex.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\ntags: [personal]\n---\n\nCareer goals and aspirations.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await fileIndex.embedNote(
+      {
+        notePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\ntags: [personal]\n---\n\nCareer goals and aspirations.\n",
+      },
+      logger,
+    )
+
+    fileIndex.upsertNonMdFile("docs/guide.txt", 200)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "docs/guide.txt",
+        rawContent:
+          "Comprehensive deployment guide covering infrastructure and monitoring setup.",
+        fileStat: testStat(2000, 200),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+
+    // Query that matches the text file via FTS ("deployment guide") and both
+    // items via vector (all embeddings are identical)
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "deployment guide" },
+      logger,
+    )
+
+    expect(search_mode).toBe("hybrid")
+    // Both should appear — the text file via FTS+vector, the note via vector-only
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    const fileResult = results.find(
+      (result) => result.path === "docs/guide.txt",
+    )
+    expect(fileResult).toBeDefined()
+    expect(fileResult?.kind).toBe("file")
+    expect(fileResult?.extension).toBe(".txt")
+  })
+
+  it("file-only vector hit appears with metadata when no FTS match exists", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    // Seed ONLY a text file — no note matches the query via FTS
+    fileIndex.upsertNonMdFile("specs/api-spec.yaml", 300)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "specs/api-spec.yaml",
+        rawContent:
+          "openapi: 3.0.0\npaths:\n  /users:\n    get:\n      summary: List users",
+        fileStat: testStat(3000, 300),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent(
+      { filePath: "specs/api-spec.yaml" },
+      logger,
+    )
+
+    // Query using a term NOT in the file content FTS (triggers vector-only path)
+    // but the mock embedder returns identical embeddings so KNN matches
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "user management endpoints" },
+      logger,
+    )
+
+    // The file should appear via file content vector search even without FTS match
+    // (note: FTS may also partially match "users" — check result presence regardless)
+    const fileResult = results.find(
+      (result) => result.path === "specs/api-spec.yaml",
+    )
+    expect(fileResult).toBeDefined()
+    expect(fileResult?.kind).toBe("file")
+    expect(fileResult?.extension).toBe(".yaml")
+    expect(fileResult?.folder).toBe("specs")
+    expect(search_mode).toBe("hybrid")
+  })
+
+  it("skips file content vector search when note-specific filters are active", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNote(
+      {
+        filePath: "notes/tagged.md",
+        rawContent:
+          "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await fileIndex.embedNote(
+      {
+        notePath: "notes/tagged.md",
+        rawContent:
+          "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
+      },
+      logger,
+    )
+
+    fileIndex.upsertNonMdFile("data/report.csv", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "data/report.csv",
+        rawContent: "tagged content in a file",
+        fileStat: testStat(2000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "data/report.csv" }, logger)
+
+    // Tag filter is note-specific — file content (FTS and vector) should be excluded
+    const { results } = await fileIndex.hybridSearch(
+      { query: "tagged content", filters: { tags: ["important"] } },
+      logger,
+    )
+
+    const fileResult = results.find(
+      (result) => result.path === "data/report.csv",
+    )
+    expect(fileResult).toBeUndefined()
+    // Note should still appear
+    expect(results.map((result) => result.path)).toContain("notes/tagged.md")
   })
 })

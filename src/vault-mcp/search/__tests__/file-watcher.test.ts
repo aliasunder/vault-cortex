@@ -391,6 +391,34 @@ describe("file-watcher — file content indexing", () => {
     expect(pdfResult?.kind).toBe("file")
     expect(pdfResult?.extension).toBe(".pdf")
   })
+
+  it(
+    "calls embedFileContent when indexing a non-md file",
+    { timeout: 15000 },
+    async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const embedFileSpy = vi.spyOn(fileIndex, "embedFileContent")
+
+      await startFileWatcher(vault, fileIndex, {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      })
+
+      await writeFile(
+        join(vault, "data.csv"),
+        "id,name,value\n1,deploy,active\n",
+        "utf8",
+      )
+
+      await waitFor(() => embedFileSpy.mock.calls.length > 0)
+      expect(embedFileSpy).toHaveBeenCalledWith(
+        { filePath: "data.csv" },
+        expect.anything(), // logger — runtime child logger
+      )
+    },
+  )
 })
 
 describe("startFileWatcher — chokidar watch options", () => {
