@@ -616,15 +616,14 @@ export const hybridSearch = async (
       if (!fileMetadata) continue
 
       // Apply folder filter — file content FTS applies it via SQL, but
-      // vector-only results bypass FTS and need the check here.
-      if (
-        params.filters?.folder &&
-        !fileMetadata.folder.startsWith(
-          stripTrailingSlashes(params.filters.folder),
-        ) &&
-        fileMetadata.folder !== stripTrailingSlashes(params.filters.folder)
-      ) {
-        continue
+      // vector-only results bypass FTS and need the check here. Uses a
+      // segment boundary (folder + "/") so "Docs" doesn't match "Documents".
+      if (params.filters?.folder) {
+        const folderPrefix = stripTrailingSlashes(params.filters.folder) + "/"
+        const folderMatch =
+          fileMetadata.folder === stripTrailingSlashes(params.filters.folder) ||
+          (fileMetadata.folder + "/").startsWith(folderPrefix)
+        if (!folderMatch) continue
       }
 
       mergedResults.push(

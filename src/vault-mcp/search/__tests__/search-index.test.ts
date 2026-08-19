@@ -5928,14 +5928,13 @@ describe("hybridSearch — file content vector search", () => {
     )
 
     expect(search_mode).toBe("hybrid")
-    // Both should appear — the text file via FTS+vector, the note via vector-only
-    expect(results.length).toBeGreaterThanOrEqual(1)
-    const fileResult = results.find(
-      (result) => result.path === "docs/guide.txt",
-    )
-    expect(fileResult).toBeDefined()
-    expect(fileResult?.kind).toBe("file")
-    expect(fileResult?.extension).toBe(".txt")
+    // Both should appear — guide.txt via FTS+file vector, career.md via note vector
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/guide.txt",
+      "notes/career.md",
+    ])
+    expect(results[0]?.kind).toBe("file")
+    expect(results[0]?.extension).toBe(".txt")
   })
 
   it("file-only vector hit appears with metadata when no FTS match exists", async () => {
