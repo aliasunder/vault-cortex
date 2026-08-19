@@ -516,6 +516,24 @@ export const createSearchIndex = (
         path UNINDEXED, title, content, tokenize='porter unicode61'
       );
     `)
+    if (embedder) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS file_content_chunks (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path    TEXT NOT NULL,
+          chunk_index  INTEGER NOT NULL,
+          chunk_text   TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          UNIQUE(file_path, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_content_chunks_path ON file_content_chunks(file_path);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS file_content_vectors USING vec0(
+          chunk_id  INTEGER PRIMARY KEY,
+          embedding float[384]
+        );
+      `)
+    }
   }
 
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
@@ -721,6 +739,51 @@ export const createSearchIndex = (
       )
     : null
 
+  // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
+  const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
+  const upsertFileChunkStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `INSERT OR REPLACE INTO file_content_chunks (file_path, chunk_index, chunk_text, content_hash)
+         VALUES (@file_path, @chunk_index, @chunk_text, @content_hash)`,
+      )
+    : null
+  const selectFileChunkHashesStmt = fileContentVectorEnabled
+    ? db.prepare<unknown[], { chunk_index: number; content_hash: string }>(
+        `SELECT chunk_index, content_hash FROM file_content_chunks WHERE file_path = ?`,
+      )
+    : null
+  const selectFileChunkIdStmt = fileContentVectorEnabled
+    ? db.prepare<[string, number], { id: number }>(
+        `SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index = ?`,
+      )
+    : null
+  const deleteStaleFileChunksStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`,
+      )
+    : null
+  const insertFileVectorStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`,
+      )
+    : null
+  const deleteFileVectorByChunkIdStmt = fileContentVectorEnabled
+    ? db.prepare(`DELETE FROM file_content_vectors WHERE chunk_id = ?`)
+    : null
+  const deleteFileVectorsForPathStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ?)`,
+      )
+    : null
+  const deleteFileChunksForPathStmt = fileContentVectorEnabled
+    ? db.prepare(`DELETE FROM file_content_chunks WHERE file_path = ?`)
+    : null
+  const deleteStaleFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+
   // ── Memory-entry prepared statements (conditional on memoryDir) ──
   const insertMemoryEntryStmt = memoryDir
     ? db.prepare(
@@ -834,6 +897,28 @@ export const createSearchIndex = (
   const selectFirstChunkStmt = embedder
     ? db.prepare<[string], { chunk_text: string }>(
         `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
+      )
+    : null
+
+  /** KNN search over file content vectors — finds the k nearest file chunks. */
+  const fileContentKnnSearchStmt = fileContentVectorEnabled
+    ? db.prepare<
+        unknown[],
+        { file_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT fc.file_path, fc.chunk_text, fv.distance
+         FROM file_content_vectors fv
+         JOIN file_content_chunks fc ON fc.id = fv.chunk_id
+         WHERE fv.embedding MATCH ?
+           AND fv.k = ?
+         ORDER BY fv.distance`,
+      )
+    : null
+
+  /** First chunk text for a file — reranker fallback for FTS-only file hits. */
+  const selectFirstFileChunkStmt = fileContentVectorEnabled
+    ? db.prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM file_content_chunks WHERE file_path = ? AND chunk_index = 0`,
       )
     : null
 
@@ -1064,6 +1149,10 @@ export const createSearchIndex = (
       if (deleteFileContentStmt && deleteFileContentFtsStmt) {
         deleteFileContentFtsStmt.run(params.filePath)
         deleteFileContentStmt.run(params.filePath)
+      }
+      if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
+        deleteFileVectorsForPathStmt.run(params.filePath)
+        deleteFileChunksForPathStmt.run(params.filePath)
       }
       deleteLinksStmt.run(params.filePath)
     })()
@@ -1544,6 +1633,113 @@ export const createSearchIndex = (
     }
   }
 
+  /** Chunks and embeds file content into file_content_chunks / file_content_vectors.
+   *  Mirrors embedAndStoreChunks for notes: content-hash gated, transaction-wrapped,
+   *  stale chunks cleaned up. Returns the number of chunks actually (re-)embedded. */
+  const embedAndStoreFileChunks = async (
+    params: { filePath: string; title: string; content: string },
+    logger: Logger,
+  ): Promise<number> => {
+    if (
+      !embedder ||
+      !upsertFileChunkStmt ||
+      !selectFileChunkHashesStmt ||
+      !selectFileChunkIdStmt ||
+      !deleteStaleFileChunksStmt ||
+      !insertFileVectorStmt ||
+      !deleteFileVectorByChunkIdStmt
+    ) {
+      return 0
+    }
+
+    const chunks = chunkNoteContent(params.title, params.content)
+
+    const existingHashes = new Map(
+      selectFileChunkHashesStmt
+        .all(params.filePath)
+        .map((row) => [row.chunk_index, row.content_hash]),
+    )
+
+    let embeddedCount = 0
+
+    for (const chunk of chunks) {
+      const hash = contentHash(chunk.text)
+
+      if (existingHashes.get(chunk.index) === hash) continue
+
+      const embedding = await embedder.embedText(chunk.text)
+
+      db.transaction(() => {
+        const existingChunk = selectFileChunkIdStmt.get(
+          params.filePath,
+          chunk.index,
+        )
+        if (existingChunk) {
+          deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+        }
+
+        upsertFileChunkStmt.run({
+          file_path: params.filePath,
+          chunk_index: chunk.index,
+          chunk_text: chunk.text,
+          content_hash: hash,
+        })
+
+        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        if (!chunkRow) {
+          throw new Error(
+            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
+          )
+        }
+        insertFileVectorStmt.run(
+          BigInt(chunkRow.id),
+          Buffer.from(
+            embedding.buffer,
+            embedding.byteOffset,
+            embedding.byteLength,
+          ),
+        )
+      })()
+      embeddedCount++
+    }
+
+    if (deleteStaleFileVectorsStmt) {
+      deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
+    }
+    deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+
+    logger.debug("embedded file content", {
+      path: params.filePath,
+      totalChunks: chunks.length,
+      embeddedCount,
+    })
+    return embeddedCount
+  }
+
+  /** Reads the processed content from file_content for embedding. */
+  const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
+    ? db.prepare<[string], { title: string; content: string }>(
+        "SELECT title, content FROM file_content WHERE path = ?",
+      )
+    : null
+
+  /** Embed a file's rendered content into vector storage. Reads the processed
+   *  content from the file_content table (already linearized/truncated by
+   *  upsertFileContent). No-op when the embedding pipeline or file tools are
+   *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
+  const embedFileContent = async (
+    params: { filePath: string },
+    logger: Logger,
+  ): Promise<void> => {
+    if (!embedder || !selectFileContentForEmbeddingStmt) return
+    const row = selectFileContentForEmbeddingStmt.get(params.filePath)
+    if (!row) return
+    await embedAndStoreFileChunks(
+      { filePath: params.filePath, title: row.title, content: row.content },
+      logger,
+    )
+  }
+
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
    *  and — for memory files — the entry-granular index. A watcher rename
    *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
@@ -1898,6 +2094,17 @@ export const createSearchIndex = (
       snapshotMtimeMs: note.modifiedAtMs,
     }))
 
+    // File content for embedding — read the processed text from file_content
+    // (already linearized/extracted/truncated by upsertFileContent above).
+    const filesForEmbedding = fileContentVectorEnabled
+      ? db
+          .prepare<
+            unknown[],
+            { path: string; title: string; content: string; mtime: number }
+          >("SELECT path, title, content, mtime FROM file_content")
+          .all()
+      : []
+
     // Pass 3 runs in the background — the server can start accepting requests
     // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
     // progressive enhancement: search works with FTS-only until vectors are ready.
@@ -1976,6 +2183,74 @@ export const createSearchIndex = (
             // (Express healthz, MCP tool handlers) can drain.
             await setImmediateAsync()
           }
+          // ── File content embedding ──────────────────────────────
+          if (filesForEmbedding.length > 0) {
+            // Clean up vectors for files that no longer exist
+            const currentFilePaths = new Set(
+              filesForEmbedding.map((file) => file.path),
+            )
+            const indexedFileChunkPaths = db
+              .prepare<unknown[], { file_path: string }>(
+                "SELECT DISTINCT file_path FROM file_content_chunks",
+              )
+              .all()
+              .map((row) => row.file_path)
+
+            const deletedFilePaths = indexedFileChunkPaths.filter(
+              (path) => !currentFilePaths.has(path),
+            )
+            if (
+              deletedFilePaths.length > 0 &&
+              deleteFileVectorsForPathStmt &&
+              deleteFileChunksForPathStmt
+            ) {
+              for (const path of deletedFilePaths) {
+                deleteFileVectorsForPathStmt.run(path)
+                deleteFileChunksForPathStmt.run(path)
+              }
+              logger.info("cleaned up vectors for deleted files", {
+                count: deletedFilePaths.length,
+              })
+            }
+
+            const selectFileMtimeStmt = db.prepare<[string], { mtime: number }>(
+              "SELECT mtime FROM file_content WHERE path = ?",
+            )
+
+            let fileChunksEmbedded = 0
+            let fileEmbedErrors = 0
+            for (const file of filesForEmbedding) {
+              const currentFile = selectFileMtimeStmt.get(file.path)
+              const fileIsStale =
+                !currentFile || currentFile.mtime !== file.mtime
+              if (fileIsStale) continue
+
+              try {
+                fileChunksEmbedded += await embedAndStoreFileChunks(
+                  {
+                    filePath: file.path,
+                    title: file.title,
+                    content: file.content,
+                  },
+                  logger,
+                )
+              } catch (err) {
+                fileEmbedErrors++
+                logger.warn("failed to embed file content", {
+                  path: file.path,
+                  error: describeError(err),
+                })
+              }
+
+              await setImmediateAsync()
+            }
+            logger.info("file content embedding pass complete", {
+              files: filesForEmbedding.length,
+              fileChunksEmbedded,
+              ...(fileEmbedErrors > 0 ? { fileEmbedErrors } : {}),
+            })
+          }
+
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,
             chunksEmbedded,
@@ -2019,6 +2294,26 @@ export const createSearchIndex = (
     fileContentFts: searchFileContentFtsStmt
       ? { searchStmt: searchFileContentFtsStmt }
       : null,
+    fileContentVector: fileContentKnnSearchStmt
+      ? {
+          knnSearchStmt: fileContentKnnSearchStmt,
+          selectFirstFileChunkStmt,
+        }
+      : null,
+    selectFileContentMetadataStmt: fileToolsEnabled
+      ? db.prepare<
+          [string],
+          {
+            path: string
+            title: string
+            folder: string
+            mtime: number
+            bytes: number
+          }
+        >(
+          "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
+        )
+      : null,
   }
 
   /** Binds the query context as the first argument of a query function,
@@ -2038,6 +2333,7 @@ export const createSearchIndex = (
     removeNonMdFile,
     upsertFileContent,
     removeFileContent,
+    embedFileContent,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(queries.hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),

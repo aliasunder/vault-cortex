@@ -115,7 +115,7 @@ graph TB
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → the sync service → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → cross-encoder reranking → response.
+**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks (notes + file content) + sqlite-vec KNN ranks (notes + file content) → RRF fusion → cross-encoder reranking → response.
 
 **Invariant — vault is source of truth:** The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The sqlite-vec embeddings are equally derived — they persist across rebuilds as an optimization but can always be regenerated from the vault.
 
@@ -344,13 +344,15 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 
 ### Query fusion
 
-`vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
+`vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
-2. Vector search: embed the query → sqlite-vec KNN → deduplicate to best chunk per note
-3. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across both lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
-4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
-5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
+1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
+2. **File content FTS5** — linearized canvas, extracted PDF text, plain text files (skipped when note-specific filters are active)
+3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
+4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
+5. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
+6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
+7. Apply user filters (folder, tags, type, related, properties) to vector-only note results — FTS results are already filtered via SQL
 
 ### Cross-encoder reranking
 
@@ -366,11 +368,15 @@ Both scores are min-max normalized to [0, 1] before blending. Controlled by `RER
 
 ```mermaid
 flowchart LR
-    Q[Query] --> FTS[FTS5 BM25]
+    Q[Query] --> NoteFTS[Note FTS5 BM25]
+    Q --> FileFTS[File Content FTS5]
     Q --> EMB[Embed Query]
-    EMB --> KNN[sqlite-vec KNN]
-    FTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
-    KNN --> |ranked paths| RRF
+    EMB --> NoteKNN[Note KNN]
+    EMB --> FileKNN[File Content KNN]
+    NoteFTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
+    FileFTS --> |ranked paths| RRF
+    NoteKNN --> |ranked paths| RRF
+    FileKNN --> |ranked paths| RRF
     RRF --> |top candidates| CE[Cross-Encoder\nms-marco-MiniLM]
     RRF --> |RRF scores| BL[Position-Aware\nBlend]
     CE --> |rerank scores| BL
@@ -385,11 +391,11 @@ flowchart LR
 
 ### Graceful fallback
 
-When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or the embedding model fails, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` and `reranked: boolean` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
+When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or both vector searches return empty, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` and `reranked: boolean` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared): Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks — first notes, then file content. The file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 

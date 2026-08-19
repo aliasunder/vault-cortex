@@ -110,6 +110,31 @@ export const startFileWatcher = (
             },
             logger,
           )
+
+          // Embed file content vectors — serialized per path via the same
+          // pendingEmbeds map (note paths end in .md, file paths don't).
+          // Reads the processed content from the file_content table.
+          const previousEmbed =
+            pendingEmbeds.get(relativePath) ?? Promise.resolve()
+          const currentEmbed = previousEmbed
+            .catch((previousError) => {
+              logger.debug(
+                "previous file embed failed, proceeding with current",
+                {
+                  path: relativePath,
+                  error: describeError(previousError),
+                },
+              )
+            })
+            .then(() =>
+              search.embedFileContent({ filePath: relativePath }, logger),
+            )
+          pendingEmbeds.set(relativePath, currentEmbed)
+          currentEmbed.finally(() => {
+            if (pendingEmbeds.get(relativePath) === currentEmbed) {
+              pendingEmbeds.delete(relativePath)
+            }
+          })
         } catch (error) {
           logger.warn("file content indexing failed", {
             path: relativePath,

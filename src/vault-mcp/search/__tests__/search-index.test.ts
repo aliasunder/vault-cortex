@@ -4174,7 +4174,7 @@ the Lightsail budget estimates for next quarter.
       expect(results.map((result) => result.path)).toEqual(["a.md"])
       expect(search_mode).toBe("fts")
       expect(warnSpy).toHaveBeenCalledWith(
-        "vector search failed, falling back to FTS-only",
+        "query embedding failed",
         expect.objectContaining({ error: "[Error]: model unavailable" }),
       )
     })
@@ -5640,6 +5640,213 @@ describe("canvas file content and links", () => {
       const paths = results.map((result) => result.path)
       expect(paths).toContain("Projects/plan.md")
       expect(paths).not.toContain("Diagrams/arch.canvas")
+    })
+  })
+})
+
+// ── File content vector embeddings ────────────────────────────
+
+describe("file content vector embeddings", () => {
+  const DIMENSIONS = 384
+  const createMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
+    embedBatch: vi
+      .fn()
+      .mockImplementation((texts: string[]) =>
+        Promise.resolve(
+          texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)),
+        ),
+      ),
+  })
+
+  const TEXT_FILE_CONTENT =
+    "System design overview with diagrams and architecture notes."
+
+  describe("embedFileContent", () => {
+    it("calls the embedder when file content is in the FTS table", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      index.upsertNonMdFile("docs/overview.txt", 100)
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent: TEXT_FILE_CONTENT,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+    })
+
+    it("content-hash gating skips unchanged chunks on re-embed", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      index.upsertNonMdFile("docs/overview.txt", 100)
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent: TEXT_FILE_CONTENT,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBe(firstCallCount)
+    })
+
+    it("re-embeds when content changes", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      index.upsertNonMdFile("docs/overview.txt", 100)
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent: TEXT_FILE_CONTENT,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent:
+            "Completely different content about networking protocols.",
+          fileStat: testStat(2000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBeGreaterThan(firstCallCount)
+    })
+
+    it("is a no-op when file is not in file_content table", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      await index.embedFileContent({ filePath: "nonexistent.txt" }, logger)
+
+      expect(mockEmbedder.embedText).not.toHaveBeenCalled()
+    })
+
+    it("is a no-op when no embedder is provided", async () => {
+      const index = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      index.upsertNonMdFile("docs/overview.txt", 100)
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent: TEXT_FILE_CONTENT,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+
+      await expect(
+        index.embedFileContent({ filePath: "docs/overview.txt" }, logger),
+      ).resolves.toBeUndefined()
+    })
+  })
+
+  describe("removeFileContent cleans up vectors", () => {
+    it("re-embed after removal produces no embedder calls", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      index.upsertNonMdFile("docs/overview.txt", 100)
+      index.upsertFileContent(
+        {
+          filePath: "docs/overview.txt",
+          rawContent: TEXT_FILE_CONTENT,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      expect(mockEmbedder.embedText).toHaveBeenCalled()
+
+      index.removeFileContent({ filePath: "docs/overview.txt" }, logger)
+      mockEmbedder.embedText.mockClear()
+
+      // After removal, embedding the same path is a no-op (file_content row gone)
+      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      expect(mockEmbedder.embedText).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("stale chunk cleanup", () => {
+    it("re-embeds fewer chunks when content shrinks", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      // Generate content that exceeds CHUNK_THRESHOLD_TOKENS (500) to produce multiple chunks.
+      // Each paragraph needs ~50 words to produce ~10 paragraphs × 50 words = 500+ words.
+      const longContent = Array.from(
+        { length: 15 },
+        (_, paragraphIndex) =>
+          `Paragraph ${String(paragraphIndex)} discusses advanced architecture and system design patterns ` +
+          `including microservices communication protocols and event-driven messaging architectures ` +
+          `with distributed tracing observability and structured logging for production monitoring ` +
+          `plus container orchestration deployment strategies and infrastructure provisioning automation.`,
+      ).join("\n\n")
+
+      index.upsertNonMdFile("docs/long.txt", 2000)
+      index.upsertFileContent(
+        {
+          filePath: "docs/long.txt",
+          rawContent: longContent,
+          fileStat: testStat(1000, 2000),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      const firstCallCount = mockEmbedder.embedText.mock.calls.length
+
+      mockEmbedder.embedText.mockClear()
+
+      // Replace with short content — fewer chunks, and the stale ones are cleaned up
+      index.upsertFileContent(
+        {
+          filePath: "docs/long.txt",
+          rawContent: "Short content.",
+          fileStat: testStat(2000, 100),
+        },
+        logger,
+      )
+      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      const secondCallCount = mockEmbedder.embedText.mock.calls.length
+
+      expect(secondCallCount).toBeLessThan(firstCallCount)
     })
   })
 })
