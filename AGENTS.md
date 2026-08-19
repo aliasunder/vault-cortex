@@ -117,6 +117,7 @@ src/
     integration/                       # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
       test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
+      server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
@@ -795,12 +796,18 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 - **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
   note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
-  `old_path`/`new_path` on move, `path` on backlinks/outgoing_links — require the
-  full filename with extension; a bare `Projects/Plan` is rejected. Enforced by
-  the generic `assertPathHasExtension(path, ".md")` util
+  `new_path` on move — require the full filename with extension; a bare
+  `Projects/Plan` is rejected. Enforced by the generic
+  `assertPathHasExtension(path, ".md")` util
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
-  memory-file (`file`) inputs are exempt.
+  memory-file (`file`) inputs are exempt. **Backlinks/outgoing_links accept
+  `.md` or `.canvas`** — both note and canvas paths are valid graph queries
+  (`assertPathHasExtension(path, [".md", ".canvas"])`). **`vault_move_note`'s
+  `old_path`** also accepts `.md` or `.canvas` at the handler boundary — the
+  handler runs a backlinks lookup before the data-layer move, so `old_path`
+  is validated by the wider extension set; the data-layer `.md`-only check
+  runs second.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
   rejects notes so the `.md` boundary stays a single rule with two sides
@@ -920,6 +927,53 @@ createTestIndex()` at the top of each test. `beforeEach` is only
 - CI shell snippets are tested under `bash -e` before committing —
   Actions runs `run:` steps with errexit, so a failing
   `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
+
+### Integration tests — when to add
+
+Integration tests (`src/__tests__/integration/`) boot a real server
+and call tools over real HTTP via the MCP SDK Client. They catch what
+unit tests structurally can't — handler miscalls, config-gated surface
+mismatches, transport-layer bugs. The deciding question: **would this
+bug survive unit tests but break in production?** If the unit test
+already uses real I/O (temp dirs, real SQLite), skip the integration
+test.
+
+**Always add:**
+
+- New tool → happy-path test in `server-integration.test.ts` + fixture
+  data if needed.
+- New error path in a tool's `Errors:` section → test in
+  `server-error-contracts.test.ts` asserting the distinctive message
+  prefix (include test-controlled variable parts like paths and
+  section names).
+- New config gating axis → config matrix test in
+  `server-integration.test.ts` (tool count + key behavior).
+- New prompt → assembly test verifying live vault data, not just the
+  instruction wrapper.
+
+**Never add:**
+
+- Parser changes (pure, no I/O).
+- Search query changes (`search-index.test.ts` uses a real SQLite DB).
+- Config validation (`config.test.ts` tests `loadConfig` directly).
+- Tool registration/annotation (`tool-definitions.test.ts` covers
+  the registration layer via a mock server).
+
+**File structure:**
+
+- `server-integration.test.ts` — happy paths + config gating (one
+  server per config combo).
+- `server-error-contracts.test.ts` — error paths, default config only
+  (errors are config-independent).
+- `test-harness.ts` — shared server lifecycle + client factory.
+- `fixtures/vault/` — committed fixture vault; a PR that adds a tool
+  also adds fixture data and a test case.
+
+**When to split a test file:** when navigating the file requires
+scrolling past unrelated test groups to find what you need — the
+file has multiple distinct concerns that don't share setup or
+context. Split along concern boundaries (happy path vs error
+contracts, by tool group, by config combo), not arbitrary size.
 
 ## SST conventions
 

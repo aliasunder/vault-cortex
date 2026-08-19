@@ -11,29 +11,11 @@ import {
   promptNames,
   randomPort,
   mcpInitStatus,
+  callTool,
+  textContent,
 } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
-
-type TextBlock = { type: "text"; text: string }
-type ToolResult = { isError?: boolean; content: TextBlock[] }
-
-const callTool = async ({
-  client,
-  name,
-  args = {},
-}: {
-  client: Client
-  name: string
-  args?: Record<string, unknown>
-}): Promise<ToolResult> =>
-  client.callTool({ name, arguments: args }) as Promise<ToolResult>
-
-const textContent = (result: ToolResult): string =>
-  result.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>

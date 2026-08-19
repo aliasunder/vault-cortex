@@ -8,7 +8,6 @@ import { join, resolve } from "node:path"
 import { randomInt } from "node:crypto"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import type { ChildProcess } from "node:child_process"
 
 const AUTH_TOKEN = "test-integration-token"
@@ -157,8 +156,9 @@ export const createTestClient = async (port: number): Promise<Client> => {
   const client = new Client({ name: "integration-test", version: "1.0.0" })
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under
-  // exactOptionalPropertyTypes. The SDK types are misaligned; safe to widen.
-  await client.connect(transport as unknown as Transport)
+  // exactOptionalPropertyTypes. Self-cleans when the SDK fixes the type.
+  // @ts-expect-error — SDK type misalignment (sessionId optionality)
+  await client.connect(transport)
   return client
 }
 
@@ -173,6 +173,42 @@ export const promptNames = async (client: Client): Promise<string[]> => {
   const result = await client.listPrompts()
   return result.prompts.map((prompt) => prompt.name).sort()
 }
+
+// ── Shared tool-call helpers ────────────────────────────────────
+
+type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>
+
+/** Content-response branch of the SDK's CallToolResult union. */
+export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>
+
+const isContentResult = (result: SdkCallToolResult): result is ToolResult =>
+  Array.isArray(result.content)
+
+/** Call a tool and return the content-based result. */
+export const callTool = async ({
+  client,
+  name,
+  args = {},
+}: {
+  client: Client
+  name: string
+  args?: Record<string, unknown>
+}): Promise<ToolResult> => {
+  const result = await client.callTool({ name, arguments: args })
+  if (!isContentResult(result)) {
+    throw new Error(
+      "unexpected toolResult response — server returned no content array",
+    )
+  }
+  return result
+}
+
+/** Join all text blocks from a tool result into a single string. */
+export const textContent = (result: ToolResult): string =>
+  result.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
 
 /** Send an MCP initialize request with optional auth, return the HTTP status. */
 export const mcpInitStatus = async (
