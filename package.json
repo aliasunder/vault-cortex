@@ -78,7 +78,7 @@
   "dependencies": {
     "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@napi-rs/canvas": "1.0.5",
+    "@napi-rs/canvas": "1.0.6",
     "better-sqlite3": "13.0.3",
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
@@ -89,7 +89,7 @@
     "picomatch": "4.0.5",
     "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",
-    "unpdf": "1.8.0",
+    "unpdf": "1.8.1",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
@@ -118,7 +118,7 @@
     "jiti": "2.7.0",
     "lint-staged": "17.3.0",
     "prettier": "3.9.6",
-    "puppeteer": "25.6.0",
+    "puppeteer": "25.7.0",
     "sst": "4.17.1",
     "tsx": "4.23.12",
     "typescript": "npm:@typescript/typescript6@6.0.2",
