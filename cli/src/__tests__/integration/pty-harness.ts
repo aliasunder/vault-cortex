@@ -54,14 +54,28 @@ const stripAnsi = (text: string): string =>
  * Clean per-keystroke echo redraws and spinner frame repeats from
  * stripped transcript output so the result reads like a human would
  * see the final state.
+ *
+ * Clack redraws the active line on every keystroke, producing runs like
+ * "/█ /p█ /pr█ …" after ANSI stripping. Spinners likewise append one
+ * glyph-prefixed fragment per frame. This function:
+ *
+ * 1. Trims everything before the last block cursor on each line (the
+ *    final state follows it); lines that are purely cursor redraws with
+ *    no trailing content are dropped entirely.
+ * 2. Deduplicates consecutive spinner fragments that share the same
+ *    text after the leading glyph.
  */
 const SPINNER_GLYPHS = /(?=[◒◐◓◑⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏])/
 const cleanTranscript = (strippedOutput: string): string => {
   const cleanedLines = strippedOutput.split("\n").flatMap((line) => {
+    // Per-keystroke echo: everything before the last block cursor is a
+    // stale partial render — the final state follows it.
     const cursorTrimmed = line.includes("█")
       ? line.slice(line.lastIndexOf("█") + 1)
       : line
     if (line.includes("█") && cursorTrimmed.trim() === "") return []
+    // Spinner frames: identical text re-rendered behind a rotating
+    // glyph — keep the first of each consecutive identical fragment.
     const fragments = cursorTrimmed.split(SPINNER_GLYPHS)
     const withoutRepeats = fragments.filter(
       (fragment, index) =>
@@ -99,8 +113,12 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
     let settled = false
     let exited = false
 
+    // npx may not be on PATH inside the PTY child's shell init —
+    // resolve explicitly via NVM_BIN when available.
     const npxPath = process.env.NVM_BIN ? `${process.env.NVM_BIN}/npx` : "npx"
 
+    // Filter undefined values from process.env so the child env
+    // satisfies Record<string, string> without a type assertion.
     const envEntries = Object.entries(process.env).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
     )
@@ -118,6 +136,8 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       env: childEnv,
     })
 
+    // Idempotent — called from both onExit (normal) and the timeout
+    // (hang). The exited flag ensures the promise resolves exactly once.
     const finish = (exitCode: number): void => {
       if (exited) return
       exited = true
@@ -131,6 +151,10 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       })
     }
 
+    // Sequential prompt matching: prompts fire in order. The buffer
+    // resets after each match so a matched prompt can't re-fire. The
+    // settled flag blocks re-entry while the 400ms render-settle sleep
+    // is pending (onData fires frequently during Clack redraws).
     child.onData(async (data: string) => {
       fullOutput += data
       buffer += data
