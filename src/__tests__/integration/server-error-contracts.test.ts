@@ -272,7 +272,10 @@ describe("text not found", () => {
         new_text: "replacement",
       },
     })
-    expectToolError(result, "text not found")
+    expectToolError(
+      result,
+      'text not found in "Projects/alpha.md": "this text does not exist in the note"',
+    )
   })
 })
 
@@ -288,7 +291,10 @@ describe("anchor errors", () => {
         start_anchor: "this anchor does not exist anywhere in the file",
       },
     })
-    expectToolError(result, "anchor not found")
+    expectToolError(
+      result,
+      'start anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
+    )
   })
 })
 
@@ -301,7 +307,7 @@ describe("memory errors", () => {
       name: "vault_get_memory",
       args: { file: "Nonexistent" },
     })
-    expectToolError(result, "memory file not found")
+    expectToolError(result, 'memory file not found: "About Me/Nonexistent.md"')
   })
 
   it("vault_get_memory with a nonexistent section", async () => {
@@ -310,7 +316,10 @@ describe("memory errors", () => {
       name: "vault_get_memory",
       args: { file: "Preferences", section: "No Such Section" },
     })
-    expectToolError(result, "section not found")
+    expectToolError(
+      result,
+      'section not found: "No Such Section" in About Me/Preferences.md',
+    )
   })
 
   it("vault_update_memory rejects multi-line entries", async () => {
@@ -337,7 +346,10 @@ describe("memory errors", () => {
         entry: "anything",
       },
     })
-    expectToolError(result, "section not found")
+    expectToolError(
+      result,
+      'section not found: "Missing Section" in About Me/Preferences.md',
+    )
   })
 })
 
@@ -367,7 +379,10 @@ describe("path extension errors", () => {
       name: "vault_read_note",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(result, "path must end in")
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
   })
 
   it("vault_get_backlinks rejects paths without .md or .canvas extension", async () => {
@@ -376,6 +391,9 @@ describe("path extension errors", () => {
       name: "vault_get_backlinks",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(result, "path must end in")
+    expectToolError(
+      result,
+      'path must end in ".md" or ".canvas" (received "Projects/alpha")',
+    )
   })
 })

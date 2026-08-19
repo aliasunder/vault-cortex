@@ -117,7 +117,7 @@ src/
     integration/                       # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
       test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
-      server-error-contracts.test.ts   #   Documented error paths: exact messages, remediation text
+      server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
@@ -796,12 +796,14 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 - **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
   note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
-  `old_path`/`new_path` on move, `path` on backlinks/outgoing_links — require the
-  full filename with extension; a bare `Projects/Plan` is rejected. Enforced by
-  the generic `assertPathHasExtension(path, ".md")` util
+  `old_path`/`new_path` on move — require the full filename with extension; a bare
+  `Projects/Plan` is rejected. Enforced by the generic
+  `assertPathHasExtension(path, ".md")` util
   (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
   each tool routes through (one rule, every layer). Folder, glob, and
-  memory-file (`file`) inputs are exempt.
+  memory-file (`file`) inputs are exempt. **Backlinks/outgoing_links accept
+  `.md` or `.canvas`** — both note and canvas paths are valid graph queries
+  (`assertPathHasExtension(path, [".md", ".canvas"])`).
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
   rejects notes so the `.md` boundary stays a single rule with two sides
