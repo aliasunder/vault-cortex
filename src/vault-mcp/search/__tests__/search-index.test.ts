@@ -5795,14 +5795,16 @@ describe("file content vector embeddings", () => {
   })
 
   describe("content shrink produces fewer chunks", () => {
-    it("embeds only one chunk after content shrinks from multi-chunk", async () => {
+    it("deletes stale chunk and vector rows when content shrinks", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "file-chunk-stale-"))
+      onTestFinished(() => rm(dir, { recursive: true }))
+      const dbPath = join(dir, "search.db")
+
       const mockEmbedder = createMockEmbedder()
-      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      const index = createSearchIndex(dbPath, mockEmbedder, undefined, {
         fileToolsEnabled: true,
       })
 
-      // Generate content that exceeds CHUNK_THRESHOLD_TOKENS (500) to produce multiple chunks.
-      // Each paragraph needs ~50 words to produce ~10 paragraphs x 50 words = 500+ words.
       const longContent = Array.from(
         { length: 15 },
         (_, paragraphIndex) =>
@@ -5822,11 +5824,20 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
-      // Long content produces multiple chunks — verify more than 1
-      const longChunkCount = mockEmbedder.embedText.mock.calls.length
-      expect(longChunkCount).toBeGreaterThan(1)
 
-      mockEmbedder.embedText.mockClear()
+      // Verify multiple chunks were created via a read-only inspection connection
+      const inspectDb = new Database(dbPath, { readonly: true })
+      sqliteVec.load(inspectDb)
+      onTestFinished(() => {
+        inspectDb.close()
+      })
+
+      const chunkCountBefore = inspectDb
+        .prepare(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
+        .get("docs/long.txt") as { count: number }
+      expect(chunkCountBefore.count).toBeGreaterThan(1)
 
       // Replace with short content — produces exactly 1 chunk
       index.upsertFileContent(
@@ -5838,7 +5849,18 @@ describe("file content vector embeddings", () => {
         logger,
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
-      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+
+      const chunkCountAfter = inspectDb
+        .prepare(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
+        .get("docs/long.txt") as { count: number }
+      expect(chunkCountAfter.count).toBe(1)
+
+      const vectorCount = inspectDb
+        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
+        .get() as { count: number }
+      expect(vectorCount.count).toBe(1)
     })
   })
 })

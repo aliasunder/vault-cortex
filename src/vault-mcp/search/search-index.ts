@@ -2184,8 +2184,14 @@ export const createSearchIndex = (
             await setImmediateAsync()
           }
           // ── File content embedding ──────────────────────────────
-          if (filesForEmbedding.length > 0) {
-            // Clean up vectors for files that no longer exist
+          // Clean up vectors for files that no longer exist — runs
+          // unconditionally so deletions while the server was down are caught
+          // even when filesForEmbedding is empty (mirroring the note-side cleanup).
+          if (
+            fileContentVectorEnabled &&
+            deleteFileVectorsForPathStmt &&
+            deleteFileChunksForPathStmt
+          ) {
             const currentFilePaths = new Set(
               filesForEmbedding.map((file) => file.path),
             )
@@ -2199,11 +2205,7 @@ export const createSearchIndex = (
             const deletedFilePaths = indexedFileChunkPaths.filter(
               (path) => !currentFilePaths.has(path),
             )
-            if (
-              deletedFilePaths.length > 0 &&
-              deleteFileVectorsForPathStmt &&
-              deleteFileChunksForPathStmt
-            ) {
+            if (deletedFilePaths.length > 0) {
               for (const path of deletedFilePaths) {
                 deleteFileVectorsForPathStmt.run(path)
                 deleteFileChunksForPathStmt.run(path)
@@ -2212,7 +2214,9 @@ export const createSearchIndex = (
                 count: deletedFilePaths.length,
               })
             }
+          }
 
+          if (filesForEmbedding.length > 0) {
             const selectFileMtimeStmt = db.prepare<[string], { mtime: number }>(
               "SELECT mtime FROM file_content WHERE path = ?",
             )

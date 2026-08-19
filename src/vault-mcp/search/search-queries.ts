@@ -613,20 +613,32 @@ export const hybridSearch = async (
     const fileVectorHit = fileContentVectorHitsByPath.get(path)
     if (fileVectorHit && context.selectFileContentMetadataStmt) {
       const fileMetadata = context.selectFileContentMetadataStmt.get(path)
-      if (fileMetadata) {
-        mergedResults.push(
-          fileContentRowToSearchResult(
-            {
-              ...fileMetadata,
-              snippet: buildSnippetFromChunkText(
-                fileVectorHit.chunkText,
-                snippetTokens,
-              ),
-            },
-            score,
-          ),
-        )
+      if (!fileMetadata) continue
+
+      // Apply folder filter — file content FTS applies it via SQL, but
+      // vector-only results bypass FTS and need the check here.
+      if (
+        params.filters?.folder &&
+        !fileMetadata.folder.startsWith(
+          stripTrailingSlashes(params.filters.folder),
+        ) &&
+        fileMetadata.folder !== stripTrailingSlashes(params.filters.folder)
+      ) {
+        continue
       }
+
+      mergedResults.push(
+        fileContentRowToSearchResult(
+          {
+            ...fileMetadata,
+            snippet: buildSnippetFromChunkText(
+              fileVectorHit.chunkText,
+              snippetTokens,
+            ),
+          },
+          score,
+        ),
+      )
     }
   }
 
