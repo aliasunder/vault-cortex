@@ -948,8 +948,8 @@ test.
 - Parser changes (pure, no I/O).
 - Search query changes (`search-index.test.ts` uses a real SQLite DB).
 - Config validation (`config.test.ts` tests `loadConfig` directly).
-- Tool registration/annotation (`tool-definitions.test.ts` with
-  InMemoryTransport covers the registration layer).
+- Tool registration/annotation (`tool-definitions.test.ts` covers
+  the registration layer via a mock server).
 
 **File structure:**
 
@@ -961,10 +961,11 @@ test.
 - `fixtures/vault/` — committed fixture vault; a PR that adds a tool
   also adds fixture data and a test case.
 
-**Splitting thresholds:** consider splitting at ~800 lines / ~60
-tests; must split at ~1,200 lines / ~100 tests. Split along natural
-seams (tool group, config combo, test concern), not arbitrary line
-counts.
+**When to split a test file:** when navigating the file requires
+scrolling past unrelated test groups to find what you need — the
+file has multiple distinct concerns that don't share setup or
+context. Split along concern boundaries (happy path vs error
+contracts, by tool group, by config combo), not arbitrary size.
 
 ## SST conventions
 
