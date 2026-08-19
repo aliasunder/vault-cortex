@@ -92,8 +92,8 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
   } = options
 
   return new Promise<PtyResult>((resolvePromise) => {
-    let fullOutput = "" // everything the CLI has printed (for the transcript)
-    let buffer = "" // since the last answered prompt (for matching the next one)
+    let fullOutput = ""
+    let buffer = ""
     let promptIndex = 0
     let settled = false
     let exited = false

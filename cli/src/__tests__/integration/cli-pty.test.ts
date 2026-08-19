@@ -19,12 +19,8 @@ import {
 const DOWN = "\x1b[B"
 
 describe("init local", () => {
-  // User runs `vault-cortex init`, picks local mode, points at their vault,
-  // skips optional settings, and declines to start docker.
   it("completes the happy path (decline start)", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-    // Track whether the docker shim started a health server — it shouldn't
-    // when the user declines to start.
     const pidFile = join(configDir, "health-server.pid")
     onTestFinished(() => killHealthServer(pidFile))
 
@@ -65,8 +61,6 @@ describe("init local", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=\S+$/m)
   })
 
-  // Same flow but the user says "yes" to starting docker. The docker shim
-  // starts a real HTTP server on port 8000 so the CLI's health poll succeeds.
   it("accepts start and passes health check", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
@@ -105,8 +99,6 @@ describe("init local", () => {
     expect(result.transcript).toContain("health check passed")
   })
 
-  // User picks two optional settings from the multiselect chooser (PORT
-  // and TZ), answers their individual prompts, then declines to start.
   it("navigates optional settings with selections", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
 
@@ -154,9 +146,6 @@ describe("init local", () => {
 })
 
 describe("init remote", () => {
-  // User picks remote mode, enters their server URL, vault name, and
-  // sync token (pasted manually after declining auto-capture), skips
-  // E2E encryption and optional settings, declines to start.
   it("completes the happy path (decline start)", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
 
@@ -218,11 +207,9 @@ describe("init remote", () => {
 })
 
 describe("configure", () => {
-  // User has an existing deployment and runs `configure` to toggle
-  // READONLY_MODE on, then declines to restart the container.
   it("toggles READONLY_MODE and writes .env", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
-    seedEnv(configDir) // existing deployment the user is reconfiguring
+    seedEnv(configDir)
 
     // READONLY_MODE is index 5 in the settings list: 5× down, space, enter
     const navigateToReadonly = DOWN.repeat(5) + " \r"
@@ -252,9 +239,6 @@ describe("configure", () => {
   })
 })
 
-// Non-interactive commands — no prompts to answer, but we verify the
-// full binary entry point routes to the right command and produces the
-// expected output with the docker shim simulating container operations.
 describe("non-interactive commands", () => {
   it("upgrade pulls and starts", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
@@ -273,7 +257,6 @@ describe("non-interactive commands", () => {
     expect(result.transcript).toContain("Upgrade complete")
   })
 
-  // Shim reports no container running — the CLI should say so and exit clean
   it("down reports no container when none exists", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     seedEnv(configDir)
@@ -289,7 +272,6 @@ describe("non-interactive commands", () => {
     expect(result.transcript).toContain("No vault-cortex container found")
   })
 
-  // Shim reports a container is running — the CLI should stop and remove it
   it("down stops and removes an existing container", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     seedEnv(configDir)
@@ -321,7 +303,6 @@ describe("non-interactive commands", () => {
     expect(result.transcript).toContain("Restart complete")
   })
 
-  // Shim makes docker run exit 1 — the CLI should report the failure
   it("reports docker run failure", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     seedEnv(configDir)
