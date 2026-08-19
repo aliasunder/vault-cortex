@@ -56,10 +56,14 @@ const stripAnsi = (text: string): string =>
 const SPINNER_GLYPHS = /(?=[◒◐◓◑⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏])/
 const cleanTranscript = (strippedOutput: string): string => {
   const cleanedLines = strippedOutput.split("\n").flatMap((line) => {
+    // Per-keystroke echo: everything before the last block cursor is a
+    // stale partial render — the final state follows it.
     const cursorTrimmed = line.includes("█")
       ? line.slice(line.lastIndexOf("█") + 1)
       : line
     if (line.includes("█") && cursorTrimmed.trim() === "") return []
+    // Spinner frames: identical text re-rendered behind a rotating
+    // glyph — keep the first of each consecutive identical fragment.
     const fragments = cursorTrimmed.split(SPINNER_GLYPHS)
     const withoutRepeats = fragments.filter(
       (fragment, index) =>
