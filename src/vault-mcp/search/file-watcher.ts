@@ -130,11 +130,18 @@ export const startFileWatcher = (
               search.embedFileContent({ filePath: relativePath }, logger),
             )
           pendingEmbeds.set(relativePath, currentEmbed)
-          currentEmbed.finally(() => {
-            if (pendingEmbeds.get(relativePath) === currentEmbed) {
-              pendingEmbeds.delete(relativePath)
-            }
-          })
+          currentEmbed
+            .catch((embedError) => {
+              logger.warn("file content embedding failed", {
+                path: relativePath,
+                error: describeError(embedError),
+              })
+            })
+            .finally(() => {
+              if (pendingEmbeds.get(relativePath) === currentEmbed) {
+                pendingEmbeds.delete(relativePath)
+              }
+            })
         } catch (error) {
           logger.warn("file content indexing failed", {
             path: relativePath,
