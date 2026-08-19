@@ -55,7 +55,7 @@ describe("init local", () => {
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}`)
-    expect(envContent).toContain("MCP_AUTH_TOKEN=")
+    expect(envContent).toMatch(/^MCP_AUTH_TOKEN=\S+$/m)
   })
 
   it("accepts start and passes health check", async () => {

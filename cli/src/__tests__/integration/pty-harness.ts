@@ -4,7 +4,7 @@
 // render-settle delay, transcript cleaning).
 
 import { createRequire } from "node:module"
-import { cpSync, mkdtempSync, rmSync } from "node:fs"
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { onTestFinished } from "vitest"
@@ -175,13 +175,13 @@ const createPtyWorkDir = (): { vaultDir: string; configDir: string } => {
  */
 const killHealthServer = (pidFile: string): void => {
   try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs")
     const pid = parseInt(readFileSync(pidFile, "utf8").trim(), 10)
     if (!Number.isNaN(pid)) {
       process.kill(pid, "SIGTERM")
     }
-  } catch {
-    // PID file doesn't exist or process already gone — fine
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== "ENOENT" && code !== "ESRCH") throw error
   }
 }
 
