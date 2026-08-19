@@ -143,6 +143,7 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       const currentPrompt = prompts[promptIndex]
       if (currentPrompt && cleanBuffer.includes(currentPrompt.match)) {
         settled = true
+        // Wait for the prompt UI to fully render before sending keys
         await sleep(400)
         child.write(currentPrompt.send)
         promptIndex++
