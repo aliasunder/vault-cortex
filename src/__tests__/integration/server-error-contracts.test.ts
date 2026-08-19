@@ -500,6 +500,80 @@ describe("path extension errors", () => {
     )
   })
 
+  it("vault_patch_note rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Projects/alpha", operation: "append", content: "text" },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_replace_in_note rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "Projects/alpha", old_text: "old", new_text: "new" },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_delete_note rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Projects/alpha" },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_delete_span rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "Projects/alpha", start_anchor: "anything" },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_update_properties rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Projects/alpha", properties: { status: "active" } },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_move_note rejects old_path without extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/alpha", new_path: "Projects/moved.md" },
+    })
+    // old_path is validated by the backlinks lookup that runs before the move,
+    // which accepts .md or .canvas — so the error uses the wider extension set
+    expectToolError(
+      result,
+      'path must end in ".md" or ".canvas" (received "Projects/alpha")',
+    )
+  })
+
   it("vault_get_backlinks rejects paths without .md or .canvas extension", async () => {
     const result = await callTool({
       client,
@@ -522,5 +596,23 @@ describe("path extension errors", () => {
       result,
       'path must end in ".md" or ".canvas" (received "Projects/alpha")',
     )
+  })
+
+  it("vault_get_backlinks accepts .canvas paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_backlinks",
+      args: { path: "Boards/roadmap.canvas" },
+    })
+    expect(result.isError).not.toBe(true)
+  })
+
+  it("vault_get_outgoing_links accepts .canvas paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_outgoing_links",
+      args: { path: "Boards/roadmap.canvas" },
+    })
+    expect(result.isError).not.toBe(true)
   })
 })

@@ -176,10 +176,15 @@ export const promptNames = async (client: Client): Promise<string[]> => {
 
 // ── Shared tool-call helpers ────────────────────────────────────
 
-export type TextBlock = { type: "text"; text: string }
-export type ToolResult = { isError?: boolean; content: TextBlock[] }
+type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>
 
-/** Call a tool and cast the result to the common text-block shape. */
+/** Content-response branch of the SDK's CallToolResult union. */
+export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>
+
+const isContentResult = (result: SdkCallToolResult): result is ToolResult =>
+  Array.isArray(result.content)
+
+/** Call a tool and return the content-based result. */
 export const callTool = async ({
   client,
   name,
@@ -188,8 +193,15 @@ export const callTool = async ({
   client: Client
   name: string
   args?: Record<string, unknown>
-}): Promise<ToolResult> =>
-  client.callTool({ name, arguments: args }) as Promise<ToolResult>
+}): Promise<ToolResult> => {
+  const result = await client.callTool({ name, arguments: args })
+  if (!isContentResult(result)) {
+    throw new Error(
+      "unexpected toolResult response — server returned no content array",
+    )
+  }
+  return result
+}
 
 /** Join all text blocks from a tool result into a single string. */
 export const textContent = (result: ToolResult): string =>
