@@ -99,6 +99,13 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     vault.ts                           # Vault path validation
     node-version.ts                    # Node.js version compatibility check
     messages.ts                        # User-facing output formatting
+    __tests__/
+      integration/                     # Interactive flows via node-pty in a real PTY
+        pty-harness.ts                 #   PTY spawn + sequential prompt matching + transcript
+        cli-pty.test.ts                #   init (local + remote), configure, optional settings, non-interactive wiring
+        fixtures/
+          docker                       #   Fake docker binary (bash, configurable via env vars)
+          .obsidian/daily-notes.json   #   Vault path validation fixture
 src/
   logger.ts                            # Root logger (structured JSON, source location)
   auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
@@ -974,6 +981,30 @@ scrolling past unrelated test groups to find what you need — the
 file has multiple distinct concerns that don't share setup or
 context. Split along concern boundaries (happy path vs error
 contracts, by tool group, by config combo), not arbitrary size.
+
+### CLI PTY tests — when to add
+
+CLI PTY tests (`cli/src/__tests__/integration/`) drive the real CLI
+binary in a pseudo-terminal via node-pty. They catch what unit tests
+(which use `createScriptedPrompts` DI) structurally can't — real
+keystroke processing, terminal rendering, and entry-point wiring.
+Run via `npm run test:cli-pty` (separate vitest config, excluded
+from `npm test`).
+
+**Always add:**
+
+- New interactive command → happy-path test driving the full prompt
+  sequence.
+- New prompt in an existing command → extend or add a scenario.
+- Docker start/health-check changes → test with the docker shim's
+  health server.
+
+**Never add:**
+
+- Output/message changes — unit tests pin via `createScriptedPrompts`.
+- Flag parsing — `program.test.ts` covers Commander.
+- Prompt branching logic — unit tests cover via scripted answers.
+- Docker interaction — unit tests inject `DockerRunner` stubs.
 
 ## SST conventions
 
