@@ -922,6 +922,50 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   Actions runs `run:` steps with errexit, so a failing
   `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
 
+### Integration tests — when to add
+
+Integration tests (`src/__tests__/integration/`) boot a real server
+and call tools over real HTTP via the MCP SDK Client. They catch what
+unit tests structurally can't — handler miscalls, config-gated surface
+mismatches, transport-layer bugs. The deciding question: **would this
+bug survive unit tests but break in production?** If the unit test
+already uses real I/O (temp dirs, real SQLite), skip the integration
+test.
+
+**Always add:**
+
+- New tool → happy-path test in `server-integration.test.ts` + fixture
+  data if needed.
+- New error path in a tool's `Errors:` section → test in
+  `server-error-contracts.test.ts` asserting the exact error message.
+- New config gating axis → config matrix test in
+  `server-integration.test.ts` (tool count + key behavior).
+- New prompt → assembly test verifying live vault data, not just the
+  instruction wrapper.
+
+**Never add:**
+
+- Parser changes (pure, no I/O).
+- Search query changes (`search-index.test.ts` uses a real SQLite DB).
+- Config validation (`config.test.ts` tests `loadConfig` directly).
+- Tool registration/annotation (`tool-definitions.test.ts` with
+  InMemoryTransport covers the registration layer).
+
+**File structure:**
+
+- `server-integration.test.ts` — happy paths + config gating (one
+  server per config combo).
+- `server-error-contracts.test.ts` — error paths, default config only
+  (errors are config-independent).
+- `test-harness.ts` — shared server lifecycle + client factory.
+- `fixtures/vault/` — committed fixture vault; a PR that adds a tool
+  also adds fixture data and a test case.
+
+**Splitting thresholds:** consider splitting at ~800 lines / ~60
+tests; must split at ~1,200 lines / ~100 tests. Split along natural
+seams (tool group, config combo, test concern), not arbitrary line
+counts.
+
 ## SST conventions
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
