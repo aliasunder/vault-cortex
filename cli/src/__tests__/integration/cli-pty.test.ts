@@ -5,7 +5,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import {
   createPtyWorkDir,
@@ -61,6 +61,7 @@ describe("init local", () => {
   it("accepts start and passes health check", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
+    onTestFinished(() => killHealthServer(pidFile))
 
     const prompts: PtyPrompt[] = [
       { match: "How do you want to run", send: "\r", label: "mode → local" },
@@ -89,8 +90,6 @@ describe("init local", () => {
       timeoutMs: 45_000,
       env: { DOCKER_SHIM_PID_FILE: pidFile, DOCKER_SHIM_HEALTH_PORT: "8000" },
     })
-
-    killHealthServer(pidFile)
 
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
@@ -247,6 +246,7 @@ describe("non-interactive commands", () => {
   it("upgrade pulls and starts", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
+    onTestFinished(() => killHealthServer(pidFile))
 
     mkdirSync(configDir, { recursive: true })
     writeFileSync(
@@ -260,8 +260,6 @@ describe("non-interactive commands", () => {
       prompts: [],
       env: { DOCKER_SHIM_PID_FILE: pidFile, DOCKER_SHIM_HEALTH_PORT: "8000" },
     })
-
-    killHealthServer(pidFile)
 
     expect(result.exitCode).toBe(0)
     expect(result.transcript).toContain("Upgrade complete")
@@ -290,6 +288,7 @@ describe("non-interactive commands", () => {
   it("restart completes the full cycle", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
+    onTestFinished(() => killHealthServer(pidFile))
 
     mkdirSync(configDir, { recursive: true })
     writeFileSync(
@@ -303,8 +302,6 @@ describe("non-interactive commands", () => {
       prompts: [],
       env: { DOCKER_SHIM_PID_FILE: pidFile, DOCKER_SHIM_HEALTH_PORT: "8000" },
     })
-
-    killHealthServer(pidFile)
 
     expect(result.exitCode).toBe(0)
     expect(result.transcript).toContain("Restart complete")
