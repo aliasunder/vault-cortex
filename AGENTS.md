@@ -117,6 +117,7 @@ src/
     integration/                       # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
       test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
+      server-error-contracts.test.ts   #   Documented error paths: exact messages, remediation text
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)

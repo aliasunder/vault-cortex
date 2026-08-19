@@ -1,0 +1,394 @@
+/** Error contract integration tests — every tool's documented error paths
+ *  verified over real HTTP transport against a real server. */
+
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { startServer, createTestClient, randomPort } from "./test-harness.js"
+
+vi.setConfig({ testTimeout: 15_000 })
+
+type TextBlock = { type: "text"; text: string }
+type ToolResult = { isError?: boolean; content: TextBlock[] }
+
+const callTool = async ({
+  client,
+  name,
+  args = {},
+}: {
+  client: Client
+  name: string
+  args?: Record<string, unknown>
+}): Promise<ToolResult> =>
+  client.callTool({ name, arguments: args }) as Promise<ToolResult>
+
+const textContent = (result: ToolResult): string =>
+  result.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+
+const expectToolError = (
+  result: ToolResult,
+  expectedSubstring: string,
+): void => {
+  expect(result.isError).toBe(true)
+  expect(textContent(result)).toContain(expectedSubstring)
+}
+
+// ── Single server boot for all error contract tests ──────────
+
+let client: Client
+let cleanup: (() => Promise<void>) | undefined
+
+beforeAll(async () => {
+  const port = randomPort()
+  const server = await startServer(port)
+  cleanup = server.cleanup
+  client = await createTestClient(server.port)
+}, 30_000)
+
+afterAll(async () => {
+  try {
+    if (client) await client.close()
+  } finally {
+    if (cleanup) await cleanup()
+  }
+})
+
+// ── Path traversal ───────────────────────────────────────────
+
+describe("path traversal blocked", () => {
+  it("vault_read_note rejects paths escaping the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "../escape.md" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_write_note rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "../../escape.md", body: "malicious" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_patch_note rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: "../outside.md",
+        operation: "append",
+        content: "injected",
+      },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_delete_note rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "../escape.md" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_move_note rejects path traversal on old_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "../escape.md", new_path: "safe.md" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+})
+
+// ── Hidden paths ─────────────────────────────────────────────
+
+describe("hidden path blocked", () => {
+  it("vault_read_note rejects dot-prefixed paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: ".obsidian/plugins.md" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_write_note rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: ".hidden/secret.md", body: "hidden content" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_delete_note rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: ".obsidian/config.md" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+})
+
+// ── Note not found ───────────────────────────────────────────
+
+describe("note not found", () => {
+  it("vault_read_note for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "does-not-exist.md" },
+    })
+    expectToolError(result, 'note not found: "does-not-exist.md"')
+  })
+
+  it("vault_patch_note for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: "ghost.md",
+        operation: "append",
+        content: "appended",
+      },
+    })
+    expectToolError(result, 'note not found: "ghost.md"')
+  })
+
+  it("vault_replace_in_note for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: {
+        path: "missing.md",
+        old_text: "old",
+        new_text: "new",
+      },
+    })
+    expectToolError(result, 'note not found: "missing.md"')
+  })
+
+  it("vault_delete_note for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "nonexistent.md" },
+    })
+    expectToolError(result, 'note not found: "nonexistent.md"')
+  })
+
+  it("vault_update_properties for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "nope.md", properties: { status: "active" } },
+    })
+    expectToolError(result, 'note not found: "nope.md"')
+  })
+
+  it("vault_delete_span for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "gone.md", start_anchor: "anything" },
+    })
+    expectToolError(result, 'note not found: "gone.md"')
+  })
+})
+
+// ── Note already exists ──────────────────────────────────────
+
+describe("note already exists", () => {
+  it("vault_write_note without overwrite rejects existing path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Projects/alpha.md", body: "overwrite attempt" },
+    })
+    expectToolError(result, 'note already exists: "Projects/alpha.md"')
+  })
+})
+
+// ── Heading not found ────────────────────────────────────────
+
+describe("heading not found", () => {
+  it("vault_read_note with a nonexistent heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md", heading: "Nonexistent Section" },
+    })
+    expectToolError(result, 'heading not found: "Nonexistent Section"')
+  })
+
+  it("vault_patch_note replace with a nonexistent heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: "Projects/alpha.md",
+        operation: "replace",
+        heading: "No Such Heading",
+        content: "replaced content",
+      },
+    })
+    expectToolError(result, 'heading not found: "No Such Heading"')
+  })
+})
+
+// ── Ambiguous heading ────────────────────────────────────────
+
+describe("ambiguous heading", () => {
+  it("vault_read_note with a heading that matches multiple sections", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Ambiguous Headings.md", heading: "Details" },
+    })
+    expectToolError(result, 'ambiguous heading: "Details"')
+  })
+
+  it("vault_patch_note with an ambiguous heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: "Ambiguous Headings.md",
+        operation: "append",
+        heading: "Details",
+        content: "which one?",
+      },
+    })
+    expectToolError(result, 'ambiguous heading: "Details"')
+  })
+})
+
+// ── Text not found ───────────────────────────────────────────
+
+describe("text not found", () => {
+  it("vault_replace_in_note with text that does not appear in the note", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: {
+        path: "Projects/alpha.md",
+        old_text: "this text does not exist in the note",
+        new_text: "replacement",
+      },
+    })
+    expectToolError(result, "text not found")
+  })
+})
+
+// ── Anchor not found / ambiguous ─────────────────────────────
+
+describe("anchor errors", () => {
+  it("vault_delete_span with a nonexistent anchor", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: {
+        path: "Projects/alpha.md",
+        start_anchor: "this anchor does not exist anywhere in the file",
+      },
+    })
+    expectToolError(result, "anchor not found")
+  })
+})
+
+// ── Memory errors ────────────────────────────────────────────
+
+describe("memory errors", () => {
+  it("vault_get_memory with a nonexistent file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { file: "Nonexistent" },
+    })
+    expectToolError(result, "memory file not found")
+  })
+
+  it("vault_get_memory with a nonexistent section", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { file: "Preferences", section: "No Such Section" },
+    })
+    expectToolError(result, "section not found")
+  })
+
+  it("vault_update_memory rejects multi-line entries", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor settings",
+        entry: "line one\nline two",
+      },
+    })
+    expectToolError(result, "entry must be a single line")
+  })
+
+  it("vault_delete_memory with a nonexistent section", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Preferences",
+        section: "Missing Section",
+        date: "2026-01-01",
+        entry: "anything",
+      },
+    })
+    expectToolError(result, "section not found")
+  })
+})
+
+// ── Task errors ──────────────────────────────────────────────
+
+describe("task errors", () => {
+  it("vault_update_task with a nonexistent block_id", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "nonexistent-block-id",
+        status: "done",
+      },
+    })
+    expectToolError(result, 'block_id "nonexistent-block-id" not found')
+  })
+})
+
+// ── Path extension errors ────────────────────────────────────
+
+describe("path extension errors", () => {
+  it("vault_read_note rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha" },
+    })
+    expectToolError(result, "path must end in")
+  })
+
+  it("vault_get_backlinks rejects paths without .md or .canvas extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_backlinks",
+      args: { path: "Projects/alpha" },
+    })
+    expectToolError(result, "path must end in")
+  })
+})
