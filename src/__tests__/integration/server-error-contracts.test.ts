@@ -85,11 +85,47 @@ describe("path traversal blocked", () => {
     expectToolError(result, "path traversal blocked")
   })
 
+  it("vault_replace_in_note rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "../outside.md", old_text: "old", new_text: "new" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_delete_span rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "../outside.md", start_anchor: "anything" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_update_properties rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "../outside.md", properties: { status: "active" } },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
   it("vault_move_note rejects path traversal on old_path", async () => {
     const result = await callTool({
       client,
       name: "vault_move_note",
       args: { old_path: "../escape.md", new_path: "safe.md" },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_move_note rejects path traversal on new_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/alpha.md", new_path: "../escape.md" },
     })
     expectToolError(result, "path traversal blocked")
   })
@@ -116,11 +152,69 @@ describe("hidden path blocked", () => {
     expectToolError(result, "hidden path blocked")
   })
 
+  it("vault_patch_note rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: ".hidden/note.md",
+        operation: "append",
+        content: "injected",
+      },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_replace_in_note rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: ".hidden/note.md", old_text: "old", new_text: "new" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
   it("vault_delete_note rejects hidden paths", async () => {
     const result = await callTool({
       client,
       name: "vault_delete_note",
       args: { path: ".obsidian/config.md" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_delete_span rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: ".hidden/note.md", start_anchor: "anything" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_update_properties rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: ".hidden/note.md", properties: { status: "active" } },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_move_note rejects hidden old_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: ".hidden/note.md", new_path: "visible.md" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_move_note rejects hidden new_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/alpha.md", new_path: ".hidden/moved.md" },
     })
     expectToolError(result, "hidden path blocked")
   })
