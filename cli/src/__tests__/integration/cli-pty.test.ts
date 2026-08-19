@@ -3,7 +3,7 @@
 // by verifying actual terminal rendering, keystroke processing, and end-to-end
 // entry point wiring.
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
@@ -22,6 +22,8 @@ const DOWN = "\x1b[B"
 describe("init local", () => {
   it("completes the happy path (decline start)", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
+    const pidFile = join(configDir, "health-server.pid")
+    onTestFinished(() => killHealthServer(pidFile))
 
     const prompts: PtyPrompt[] = [
       { match: "How do you want to run", send: "\r", label: "mode → local" },
@@ -47,11 +49,13 @@ describe("init local", () => {
       args: ["init"],
       workDir: vaultDir,
       prompts,
+      env: { DOCKER_SHIM_PID_FILE: pidFile },
     })
 
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("Done.")
+    expect(existsSync(pidFile)).toBe(false)
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}`)
@@ -285,6 +289,25 @@ describe("non-interactive commands", () => {
     expect(result.transcript).toContain("No vault-cortex container found")
   })
 
+  it("down stops and removes an existing container", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(
+      join(configDir, ".env"),
+      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
+    )
+
+    const result = await drivePty({
+      args: ["down", "--dir", configDir],
+      workDir: vaultDir,
+      prompts: [],
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.transcript).toContain("Container stopped and removed")
+  })
+
   it("restart completes the full cycle", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
     const pidFile = join(configDir, "health-server.pid")
@@ -305,5 +328,25 @@ describe("non-interactive commands", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.transcript).toContain("Restart complete")
+  })
+
+  it("reports docker run failure", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(
+      join(configDir, ".env"),
+      "MCP_AUTH_TOKEN=test-token\nVAULT_PATH=/tmp/vault\nPUBLIC_URL=http://localhost:8000\n",
+    )
+
+    const result = await drivePty({
+      args: ["restart", "--dir", configDir],
+      workDir: vaultDir,
+      prompts: [],
+      env: { DOCKER_SHIM_RUN_FAIL: "1" },
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.transcript).toContain("docker run failed")
   })
 })
