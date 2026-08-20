@@ -754,17 +754,26 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
   config directory from it, and `init-setup-user` / `init-first-sync` keep
   the `.applied-ids` record and the deletion-storm sentinel there too
 
-A variable set explicitly (non-empty) is never overridden; `LOG_DIR=none`
-turns log files off (the sentinel, not an empty value, because every
-deployment surface that defaults `LOG_DIR` on substitutes its default for
-empty). Unset, the layout is the historical three-mount one, so Compose and
-plain `docker run` deployments are unaffected.
+Derivation never overrides a variable that is already set to a non-empty
+value. `LOG_DIR=none` turns log files off; the sentinel exists because every
+deployment surface that defaults `LOG_DIR` on substitutes its default for an
+empty value, so "empty" cannot mean "off". Without `STORAGE_ROOT`, the layout
+is the three-mount one, and Compose and plain `docker run` deployments are
+unaffected.
 
-`init-derive-env` also fills `PUBLIC_URL` when it is unset, from the first
-present of `RENDER_EXTERNAL_URL`, `https://$RAILWAY_PUBLIC_DOMAIN`, or
-`https://$FLY_APP_NAME.fly.dev`, so a platform deploy boots without the user
-typing a URL the platform only assigns at creation. The derivation is a pure
-script (`print-derived-env`) run under `sh` by its unit tests.
+**`PUBLIC_URL` derivation.** Hosted platforms assign a service's public
+address only at creation, so a template deploy cannot ask the user to type it
+up front. When `PUBLIC_URL` is unset, `init-derive-env` fills it from the
+first platform variable present:
+
+- `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
+- `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
+- `FLY_APP_NAME` → `https://$FLY_APP_NAME.fly.dev`
+
+When none is present, `PUBLIC_URL` stays unset and the server's
+required-variable error fires as usual. Both derivations live in one pure
+script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
+tests run directly under `sh`.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
