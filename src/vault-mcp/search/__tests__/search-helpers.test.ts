@@ -788,35 +788,53 @@ describe("escapeLikeWildcards", () => {
 
 describe("pathIsInFolder", () => {
   it("matches a path directly inside the folder", () => {
-    expect(pathIsInFolder("Docs/inside.txt", "Docs")).toBe(true)
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs" })).toBe(
+      true,
+    )
   })
 
   it("matches a path nested below the folder", () => {
-    expect(pathIsInFolder("Docs/sub/deep.txt", "Docs")).toBe(true)
+    expect(pathIsInFolder({ path: "Docs/sub/deep.txt", folder: "Docs" })).toBe(
+      true,
+    )
   })
 
   it("ignores ASCII case, mirroring SQLite LIKE on the SQL legs", () => {
-    expect(pathIsInFolder("Projects/plan.md", "projects")).toBe(true)
-    expect(pathIsInFolder("projects/plan.md", "PROJECTS")).toBe(true)
+    expect(
+      pathIsInFolder({ path: "Projects/plan.md", folder: "projects" }),
+    ).toBe(true)
+    expect(
+      pathIsInFolder({ path: "projects/plan.md", folder: "PROJECTS" }),
+    ).toBe(true)
   })
 
   it("does not fold non-ASCII case, exactly like SQLite LIKE", () => {
-    expect(pathIsInFolder("Équipe/plan.md", "équipe")).toBe(false)
-    expect(pathIsInFolder("Équipe/plan.md", "Équipe")).toBe(true)
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "équipe" })).toBe(
+      false,
+    )
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "Équipe" })).toBe(
+      true,
+    )
   })
 
   it("requires a segment boundary so a folder prefix is not enough", () => {
-    expect(pathIsInFolder("Docs2/outside.txt", "Docs")).toBe(false)
-    expect(pathIsInFolder("Documents/outside.txt", "Docs")).toBe(false)
+    expect(pathIsInFolder({ path: "Docs2/outside.txt", folder: "Docs" })).toBe(
+      false,
+    )
+    expect(
+      pathIsInFolder({ path: "Documents/outside.txt", folder: "Docs" }),
+    ).toBe(false)
   })
 
   it("ignores trailing slashes on the folder filter", () => {
-    expect(pathIsInFolder("Docs/inside.txt", "Docs//")).toBe(true)
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs//" })).toBe(
+      true,
+    )
   })
 
   it("does not match the folder's own path or a root-level file", () => {
-    expect(pathIsInFolder("Docs", "Docs")).toBe(false)
-    expect(pathIsInFolder("inside.txt", "Docs")).toBe(false)
+    expect(pathIsInFolder({ path: "Docs", folder: "Docs" })).toBe(false)
+    expect(pathIsInFolder({ path: "inside.txt", folder: "Docs" })).toBe(false)
   })
 })
 

@@ -80,7 +80,13 @@ const foldAsciiCase = (value: string): string =>
 /** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
  *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
  *  ASCII-case-insensitive, matching SQLite LIKE's folding exactly. */
-export const pathIsInFolder = (path: string, folder: string): boolean =>
+export const pathIsInFolder = ({
+  path,
+  folder,
+}: {
+  path: string
+  folder: string
+}): boolean =>
   foldAsciiCase(path).startsWith(
     `${foldAsciiCase(stripTrailingSlashes(folder))}/`,
   )
@@ -282,7 +288,11 @@ export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
 ): boolean => {
-  if (filters.folder && !pathIsInFolder(note.path, filters.folder)) return false
+  if (
+    filters.folder &&
+    !pathIsInFolder({ path: note.path, folder: filters.folder })
+  )
+    return false
 
   if (filters.tags) {
     const noteTags = parseStringArray(note.tags)
