@@ -88,7 +88,7 @@ const LOG_FILE_SUFFIX = ".log"
 /** Matches date-stamped log files: vault-mcp-YYYY-MM-DD.log */
 const LOG_FILE_PATTERN = /^vault-mcp-(\d{4}-\d{2}-\d{2})\.log$/
 
-const DEFAULT_RETENTION_DAYS = 30
+const DEFAULT_RETENTION_DAYS = 90
 
 const todayDateString = (): string => DateTime.now().toISODate()
 

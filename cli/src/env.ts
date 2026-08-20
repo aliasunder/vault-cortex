@@ -132,8 +132,9 @@ LOG_LEVEL=info
 # log files there; the /data volume keeps them.
 LOG_DIR=none
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to keep log files before cleanup on startup (default: 90). Only
+# applies once LOG_DIR is a path.
+# LOG_RETENTION_DAYS=90
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
 # through Docker Desktop (switches the file watcher to polling and note moves
@@ -260,8 +261,8 @@ LOG_LEVEL=info
 # survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to retain persistent log files before cleanup (default: 90).
+LOG_RETENTION_DAYS=90
 
 # User/group IDs for obsidian-sync (default: 1000).
 PUID=1000

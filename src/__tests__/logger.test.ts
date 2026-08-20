@@ -215,6 +215,19 @@ describe("pruneOldLogFiles", () => {
     ])
   })
 
+  it("keeps 90 days of log files when no retention is configured", () => {
+    const logDir = createTempDir()
+
+    const sixtyDaysAgo = DateTime.now().minus({ days: 60 }).toISODate()
+    const hundredDaysAgo = DateTime.now().minus({ days: 100 }).toISODate()
+    writeFileSync(join(logDir, `vault-mcp-${sixtyDaysAgo}.log`), "kept")
+    writeFileSync(join(logDir, `vault-mcp-${hundredDaysAgo}.log`), "pruned")
+
+    createFileSinkExtension(logDir)
+
+    expect(readdirSync(logDir)).toEqual([`vault-mcp-${sixtyDaysAgo}.log`])
+  })
+
   it("respects custom retention days", () => {
     const logDir = createTempDir()
 
