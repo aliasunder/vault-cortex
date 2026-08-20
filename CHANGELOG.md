@@ -91,6 +91,10 @@
 
 - Update CHANGELOG.md for v0.38.0
 
+### Security
+
+- This release fixes GHSA-wm5v-9236-597m (High, CVSS 7.5): spoofed `Forwarded`/`X-Forwarded-For` headers could bypass the per-client OAuth rate limit. All deployments `<= 0.38.0` should upgrade. Details: https://github.com/aliasunder/vault-cortex/security/advisories/GHSA-wm5v-9236-597m
+
 ## [0.38.0] — 2026-08-20
 
 ### Features
