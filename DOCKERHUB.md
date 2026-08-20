@@ -162,7 +162,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
 | `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
 | `LOG_DIR` | — | `/data/logs` (remote), `none` (local) | Directory for log files that survive container re-creation. The container's own log (what `docker logs` shows) is always written, but Docker discards it whenever the container is recreated — on image updates or config changes. Date-stamped files under `LOG_DIR` live on the data volume and survive. `none` keeps only the container log. |
-| `LOG_RETENTION_DAYS` | — | `90` | Days to keep log files before automatic cleanup on startup |
+| `LOG_RETENTION_DAYS` | — | `90` | Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path |
 | `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
