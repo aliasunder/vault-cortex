@@ -90,7 +90,7 @@ export type SearchQueryContext = {
    *  content FTS leg. */
   readonly fileContentFts: {
     readonly searchStmt: Database.Statement<
-      [number, string, number],
+      [number, string, string, number],
       FileContentFtsRow
     >
   } | null

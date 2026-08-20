@@ -12,6 +12,7 @@ import {
   fileContentRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
+  escapeLikeWildcards,
   stripTrailingSlashes,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
@@ -139,8 +140,9 @@ const fileContentVectorSearch = (
 
 // ── File content FTS (internal) ────────────────────────────────
 
-/** Runs the file_content_fts query (canvas content, etc.) and applies the
- *  folder filter in TypeScript — returns [] when the feature is disabled. */
+/** Runs the file_content_fts query (canvas content, etc.) with the folder
+ *  filter applied in SQL before the limit, mirroring fullTextSearch — returns
+ *  [] when the feature is disabled. */
 const runFileContentFts = (
   context: SearchQueryContext,
   query: string,
@@ -151,14 +153,17 @@ const runFileContentFts = (
   if (!context.fileContentFts) return []
   const sanitizedQuery = sanitizeFtsQuery(query)
   if (!sanitizedQuery) return []
-  const results = context.fileContentFts.searchStmt.all(
+  // "%" matches every path when no folder filter applies — the statement
+  // keeps a fixed arity instead of needing a second, predicate-free variant.
+  const folderPathPattern = folder
+    ? `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
+    : "%"
+  return context.fileContentFts.searchStmt.all(
     snippetTokens,
     sanitizedQuery,
+    folderPathPattern,
     limit,
   )
-  if (!folder) return results
-  const normalizedFolder = stripTrailingSlashes(folder) + "/"
-  return results.filter((row) => row.path.startsWith(normalizedFolder))
 }
 
 // ── Reranking helper ──────────────────────────────────────────

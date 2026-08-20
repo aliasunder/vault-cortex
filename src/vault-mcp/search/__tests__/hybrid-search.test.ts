@@ -1357,3 +1357,68 @@ describe("hybridSearch — file content vector search", () => {
     expect(results.map((result) => result.path)).toEqual(["notes/tagged.md"])
   })
 })
+
+// ── hybridSearch — file content FTS folder filter ─────────────
+
+describe("hybridSearch — file content FTS folder filter", () => {
+  /** Seeds one indexed text file with the given content. */
+  const seedTextFile = (
+    fileIndex: ReturnType<typeof createSearchIndex>,
+    filePath: string,
+    rawContent: string,
+  ): void => {
+    fileIndex.upsertNonMdFile(filePath, rawContent.length)
+    fileIndex.upsertFileContent(
+      { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+      logger,
+    )
+  }
+
+  it("returns in-folder files that rank below the vault-wide candidate window", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    // limit 1 → candidateLimit 3. Ten short out-of-folder matches outrank the
+    // one in-folder match (bm25 favors short documents), so a folder filter
+    // applied after the SQL LIMIT would never see the in-folder file.
+    for (const fileNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      seedTextFile(
+        fileIndex,
+        `Archive/outside-${fileNumber}.txt`,
+        "deployment notes",
+      )
+    }
+    seedTextFile(
+      fileIndex,
+      "Docs/inside.txt",
+      "A much longer runbook that mentions the deployment exactly once among many other unrelated operational words about logging, backups, rotation, and alerts.",
+    )
+
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Docs", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("fts")
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
+  it("applies the folder filter to file-content FTS hits at segment boundaries", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    seedTextFile(fileIndex, "Docs/inside.txt", "deployment notes")
+    // "Docs2" starts with "Docs" as a bare string — only a segment-boundary
+    // pattern ("Docs/%") keeps it out of a "Docs" filter
+    seedTextFile(fileIndex, "Docs2/outside.txt", "deployment notes")
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Docs" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+})

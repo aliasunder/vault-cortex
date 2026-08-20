@@ -677,9 +677,12 @@ export const createSearchIndex = (
         `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
       )
     : null
+  // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
+  // sees every in-folder match, not just those that rank inside the candidate
+  // window vault-wide; callers bind "%" when no folder filter applies.
   const searchFileContentFtsStmt = fileToolsEnabled
     ? db.prepare<
-        [number, string, number],
+        [number, string, string, number],
         {
           path: string
           title: string
@@ -694,6 +697,7 @@ export const createSearchIndex = (
          FROM file_content_fts
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
+           AND fc.path LIKE ? ESCAPE '\\'
          ORDER BY rank LIMIT ?`,
       )
     : null
