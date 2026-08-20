@@ -539,7 +539,7 @@ aws lightsail put-instance-public-ports \
 
 ### Port 8000 Hardening (Optional)
 
-By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. A direct caller also chooses its own `Forwarded` identity: the reference configuration trusts that header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Closing the direct path is what guarantees every bucket key is a real client IP. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000.
+By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. A direct caller also chooses its own `Forwarded` identity: the reference configuration trusts that header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Closing the direct path is what guarantees every bucket key is a real client IP. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup also changes which header carries the client IP — the **Client-IP trust with ORIGIN_URL** callout below has the two settings to flip.
 
 #### How it works
 
