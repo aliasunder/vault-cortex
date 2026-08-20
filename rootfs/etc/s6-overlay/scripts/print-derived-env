@@ -14,11 +14,12 @@
 # XDG_CONFIG_HOME is left alone (obsidian-headless falls back to
 # $HOME/.config).
 #
-# STORAGE_ROOT set — hosts that allow a single persistent mount (Railway,
-# Render, Fly): the vault, the index, log files, and Obsidian Sync state all
-# live under it, so one volume carries everything that must survive a
-# redeploy. LOG_DIR defaults to $STORAGE_ROOT/data/logs (matching the remote
-# Compose file's default-on behavior); LOG_DIR=none turns log files off.
+# STORAGE_ROOT set — container hosting platforms that allow a single
+# persistent mount (Railway, Render, Fly): the vault, the index, log files,
+# and Obsidian Sync state all live under it, so one volume carries
+# everything that must survive a redeploy. LOG_DIR defaults to
+# $STORAGE_ROOT/data/logs (matching the remote Compose file's default-on
+# behavior); LOG_DIR=none turns log files off.
 set -eu
 
 if [ -z "${STORAGE_ROOT:-}" ]; then

@@ -139,8 +139,9 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-**One persistent volume.** Hosts that allow a single volume per service
-(Railway, Render, Fly.io) can't attach the three mounts above. Mount the
+**One persistent volume.** Container hosting platforms that allow a single
+volume per service (Railway, Render, Fly.io) can't attach the three mounts
+above. Mount the
 one volume anywhere and point `STORAGE_ROOT` at it — the container keeps
 the vault, the search index, and Obsidian Sync state under that directory:
 
