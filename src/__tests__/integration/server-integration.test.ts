@@ -639,9 +639,9 @@ describe("default config", () => {
         }),
       })
 
-    // GHSA-wm5v-9236-597m regression: with the Forwarded header untrusted
-    // (the default), a distinct spoofed value per request must NOT mint a
-    // fresh rate-limit bucket — all six share the socket peer's bucket.
+    // With the Forwarded header untrusted (the default), a distinct spoofed
+    // value per request must NOT mint a fresh rate-limit bucket — all six
+    // share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
       for (let i = 1; i <= 5; i++) {
         const response = await register(`198.51.100.${i}`)
@@ -689,10 +689,10 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
       }),
     })
 
-  // The XFF channel is the other half of the GHSA-wm5v-9236-597m bypass:
-  // with TRUST_PROXY_HOPS=0 (the default), a client-supplied X-Forwarded-For
-  // must not shift the bucket either — re-raising the hop count would
-  // reopen it silently.
+  // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
+  // (the default), a client-supplied X-Forwarded-For must not shift the
+  // bucket either — re-raising the hop count would reopen the bypass
+  // silently.
   it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
     for (let i = 1; i <= 5; i++) {
       const response = await register(`198.51.100.${i}`)

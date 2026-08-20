@@ -607,9 +607,9 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
       }),
     })
 
-  // GHSA-wm5v-9236-597m regression: a distinct spoofed Forwarded value per
-  // request must NOT mint a fresh rate-limit bucket — all six share the real
-  // peer's bucket, so the sixth is 429.
+  // A distinct spoofed Forwarded value per request must NOT mint a fresh
+  // rate-limit bucket — all six share the real peer's bucket, so the sixth
+  // is 429.
   it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
     for (let i = 1; i <= 5; i++) {
       const response = await registerWithSpoofedIp(`198.51.100.${i}`)

@@ -689,9 +689,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       })
     })
 
-    // GHSA-wm5v-9236-597m: under production defaults neither the Forwarded
-    // header nor X-Forwarded-For is trusted — the socket peer is the only
-    // claim that identifies the client.
+    // Under production defaults neither the Forwarded header nor
+    // X-Forwarded-For is trusted — the socket peer is the only claim that
+    // identifies the client.
     it("ignores a client-supplied Forwarded header when it is not trusted (default)", async () => {
       const harness = await setupHarness()
       const response = await fetch(harness.url(), {

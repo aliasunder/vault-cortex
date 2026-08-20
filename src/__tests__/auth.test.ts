@@ -61,8 +61,8 @@ describe("extractClientIp", () => {
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
 
   describe("when the Forwarded header is not trusted (default)", () => {
-    // GHSA-wm5v-9236-597m: without a trusted edge proxy the header is
-    // attacker-controlled, so it must never become the rate-limit identity.
+    // Without a trusted edge proxy the header is attacker-controlled, so it
+    // must never become the rate-limit identity.
     it("ignores a client-supplied Forwarded header and returns req.ip", () => {
       const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
       expect(extractClientIp(request, false)).toBe("10.0.0.1")
