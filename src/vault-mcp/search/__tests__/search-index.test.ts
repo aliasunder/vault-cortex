@@ -6103,6 +6103,52 @@ describe("hybridSearch — file content vector search", () => {
     expect(results[0]?.folder).toBe("specs")
   })
 
+  it("applies the folder filter to file-content vector-only hits at segment boundaries", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Docs/inside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    // "Documents" shares the "Docs" prefix but is a different folder — a
+    // bare string-prefix match would wrongly include it
+    fileIndex.upsertNonMdFile("Documents/outside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Documents/outside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent(
+      { filePath: "Documents/outside.txt" },
+      logger,
+    )
+
+    // No lexical overlap with the seeded content — both files can only
+    // surface through the vector leg (identical mock embeddings), so the
+    // folder filter on vector-only hits is the behavior under test
+    const { results } = await fileIndex.hybridSearch(
+      { query: "quarterly budget forecast", filters: { folder: "Docs" } },
+      logger,
+    )
+
+    // Exactly the in-folder file — presence proves the vector leg ran,
+    // absence of Documents/outside.txt proves the segment-boundary filter
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
   it("skips file content vector search when note-specific filters are active", async () => {
     const mockEmbedder = createHybridMockEmbedder()
     const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
