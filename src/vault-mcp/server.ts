@@ -170,7 +170,18 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  const httpServer = app.listen(port, host, () => {
+  // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
+  // callback's error argument instead of throwing, so an unchecked callback
+  // would log "server started" and leave a process that serves nothing.
+  const httpServer = app.listen(port, host, (listenError?: Error) => {
+    if (listenError) {
+      logger.error("server failed to listen", {
+        host,
+        port,
+        error: describeError(listenError),
+      })
+      process.exit(1)
+    }
     logger.info("server started", { host, port })
   })
 

@@ -5,7 +5,7 @@ import { spawn } from "node:child_process"
 import { mkdtemp, cp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { randomInt } from "node:crypto"
+import { createServer } from "node:net"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { ChildProcess } from "node:child_process"
@@ -30,10 +30,36 @@ type SpawnedServer = {
   vaultPath: string
   dataDir: string
   stderr: () => string
+  /** Resolves once this child logs its own "server started" line. */
+  started: Promise<void>
 }
 
-/** Allocate a random port in the dynamic/private range (49152-65535). */
-export const randomPort = (): number => randomInt(49152, 65536)
+/** Ask the OS for a currently free TCP port. Test files run in parallel and
+ *  each boots its own servers, so a port drawn from a fixed random range can
+ *  collide with a sibling file's live server; an OS-assigned ephemeral port
+ *  does not repeat while the allocator cycles. */
+export const freePort = (): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.unref()
+    probe.once("error", reject)
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address()
+      if (!address || typeof address === "string") {
+        probe.close()
+        reject(new Error("port probe did not bind a TCP address"))
+        return
+      }
+      const { port } = address
+      probe.close((closeError) => {
+        if (closeError) {
+          reject(closeError)
+          return
+        }
+        resolve(port)
+      })
+    })
+  })
 
 const buildServerEnv = (
   port: number,
@@ -67,7 +93,7 @@ const spawnServerProcess = async (
 
   const child = spawn("npx", ["tsx", SERVER_ENTRY], {
     env,
-    stdio: ["ignore", "ignore", "pipe"],
+    stdio: ["ignore", "pipe", "pipe"],
   })
 
   let stderrBuf = ""
@@ -75,7 +101,20 @@ const spawnServerProcess = async (
     stderrBuf += chunk.toString()
   })
 
-  return { child, vaultPath, dataDir, stderr: () => stderrBuf }
+  // The server's structured "server started" log (stdout) is the only
+  // readiness signal that proves THIS process bound the port. A /healthz
+  // probe alone can be answered by any server already listening there —
+  // if our child then dies with EADDRINUSE, tests silently run against a
+  // sibling file's server with a different configuration.
+  const started = new Promise<void>((resolve) => {
+    let stdoutBuf = ""
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdoutBuf += chunk.toString()
+      if (stdoutBuf.includes('"message":"server started"')) resolve()
+    })
+  })
+
+  return { child, vaultPath, dataDir, stderr: () => stderrBuf, started }
 }
 
 /** Boot the real server against a copy of the fixture vault. */
@@ -83,10 +122,8 @@ export const startServer = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(
-    port,
-    envOverrides,
-  )
+  const { child, vaultPath, dataDir, stderr, started } =
+    await spawnServerProcess(port, envOverrides)
 
   try {
     const earlyExit = new Promise<never>((_, reject) => {
@@ -94,6 +131,18 @@ export const startServer = async (
         reject(new Error(`Server exited early with code ${code}`)),
       )
     })
+    const startTimeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Server on port ${port} did not log "server started" within 15000ms`,
+            ),
+          ),
+        15_000,
+      ).unref(),
+    )
+    await Promise.race([started, earlyExit, startTimeout])
     await Promise.race([pollHealthz(port, 15_000), earlyExit])
   } catch (err) {
     child.kill("SIGKILL")

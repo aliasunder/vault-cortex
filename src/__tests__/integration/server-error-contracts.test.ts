@@ -6,7 +6,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
   createTestClient,
-  randomPort,
+  freePort,
   callTool,
   textContent,
 } from "./test-harness.js"
@@ -28,7 +28,7 @@ let client: Client
 let cleanup: (() => Promise<void>) | undefined
 
 beforeAll(async () => {
-  const port = randomPort()
+  const port = await freePort()
   const server = await startServer(port)
   cleanup = server.cleanup
   client = await createTestClient(server.port)
