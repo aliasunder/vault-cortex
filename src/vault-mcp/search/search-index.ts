@@ -696,6 +696,20 @@ export const createSearchIndex = (
          ORDER BY rank LIMIT ?`,
       )
     : null
+  const selectFileContentMetadataStmt = fileToolsEnabled
+    ? db.prepare<
+        [string],
+        {
+          path: string
+          title: string
+          folder: string
+          mtime: number
+          bytes: number
+        }
+      >(
+        "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
+      )
+    : null
 
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
@@ -781,6 +795,12 @@ export const createSearchIndex = (
   const deleteStaleFileVectorsStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+  // Reads the processed content from file_content for embedding.
+  const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
+    ? db.prepare<[string], { title: string; content: string }>(
+        "SELECT title, content FROM file_content WHERE path = ?",
       )
     : null
 
@@ -1716,13 +1736,6 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
-  /** Reads the processed content from file_content for embedding. */
-  const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
-    ? db.prepare<[string], { title: string; content: string }>(
-        "SELECT title, content FROM file_content WHERE path = ?",
-      )
-    : null
-
   /** Embed a file's rendered content into vector storage. Reads the processed
    *  content from the file_content table (already linearized/truncated by
    *  upsertFileContent). No-op when the embedding pipeline or file tools are
@@ -2312,20 +2325,7 @@ export const createSearchIndex = (
           selectFirstFileChunkStmt,
         }
       : null,
-    selectFileContentMetadataStmt: fileToolsEnabled
-      ? db.prepare<
-          [string],
-          {
-            path: string
-            title: string
-            folder: string
-            mtime: number
-            bytes: number
-          }
-        >(
-          "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
-        )
-      : null,
+    selectFileContentMetadataStmt,
   }
 
   /** Binds the query context as the first argument of a query function,

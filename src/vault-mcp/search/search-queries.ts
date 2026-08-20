@@ -152,7 +152,7 @@ const embedQuery = async (
 
 const vectorSearch = (
   context: SearchQueryContext,
-  params: { queryEmbeddingBuffer: Buffer; limit: number },
+  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
   logger: Logger,
 ): VectorHit[] => {
   const { knnSearchStmt } = context.vector
@@ -175,6 +175,7 @@ const vectorSearch = (
     }
 
     logger.info("vector search", {
+      query: params.query,
       knnHits: rows.length,
       uniqueNotes: bestChunkPerNote.size,
     })
@@ -191,7 +192,7 @@ const vectorSearch = (
  *  to avoid re-embedding the same query text that vectorSearch already embedded. */
 const fileContentVectorSearch = (
   context: SearchQueryContext,
-  params: { queryEmbeddingBuffer: Buffer; limit: number },
+  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
   logger: Logger,
 ): VectorHit[] => {
   const knnSearchStmt = context.fileContentVector?.knnSearchStmt
@@ -212,6 +213,7 @@ const fileContentVectorSearch = (
     }
 
     logger.info("file content vector search", {
+      query: params.query,
       knnHits: rows.length,
       uniqueFiles: bestChunkPerFile.size,
     })
@@ -476,7 +478,7 @@ export const hybridSearch = async (
   const vectorHits = queryEmbeddingBuffer
     ? vectorSearch(
         context,
-        { queryEmbeddingBuffer, limit: candidateLimit },
+        { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
         logger,
       )
     : []
@@ -487,7 +489,7 @@ export const hybridSearch = async (
       ? []
       : fileContentVectorSearch(
           context,
-          { queryEmbeddingBuffer, limit: candidateLimit },
+          { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
           logger,
         )
 

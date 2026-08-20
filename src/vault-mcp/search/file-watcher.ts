@@ -188,12 +188,15 @@ export const startFileWatcher = (
           ),
         )
       pendingEmbeds.set(relativePath, currentEmbed)
-      currentEmbed.finally(() => {
+      // Await the .finally()-derived promise, not currentEmbed itself —
+      // .finally() returns a new promise that rejects with the same error,
+      // and awaiting it routes that rejection into the outer catch instead
+      // of leaving a second, unhandled rejection.
+      await currentEmbed.finally(() => {
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
           pendingEmbeds.delete(relativePath)
         }
       })
-      await currentEmbed
     } catch (err) {
       logger.error("failed to process file change", {
         path: relativePath,
