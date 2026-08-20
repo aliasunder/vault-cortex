@@ -662,7 +662,7 @@ describe("loadConfig", () => {
   })
 
   describe("TRUST_PROXY_HOPS", () => {
-    it("defaults to 0 (direct exposure) when unset", () => {
+    it("defaults to 0 when unset", () => {
       const config = loadConfig(EMPTY_ENV)
       expect(config.trustProxyHops).toBe(0)
     })
