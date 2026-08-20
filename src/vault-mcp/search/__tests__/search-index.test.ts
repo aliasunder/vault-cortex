@@ -3765,6 +3765,109 @@ It has multiple sentences to verify chunking works correctly.
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
       warnSpy.mockRestore()
     })
+
+    it("embeds file content during rebuild Pass 3", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-file-rebuild-"))
+      const dbDir = await mkdtemp(join(tmpdir(), "embed-file-rebuild-db-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+        await rm(dbDir, { recursive: true })
+      })
+      const dbPath = join(dbDir, "search.db")
+      const embeddingIndex = createSearchIndex(
+        dbPath,
+        mockEmbedder,
+        undefined,
+        { fileToolsEnabled: true },
+      )
+
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content here.",
+      )
+      await writeFile(
+        join(vaultDir, "guide.txt"),
+        "Comprehensive deployment guide covering infrastructure setup.",
+      )
+
+      const { embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await embedding
+
+      const inspectDb = new Database(dbPath, { readonly: true })
+      sqliteVec.load(inspectDb)
+      onTestFinished(() => {
+        inspectDb.close()
+      })
+      const fileChunks = inspectDb
+        .prepare<[string], { count: number }>(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
+        .get("guide.txt")
+      expect(fileChunks?.count).toBe(1)
+      const fileVectors = inspectDb
+        .prepare<unknown[], { count: number }>(
+          "SELECT COUNT(*) as count FROM file_content_vectors",
+        )
+        .get()
+      expect(fileVectors?.count).toBe(1)
+    })
+
+    it("removes chunks and vectors for a file deleted while the server was down", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-file-deleted-"))
+      const dbDir = await mkdtemp(join(tmpdir(), "embed-file-deleted-db-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+        await rm(dbDir, { recursive: true })
+      })
+      const dbPath = join(dbDir, "search.db")
+      const embeddingIndex = createSearchIndex(
+        dbPath,
+        mockEmbedder,
+        undefined,
+        { fileToolsEnabled: true },
+      )
+
+      await writeFile(join(vaultDir, "ephemeral.txt"), "Transient file body.")
+
+      const firstRebuild = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await firstRebuild.embedding
+
+      const inspectDb = new Database(dbPath, { readonly: true })
+      sqliteVec.load(inspectDb)
+      onTestFinished(() => {
+        inspectDb.close()
+      })
+      const selectChunkCountStmt = inspectDb.prepare<
+        [string],
+        { count: number }
+      >("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+      // Trigger guard: the first rebuild actually embedded the file, so the
+      // cleanup assertion below can't pass by the file never being indexed
+      expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(1)
+
+      await rm(join(vaultDir, "ephemeral.txt"))
+      const secondRebuild = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
+      await secondRebuild.embedding
+
+      expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(0)
+      const fileVectors = inspectDb
+        .prepare<unknown[], { count: number }>(
+          "SELECT COUNT(*) as count FROM file_content_vectors",
+        )
+        .get()
+      expect(fileVectors?.count).toBe(0)
+    })
   })
 })
 
@@ -6041,11 +6144,8 @@ describe("hybridSearch — file content vector search", () => {
       logger,
     )
 
-    const fileResult = results.find(
-      (result) => result.path === "data/report.csv",
-    )
-    expect(fileResult).toBeUndefined()
-    // Note should still appear
-    expect(results.map((result) => result.path)).toContain("notes/tagged.md")
+    // Exactly the tagged note — the file is excluded from both the FTS and
+    // vector legs, and nothing else was seeded
+    expect(results.map((result) => result.path)).toEqual(["notes/tagged.md"])
   })
 })
