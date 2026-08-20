@@ -59,6 +59,10 @@ else
   if [ -z "${LOG_DIR:-}" ]; then
     printf 'LOG_DIR=%s\n' "$storage_root/data/logs"
   fi
+  # XDG_CONFIG_HOME is the XDG Base Directory variable that tells programs
+  # where per-user config lives (default ~/.config). obsidian-headless keeps
+  # its Sync login and device registration under it, so pointing it into the
+  # volume is what makes Sync state survive a container re-creation.
   if [ -z "${XDG_CONFIG_HOME:-}" ]; then
     printf 'XDG_CONFIG_HOME=%s\n' "$storage_root/config"
   fi

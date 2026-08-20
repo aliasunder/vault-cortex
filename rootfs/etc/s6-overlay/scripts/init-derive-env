@@ -13,6 +13,9 @@ derived_env=$(/etc/s6-overlay/scripts/print-derived-env)
 # IFS='=' with two read targets splits on the first "=" only, so a value
 # containing "=" (a URL query string) arrives intact in $value.
 printf '%s\n' "$derived_env" | while IFS='=' read -r name value; do
+  # print-derived-env prints nothing when there is nothing to derive, and the
+  # printf above still emits one newline — skip that empty line rather than
+  # writing to the directory path itself.
   if [ -z "$name" ]; then
     continue
   fi

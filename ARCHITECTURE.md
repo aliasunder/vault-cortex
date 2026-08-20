@@ -750,8 +750,9 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 - `$STORAGE_ROOT/vault` → `VAULT_PATH`
 - `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
 - `$STORAGE_ROOT/data/logs` → `LOG_DIR`
-- `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — obsidian-headless resolves its
-  config directory from it, and `init-setup-user` / `init-first-sync` keep
+- `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — the XDG Base Directory
+  variable for per-user config (default `~/.config`); obsidian-headless keeps
+  its Sync login and device registration there, and `init-setup-user` / `init-first-sync` keep
   the `.applied-ids` record and the deletion-storm sentinel there too
 
 Derivation never overrides a variable that is already set to a non-empty
