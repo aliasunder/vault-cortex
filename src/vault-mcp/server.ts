@@ -19,9 +19,10 @@ import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
-/** Error middleware — logs with request context, answers 500. The trust flag
- *  comes from config so a spoofed Forwarded header can't pollute log IPs in
- *  direct-exposure deployments. */
+/** Error middleware — logs the failure with request context, answers 500.
+ *  The client IP is derived under the same trust flag as everywhere else,
+ *  so a client-supplied Forwarded header can't write a false IP into the
+ *  error log. */
 export const createErrorMiddleware =
   ({ trustForwardedHeader }: { trustForwardedHeader: boolean }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
