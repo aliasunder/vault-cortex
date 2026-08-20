@@ -355,6 +355,39 @@ Content about deployment costs and infrastructure.
       expect(paths).not.toContain("Personal/outside.md")
     })
 
+    it("matches the folder filter case-insensitively for vector-only results, like the FTS leg", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteInFolder = `---
+title: Inside Folder
+---
+Content about deployment costs and infrastructure.
+`
+      hybridIndex.upsertNote(
+        {
+          filePath: "Work/inside.md",
+          rawContent: noteInFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "Work/inside.md", rawContent: noteInFolder },
+        logger,
+      )
+
+      // No lexical overlap — the note can only surface through the vector
+      // leg, so the TypeScript folder mirror is the check under test
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "quarterly budget forecast", filters: { folder: "work" } },
+        logger,
+      )
+
+      expect(search_mode).toBe("hybrid")
+      expect(results.map((result) => result.path)).toEqual(["Work/inside.md"])
+    })
+
     it("applies tag filter to vector-only results", async () => {
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -1305,6 +1338,33 @@ describe("hybridSearch — file content vector search", () => {
     // folder filter on vector-only hits is the behavior under test
     const { results } = await fileIndex.hybridSearch(
       { query: "quarterly budget forecast", filters: { folder: "Docs" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
+  it("matches the folder filter case-insensitively for file-content vector-only hits", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Docs/inside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    // Vector-only hit (no lexical overlap) + a folder filter that differs
+    // only by case — must pass, as it would on the SQL LIKE leg
+    const { results } = await fileIndex.hybridSearch(
+      { query: "quarterly budget forecast", filters: { folder: "docs" } },
       logger,
     )
 

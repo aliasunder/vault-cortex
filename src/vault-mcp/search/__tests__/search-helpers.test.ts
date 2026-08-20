@@ -13,6 +13,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  pathIsInFolder,
   dayToEpochMsRange,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
@@ -784,6 +785,35 @@ describe("escapeLikeWildcards", () => {
 })
 
 // ── stripTrailingSlashes ──────────────────────────────────────
+
+describe("pathIsInFolder", () => {
+  it("matches a path directly inside the folder", () => {
+    expect(pathIsInFolder("Docs/inside.txt", "Docs")).toBe(true)
+  })
+
+  it("matches a path nested below the folder", () => {
+    expect(pathIsInFolder("Docs/sub/deep.txt", "Docs")).toBe(true)
+  })
+
+  it("ignores case, mirroring SQLite LIKE on the FTS legs", () => {
+    expect(pathIsInFolder("Projects/plan.md", "projects")).toBe(true)
+    expect(pathIsInFolder("projects/plan.md", "PROJECTS")).toBe(true)
+  })
+
+  it("requires a segment boundary so a folder prefix is not enough", () => {
+    expect(pathIsInFolder("Docs2/outside.txt", "Docs")).toBe(false)
+    expect(pathIsInFolder("Documents/outside.txt", "Docs")).toBe(false)
+  })
+
+  it("ignores trailing slashes on the folder filter", () => {
+    expect(pathIsInFolder("Docs/inside.txt", "Docs//")).toBe(true)
+  })
+
+  it("does not match the folder's own path or a root-level file", () => {
+    expect(pathIsInFolder("Docs", "Docs")).toBe(false)
+    expect(pathIsInFolder("inside.txt", "Docs")).toBe(false)
+  })
+})
 
 describe("stripTrailingSlashes", () => {
   it("strips a single trailing slash", () => {

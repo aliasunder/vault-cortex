@@ -71,6 +71,15 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 export const stripTrailingSlashes = (folder: string): string =>
   folder.replace(/\/+$/, "")
 
+/** TypeScript mirror of the `path LIKE 'folder/%'` predicate the FTS legs
+ *  apply in SQL — segment-boundary (so "Docs" never matches "Docs2/") and
+ *  case-insensitive, because SQLite's LIKE is case-insensitive and a
+ *  vector-only hit must pass the same folder filter its FTS twin would. */
+export const pathIsInFolder = (path: string, folder: string): boolean =>
+  path
+    .toLowerCase()
+    .startsWith(`${stripTrailingSlashes(folder).toLowerCase()}/`)
+
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
 export const escapeLikeWildcards = (value: string): string =>
@@ -261,11 +270,7 @@ export const noteMatchesSearchFilters = (
   note: NoteRow,
   filters: SearchFilters,
 ): boolean => {
-  if (
-    filters.folder &&
-    !note.path.startsWith(stripTrailingSlashes(filters.folder) + "/")
-  )
-    return false
+  if (filters.folder && !pathIsInFolder(note.path, filters.folder)) return false
 
   if (filters.tags) {
     const noteTags = parseStringArray(note.tags)
