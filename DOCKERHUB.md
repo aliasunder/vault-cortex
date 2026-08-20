@@ -166,6 +166,8 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
+| `TRUST_PROXY_HOPS` | — | `0` (direct exposure) | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control fronts the server (Caddy, nginx, Cloudflare Tunnel, API Gateway). With `0`, injected forwarding headers are ignored. |
+| `TRUST_FORWARDED_HEADER` | — | `false` | Set `true` only when the proxy in front sets the RFC 7239 `Forwarded` header itself (AWS API Gateway — the reference deployment sets this for you). When `false`, a client-supplied `Forwarded` header is ignored. |
 
 ## Deployment Options
 

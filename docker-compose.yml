@@ -41,6 +41,12 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
+      # API Gateway is the immediate upstream: its RFC 7239 Forwarded claim is
+      # the client identity for rate limiting. With ORIGIN_URL (a tunnel/proxy
+      # BETWEEN the gateway and this container) set TRUST_FORWARDED_HEADER=false
+      # and TRUST_PROXY_HOPS=2 — the X-Forwarded-For chain carries the client.
+      TRUST_FORWARDED_HEADER: ${TRUST_FORWARDED_HEADER:-true}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: /data/logs
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}

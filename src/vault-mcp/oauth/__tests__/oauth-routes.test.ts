@@ -71,6 +71,7 @@ describe("OAuth consent token submission", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: false,
       logger,
     })
     const app = express()
@@ -198,6 +199,7 @@ describe("OAuth consent body validation", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: false,
       logger,
     })
     const app = express()
@@ -257,6 +259,7 @@ describe("OAuth consent audit logging", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: false,
       logger: testLogger,
     })
     const app = express()
@@ -422,6 +425,9 @@ describe("OAuth endpoint rate limiting", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      // These tests simulate distinct clients through the Forwarded header,
+      // which only works when the deployment trusts it.
+      trustForwardedHeader: true,
       logger: testLogger,
     })
     const app = express()
@@ -549,6 +555,91 @@ describe("OAuth endpoint rate limiting", () => {
   })
 })
 
+describe("OAuth rate limiting when the Forwarded header is not trusted (default)", () => {
+  let dir: string
+  let logs: LogCall[]
+  let server: Server
+  let baseUrl: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-untrusted-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger: testLogger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: false,
+      logger: testLogger,
+    })
+    const app = express()
+    app.use(router)
+    server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const registerWithSpoofedIp = (spoofedIp: string) =>
+    fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        forwarded: `for=${spoofedIp}`,
+      },
+      body: JSON.stringify({
+        client_name: "Rate Limit Client",
+        redirect_uris: [REDIRECT_URI],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // GHSA-wm5v-9236-597m regression: a distinct spoofed Forwarded value per
+  // request must NOT mint a fresh rate-limit bucket — all six share the real
+  // peer's bucket, so the sixth is 429.
+  it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await registerWithSpoofedIp(`198.51.100.${i}`)
+      expect(response.status).toBe(201)
+    }
+    const sixth = await registerWithSpoofedIp("198.51.100.6")
+    expect(sixth.status).toBe(429)
+  })
+
+  it("logs the real peer IP — not the spoofed value — when the limit trips", async () => {
+    for (let i = 1; i <= 5; i++) {
+      await registerWithSpoofedIp("198.51.100.9")
+    }
+    logs.length = 0
+    const sixth = await registerWithSpoofedIp("198.51.100.9")
+    expect(sixth.status).toBe(429)
+    const event = logs.find((log) => log.message === "oauth_rate_limited")
+    expect(event).toMatchObject({
+      level: "warn",
+      data: expect.objectContaining({ path: "/register" }),
+    })
+    // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —
+    // the security property is that the logged IP is the real peer, never
+    // the attacker-supplied header value.
+    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(
+      event?.data.clientIp,
+    )
+  })
+})
+
 describe("OAuth protected resource metadata", () => {
   let dir: string
   let server: Server
@@ -566,6 +657,7 @@ describe("OAuth protected resource metadata", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: false,
       logger,
     })
     const app = express()

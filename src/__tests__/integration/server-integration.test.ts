@@ -621,6 +621,107 @@ describe("default config", () => {
       expect(status).toBe(401)
     })
   })
+
+  describe("OAuth rate limiting", () => {
+    const registerWithSpoofedIp = (spoofedIp: string) =>
+      fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: `for=${spoofedIp}`,
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+
+    // GHSA-wm5v-9236-597m regression: with the Forwarded header untrusted
+    // (the default), a distinct spoofed value per request must NOT mint a
+    // fresh rate-limit bucket — all six share the socket peer's bucket.
+    it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
+      for (let i = 1; i <= 5; i++) {
+        const response = await registerWithSpoofedIp(`198.51.100.${i}`)
+        expect(response.status).toBe(201)
+      }
+      const sixth = await registerWithSpoofedIp("198.51.100.6")
+      expect(sixth.status).toBe(429)
+    })
+  })
+})
+
+// ── TRUST_FORWARDED_HEADER=true ────────────────────────────────
+
+describe("TRUST_FORWARDED_HEADER=true", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    const server = await startServer(port, { TRUST_FORWARDED_HEADER: "true" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (forwardedIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        forwarded: `for=${forwardedIp}`,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("buckets the /register rate limit by the Forwarded client IP", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("198.51.100.1")
+      expect(response.status).toBe(201)
+    }
+    const sixthSameClient = await register("198.51.100.1")
+    expect(sixthSameClient.status).toBe(429)
+    const firstOtherClient = await register("198.51.100.2")
+    expect(firstOtherClient.status).toBe(201)
+  })
+
+  // An edge proxy that appends (as API Gateway does) leaves any
+  // client-supplied prefix ahead of its own claim — the bucket key must be
+  // the LAST for= element, never the first.
+  it("buckets by the last for= element, not a client-supplied prefix", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: "for=203.0.113.99, for=198.51.100.4",
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+      expect(response.status).toBe(201)
+    }
+    // If the prefix (203.0.113.99) were the key, this plain request would
+    // open a fresh bucket instead of joining 198.51.100.4's exhausted one.
+    const sixth = await register("198.51.100.4")
+    expect(sixth.status).toBe(429)
+  })
 })
 
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────

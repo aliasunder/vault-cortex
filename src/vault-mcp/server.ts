@@ -19,12 +19,15 @@ import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
+/** Error middleware — logs with request context, answers 500. The trust flag
+ *  comes from config so a spoofed Forwarded header can't pollute log IPs in
+ *  direct-exposure deployments. */
 export const createErrorMiddleware =
-  () =>
+  (trustForwardedHeader: boolean) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req),
+      clientIp: extractClientIp(req, trustForwardedHeader),
       method: req.method,
       path: req.path,
       error: `[${err.name}]: ${err.message}`,
@@ -98,6 +101,8 @@ const startServer = async (): Promise<void> => {
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,
     windowsBindMount: config.windowsBindMount,
+    trustProxyHops: config.trustProxyHops,
+    trustForwardedHeader: config.trustForwardedHeader,
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
@@ -125,9 +130,11 @@ const startServer = async (): Promise<void> => {
   })
 
   const app = express()
-  // Trust exactly one proxy hop (API Gateway). `true` would trust the entire
-  // X-Forwarded-For chain, letting clients spoof req.ip via injected headers.
-  app.set("trust proxy", 1)
+  // Proxy trust is deployment-explicit (TRUST_PROXY_HOPS): 0 in direct
+  // exposure, so an injected X-Forwarded-For can't spoof req.ip (the OAuth
+  // rate limiter's fallback bucket key). `true` would trust the entire
+  // chain, letting clients claim any IP via appended headers.
+  app.set("trust proxy", config.trustProxyHops)
   app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
@@ -140,6 +147,7 @@ const startServer = async (): Promise<void> => {
       serverUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
+      trustForwardedHeader: config.trustForwardedHeader,
       logger,
     }),
   )
@@ -153,7 +161,7 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(createErrorMiddleware())
+  app.use(createErrorMiddleware(config.trustForwardedHeader))
 
   const httpServer = app.listen(port, host, () => {
     logger.info("server started", { host, port })

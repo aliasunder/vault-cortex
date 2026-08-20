@@ -99,6 +99,17 @@ export type VaultConfig = Readonly<{
    *  DISABLED_TOOLS (comma-separated tool names; unknown names fail the
    *  boot). */
   disabledTools: ReadonlySet<ToolName>
+  /** Number of proxy hops trusted when deriving the client IP from
+   *  X-Forwarded-For (Express `trust proxy`). 0 — the default — means direct
+   *  exposure: req.ip is the socket peer and XFF is ignored. Set to 1 when a
+   *  single reverse proxy (Caddy, nginx, Cloudflare Tunnel, API Gateway)
+   *  fronts the server. Set via TRUST_PROXY_HOPS. */
+  trustProxyHops: number
+  /** When true, the RFC 7239 Forwarded header is honored for client-IP
+   *  extraction (rate limiting, request logs) — only safe when a trusted
+   *  edge proxy (API Gateway) sets or appends it; otherwise the header is
+   *  attacker-controlled and ignored. Set via TRUST_FORWARDED_HEADER. */
+  trustForwardedHeader: boolean
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -223,6 +234,24 @@ export const loadConfig = (
     }),
   )
 
+  // Default 0 = direct exposure: req.ip is the socket peer and injected XFF
+  // can't shift a client into a fresh rate-limit bucket. A proxy-fronted
+  // deployment opts into one hop per hop it controls.
+  const trustProxyHops = envVar
+    .from(env)
+    .get("TRUST_PROXY_HOPS")
+    .default("0")
+    .asIntPositive()
+
+  // Default false: the Forwarded header is client-supplied in every
+  // deployment without a header-setting edge proxy (API Gateway), so
+  // honoring it by default would hand attackers the rate-limit bucket key.
+  const trustForwardedHeader = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HEADER")
+    .default("false")
+    .asBool()
+
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -275,6 +304,8 @@ export const loadConfig = (
     fileToolsEnabled,
     readOnlyMode,
     disabledTools,
+    trustProxyHops,
+    trustForwardedHeader,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,

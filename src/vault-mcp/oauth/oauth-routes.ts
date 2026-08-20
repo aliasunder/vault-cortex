@@ -15,6 +15,10 @@ type OAuthRoutesOptions = {
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
+  /** Whether the RFC 7239 Forwarded header is trusted for client-IP
+   *  extraction (rate limiting + logs) — from TRUST_FORWARDED_HEADER; only
+   *  set where a known edge proxy (API Gateway) sets or appends it. */
+  trustForwardedHeader: boolean
   logger: Logger
 }
 
@@ -23,6 +27,7 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
+  trustForwardedHeader,
   logger,
 }: OAuthRoutesOptions): Router => {
   const routeLogger = logger.child({ component: "oauth-routes" })
@@ -41,10 +46,12 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by the Forwarded-header client IP: behind API Gateway the
-    // library default (req.ip) would merge every client into a single
-    // gateway-egress bucket.
-    keyGenerator: extractClientIp,
+    // Bucket by client IP via extractClientIp: when the deployment trusts
+    // the Forwarded header (API Gateway), the gateway's claim is the key —
+    // the library default (req.ip) would merge every client into a single
+    // gateway-egress bucket. Elsewhere req.ip, governed by the server's
+    // trust-proxy hop count, is the key.
+    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHeader),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
@@ -58,7 +65,7 @@ export const createOAuthRoutes = ({
         URL.parse(req.originalUrl, "http://localhost")?.pathname ??
         req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
-        clientIp: extractClientIp(req),
+        clientIp: extractClientIp(req, trustForwardedHeader),
         path: requestPath,
       })
       res.status(options.statusCode).send(options.message)
@@ -116,7 +123,7 @@ export const createOAuthRoutes = ({
         res.status(400).send("Invalid form submission.")
         return
       }
-      const clientIp = extractClientIp(req)
+      const clientIp = extractClientIp(req, trustForwardedHeader)
       const pending = getPendingRequest(
         request_id,
         routeLogger.child({ clientIp, requestId: request_id }),

@@ -651,8 +651,10 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       })
     })
 
-    it("logs the RFC 7239 Forwarded client IP over x-forwarded-for", async () => {
-      const harness = await setupHarness()
+    it("logs the RFC 7239 Forwarded client IP over x-forwarded-for when the header is trusted", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ TRUST_FORWARDED_HEADER: "true" }),
+      })
       const response = await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
@@ -662,6 +664,23 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: "198.51.100.9",
+        method: "POST",
+      })
+    })
+
+    // GHSA-wm5v-9236-597m: without a trusted edge proxy the Forwarded header
+    // is attacker-controlled, so the XFF-derived req.ip is the log identity.
+    it("ignores a client-supplied Forwarded header when it is not trusted (default)", async () => {
+      const harness = await setupHarness()
+      const response = await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
+        body: JSON.stringify(initializeBody),
+      })
+      await response.arrayBuffer()
+      expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
+        sessionId: undefined,
+        clientIp: FORWARDED_IP,
         method: "POST",
       })
     })

@@ -547,6 +547,8 @@ By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway 
 
 Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
 
+> **Client-IP trust with ORIGIN_URL:** this setup puts two proxies between clients and the container (API Gateway, then the tunnel/proxy). Set `TRUST_FORWARDED_HEADER=false` and `TRUST_PROXY_HOPS=2` in the instance `.env` so OAuth rate limiting derives the real client IP from the `X-Forwarded-For` chain — the defaults (`true` / `1`) assume API Gateway is the container's immediate upstream.
+
 #### Example: Cloudflare Tunnel
 
 Cloudflare Tunnel (`cloudflared`) establishes an outbound-only connection from the Lightsail host to Cloudflare's edge. No inbound ports required — port 8000 is blocked on the firewall (non-routable CIDR). The tunnel hostname serves as the HTTPS endpoint.
