@@ -752,8 +752,9 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 - `$STORAGE_ROOT/data/logs` → `LOG_DIR`
 - `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — the XDG Base Directory
   variable for per-user config (default `~/.config`); obsidian-headless keeps
-  its Sync login and device registration there, and `init-setup-user` / `init-first-sync` keep
-  the `.applied-ids` record and the deletion-storm sentinel there too
+  its Sync login and device registration there, and `init-setup-user` /
+  `init-first-sync` keep the `.applied-ids` record and the deletion-storm
+  sentinel there too
 
 Derivation never overrides a variable that is already set to a non-empty
 value. `LOG_DIR=none` turns log files off; the sentinel exists because every
