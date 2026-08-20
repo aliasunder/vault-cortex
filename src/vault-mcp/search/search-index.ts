@@ -38,6 +38,7 @@ import {
   escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
+import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
 
@@ -676,9 +677,12 @@ export const createSearchIndex = (
         `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
       )
     : null
+  // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
+  // sees every in-folder match, not just those that rank inside the candidate
+  // window vault-wide; callers bind "%" when no folder filter applies.
   const searchFileContentFtsStmt = fileToolsEnabled
     ? db.prepare<
-        [number, string, number],
+        [number, string, string, number],
         {
           path: string
           title: string
@@ -693,6 +697,7 @@ export const createSearchIndex = (
          FROM file_content_fts
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
+           AND fc.path LIKE ? ESCAPE '\\'
          ORDER BY rank LIMIT ?`,
       )
     : null
@@ -912,6 +917,28 @@ export const createSearchIndex = (
       )
     : null
 
+  // Folder-scoped KNN: the chunk_id IN (...) constraint narrows the vector
+  // search to in-folder chunks BEFORE the k-window is taken, so a folder
+  // filter sees the folder's own nearest neighbours rather than whatever
+  // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
+  // inside KNN queries; chunk_id is the vec0 rowid alias.
+  const knnSearchInFolderStmt = embedder
+    ? db.prepare<
+        unknown[],
+        { note_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT nc.note_path, nc.chunk_text, nv.distance
+         FROM note_vectors nv
+         JOIN note_chunks nc ON nc.id = nv.chunk_id
+         WHERE nv.embedding MATCH ?
+           AND nv.k = ?
+           AND nv.chunk_id IN (
+             SELECT id FROM note_chunks WHERE note_path LIKE ? ESCAPE '\\'
+           )
+         ORDER BY nv.distance`,
+      )
+    : null
+
   /** First chunk text for a note — used by the reranker to score FTS-only
    *  results that have no vector hit. Chunk 0 contains the title + intro. */
   const selectFirstChunkStmt = embedder
@@ -931,6 +958,24 @@ export const createSearchIndex = (
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
          WHERE fv.embedding MATCH ?
            AND fv.k = ?
+         ORDER BY fv.distance`,
+      )
+    : null
+
+  // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
+  const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
+    ? db.prepare<
+        unknown[],
+        { file_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT fc.file_path, fc.chunk_text, fv.distance
+         FROM file_content_vectors fv
+         JOIN file_content_chunks fc ON fc.id = fv.chunk_id
+         WHERE fv.embedding MATCH ?
+           AND fv.k = ?
+           AND fv.chunk_id IN (
+             SELECT id FROM file_content_chunks WHERE file_path LIKE ? ESCAPE '\\'
+           )
          ORDER BY fv.distance`,
       )
     : null
@@ -2309,6 +2354,7 @@ export const createSearchIndex = (
     vector: {
       embedder,
       knnSearchStmt,
+      knnSearchInFolderStmt,
       selectNoteMetadataStmt,
     },
     reranker,
@@ -2328,12 +2374,14 @@ export const createSearchIndex = (
     fileContentFts: searchFileContentFtsStmt
       ? { searchStmt: searchFileContentFtsStmt }
       : null,
-    fileContentVector: fileContentKnnSearchStmt
-      ? {
-          knnSearchStmt: fileContentKnnSearchStmt,
-          selectFirstFileChunkStmt,
-        }
-      : null,
+    fileContentVector:
+      fileContentKnnSearchStmt && fileContentKnnSearchInFolderStmt
+        ? {
+            knnSearchStmt: fileContentKnnSearchStmt,
+            knnSearchInFolderStmt: fileContentKnnSearchInFolderStmt,
+            selectFirstFileChunkStmt,
+          }
+        : null,
     selectFileContentMetadataStmt,
   }
 
@@ -2356,7 +2404,7 @@ export const createSearchIndex = (
     removeFileContent,
     embedFileContent,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
-    hybridSearch: bindQueryContext(queries.hybridSearch),
+    hybridSearch: bindQueryContext(hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),
     searchByTag: bindQueryContext(queries.searchByTag),
     searchByFolder: bindQueryContext(queries.searchByFolder),
