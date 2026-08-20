@@ -6120,21 +6120,18 @@ describe("hybridSearch — file content vector search", () => {
     )
     await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
 
-    // "Documents" shares the "Docs" prefix but is a different folder — a
-    // bare string-prefix match would wrongly include it
-    fileIndex.upsertNonMdFile("Documents/outside.txt", 100)
+    // "Docs2" starts with "Docs" as a bare string — only a segment-boundary
+    // check (folder + "/") keeps it out of a "Docs" filter
+    fileIndex.upsertNonMdFile("Docs2/outside.txt", 100)
     fileIndex.upsertFileContent(
       {
-        filePath: "Documents/outside.txt",
+        filePath: "Docs2/outside.txt",
         rawContent: "Weekly operations checklist for the deployment crew.",
         fileStat: testStat(1000, 100),
       },
       logger,
     )
-    await fileIndex.embedFileContent(
-      { filePath: "Documents/outside.txt" },
-      logger,
-    )
+    await fileIndex.embedFileContent({ filePath: "Docs2/outside.txt" }, logger)
 
     // No lexical overlap with the seeded content — both files can only
     // surface through the vector leg (identical mock embeddings), so the
@@ -6144,8 +6141,6 @@ describe("hybridSearch — file content vector search", () => {
       logger,
     )
 
-    // Exactly the in-folder file — presence proves the vector leg ran,
-    // absence of Documents/outside.txt proves the segment-boundary filter
     expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
   })
 
