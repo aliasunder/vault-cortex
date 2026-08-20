@@ -139,6 +139,31 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
+**One persistent volume.** Hosts that allow a single volume per service
+(Railway, Render, Fly.io) can't attach the three mounts above. Mount the
+one volume anywhere and point `STORAGE_ROOT` at it — the container keeps
+the vault, the search index, and Obsidian Sync state under that directory:
+
+```bash
+docker run -d --name vault-cortex \
+  --env-file .env \
+  -e STORAGE_ROOT=/persist \
+  -v vault-cortex_storage:/persist \
+  -p 8000:8000 \
+  ghcr.io/aliasunder/vault-cortex:remote
+```
+
+The hosting platform supplies restarts, health checks, and log rotation;
+on a plain Docker host add the `--restart`, `--health-*`, and `--log-*`
+flags from the full command above.
+
+On those hosts `PUBLIC_URL` can also be left unset — the container fills it
+in from the platform's own address variable (`RENDER_EXTERNAL_URL`,
+`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Log files are not written to
+the volume unless you set `LOG_DIR` (for example
+`LOG_DIR=/persist/data/logs`); the platform's log viewer captures the
+container output either way.
+
 </details>
 
 ## HTTPS access
@@ -374,10 +399,11 @@ docker rm -f vault-cortex && docker volume rm vault-cortex_vault_data \
 docker stop vault-cortex
 ```
 
-> **Never delete just the vault volume while keeping `obsidian_config`.**
-> The container refuses to start to prevent the sync engine from pushing
-> mass deletions to every connected device. Restore the vault volume, or
-> delete all volumes together to start fresh.
+> **Never delete just the vault volume while keeping `obsidian_config`**
+> (or, with a single volume, just the `vault` directory while keeping
+> `config`). The container refuses to start to prevent the sync engine from
+> pushing mass deletions to every connected device. Restore the vault, or
+> delete everything together to start fresh.
 
 **Set up with the CLI?** Start again any time with
 `npx vault-cortex@latest start` — your saved settings are reused

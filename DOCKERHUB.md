@@ -143,9 +143,10 @@ All settings are environment variables with sensible defaults. Remote deployment
 | --------------------------- | ----------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume) |
-| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata |
+| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render, Railway, and Fly.io (from `RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`) when left unset |
 | `OBSIDIAN_AUTH_TOKEN` | Remote only | — | Obsidian Sync auth token — the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/#get-sync-token) captures it for you |
 | `VAULT_NAME` | Remote only | — | Exact name of your Obsidian Sync vault (case-sensitive) |
+| `STORAGE_ROOT` | Remote only | — | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for hosts that allow a single persistent volume (Railway, Render, Fly.io). Mount the volume there and set this to the same path |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
 | `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`. |
