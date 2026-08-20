@@ -110,6 +110,38 @@ export const startFileWatcher = (
             },
             logger,
           )
+
+          // Embed file content vectors — serialized per path via the same
+          // pendingEmbeds map (note paths end in .md, file paths don't).
+          // Reads the processed content from the file_content table.
+          const previousEmbed =
+            pendingEmbeds.get(relativePath) ?? Promise.resolve()
+          const currentEmbed = previousEmbed
+            .catch((previousError) => {
+              logger.debug(
+                "previous file embed failed, proceeding with current",
+                {
+                  path: relativePath,
+                  error: describeError(previousError),
+                },
+              )
+            })
+            .then(() =>
+              search.embedFileContent({ filePath: relativePath }, logger),
+            )
+          pendingEmbeds.set(relativePath, currentEmbed)
+          currentEmbed
+            .catch((embedError) => {
+              logger.warn("file content embedding failed", {
+                path: relativePath,
+                error: describeError(embedError),
+              })
+            })
+            .finally(() => {
+              if (pendingEmbeds.get(relativePath) === currentEmbed) {
+                pendingEmbeds.delete(relativePath)
+              }
+            })
         } catch (error) {
           logger.warn("file content indexing failed", {
             path: relativePath,
@@ -156,12 +188,15 @@ export const startFileWatcher = (
           ),
         )
       pendingEmbeds.set(relativePath, currentEmbed)
-      currentEmbed.finally(() => {
+      // Await the .finally()-derived promise, not currentEmbed itself —
+      // .finally() returns a new promise that rejects with the same error,
+      // and awaiting it routes that rejection into the outer catch instead
+      // of leaving a second, unhandled rejection.
+      await currentEmbed.finally(() => {
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
           pendingEmbeds.delete(relativePath)
         }
       })
-      await currentEmbed
     } catch (err) {
       logger.error("failed to process file change", {
         path: relativePath,

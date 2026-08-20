@@ -48,6 +48,11 @@ import type { Embedder } from "./embedder.js"
 // ── Context ────────────────────────────────────────────────────
 
 type VectorHitRow = { note_path: string; chunk_text: string; distance: number }
+type FileContentVectorHitRow = {
+  file_path: string
+  chunk_text: string
+  distance: number
+}
 
 /** One memory_entries row — hydrated whole so recall never needs a second
  *  lookup per entry. */
@@ -94,50 +99,140 @@ export type SearchQueryContext = {
       FileContentFtsRow
     >
   } | null
+  /** Null when FILE_TOOLS_ENABLED or embedder is off — hybridSearch skips
+   *  the file content vector leg. */
+  readonly fileContentVector: {
+    readonly knnSearchStmt: Database.Statement<
+      unknown[],
+      FileContentVectorHitRow
+    >
+    readonly selectFirstFileChunkStmt: Database.Statement<
+      [string],
+      { chunk_text: string }
+    > | null
+  } | null
+  /** Metadata lookup for files found only via vector search (no FTS hit). */
+  readonly selectFileContentMetadataStmt: Database.Statement<
+    [string],
+    FileContentMetadataRow
+  > | null
 }
+
+type FileContentMetadataRow = {
+  path: string
+  title: string
+  folder: string
+  mtime: number
+  bytes: number
+}
+
+/** Maps one search leg's results to the identifier shape computeRrfScores
+ *  fuses on — path is the identity all four hybrid-search legs share. */
+const toRankedList = (
+  items: readonly { path: string }[],
+): { identifier: string }[] => items.map((item) => ({ identifier: item.path }))
 
 // ── Vector search (internal) ───────────────────────────────────
 
-const vectorSearch = async (
+/** Embeds the query text and returns the Buffer for KNN queries. Null when
+ *  no embedder is available or the embedding fails. */
+const embedQuery = async (
   context: SearchQueryContext,
-  params: { query: string; limit: number },
+  query: string,
   logger: Logger,
-): Promise<VectorHit[]> => {
-  const { embedder, knnSearchStmt } = context.vector
-  if (!embedder || !knnSearchStmt) return []
+): Promise<Buffer | null> => {
+  const { embedder } = context.vector
+  if (!embedder) return null
+  try {
+    const queryEmbedding = await embedder.embedText(query)
+    return Buffer.from(
+      queryEmbedding.buffer,
+      queryEmbedding.byteOffset,
+      queryEmbedding.byteLength,
+    )
+  } catch (error) {
+    logger.warn("query embedding failed", { error: describeError(error) })
+    return null
+  }
+}
+
+const vectorSearch = (
+  context: SearchQueryContext,
+  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
+  logger: Logger,
+): VectorHit[] => {
+  const { knnSearchStmt } = context.vector
+  if (!knnSearchStmt) return []
 
   try {
-    const queryEmbedding = await embedder.embedText(params.query)
-    const rows = knnSearchStmt.all(
-      Buffer.from(
-        queryEmbedding.buffer,
-        queryEmbedding.byteOffset,
-        queryEmbedding.byteLength,
-      ),
+    const noteKnnRows = knnSearchStmt.all(
+      params.queryEmbeddingBuffer,
       params.limit,
     )
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
     const bestChunkPerNote = new Map<string, VectorHit>()
-    for (const row of rows) {
-      if (!bestChunkPerNote.has(row.note_path)) {
-        bestChunkPerNote.set(row.note_path, {
-          path: row.note_path,
-          distance: row.distance,
-          chunkText: row.chunk_text,
+    for (const knnRow of noteKnnRows) {
+      if (!bestChunkPerNote.has(knnRow.note_path)) {
+        bestChunkPerNote.set(knnRow.note_path, {
+          path: knnRow.note_path,
+          distance: knnRow.distance,
+          chunkText: knnRow.chunk_text,
         })
       }
     }
 
     logger.info("vector search", {
       query: params.query,
-      knnHits: rows.length,
+      knnHits: noteKnnRows.length,
       uniqueNotes: bestChunkPerNote.size,
     })
     return [...bestChunkPerNote.values()]
   } catch (error) {
     logger.warn("vector search failed, falling back to FTS-only", {
+      error: describeError(error),
+    })
+    return []
+  }
+}
+
+/** KNN over file content vectors — returns the best-matching chunk per file
+ *  for a pre-computed query embedding. Empty when file content vectors are
+ *  disabled or the KNN query fails. */
+const fileContentVectorSearch = (
+  context: SearchQueryContext,
+  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
+  logger: Logger,
+): VectorHit[] => {
+  const knnSearchStmt = context.fileContentVector?.knnSearchStmt
+  if (!knnSearchStmt) return []
+
+  try {
+    const fileKnnRows = knnSearchStmt.all(
+      params.queryEmbeddingBuffer,
+      params.limit,
+    )
+
+    const bestChunkPerFile = new Map<string, VectorHit>()
+    for (const knnRow of fileKnnRows) {
+      if (!bestChunkPerFile.has(knnRow.file_path)) {
+        bestChunkPerFile.set(knnRow.file_path, {
+          path: knnRow.file_path,
+          distance: knnRow.distance,
+          chunkText: knnRow.chunk_text,
+        })
+      }
+    }
+
+    logger.info("file content vector search", {
+      query: params.query,
+      knnHits: fileKnnRows.length,
+      uniqueFiles: bestChunkPerFile.size,
+    })
+    return [...bestChunkPerFile.values()]
+  } catch (error) {
+    logger.warn("file content vector search failed", {
       error: describeError(error),
     })
     return []
@@ -389,15 +484,33 @@ export const hybridSearch = async (
         params.filters?.folder,
       )
 
-  // Attempt vector search — returns [] on any failure
-  const vectorHits = await vectorSearch(
-    context,
-    { query: params.query, limit: candidateLimit },
-    logger,
-  )
+  // Embed the query once — shared by note and file content vector searches
+  const queryEmbeddingBuffer = await embedQuery(context, params.query, logger)
 
-  // FTS-only fallback when no vectors are available
-  if (vectorHits.length === 0) {
+  // Attempt vector search — returns [] when embedding or KNN is unavailable
+  const vectorHits = queryEmbeddingBuffer
+    ? vectorSearch(
+        context,
+        { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
+        logger,
+      )
+    : []
+
+  // File content vector search — same skip condition as file content FTS
+  const fileContentVectorHits =
+    hasNoteSpecificFilters || !queryEmbeddingBuffer
+      ? []
+      : fileContentVectorSearch(
+          context,
+          { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
+          logger,
+        )
+
+  const hasAnyVectorHits =
+    vectorHits.length > 0 || fileContentVectorHits.length > 0
+
+  // FTS-only fallback when no vectors are available from either source
+  if (!hasAnyVectorHits) {
     if (fileContentResults.length === 0) {
       const fallbackResults = ftsResults.slice(0, userLimit)
       logger.info("hybrid search", {
@@ -409,10 +522,7 @@ export const hybridSearch = async (
     }
     // Merge note FTS + file content FTS via 2-list RRF
     const fallbackRrf = computeRrfScores({
-      rankedLists: [
-        ftsResults.map((result) => ({ identifier: result.path })),
-        fileContentResults.map((result) => ({ identifier: result.path })),
-      ],
+      rankedLists: [toRankedList(ftsResults), toRankedList(fileContentResults)],
     })
     const ftsResultsByPath = new Map(
       ftsResults.map((result) => [result.path, result]),
@@ -442,17 +552,17 @@ export const hybridSearch = async (
     return { results: fallbackSliced, search_mode: "fts", reranked: false }
   }
 
-  // Compute RRF scores from all ranked lists (notes FTS + vector + file content)
+  // Compute RRF scores from all four ranked lists — an empty list
+  // contributes no scores, so each leg is passed unconditionally
   const rankedLists = [
-    ftsResults.map((result) => ({ identifier: result.path })),
-    vectorHits.map((hit) => ({ identifier: hit.path })),
-    ...(fileContentResults.length > 0
-      ? [fileContentResults.map((result) => ({ identifier: result.path }))]
-      : []),
+    toRankedList(ftsResults),
+    toRankedList(vectorHits),
+    toRankedList(fileContentResults),
+    toRankedList(fileContentVectorHits),
   ]
   const rrfScores = computeRrfScores({ rankedLists })
 
-  // Index FTS results, vector hits, and file content by path for O(1) lookup
+  // Index all result sources by path for O(1) lookup
   const ftsResultsByPath = new Map(
     ftsResults.map((result) => [result.path, result]),
   )
@@ -460,45 +570,84 @@ export const hybridSearch = async (
   const fileContentByPath = new Map(
     fileContentResults.map((result) => [result.path, result]),
   )
+  const fileContentVectorHitsByPath = new Map(
+    fileContentVectorHits.map((hit) => [hit.path, hit]),
+  )
 
   // Build the merged result set, ordered by RRF score
   const mergedResults: SearchResult[] = []
   for (const { identifier: path, score } of rrfScores) {
+    // Path found via note FTS — use its metadata and snippet, replace score
     const ftsResult = ftsResultsByPath.get(path)
     if (ftsResult) {
-      // Path found via note FTS — use its metadata and snippet, replace score
       mergedResults.push({ ...ftsResult, score })
       continue
     }
 
-    // Check file content results before falling through to vector-only
+    // Check file content FTS results
     const fileResult = fileContentByPath.get(path)
     if (fileResult) {
       mergedResults.push(fileContentRowToSearchResult(fileResult, score))
       continue
     }
 
-    // Vector-only result — look up metadata from the notes table
+    // Note vector-only result — look up metadata from the notes table
     const noteRow = context.vector.selectNoteMetadataStmt.get(path)
-    if (!noteRow) continue
+    if (noteRow) {
+      // Apply filters that FTS would have applied via SQL
+      if (
+        params.filters &&
+        !noteMatchesSearchFilters(noteRow, params.filters)
+      ) {
+        continue
+      }
 
-    // Apply filters that FTS would have applied via SQL
-    if (params.filters && !noteMatchesSearchFilters(noteRow, params.filters))
+      const vectorHit = vectorHitsByPath.get(path)
+      const snippet = vectorHit
+        ? buildSnippetFromChunkText(vectorHit.chunkText, snippetTokens)
+        : ""
+
+      mergedResults.push(
+        noteRowToSearchResult({
+          row: noteRow,
+          snippet,
+          score,
+          includeLeadingCallout,
+        }),
+      )
       continue
+    }
 
-    const vectorHit = vectorHitsByPath.get(path)
-    const snippet = vectorHit
-      ? buildSnippetFromChunkText(vectorHit.chunkText, snippetTokens)
-      : ""
+    // File content vector-only result — look up metadata from file_content
+    const fileVectorHit = fileContentVectorHitsByPath.get(path)
+    if (fileVectorHit && context.selectFileContentMetadataStmt) {
+      const fileMetadata = context.selectFileContentMetadataStmt.get(path)
+      if (!fileMetadata) continue
 
-    mergedResults.push(
-      noteRowToSearchResult({
-        row: noteRow,
-        snippet,
-        score,
-        includeLeadingCallout,
-      }),
-    )
+      // Apply folder filter — file content FTS applies it via SQL, but
+      // vector-only results bypass FTS and need the check here. Uses a
+      // segment boundary (folder + "/") so "Docs" doesn't match "Documents".
+      if (params.filters?.folder) {
+        const folderPrefix = stripTrailingSlashes(params.filters.folder) + "/"
+        const folderMatch =
+          fileMetadata.folder === stripTrailingSlashes(params.filters.folder) ||
+          (fileMetadata.folder + "/").startsWith(folderPrefix)
+        if (!folderMatch) continue
+      }
+
+      mergedResults.push(
+        fileContentRowToSearchResult(
+          {
+            ...fileMetadata,
+            snippet: buildSnippetFromChunkText(
+              fileVectorHit.chunkText,
+              snippetTokens,
+            ),
+          },
+          score,
+        ),
+      )
+    }
   }
 
   // Apply cross-encoder reranking with position-aware score blending.
@@ -512,7 +661,10 @@ export const hybridSearch = async (
           query: params.query,
           mergedResults: rerankCandidates,
           vectorHitsByPath,
+          fileContentVectorHitsByPath,
           selectFirstChunkStmt: context.selectFirstChunkStmt,
+          selectFirstFileChunkStmt:
+            context.fileContentVector?.selectFirstFileChunkStmt ?? null,
           logger,
         })
       : null
@@ -526,6 +678,7 @@ export const hybridSearch = async (
     reranked,
     ftsResults: ftsResults.length,
     vectorHits: vectorHits.length,
+    fileContentVectorHits: fileContentVectorHits.length,
     fileContentResults: fileContentResults.length,
     mergedResults: mergedResults.length,
     returnedResults: Math.min(finalResults.length, userLimit),
@@ -966,23 +1119,38 @@ const tryRerank = async (params: {
   query: string
   mergedResults: readonly SearchResult[]
   vectorHitsByPath: ReadonlyMap<string, VectorHit>
+  fileContentVectorHitsByPath: ReadonlyMap<string, VectorHit>
   selectFirstChunkStmt: Database.Statement<
+    [string],
+    { chunk_text: string }
+  > | null
+  selectFirstFileChunkStmt: Database.Statement<
     [string],
     { chunk_text: string }
   > | null
   logger: Logger
 }): Promise<{ results: SearchResult[] } | null> => {
   try {
-    // Collect document text for each candidate
+    // Collect document text for each candidate — cascade through sources
     const documentTexts = params.mergedResults.map((result) => {
-      // Prefer vector chunk text (best semantic match for this note)
+      // Prefer note vector chunk text (best semantic match for this note)
       const vectorHit = params.vectorHitsByPath.get(result.path)
       if (vectorHit) return vectorHit.chunkText
+
+      // File content vector chunk text
+      const fileVectorHit = params.fileContentVectorHitsByPath.get(result.path)
+      if (fileVectorHit) return fileVectorHit.chunkText
 
       // FTS-only note: use chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path)
         if (chunkRow) return chunkRow.chunk_text
+      }
+
+      // FTS-only file: use chunk index 0 from file_content_chunks
+      if (params.selectFirstFileChunkStmt) {
+        const fileChunkRow = params.selectFirstFileChunkStmt.get(result.path)
+        if (fileChunkRow) return fileChunkRow.chunk_text
       }
 
       // Fallback: use the snippet (truncated, but better than nothing —
