@@ -131,8 +131,12 @@ export const startServer = async (
         reject(new Error(`Server exited early with code ${code}`)),
       )
     })
-    const startTimeout = new Promise<never>((_, reject) =>
-      setTimeout(
+    // Mutable — captured synchronously inside the Promise constructor,
+    // cleared after the race so the losing timer doesn't fire and reject
+    // an unwatched Promise (unhandled rejection in the test runner).
+    let startTimeoutTimer: ReturnType<typeof setTimeout> | undefined
+    const startTimeout = new Promise<never>((_, reject) => {
+      startTimeoutTimer = setTimeout(
         () =>
           reject(
             new Error(
@@ -140,9 +144,11 @@ export const startServer = async (
             ),
           ),
         15_000,
-      ).unref(),
-    )
+      )
+      startTimeoutTimer.unref()
+    })
     await Promise.race([started, earlyExit, startTimeout])
+    clearTimeout(startTimeoutTimer)
     await Promise.race([pollHealthz(port, 15_000), earlyExit])
   } catch (err) {
     child.kill("SIGKILL")
