@@ -118,7 +118,7 @@ PORT=8000
 # Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
 # IP — otherwise they all share one rate-limit budget.
 # Set TRUST_FORWARDED_HEADER=true only if the proxy reports each visitor's
-# IP in the RFC 7239 Forwarded header, as AWS API Gateway does.
+# IP in the RFC 7239 Forwarded header (e.g. AWS API Gateway).
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HEADER=false
 
@@ -244,7 +244,7 @@ PORT=8000
 # Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
 # IP — otherwise they all share one rate-limit budget.
 # Set TRUST_FORWARDED_HEADER=true only if the proxy reports each visitor's
-# IP in the RFC 7239 Forwarded header, as AWS API Gateway does.
+# IP in the RFC 7239 Forwarded header (e.g. AWS API Gateway).
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HEADER=false
 
