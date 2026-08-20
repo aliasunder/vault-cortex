@@ -300,8 +300,8 @@ curl http://localhost:8000/healthz
 # → {"ok":true}
 
 # One log stream for both processes — MCP server lines are structured
-# JSON; init-chain lines carry an [obsidian-sync] prefix and the ongoing
-# sync output is plain text:
+# JSON; init-chain lines carry an [obsidian-sync] or [vault-cortex] prefix
+# and the ongoing sync output is plain text:
 npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
 docker logs vault-cortex       # Compose or docker run
 # Sync output only: docker logs vault-cortex 2>&1 | grep -v '^{'

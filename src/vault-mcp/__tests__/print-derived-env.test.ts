@@ -75,11 +75,13 @@ describe("print-derived-env — storage layout", () => {
     )
   })
 
-  it("resolves STORAGE_ROOT=/ to the historical layout", () => {
+  it("rejects STORAGE_ROOT=/ instead of deriving paths on the ephemeral layer", () => {
     const run = runPrinter({ STORAGE_ROOT: "/" })
 
-    expect(run.stdout).toBe(
-      "VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\nLOG_DIR=/data/logs\nXDG_CONFIG_HOME=/config\n",
+    expect(run.status).toBe(1)
+    expect(run.stdout).toBe("")
+    expect(run.stderr).toBe(
+      "[vault-cortex] ERROR: STORAGE_ROOT must name a directory inside a persistent mount (e.g. /persist), not /.\n",
     )
   })
 

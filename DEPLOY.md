@@ -126,7 +126,7 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 
 ### Tailing logs
 
-The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
+The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` or `[vault-cortex]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
 
 ```bash
 # Follow the logs in real time

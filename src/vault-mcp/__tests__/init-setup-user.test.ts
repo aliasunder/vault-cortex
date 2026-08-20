@@ -166,6 +166,21 @@ describe("init-setup-user ownership script", () => {
     expect(run.stdout).not.toContain("fixing ownership recursively")
   })
 
+  it("remaps the group and re-records the IDs after a PGID change", () => {
+    const run = runSetupUser({ pgid: "1002", appliedIds: "1000:1000" })
+    const legacyConfigDir = join(run.homeDir, ".config")
+
+    expect(run.status).toBe(0)
+    expect(run.calls).toEqual([
+      "groupmod -o -g 1002 obsidian",
+      `chown -R 1000:1002 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`,
+      `chown 1000:1002 ${join(legacyConfigDir, ".applied-ids")}`,
+    ])
+    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe(
+      "1000:1002\n",
+    )
+  })
+
   it("remaps the user and re-records the IDs after a PUID change", () => {
     const run = runSetupUser({ puid: "1001", appliedIds: "1000:1000" })
     const legacyConfigDir = join(run.homeDir, ".config")

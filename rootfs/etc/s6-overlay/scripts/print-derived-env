@@ -30,9 +30,15 @@ if [ -z "${STORAGE_ROOT:-}" ]; then
   fi
 else
   # Strip one trailing slash so "/persist/" and "/persist" derive the same
-  # paths. STORAGE_ROOT="/" strips to "" and yields the historical layout
-  # (/vault, /data/...), which is the right answer for that input.
+  # paths. "/" strips to "" — refuse it rather than derive /config and
+  # /data/logs, which sit on the container's ephemeral layer, not on any
+  # mount: Sync device state and the deletion-storm sentinel would vanish
+  # on the next recreation.
   storage_root="${STORAGE_ROOT%/}"
+  if [ -z "$storage_root" ]; then
+    echo "[vault-cortex] ERROR: STORAGE_ROOT must name a directory inside a persistent mount (e.g. /persist), not /." >&2
+    exit 1
+  fi
   if [ -z "${VAULT_PATH:-}" ]; then
     printf 'VAULT_PATH=%s\n' "$storage_root/vault"
   fi
