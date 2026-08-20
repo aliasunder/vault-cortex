@@ -594,6 +594,7 @@ export const hybridSearch = async (
     // Note vector-only result — look up metadata from the notes table
     const noteRow = context.vector.selectNoteMetadataStmt.get(path)
     if (noteRow) {
+      // Apply filters that FTS would have applied via SQL
       if (
         params.filters &&
         !noteMatchesSearchFilters(noteRow, params.filters)
