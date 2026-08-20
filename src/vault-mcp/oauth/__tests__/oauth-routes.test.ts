@@ -629,6 +629,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     const event = logs.find((log) => log.message === "oauth_rate_limited")
     expect(event).toMatchObject({
       level: "warn",
+      message: "oauth_rate_limited",
       data: expect.objectContaining({ path: "/register" }),
     })
     // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —

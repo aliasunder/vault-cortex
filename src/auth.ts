@@ -32,27 +32,18 @@ const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 /**
  * The last `for=` value in an RFC 7239 Forwarded header — the claim of the
  * proxy closest to the server. Walking right-to-left matters: a client can
- * prepend its own elements, so the first `for=` is attacker-controlled
  * whenever the edge proxy appends (as API Gateway does) rather than
  * replaces. The last element is the edge proxy's own claim either way.
  */
 const lastForwardedClientIp = (forwarded: string): string | undefined => {
-  const elements = forwarded.split(",")
-  for (let index = elements.length - 1; index >= 0; index--) {
-    const match = FORWARDED_FOR_CLIENT.exec(elements[index] ?? "")
+  for (const element of forwarded.split(",").toReversed()) {
+    const match = FORWARDED_FOR_CLIENT.exec(element)
     if (match?.[1]) return match[1]
   }
   return undefined
 }
 
-/**
- * Real client IP for logging and rate limiting. When `trustForwardedHeader`
- * is set, the deployment has a trusted edge proxy (API Gateway) that sets or
- * appends the RFC 7239 Forwarded header, and the last `for=` element is that
- * proxy's claim about the client. When unset, the header is
- * attacker-controlled and ignored entirely — req.ip, itself governed by the
- * server's trust-proxy hop count, is the only source.
- */
+/** Real client IP for logging and rate limiting. */
 export const extractClientIp = (
   req: Pick<Request, "headers" | "ip">,
   trustForwardedHeader: boolean,
