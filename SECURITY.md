@@ -213,6 +213,36 @@ Base-image CVEs surfaced by Trivy are typically already tracked in the
 Security tab and handled through image updates. A report is still welcome if
 you've found a Vault Cortex–specific exploit path for one.
 
+## Release Signing
+
+Every server release (`v*` tags) includes a signed digest file (`digests.txt`
+\+ `digests.txt.sigstore.json`) containing the GHCR image manifest digests for
+both the local and remote Docker targets. CLI releases (`cli-v*` tags) are npm
+packages and do not include container digests. Signatures use
+[Sigstore cosign](https://docs.sigstore.dev/) keyless signing — no long-lived
+keys; the signing identity is the GitHub Actions OIDC token, and each signature
+is recorded in Sigstore's public transparency log
+([Rekor](https://docs.sigstore.dev/logging/overview/)).
+
+To verify a release's digest file:
+
+```bash
+gh release download v0.38.0 --pattern 'digests.txt*'
+
+cosign verify-blob \
+  --bundle digests.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/(auto_release|manual_release)\.yml@.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  digests.txt
+```
+
+Then confirm the image you pulled matches a signed digest:
+
+```bash
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:v0.38.0
+# Compare the sha256:... with the corresponding line in digests.txt
+```
+
 ## Reporting a Vulnerability
 
 If you discover a security issue, please report it through

@@ -79,6 +79,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+      id-token: write # cosign keyless signing via Fulcio OIDC
     steps:
       - name: Generate App token
         id: app-token
@@ -117,11 +118,17 @@ jobs:
           git commit -m "docs: update CHANGELOG.md for $GITHUB_REF_NAME"
           git push origin main
 
+      # Idempotent: skip creation if the release already exists so a
+      # re-run after a signing failure proceeds to the cosign steps.
       - name: Create GitHub release
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" --json tagName > /dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, skipping creation"
+            exit 0
+          fi
           for i in 1 2 3; do
             if gh release create "$GITHUB_REF_NAME" \
                  --title "$GITHUB_REF_NAME" \
@@ -133,3 +140,29 @@ jobs:
           done
           echo "Failed to create release after 3 attempts"
           exit 1
+
+      - name: Install cosign
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create digest file
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        env:
+          IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
+          VERSION: ${{ needs.validate.outputs.version }}
+          DIGEST_LOCAL: ${{ needs.deploy.outputs.digest-local }}
+          DIGEST_REMOTE: ${{ needs.deploy.outputs.digest-remote }}
+        run: |
+          printf '%s %s\n' "$DIGEST_LOCAL" "$IMAGE:v$VERSION" > digests.txt
+          printf '%s %s\n' "$DIGEST_REMOTE" "$IMAGE:v$VERSION-remote" >> digests.txt
+          cat digests.txt
+
+      - name: Sign digest file
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        run: cosign sign-blob --yes --bundle digests.txt.sigstore.json digests.txt
+
+      - name: Upload signed digests to release
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload --clobber "$GITHUB_REF_NAME" digests.txt digests.txt.sigstore.json
