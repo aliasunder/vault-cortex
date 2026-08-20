@@ -94,6 +94,28 @@ describe("print-derived-env — storage layout", () => {
     )
   })
 
+  it("keeps an explicit INDEX_DB_PATH when STORAGE_ROOT is set", () => {
+    const run = runPrinter({
+      STORAGE_ROOT: "/persist",
+      INDEX_DB_PATH: "/custom/index.db",
+    })
+
+    expect(run.stdout).toBe(
+      "VAULT_PATH=/persist/vault\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
+    )
+  })
+
+  it("keeps an explicit XDG_CONFIG_HOME when STORAGE_ROOT is set", () => {
+    const run = runPrinter({
+      STORAGE_ROOT: "/persist",
+      XDG_CONFIG_HOME: "/custom/config",
+    })
+
+    expect(run.stdout).toBe(
+      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\n",
+    )
+  })
+
   it("treats an empty STORAGE_ROOT as unset", () => {
     const run = runPrinter({ STORAGE_ROOT: "" })
 
