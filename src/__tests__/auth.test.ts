@@ -56,7 +56,7 @@ describe("parseBearer", () => {
 
 describe("extractClientIp", () => {
   const requestWith = (
-    headers: Record<string, string>,
+    headers: Record<string, string | string[]>,
     ip?: string,
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
 
@@ -102,6 +102,17 @@ describe("extractClientIp", () => {
     it("takes the last for= element of a multi-element Forwarded header", () => {
       const request = requestWith(
         { forwarded: "for=203.0.113.7, for=70.41.3.18" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, true)).toBe("70.41.3.18")
+    })
+
+    // Duplicate header lines can arrive as an array when middleware or a
+    // custom HTTP stack re-parses them — the last-for= property must span
+    // the joined lines, not just the first line's value.
+    it("takes the last for= element across duplicate Forwarded header lines", () => {
+      const request = requestWith(
+        { forwarded: ["for=203.0.113.7", "for=70.41.3.18"] },
         "10.0.0.1",
       )
       expect(extractClientIp(request, true)).toBe("70.41.3.18")

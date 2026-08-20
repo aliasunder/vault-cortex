@@ -582,10 +582,21 @@ This bounds the blast radius of a leaked refresh token without inconveniencing
 active sessions.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
-`/revoke`) are rate-limited at 5 req/min per client IP. A custom key
-generator extracts the real client IP from API Gateway's `Forwarded` header
+`/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
+client-IP key derived from the deployment's explicit proxy-trust config:
+
+- `TRUST_FORWARDED_HEADER` (default `false`) honors the RFC 7239
+  `Forwarded` header, keying on the **last** `for=` element — the edge
+  proxy's own claim, since a client can prepend elements but its entries
+  land before the proxy's append. Intended for the reference deployment,
+  where API Gateway is the immediate upstream.
+- `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
+  `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
+  isn't trusted. An injected forwarding header is ignored on both channels,
+  so it can't mint a fresh bucket.
+
 (express-rate-limit's built-in validators are disabled — they assume
-direct-to-server traffic, not reverse-proxy deployments). A tripped limiter
+direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
@@ -692,17 +703,17 @@ the MCP server as PID 1's only child.
 
 The runtime image (`Dockerfile`) minimizes the attack surface:
 
-| Measure                     | What it does                                                                                                                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multi-stage build           | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                               |
-| Digest-pinned base          | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                         |
-| Non-root processes          | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                      |
-| PID 1 init                  | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                          |
-| Package-manager removal     | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`) |
-| Debian security fixes       | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                        |
-| Log rotation (Compose)      | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                   |
-| `trust proxy` = 1 (Express) | Trusts exactly one proxy hop (API Gateway); prevents client IP spoofing via injected `X-Forwarded-For`                                                                                      |
-| `Object.freeze` on config   | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                              |
+| Measure                        | What it does                                                                                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                               |
+| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                         |
+| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                      |
+| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                          |
+| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                 |
+| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                        |
+| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                   |
+| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under `TRUST_FORWARDED_HEADER` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                              |
 
 ### Durability
 

@@ -58,7 +58,14 @@ export const extractClientIp = (
   trustForwardedHeader: boolean,
 ): string => {
   if (trustForwardedHeader) {
-    const forwarded = headerAsString(req.headers["forwarded"])
+    // Node's HTTP parser joins duplicate header lines into one string, but
+    // middleware or custom stacks can deliver an array instead — join
+    // explicitly so the right-to-left walk spans every line, never just the
+    // first.
+    const forwardedHeader = req.headers["forwarded"]
+    const forwarded = Array.isArray(forwardedHeader)
+      ? forwardedHeader.join(", ")
+      : forwardedHeader
     if (forwarded) {
       const clientIp = lastForwardedClientIp(forwarded)
       if (clientIp) return clientIp

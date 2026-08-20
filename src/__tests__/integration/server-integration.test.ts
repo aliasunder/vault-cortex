@@ -623,12 +623,12 @@ describe("default config", () => {
   })
 
   describe("OAuth rate limiting", () => {
-    const registerWithSpoofedIp = (spoofedIp: string) =>
+    const register = (forwardedIp: string) =>
       fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          forwarded: `for=${spoofedIp}`,
+          forwarded: `for=${forwardedIp}`,
         },
         body: JSON.stringify({
           client_name: "integration-test",
@@ -644,12 +644,62 @@ describe("default config", () => {
     // fresh rate-limit bucket — all six share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
       for (let i = 1; i <= 5; i++) {
-        const response = await registerWithSpoofedIp(`198.51.100.${i}`)
+        const response = await register(`198.51.100.${i}`)
         expect(response.status).toBe(201)
       }
-      const sixth = await registerWithSpoofedIp("198.51.100.6")
+      const sixth = await register("198.51.100.6")
       expect(sixth.status).toBe(429)
     })
+  })
+})
+
+// ── X-Forwarded-For rate limiting (default proxy trust) ────────
+
+describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    // Dedicated default-config server: the limiter's in-memory store is
+    // per-process and blocked hits count, so the default-config describe's
+    // Forwarded test leaves its shared 5-req bucket exhausted inside the
+    // 60s window — running this test there would 429 on the first request.
+    const server = await startServer(port)
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // The XFF channel is the other half of the GHSA-wm5v-9236-597m bypass:
+  // with TRUST_PROXY_HOPS=0 (the default), a client-supplied X-Forwarded-For
+  // must not shift the bucket either — re-raising the hop count would
+  // reopen it silently.
+  it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register(`198.51.100.${i}`)
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("198.51.100.6")
+    expect(sixth.status).toBe(429)
   })
 })
 

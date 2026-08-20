@@ -23,6 +23,10 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: local-dev-token
       PUBLIC_URL: http://localhost:8000
+      # Client-IP trust for rate limiting (see .env.example): direct exposure
+      # is the safe default; TRUST_PROXY_HOPS=1 when a proxy fronts the server.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_FORWARDED_HEADER: ${TRUST_FORWARDED_HEADER:-false}
       LOG_LEVEL: debug
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}
