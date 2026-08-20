@@ -173,8 +173,9 @@ const runFileContentFts = (
   if (!context.fileContentFts) return []
   const sanitizedQuery = sanitizeFtsQuery(params.query)
   if (!sanitizedQuery) return []
-  // "%" matches every path when no folder filter applies — the statement
-  // keeps a fixed arity instead of needing a second, predicate-free variant.
+  // With no folder filter, bind "%" so the LIKE predicate matches every path —
+  // one prepared statement covers both cases instead of needing a second,
+  // filter-free one.
   return context.fileContentFts.searchStmt.all(
     params.snippetTokens,
     sanitizedQuery,
