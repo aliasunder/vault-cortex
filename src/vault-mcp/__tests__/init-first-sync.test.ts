@@ -328,7 +328,7 @@ describe("init-first-sync gate script", () => {
       "To start fresh: remove the Obsidian config directory (",
     )
     expect(run.stderr).toContain(
-      " — the obsidian_config volume under Compose) to re-register the device.",
+      " — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device.",
     )
   })
 

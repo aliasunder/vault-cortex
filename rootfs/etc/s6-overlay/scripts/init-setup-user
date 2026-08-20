@@ -13,6 +13,8 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 # server applies (server.ts); keep the two in lockstep.
 DATA_DIR="${INDEX_DB_PATH:-/data/index.db}"
 DATA_DIR="${DATA_DIR%/*}"
+# A root-level file (/index.db) strips to "" — its directory is /.
+DATA_DIR="${DATA_DIR:-/}"
 # Records the last PUID:PGID whose recursive chown completed. Lives in the
 # config directory so it survives container recreation — comparing against
 # the image-baked passwd entry instead (always 1000 on a fresh container)

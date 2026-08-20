@@ -57,6 +57,11 @@ describe("resolveLogDir", () => {
     expect(resolveLogDir("none")).toBeUndefined()
   })
 
+  it("matches the none sentinel case-insensitively", () => {
+    expect(resolveLogDir("NONE")).toBeUndefined()
+    expect(resolveLogDir("None")).toBeUndefined()
+  })
+
   it("turns file logging off when unset", () => {
     expect(resolveLogDir(undefined)).toBeUndefined()
   })

@@ -117,6 +117,25 @@ const spawnServerProcess = async (
   return { child, vaultPath, dataDir, stderr: () => stderrBuf, started }
 }
 
+/** Signal the child and wait for it to close, escalating to SIGKILL after
+ *  3 s. Temp directories are removed only after this resolves — `kill()`
+ *  alone just sends the signal, and deleting files a live process still
+ *  holds masks the real failure. */
+const terminateChild = async (
+  child: ChildProcess,
+  signal: "SIGTERM" | "SIGKILL",
+): Promise<void> => {
+  if (child.exitCode !== null) return
+  child.kill(signal)
+  await new Promise<void>((resolveClosed) => {
+    child.once("close", () => resolveClosed())
+    setTimeout(() => {
+      child.kill("SIGKILL")
+      resolveClosed()
+    }, 3_000).unref()
+  })
+}
+
 /** Boot the real server against a copy of the fixture vault. */
 export const startServer = async (
   port: number,
@@ -149,7 +168,7 @@ export const startServer = async (
     await Promise.race([started, earlyExit.promise, startTimeout.promise])
     await Promise.race([pollHealthz(port, 15_000), earlyExit.promise])
   } catch (err) {
-    child.kill("SIGKILL")
+    await terminateChild(child, "SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
     const reason = err instanceof Error ? err.message : String(err)
@@ -160,14 +179,7 @@ export const startServer = async (
   }
 
   const cleanup = async (): Promise<void> => {
-    child.kill("SIGTERM")
-    await new Promise<void>((res) => {
-      child.on("close", () => res())
-      setTimeout(() => {
-        child.kill("SIGKILL")
-        res()
-      }, 3_000).unref()
-    })
+    await terminateChild(child, "SIGTERM")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
   }

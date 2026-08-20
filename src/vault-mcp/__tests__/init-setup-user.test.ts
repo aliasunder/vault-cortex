@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { isAbsolute, join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -52,8 +52,8 @@ type SetupUserRun = {
 type SetupUserRunOptions = {
   puid?: string
   pgid?: string
-  /** Relative to the temp dir; the script receives its parent as the
-   *  index directory to create and chown. */
+  /** Relative to the temp dir (or absolute, used as-is); the script
+   *  receives its parent as the index directory to create and chown. */
   indexDbPath?: string
   /** When true, XDG_CONFIG_HOME points at <tmp>/persist/config. */
   xdgConfigHome?: boolean
@@ -66,7 +66,10 @@ const runSetupUser = (options: SetupUserRunOptions): SetupUserRun => {
   const stubBinDir = join(tempDir, "bin")
   const homeDir = join(tempDir, "home")
   const vaultPath = join(tempDir, "vault")
-  const indexDbPath = join(tempDir, options.indexDbPath ?? "data/index.db")
+  const indexDbPathOption = options.indexDbPath ?? "data/index.db"
+  const indexDbPath = isAbsolute(indexDbPathOption)
+    ? indexDbPathOption
+    : join(tempDir, indexDbPathOption)
   const dataDir = resolve(indexDbPath, "..")
   const xdgConfigDir = join(tempDir, "persist", "config")
   const configDir = options.xdgConfigHome
@@ -153,6 +156,17 @@ describe("init-setup-user ownership script", () => {
 
     expect(run.status).toBe(0)
     expect(existsSync(join(run.tempDir, "persist", "data"))).toBe(true)
+  })
+
+  it("treats a root-level INDEX_DB_PATH as living in /", () => {
+    const run = runSetupUser({ indexDbPath: "/index.db" })
+    const legacyConfigDir = join(run.homeDir, ".config")
+
+    expect(run.status).toBe(0)
+    expect(run.calls).toEqual([
+      `chown -R 1000:1000 /home/obsidian ${run.vaultPath} / ${legacyConfigDir}`,
+      `chown 1000:1000 ${join(legacyConfigDir, ".applied-ids")}`,
+    ])
   })
 
   it("skips the recursive chown when the recorded IDs already match", () => {

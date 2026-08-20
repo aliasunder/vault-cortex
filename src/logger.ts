@@ -143,11 +143,14 @@ const parseRetentionDays = (
 const LOG_DIR_OFF = "none"
 
 /** Resolves the LOG_DIR setting to a directory, or undefined when file
- *  logging is off — unset, empty, or the `none` sentinel. */
+ *  logging is off — unset, empty, or the `none` sentinel in any casing
+ *  (a literal `NONE/` log directory is never what an operator meant). */
 export const resolveLogDir = (
   logDirSetting: string | undefined,
 ): string | undefined => {
-  if (!logDirSetting || logDirSetting === LOG_DIR_OFF) return undefined
+  if (!logDirSetting || logDirSetting.toLowerCase() === LOG_DIR_OFF) {
+    return undefined
+  }
   return logDirSetting
 }
 
