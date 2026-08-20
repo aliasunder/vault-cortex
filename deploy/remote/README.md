@@ -159,10 +159,11 @@ flags from the full command above.
 
 On those hosts `PUBLIC_URL` can also be left unset — the container fills it
 in from the platform's own address variable (`RENDER_EXTERNAL_URL`,
-`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Log files are not written to
-the volume unless you set `LOG_DIR` (for example
-`LOG_DIR=/persist/data/logs`); the platform's log viewer captures the
-container output either way.
+`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Log files go to
+`/persist/data/logs` by default; set `LOG_DIR=none` to keep logs in the
+platform's log viewer only. A value your `.env` sets always wins — the
+`.env.example` line `LOG_DIR=/data/logs` would put log files outside the
+volume, so delete it or point it under `/persist`.
 
 </details>
 

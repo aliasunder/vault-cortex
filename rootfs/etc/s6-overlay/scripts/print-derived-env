@@ -15,11 +15,10 @@
 # $HOME/.config).
 #
 # STORAGE_ROOT set — hosts that allow a single persistent mount (Railway,
-# Render, Fly): the vault, the index, and Obsidian Sync state all live under
-# it, so one volume carries everything that must survive a redeploy. LOG_DIR
-# is deliberately not derived: those hosts capture stdout themselves, and
-# "LOG_DIR empty" means "no log files" (logger.ts), a meaning a derived
-# default would override. Set LOG_DIR explicitly to keep log files there.
+# Render, Fly): the vault, the index, log files, and Obsidian Sync state all
+# live under it, so one volume carries everything that must survive a
+# redeploy. LOG_DIR=none (non-empty, so never overridden) turns log files
+# off, matching the remote Compose file's default-on behavior.
 set -eu
 
 if [ -z "${STORAGE_ROOT:-}" ]; then
@@ -39,6 +38,9 @@ else
   fi
   if [ -z "${INDEX_DB_PATH:-}" ]; then
     printf 'INDEX_DB_PATH=%s\n' "$storage_root/data/index.db"
+  fi
+  if [ -z "${LOG_DIR:-}" ]; then
+    printf 'LOG_DIR=%s\n' "$storage_root/data/logs"
   fi
   if [ -z "${XDG_CONFIG_HOME:-}" ]; then
     printf 'XDG_CONFIG_HOME=%s\n' "$storage_root/config"

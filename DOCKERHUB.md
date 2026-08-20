@@ -161,7 +161,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
 | `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
 | `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `LOG_DIR` | — | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only. |
+| `LOG_DIR` | — | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset or `none` means stdout only. |
 | `LOG_RETENTION_DAYS` | — | `30` | Days to keep log files before automatic cleanup on startup |
 | `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |

@@ -136,11 +136,24 @@ const parseRetentionDays = (
   return Number.isNaN(retentionDays) ? undefined : retentionDays
 }
 
-const fileSinkExtension: LogExtension | undefined = env.LOG_DIR
-  ? createFileSinkExtension(
-      env.LOG_DIR,
-      parseRetentionDays(env.LOG_RETENTION_DAYS),
-    )
+/** Sentinel that turns file logging off. Deployments that default LOG_DIR on
+ *  (the remote Compose file, STORAGE_ROOT single-volume mode) substitute
+ *  their default for an empty value, so "empty" can't serve as the off
+ *  switch — an explicit word can. */
+const LOG_DIR_OFF = "none"
+
+/** Resolves the LOG_DIR setting to a directory, or undefined when file
+ *  logging is off — unset, empty, or the `none` sentinel. */
+export const resolveLogDir = (
+  logDirSetting: string | undefined,
+): string | undefined => {
+  if (!logDirSetting || logDirSetting === LOG_DIR_OFF) return undefined
+  return logDirSetting
+}
+
+const logDir = resolveLogDir(env.LOG_DIR)
+const fileSinkExtension: LogExtension | undefined = logDir
+  ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
   : undefined
 
 const defaultExtensions: LogExtension[] = fileSinkExtension

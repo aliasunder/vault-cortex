@@ -746,14 +746,16 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 
 - `$STORAGE_ROOT/vault` → `VAULT_PATH`
 - `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
+- `$STORAGE_ROOT/data/logs` → `LOG_DIR`
 - `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — obsidian-headless resolves its
   config directory from it, and `init-setup-user` / `init-first-sync` keep
   the `.applied-ids` record and the deletion-storm sentinel there too
 
-A variable set explicitly (non-empty) is never overridden. `LOG_DIR` is not
-derived — those platforms capture stdout themselves, and an empty `LOG_DIR`
-already means "no log files". Unset, the layout is the historical three-mount
-one, so Compose and plain `docker run` deployments are unaffected.
+A variable set explicitly (non-empty) is never overridden; `LOG_DIR=none`
+turns log files off (the sentinel, not an empty value, because every
+deployment surface that defaults `LOG_DIR` on substitutes its default for
+empty). Unset, the layout is the historical three-mount one, so Compose and
+plain `docker run` deployments are unaffected.
 
 `init-derive-env` also fills `PUBLIC_URL` when it is unset, from the first
 present of `RENDER_EXTERNAL_URL`, `https://$RAILWAY_PUBLIC_DOMAIN`, or

@@ -11,7 +11,12 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
 import { findSourceMap } from "node:module"
-import { createFileSinkExtension, pruneOldLogFiles, logger } from "../logger.js"
+import {
+  createFileSinkExtension,
+  pruneOldLogFiles,
+  logger,
+  resolveLogDir,
+} from "../logger.js"
 
 vi.mock("node:module", { spy: true })
 
@@ -41,6 +46,28 @@ const sampleEntry = (message: string) => ({
   name: "test",
   message,
   data: {},
+})
+
+describe("resolveLogDir", () => {
+  it("returns the directory for an ordinary path", () => {
+    expect(resolveLogDir("/data/logs")).toBe("/data/logs")
+  })
+
+  it("turns file logging off for the none sentinel", () => {
+    expect(resolveLogDir("none")).toBeUndefined()
+  })
+
+  it("turns file logging off when unset", () => {
+    expect(resolveLogDir(undefined)).toBeUndefined()
+  })
+
+  it("turns file logging off when empty", () => {
+    expect(resolveLogDir("")).toBeUndefined()
+  })
+
+  it("does not treat a directory literally named none under a path as the sentinel", () => {
+    expect(resolveLogDir("/data/none")).toBe("/data/none")
+  })
 })
 
 describe("createFileSinkExtension", () => {

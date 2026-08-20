@@ -57,12 +57,12 @@ describe("print-derived-env — storage layout", () => {
     expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n")
   })
 
-  it("derives vault, index, and config paths under STORAGE_ROOT", () => {
+  it("derives vault, index, log, and config paths under STORAGE_ROOT", () => {
     const run = runPrinter({ STORAGE_ROOT: "/persist" })
 
     expect(run.status).toBe(0)
     expect(run.stdout).toBe(
-      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nXDG_CONFIG_HOME=/persist/config\n",
+      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
     )
     expect(run.stderr).toBe("")
   })
@@ -71,7 +71,7 @@ describe("print-derived-env — storage layout", () => {
     const run = runPrinter({ STORAGE_ROOT: "/persist/" })
 
     expect(run.stdout).toBe(
-      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nXDG_CONFIG_HOME=/persist/config\n",
+      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
     )
   })
 
@@ -79,7 +79,7 @@ describe("print-derived-env — storage layout", () => {
     const run = runPrinter({ STORAGE_ROOT: "/" })
 
     expect(run.stdout).toBe(
-      "VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\nXDG_CONFIG_HOME=/config\n",
+      "VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\nLOG_DIR=/data/logs\nXDG_CONFIG_HOME=/config\n",
     )
   })
 
@@ -90,7 +90,7 @@ describe("print-derived-env — storage layout", () => {
     })
 
     expect(run.stdout).toBe(
-      "INDEX_DB_PATH=/persist/data/index.db\nXDG_CONFIG_HOME=/persist/config\n",
+      "INDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
     )
   })
 
@@ -100,8 +100,16 @@ describe("print-derived-env — storage layout", () => {
     expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n")
   })
 
-  it("never derives LOG_DIR, even under STORAGE_ROOT", () => {
-    const run = runPrinter({ STORAGE_ROOT: "/persist" })
+  it("keeps LOG_DIR=none under STORAGE_ROOT so file logging stays off", () => {
+    const run = runPrinter({ STORAGE_ROOT: "/persist", LOG_DIR: "none" })
+
+    expect(run.stdout).toBe(
+      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nXDG_CONFIG_HOME=/persist/config\n",
+    )
+  })
+
+  it("does not derive LOG_DIR when STORAGE_ROOT is unset", () => {
+    const run = runPrinter({})
 
     expect(run.stdout).not.toContain("LOG_DIR=")
   })
