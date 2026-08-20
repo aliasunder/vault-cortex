@@ -1,0 +1,22 @@
+#!/command/with-contenv sh
+# First init step: publish derived env vars to every later s6 stage.
+# s6-overlay reads /run/s6/container_environment/<NAME> at the start of each
+# with-contenv stage, so files written here reach init-setup-user onward and
+# both long-running services. The derivation itself lives in
+# print-derived-env (pure, unit-tested); this script only publishes it.
+set -eu
+
+# Capture first, then iterate — piping straight into `while` would hide a
+# non-zero exit from print-derived-env behind the loop's status.
+derived_env=$(/etc/s6-overlay/scripts/print-derived-env)
+
+# IFS='=' with two read targets splits on the first "=" only, so a value
+# containing "=" (a URL query string) arrives intact in $value.
+printf '%s\n' "$derived_env" | while IFS='=' read -r name value; do
+  if [ -z "$name" ]; then
+    continue
+  fi
+  # No trailing newline: s6 takes the file's first line as the value.
+  printf '%s' "$value" > "/run/s6/container_environment/$name"
+  echo "[vault-cortex] $name=$value"
+done

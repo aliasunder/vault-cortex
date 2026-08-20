@@ -1,0 +1,64 @@
+#!/bin/sh
+# Prints the env vars the remote image derives at boot, one NAME=value per
+# line on stdout, for init-derive-env to publish to the later s6 stages.
+# Pure — reads the environment, writes nothing — so the derivation is
+# unit-testable by running this file under `sh`.
+#
+# A var is derived when it is unset OR empty — the same rule the server
+# applies to every optional setting (config.ts trims and falls back on
+# empty), and what Compose's `${VAR:-}` passthrough produces for a blank
+# .env entry. A non-empty value is always kept.
+#
+# STORAGE_ROOT unset — the Compose / VPS layout with three mounts:
+# VAULT_PATH and INDEX_DB_PATH take the image's historical defaults;
+# XDG_CONFIG_HOME is left alone (obsidian-headless falls back to
+# $HOME/.config).
+#
+# STORAGE_ROOT set — hosts that allow a single persistent mount (Railway,
+# Render, Fly): the vault, the index, and Obsidian Sync state all live under
+# it, so one volume carries everything that must survive a redeploy. LOG_DIR
+# is deliberately not derived: those hosts capture stdout themselves, and
+# "LOG_DIR empty" means "no log files" (logger.ts), a meaning a derived
+# default would override. Set LOG_DIR explicitly to keep log files there.
+set -eu
+
+if [ -z "${STORAGE_ROOT:-}" ]; then
+  if [ -z "${VAULT_PATH:-}" ]; then
+    printf 'VAULT_PATH=%s\n' /vault
+  fi
+  if [ -z "${INDEX_DB_PATH:-}" ]; then
+    printf 'INDEX_DB_PATH=%s\n' /data/index.db
+  fi
+else
+  # Strip one trailing slash so "/persist/" and "/persist" derive the same
+  # paths. STORAGE_ROOT="/" strips to "" and yields the historical layout
+  # (/vault, /data/...), which is the right answer for that input.
+  storage_root="${STORAGE_ROOT%/}"
+  if [ -z "${VAULT_PATH:-}" ]; then
+    printf 'VAULT_PATH=%s\n' "$storage_root/vault"
+  fi
+  if [ -z "${INDEX_DB_PATH:-}" ]; then
+    printf 'INDEX_DB_PATH=%s\n' "$storage_root/data/index.db"
+  fi
+  if [ -z "${XDG_CONFIG_HOME:-}" ]; then
+    printf 'XDG_CONFIG_HOME=%s\n' "$storage_root/config"
+  fi
+fi
+
+# The server requires PUBLIC_URL. Hosted platforms expose the service's
+# public hostname under their own variable, so map the first one present and
+# a template deploy boots without the user hand-typing a URL they can't know
+# until the platform assigns it. A non-empty PUBLIC_URL always wins; no match
+# leaves it unset so the server's required-variable error still fires.
+if [ -z "${PUBLIC_URL:-}" ]; then
+  if [ -n "${RENDER_EXTERNAL_URL:-}" ]; then
+    printf 'PUBLIC_URL=%s\n' "$RENDER_EXTERNAL_URL"
+    echo "[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL" >&2
+  elif [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
+    printf 'PUBLIC_URL=https://%s\n' "$RAILWAY_PUBLIC_DOMAIN"
+    echo "[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN" >&2
+  elif [ -n "${FLY_APP_NAME:-}" ]; then
+    printf 'PUBLIC_URL=https://%s.fly.dev\n' "$FLY_APP_NAME"
+    echo "[vault-cortex] PUBLIC_URL derived from FLY_APP_NAME" >&2
+  fi
+fi

@@ -65,7 +65,12 @@ WORKDIR /app
 # when the Dockerfile hasn't changed.
 ARG APT_UPGRADE_DATE
 RUN apt-get update -qq && apt-get upgrade -y && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
-ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0 VAULT_PATH=/vault INDEX_DB_PATH=/data/index.db
+# VAULT_PATH and INDEX_DB_PATH are deliberately NOT set here: the remote
+# target's init-derive-env supplies them at boot (defaults, or paths under
+# STORAGE_ROOT in single-volume mode) and can only tell "unset" from
+# "user-provided" if the image doesn't bake values in. The local target has
+# no init chain and sets them itself below.
+ENV NODE_ENV=production PORT=8000 HOST=0.0.0.0
 # OCI image metadata. The ownership marker must match `name` in server.json
 # (mcp-publisher reads it off the manifest). title/description/source/licenses
 # show via `docker inspect` and on the GHCR package page; for the multi-arch
@@ -180,6 +185,7 @@ ENTRYPOINT ["/init"]
 # (`:latest` semantics). Keep it last.
 # ---------------------------------------------------------------------------
 FROM base AS local
+ENV VAULT_PATH=/vault INDEX_DB_PATH=/data/index.db
 # The runtime is `node dist/...` only — npm, npx, corepack, and yarn are
 # never invoked in this image. Removing them drops their bundled
 # dependencies' CVE surface and shrinks the attack surface.

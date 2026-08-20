@@ -54,8 +54,12 @@ type GateRun = {
   stdout: string
   stderr: string
   syncCalls: number
+  /** Obsidian config directory the script resolved (sentinel's parent). */
+  configDir: string
   /** Path to the sentinel file for post-run assertions. */
   sentinelPath: string
+  /** Where the sentinel lands with XDG_CONFIG_HOME unset ($HOME/.config). */
+  legacySentinelPath: string
 }
 
 type GateRunOptions = {
@@ -70,6 +74,9 @@ type GateRunOptions = {
   vaultExists?: boolean
   /** When true, pre-creates the .vault-synced sentinel (simulates a prior sync). */
   sentinel?: boolean
+  /** When true, runs with XDG_CONFIG_HOME pointing at a directory outside
+   *  $HOME (single-volume mode) — the sentinel must follow it. */
+  xdgConfigHome?: boolean
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
@@ -77,10 +84,14 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
   const homeDir = join(tempDir, "home")
-  const configDir = join(homeDir, ".config")
+  const legacyConfigDir = join(homeDir, ".config")
+  const xdgConfigDir = join(tempDir, "persist", "config")
+  const configDir = options.xdgConfigHome ? xdgConfigDir : legacyConfigDir
   const sentinelPath = join(configDir, ".vault-synced")
+  const legacySentinelPath = join(legacyConfigDir, ".vault-synced")
   mkdirSync(stubBinDir)
-  mkdirSync(configDir, { recursive: true })
+  mkdirSync(legacyConfigDir, { recursive: true })
+  mkdirSync(xdgConfigDir, { recursive: true })
   if (options.vaultExists ?? true) {
     mkdirSync(vaultPath)
   }
@@ -119,6 +130,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       ...(options.memoryEnabled === undefined
         ? {}
         : { MEMORY_ENABLED: options.memoryEnabled }),
+      ...(options.xdgConfigHome ? { XDG_CONFIG_HOME: xdgConfigDir } : {}),
     },
   })
 
@@ -131,7 +143,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     stdout: result.stdout,
     stderr: result.stderr,
     syncCalls,
+    configDir,
     sentinelPath,
+    legacySentinelPath,
   }
 }
 
@@ -310,7 +324,12 @@ describe("init-first-sync gate script", () => {
     expect(run.stderr).toContain(
       "ERROR: The vault is empty but this device has previously synced.",
     )
-    expect(run.stderr).toContain("remove the obsidian_config volume")
+    expect(run.stderr).toContain(
+      "To start fresh: remove the Obsidian config directory (",
+    )
+    expect(run.stderr).toContain(
+      " — the obsidian_config volume under Compose) to re-register the device.",
+    )
   })
 
   it("refuses when the vault has only hidden entries and a prior sync completed", () => {
@@ -354,6 +373,47 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(0)
     expect(existsSync(run.sentinelPath)).toBe(true)
+  })
+
+  // -- XDG_CONFIG_HOME relocation (single-volume mode) ---------------------
+
+  it("writes the sentinel under $HOME/.config when XDG_CONFIG_HOME is unset", () => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
+
+    expect(run.status).toBe(0)
+    expect(run.sentinelPath).toBe(run.legacySentinelPath)
+    expect(existsSync(run.legacySentinelPath)).toBe(true)
+  })
+
+  it("writes the sentinel under XDG_CONFIG_HOME when set, not under $HOME", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      xdgConfigHome: true,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(existsSync(run.sentinelPath)).toBe(true)
+    expect(existsSync(run.legacySentinelPath)).toBe(false)
+  })
+
+  it("fires the empty-vault guard from a sentinel under XDG_CONFIG_HOME", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+      xdgConfigHome: true,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+    expect(run.stderr).toContain(
+      `remove the Obsidian config directory (${run.configDir} —`,
+    )
   })
 
   it("does not write the sentinel file when sync fails fatally", () => {
