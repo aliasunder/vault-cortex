@@ -30,6 +30,9 @@ each config combination serves the correct tool surface, that auth
 rejects invalid tokens, that write operations actually mutate the vault
 (read-back verified), and that misconfiguration fails fast at boot.
 
+`npm run test:coverage` runs the same suite with a statement-coverage
+report (V8 provider); the `coverage/` output directory is gitignored.
+
 ## Development Modes
 
 Vault Cortex can run in three modes during development:
