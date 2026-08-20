@@ -126,6 +126,41 @@ const installStatementPoison = (sqlFragment: string) => {
   }
 }
 
+/** Query-side sibling of installStatementPoison: patches the matching
+ *  statement's .all (read queries) to throw while armed. Must likewise be
+ *  installed BEFORE createSearchIndex — query statements are prepared at
+ *  factory scope. */
+const installQueryPoison = (sqlFragment: string) => {
+  const message = `injected failure on: ${sqlFragment}`
+  const realPrepare: (
+    this: Database.Database,
+    source: string,
+  ) => Database.Statement = Database.prototype.prepare
+  // Mutable arming flag: the patched .all closes over this object so tests
+  // can trigger the failure long after the statement was prepared.
+  const poisonState = { armed: false }
+  const prepareSpy = vi
+    .spyOn(Database.prototype, "prepare")
+    .mockImplementation(function (this: Database.Database, source: string) {
+      const statement = realPrepare.call(this, source)
+      if (source.includes(sqlFragment)) {
+        const realAll = statement.all.bind(statement)
+        statement.all = (...queryParams: unknown[]) => {
+          if (poisonState.armed) throw new Error(message)
+          return realAll(...queryParams)
+        }
+      }
+      return statement
+    })
+  onTestFinished(() => prepareSpy.mockRestore())
+  return {
+    message,
+    arm: () => {
+      poisonState.armed = true
+    },
+  }
+}
+
 /** Version A of the atomicity-test note: distinct title, tag, body term,
  *  one task (so the poisoned tasks statement provably fires), one link. */
 const ATOMIC_NOTE_VERSION_A = `---
@@ -6101,6 +6136,101 @@ describe("hybridSearch — file content vector search", () => {
     expect(results[0]?.kind).toBe("file")
     expect(results[0]?.extension).toBe(".yaml")
     expect(results[0]?.folder).toBe("specs")
+  })
+
+  it("returns note results when the file content KNN query throws", async () => {
+    const knnPoison = installQueryPoison("FROM file_content_vectors")
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await fileIndex.embedNote(
+      {
+        notePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
+      },
+      logger,
+    )
+    fileIndex.upsertNonMdFile("docs/guide.txt", 200)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "docs/guide.txt",
+        rawContent: "Deployment guide covering infrastructure setup.",
+        fileStat: testStat(2000, 200),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    knnPoison.arm()
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "career goals" },
+      logger,
+    )
+
+    // The file KNN throw is caught (warn logged), the file leg contributes
+    // nothing, and note results still come back instead of an error
+    expect(warnSpy).toHaveBeenCalledWith(
+      "file content vector search failed",
+      expect.objectContaining({ error: `[Error]: ${knnPoison.message}` }),
+    )
+    expect(results.map((result) => result.path)).toEqual(["notes/career.md"])
+  })
+
+  it("falls back to FTS ordering when the note KNN query throws", async () => {
+    const knnPoison = installQueryPoison("FROM note_vectors")
+    const mockEmbedder = createHybridMockEmbedder()
+    const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+    hybridIndex.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await hybridIndex.embedNote(
+      {
+        notePath: "notes/career.md",
+        rawContent:
+          "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
+      },
+      logger,
+    )
+
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    knnPoison.arm()
+
+    const { results, search_mode } = await hybridIndex.hybridSearch(
+      { query: "career goals" },
+      logger,
+    )
+
+    // The note KNN throw is caught (warn logged) and the search degrades to
+    // FTS-only ordering instead of propagating the error
+    expect(warnSpy).toHaveBeenCalledWith(
+      "vector search failed, falling back to FTS-only",
+      expect.objectContaining({ error: `[Error]: ${knnPoison.message}` }),
+    )
+    expect(search_mode).toBe("fts")
+    expect(results.map((result) => result.path)).toEqual(["notes/career.md"])
   })
 
   it("applies the folder filter to file-content vector-only hits at segment boundaries", async () => {
