@@ -145,24 +145,26 @@ const fileContentVectorSearch = (
  *  [] when the feature is disabled. */
 const runFileContentFts = (
   context: SearchQueryContext,
-  query: string,
-  snippetTokens: number,
-  limit: number,
-  folder?: string,
+  params: {
+    query: string
+    snippetTokens: number
+    limit: number
+    folder?: string | undefined
+  },
 ): FileContentFtsRow[] => {
   if (!context.fileContentFts) return []
-  const sanitizedQuery = sanitizeFtsQuery(query)
+  const sanitizedQuery = sanitizeFtsQuery(params.query)
   if (!sanitizedQuery) return []
   // "%" matches every path when no folder filter applies — the statement
   // keeps a fixed arity instead of needing a second, predicate-free variant.
-  const folderPathPattern = folder
-    ? `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
+  const folderPathPattern = params.folder
+    ? `${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`
     : "%"
   return context.fileContentFts.searchStmt.all(
-    snippetTokens,
+    params.snippetTokens,
     sanitizedQuery,
     folderPathPattern,
-    limit,
+    params.limit,
   )
 }
 
@@ -293,13 +295,12 @@ export const hybridSearch = async (
   )
   const fileContentResults = hasNoteSpecificFilters
     ? []
-    : runFileContentFts(
-        context,
-        params.query,
+    : runFileContentFts(context, {
+        query: params.query,
         snippetTokens,
-        candidateLimit,
-        params.filters?.folder,
-      )
+        limit: candidateLimit,
+        folder: params.filters?.folder,
+      })
 
   // Embed the query once — shared by note and file content vector searches
   const queryEmbeddingBuffer = await embedQuery(context, params.query, logger)
