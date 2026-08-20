@@ -50,7 +50,7 @@
     },
     {
       "title": "Search and Indexing",
-      "purpose": "The SQLite FTS5 + sqlite-vec search system in search/: search-index.ts (factory, schema, write operations), search-queries.ts (query methods), search-helpers.ts (pure transforms), fts-query.ts (FTS5 sanitization), rrf.ts (RRF fusion), reranker.ts (cross-encoder reranking and score blending), embedder.ts and chunker.ts (embedding pipeline), and file-watcher.ts (chokidar). Covers hybrid search and its FTS-only fallback, the memory-entry index, the non_md_files table, and the tasks table. Derive ranking details, models, and defaults from ARCHITECTURE.md's Hybrid Search section.",
+      "purpose": "The SQLite FTS5 + sqlite-vec search system in search/: search-index.ts (factory, schema, write operations), search-queries.ts (query methods and the SearchQueryContext shape), hybrid-search.ts (the hybrid search pipeline), search-helpers.ts (pure transforms), fts-query.ts (FTS5 sanitization), rrf.ts (RRF fusion), reranker.ts (cross-encoder reranking and score blending), embedder.ts and chunker.ts (embedding pipeline), and file-watcher.ts (chokidar). Covers hybrid search and its FTS-only fallback, the memory-entry index, the non_md_files table, and the tasks table. Derive ranking details, models, and defaults from ARCHITECTURE.md's Hybrid Search section.",
       "parent": "Architecture"
     },
     {

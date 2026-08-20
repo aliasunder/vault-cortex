@@ -174,7 +174,8 @@ src/
         daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
     search/                            # SQLite FTS5 + hybrid search + file watching + embedding
       search-index.ts                  # Factory: schema, write ops, types, context wiring
-      search-queries.ts                # All 17 query methods (FTS, hybrid, memory recall, tags, tasks, links, etc.)
+      search-queries.ts                # 16 query methods (FTS, memory recall, tags, tasks, links, etc.) + SearchQueryContext
+      hybrid-search.ts                 # hybridSearch — note/file FTS + vector legs fused by RRF, cross-encoder rerank
       search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
       fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
       rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
