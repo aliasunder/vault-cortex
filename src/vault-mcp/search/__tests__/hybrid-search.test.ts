@@ -355,6 +355,53 @@ Content about deployment costs and infrastructure.
       expect(paths).not.toContain("Personal/outside.md")
     })
 
+    it("matches the folder filter case-insensitively for vector-only results, like the FTS leg", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      const noteInFolder = `---
+title: Inside Folder
+---
+Content about deployment costs and infrastructure.
+`
+      hybridIndex.upsertNote(
+        {
+          filePath: "Work/inside.md",
+          rawContent: noteInFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "Work/inside.md", rawContent: noteInFolder },
+        logger,
+      )
+      // An equally close note outside the folder proves the filter is
+      // applied at all, not merely that the inside note survives
+      hybridIndex.upsertNote(
+        {
+          filePath: "Personal/outside.md",
+          rawContent: noteInFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "Personal/outside.md", rawContent: noteInFolder },
+        logger,
+      )
+
+      // No lexical overlap — the notes can only surface through the vector
+      // leg, so the folder-scoped KNN window is the check under test
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "quarterly budget forecast", filters: { folder: "work" } },
+        logger,
+      )
+
+      expect(search_mode).toBe("hybrid")
+      expect(results.map((result) => result.path)).toEqual(["Work/inside.md"])
+    })
+
     it("applies tag filter to vector-only results", async () => {
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -1311,6 +1358,49 @@ describe("hybridSearch — file content vector search", () => {
     expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
   })
 
+  it("matches the folder filter case-insensitively for file-content vector-only hits", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Docs/inside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    // An equally close file outside the folder proves the filter is applied
+    // at all — without it, "folder ignored" and "folder matched" look alike
+    fileIndex.upsertNonMdFile("Archive/outside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Archive/outside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent(
+      { filePath: "Archive/outside.txt" },
+      logger,
+    )
+
+    // Vector-only hit (no lexical overlap) + a folder filter that differs
+    // only by case — must pass, as it would on the SQL LIKE leg
+    const { results } = await fileIndex.hybridSearch(
+      { query: "quarterly budget forecast", filters: { folder: "docs" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
   it("skips file content vector search when note-specific filters are active", async () => {
     const mockEmbedder = createHybridMockEmbedder()
     const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
@@ -1355,5 +1445,196 @@ describe("hybridSearch — file content vector search", () => {
     // Exactly the tagged note — the file is excluded from both the FTS and
     // vector legs, and nothing else was seeded
     expect(results.map((result) => result.path)).toEqual(["notes/tagged.md"])
+  })
+})
+
+// ── hybridSearch — file content FTS folder filter ─────────────
+
+describe("hybridSearch — file content FTS folder filter", () => {
+  /** Seeds one indexed text file with the given content. */
+  const seedTextFile = (
+    fileIndex: ReturnType<typeof createSearchIndex>,
+    filePath: string,
+    rawContent: string,
+  ): void => {
+    fileIndex.upsertNonMdFile(filePath, rawContent.length)
+    fileIndex.upsertFileContent(
+      { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+      logger,
+    )
+  }
+
+  it("returns in-folder files that rank below the vault-wide candidate window", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    // limit 1 → candidateLimit 3. Ten short out-of-folder matches outrank the
+    // one in-folder match (bm25 favors short documents), so a folder filter
+    // applied after the SQL LIMIT would never see the in-folder file.
+    for (const fileNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      seedTextFile(
+        fileIndex,
+        `Archive/outside-${fileNumber}.txt`,
+        "deployment notes",
+      )
+    }
+    seedTextFile(
+      fileIndex,
+      "Docs/inside.txt",
+      "A much longer runbook that mentions the deployment exactly once among many other unrelated operational words about logging, backups, rotation, and alerts.",
+    )
+
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Docs", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("fts")
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
+  it("applies the folder filter to file-content FTS hits at segment boundaries", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    seedTextFile(fileIndex, "Docs/inside.txt", "deployment notes")
+    // "Docs2" starts with "Docs" as a bare string — only a segment-boundary
+    // pattern ("Docs/%") keeps it out of a "Docs" filter
+    seedTextFile(fileIndex, "Docs2/outside.txt", "deployment notes")
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Docs" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+
+  it("treats LIKE wildcards in the folder name as literal characters", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    seedTextFile(fileIndex, "Pro_ects/inside.txt", "deployment notes")
+    // Without escaping, LIKE 'Pro_ects/%' would also match this file — the
+    // "_" wildcard matches the "j" in "Projects".
+    seedTextFile(fileIndex, "Projects/outside.txt", "deployment notes")
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Pro_ects" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Pro_ects/inside.txt",
+    ])
+  })
+})
+
+// ── hybridSearch — folder-scoped vector candidate window ──────
+
+describe("hybridSearch — folder-scoped vector candidate window", () => {
+  const EMBEDDING_DIMENSIONS = 384
+
+  /** Content-keyed embeddings: text mentioning "inside" lands on one axis,
+   *  everything else (including the query) on another — so every out-of-
+   *  folder item sits at distance 0 from the query and the in-folder item
+   *  is the furthest candidate. */
+  const createContentKeyedEmbedder = () => {
+    const axisFor = (text: string): Float32Array => {
+      const embedding = new Float32Array(EMBEDDING_DIMENSIONS).fill(0)
+      embedding[text.includes("inside") ? 1 : 0] = 1.0
+      return embedding
+    }
+    return {
+      embedText: vi
+        .fn()
+        .mockImplementation((text: string) => Promise.resolve(axisFor(text))),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(texts.map(axisFor)),
+        ),
+    }
+  }
+
+  it("returns an in-folder note that ranks below the vault-wide KNN window", async () => {
+    const mockEmbedder = createContentKeyedEmbedder()
+    const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+    // limit 1 → candidateLimit 3. Ten out-of-folder notes at distance 0 fill
+    // a vault-wide top-3 many times over; the only Work/ note is the furthest.
+    for (const noteNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const notePath = `Archive/outside-${noteNumber}.md`
+      const rawContent = `# Outside ${noteNumber}\n\nUnrelated archive material.\n`
+      hybridIndex.upsertNote(
+        { filePath: notePath, rawContent, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote({ notePath, rawContent }, logger)
+    }
+    const insideContent = "# Inside\n\nThe one note that lives inside Work.\n"
+    hybridIndex.upsertNote(
+      {
+        filePath: "Work/inside.md",
+        rawContent: insideContent,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await hybridIndex.embedNote(
+      { notePath: "Work/inside.md", rawContent: insideContent },
+      logger,
+    )
+
+    // No lexical overlap with anything seeded — vector legs only
+    const { results, search_mode } = await hybridIndex.hybridSearch(
+      { query: "zzqq", filters: { folder: "Work", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("hybrid")
+    expect(results.map((result) => result.path)).toEqual(["Work/inside.md"])
+  })
+
+  it("returns an in-folder file that ranks below the vault-wide KNN window", async () => {
+    const mockEmbedder = createContentKeyedEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    for (const fileNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const filePath = `Archive/outside-${fileNumber}.txt`
+      fileIndex.upsertNonMdFile(filePath, 100)
+      fileIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: "Unrelated archive material.",
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await fileIndex.embedFileContent({ filePath }, logger)
+    }
+    fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Docs/inside.txt",
+        rawContent: "The one file that lives inside Docs.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "zzqq", filters: { folder: "Docs", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("hybrid")
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
   })
 })

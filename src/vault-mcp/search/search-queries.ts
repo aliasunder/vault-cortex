@@ -14,6 +14,7 @@ import {
   rowToTaskEntry,
   noteRowToSearchResult,
   escapeLikeWildcards,
+  folderLikePattern,
   stripTrailingSlashes,
   dayToEpochMsRange,
 } from "./search-helpers.js"
@@ -63,11 +64,24 @@ export type MemoryEntryRow = {
 /** A memory-entry KNN hit: the full row plus its cosine distance. */
 export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
+/** Everything a read-side query needs from the search index, handed to it
+ *  as its first argument: the open database, the prepared statements the
+ *  index compiled once at startup, and the optional ML models (embedder,
+ *  reranker). `createSearchIndex` builds one of these in its closure and
+ *  binds it into every exported query function, so the query modules stay
+ *  plain functions with no state of their own. Each optional group is
+ *  `null` when its feature is off, and each query degrades accordingly. */
 export type SearchQueryContext = {
   readonly db: Database.Database
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
+    /** Same KNN narrowed to chunks whose note path matches a folder LIKE
+     *  pattern before the k-window — used whenever a folder filter is set. */
+    readonly knnSearchInFolderStmt: Database.Statement<
+      unknown[],
+      VectorHitRow
+    > | null
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
@@ -90,7 +104,7 @@ export type SearchQueryContext = {
    *  content FTS leg. */
   readonly fileContentFts: {
     readonly searchStmt: Database.Statement<
-      [number, string, number],
+      [number, string, string, number],
       FileContentFtsRow
     >
   } | null
@@ -98,6 +112,11 @@ export type SearchQueryContext = {
    *  the file content vector leg. */
   readonly fileContentVector: {
     readonly knnSearchStmt: Database.Statement<
+      unknown[],
+      FileContentVectorHitRow
+    >
+    /** Folder-scoped variant — see vector.knnSearchInFolderStmt. */
+    readonly knnSearchInFolderStmt: Database.Statement<
       unknown[],
       FileContentVectorHitRow
     >
@@ -149,9 +168,7 @@ export const fullTextSearch = (
 
   if (params.filters?.folder) {
     conditions.push("n.path LIKE ? ESCAPE '\\'")
-    queryParams.push(
-      `${escapeLikeWildcards(stripTrailingSlashes(params.filters.folder))}/%`,
-    )
+    queryParams.push(folderLikePattern(params.filters.folder))
   }
 
   if (params.filters?.tags) {

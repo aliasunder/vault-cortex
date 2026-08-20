@@ -13,6 +13,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  pathIsInFolder,
   dayToEpochMsRange,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
@@ -784,6 +785,58 @@ describe("escapeLikeWildcards", () => {
 })
 
 // ── stripTrailingSlashes ──────────────────────────────────────
+
+describe("pathIsInFolder", () => {
+  it("matches a path directly inside the folder", () => {
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs" })).toBe(
+      true,
+    )
+  })
+
+  it("matches a path nested below the folder", () => {
+    expect(pathIsInFolder({ path: "Docs/sub/deep.txt", folder: "Docs" })).toBe(
+      true,
+    )
+  })
+
+  it("ignores ASCII case, mirroring SQLite LIKE on the SQL legs", () => {
+    expect(
+      pathIsInFolder({ path: "Projects/plan.md", folder: "projects" }),
+    ).toBe(true)
+    expect(
+      pathIsInFolder({ path: "projects/plan.md", folder: "PROJECTS" }),
+    ).toBe(true)
+  })
+
+  it("does not fold non-ASCII case, exactly like SQLite LIKE", () => {
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "équipe" })).toBe(
+      false,
+    )
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "Équipe" })).toBe(
+      true,
+    )
+  })
+
+  it("requires a segment boundary so a folder prefix is not enough", () => {
+    expect(pathIsInFolder({ path: "Docs2/outside.txt", folder: "Docs" })).toBe(
+      false,
+    )
+    expect(
+      pathIsInFolder({ path: "Documents/outside.txt", folder: "Docs" }),
+    ).toBe(false)
+  })
+
+  it("ignores trailing slashes on the folder filter", () => {
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs//" })).toBe(
+      true,
+    )
+  })
+
+  it("does not match the folder's own path or a root-level file", () => {
+    expect(pathIsInFolder({ path: "Docs", folder: "Docs" })).toBe(false)
+    expect(pathIsInFolder({ path: "inside.txt", folder: "Docs" })).toBe(false)
+  })
+})
 
 describe("stripTrailingSlashes", () => {
   it("strips a single trailing slash", () => {
