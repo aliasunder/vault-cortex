@@ -64,6 +64,13 @@ export type MemoryEntryRow = {
 /** A memory-entry KNN hit: the full row plus its cosine distance. */
 export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
+/** Everything a read-side query needs from the search index, handed to it
+ *  as its first argument: the open database, the prepared statements the
+ *  index compiled once at startup, and the optional ML models (embedder,
+ *  reranker). `createSearchIndex` builds one of these in its closure and
+ *  binds it into every exported query function, so the query modules stay
+ *  plain functions with no state of their own. Each optional group is
+ *  `null` when its feature is off, and each query degrades accordingly. */
 export type SearchQueryContext = {
   readonly db: Database.Database
   readonly vector: {
