@@ -126,6 +126,12 @@ type FileContentMetadataRow = {
   bytes: number
 }
 
+/** Maps one search leg's results to the identifier shape computeRrfScores
+ *  fuses on — path is the identity all four hybrid-search legs share. */
+const toRankedList = (
+  items: readonly { path: string }[],
+): { identifier: string }[] => items.map((item) => ({ identifier: item.path }))
+
 // ── Vector search (internal) ───────────────────────────────────
 
 /** Embeds the query text and returns the Buffer for KNN queries. Null when
@@ -509,10 +515,7 @@ export const hybridSearch = async (
     }
     // Merge note FTS + file content FTS via 2-list RRF
     const fallbackRrf = computeRrfScores({
-      rankedLists: [
-        ftsResults.map((result) => ({ identifier: result.path })),
-        fileContentResults.map((result) => ({ identifier: result.path })),
-      ],
+      rankedLists: [toRankedList(ftsResults), toRankedList(fileContentResults)],
     })
     const ftsResultsByPath = new Map(
       ftsResults.map((result) => [result.path, result]),
@@ -542,18 +545,13 @@ export const hybridSearch = async (
     return { results: fallbackSliced, search_mode: "fts", reranked: false }
   }
 
-  // Compute RRF scores from all available ranked lists
+  // Compute RRF scores from all four ranked lists — an empty list
+  // contributes no scores, so each leg is passed unconditionally
   const rankedLists = [
-    ftsResults.map((result) => ({ identifier: result.path })),
-    ...(vectorHits.length > 0
-      ? [vectorHits.map((hit) => ({ identifier: hit.path }))]
-      : []),
-    ...(fileContentResults.length > 0
-      ? [fileContentResults.map((result) => ({ identifier: result.path }))]
-      : []),
-    ...(fileContentVectorHits.length > 0
-      ? [fileContentVectorHits.map((hit) => ({ identifier: hit.path }))]
-      : []),
+    toRankedList(ftsResults),
+    toRankedList(vectorHits),
+    toRankedList(fileContentResults),
+    toRankedList(fileContentVectorHits),
   ]
   const rrfScores = computeRrfScores({ rankedLists })
 
