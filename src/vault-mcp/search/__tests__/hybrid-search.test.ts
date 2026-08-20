@@ -376,9 +376,23 @@ Content about deployment costs and infrastructure.
         { notePath: "Work/inside.md", rawContent: noteInFolder },
         logger,
       )
+      // An equally close note outside the folder proves the filter is
+      // applied at all, not merely that the inside note survives
+      hybridIndex.upsertNote(
+        {
+          filePath: "Personal/outside.md",
+          rawContent: noteInFolder,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { notePath: "Personal/outside.md", rawContent: noteInFolder },
+        logger,
+      )
 
-      // No lexical overlap — the note can only surface through the vector
-      // leg, so the TypeScript folder mirror is the check under test
+      // No lexical overlap — the notes can only surface through the vector
+      // leg, so the folder-scoped KNN window is the check under test
       const { results, search_mode } = await hybridIndex.hybridSearch(
         { query: "quarterly budget forecast", filters: { folder: "work" } },
         logger,
@@ -1360,6 +1374,22 @@ describe("hybridSearch — file content vector search", () => {
       logger,
     )
     await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    // An equally close file outside the folder proves the filter is applied
+    // at all — without it, "folder ignored" and "folder matched" look alike
+    fileIndex.upsertNonMdFile("Archive/outside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Archive/outside.txt",
+        rawContent: "Weekly operations checklist for the deployment crew.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent(
+      { filePath: "Archive/outside.txt" },
+      logger,
+    )
 
     // Vector-only hit (no lexical overlap) + a folder filter that differs
     // only by case — must pass, as it would on the SQL LIKE leg
