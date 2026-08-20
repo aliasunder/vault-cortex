@@ -110,13 +110,15 @@ MEMORY_DIR=About Me
 # Host port to expose (default: 8000).
 PORT=8000
 
-# Client-IP trust for OAuth rate limiting and logs (defaults shown). With no
-# proxy in front, leave both untouched — the client IP is the TCP peer and a
-# spoofed Forwarded/X-Forwarded-For header is ignored.
-# TRUST_PROXY_HOPS=1 when exactly one proxy you control fronts the server
-# (Caddy, nginx, Cloudflare Tunnel) — otherwise every visitor shares the
-# proxy's rate-limit budget. TRUST_FORWARDED_HEADER=true only when the proxy
-# sets the RFC 7239 Forwarded header itself (AWS API Gateway).
+# Client-IP trust for OAuth rate limiting and logs (defaults shown).
+# With nothing in front of the server, leave both untouched — each visitor
+# is identified by their own connection, and faked Forwarded/X-Forwarded-For
+# headers are ignored.
+# With a proxy or tunnel you control in front (Caddy, nginx, Cloudflare
+# Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
+# IP — otherwise they all share one rate-limit budget.
+# Set TRUST_FORWARDED_HEADER=true only if the proxy identifies clients with
+# the RFC 7239 Forwarded header (e.g. AWS API Gateway).
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HEADER=false
 
@@ -234,13 +236,15 @@ MEMORY_DIR=About Me
 # Host port to expose (default: 8000).
 PORT=8000
 
-# Client-IP trust for OAuth rate limiting and logs (defaults shown). With no
-# proxy in front, leave both untouched — the client IP is the TCP peer and a
-# spoofed Forwarded/X-Forwarded-For header is ignored.
-# TRUST_PROXY_HOPS=1 when exactly one proxy you control fronts the server
-# (Caddy, nginx, Cloudflare Tunnel) — otherwise every visitor shares the
-# proxy's rate-limit budget. TRUST_FORWARDED_HEADER=true only when the proxy
-# sets the RFC 7239 Forwarded header itself (AWS API Gateway).
+# Client-IP trust for OAuth rate limiting and logs (defaults shown).
+# With nothing in front of the server, leave both untouched — each visitor
+# is identified by their own connection, and faked Forwarded/X-Forwarded-For
+# headers are ignored.
+# With a proxy or tunnel you control in front (Caddy, nginx, Cloudflare
+# Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
+# IP — otherwise they all share one rate-limit budget.
+# Set TRUST_FORWARDED_HEADER=true only if the proxy identifies clients with
+# the RFC 7239 Forwarded header (e.g. AWS API Gateway).
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HEADER=false
 
