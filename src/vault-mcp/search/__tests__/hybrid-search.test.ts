@@ -1421,4 +1421,24 @@ describe("hybridSearch — file content FTS folder filter", () => {
 
     expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
   })
+
+  it("treats LIKE wildcards in the folder name as literal characters", async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    seedTextFile(fileIndex, "Pro_ects/inside.txt", "deployment notes")
+    // Without escaping, LIKE 'Pro_ects/%' would also match this file — the
+    // "_" wildcard matches the "j" in "Projects".
+    seedTextFile(fileIndex, "Projects/outside.txt", "deployment notes")
+
+    const { results } = await fileIndex.hybridSearch(
+      { query: "deployment", filters: { folder: "Pro_ects" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Pro_ects/inside.txt",
+    ])
+  })
 })
