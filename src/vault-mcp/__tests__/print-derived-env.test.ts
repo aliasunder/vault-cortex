@@ -75,15 +75,35 @@ describe("print-derived-env — storage layout", () => {
     )
   })
 
-  it("rejects STORAGE_ROOT=/ instead of deriving paths on the ephemeral layer", () => {
-    const run = runPrinter({ STORAGE_ROOT: "/" })
+  it("collapses repeated slashes in STORAGE_ROOT", () => {
+    const run = runPrinter({ STORAGE_ROOT: "//persist//" })
 
-    expect(run.status).toBe(1)
-    expect(run.stdout).toBe("")
-    expect(run.stderr).toBe(
-      "[vault-cortex] ERROR: STORAGE_ROOT must name a directory inside a persistent mount (e.g. /persist), not /.\n",
+    expect(run.stdout).toBe(
+      "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
     )
   })
+
+  it.each([
+    "/",
+    "//",
+    "/.",
+    "/..",
+    "/persist/..",
+    "/persist/./x",
+    "persist",
+    "./persist",
+  ])(
+    "rejects STORAGE_ROOT=%s instead of deriving paths outside a mount",
+    (storageRoot) => {
+      const run = runPrinter({ STORAGE_ROOT: storageRoot })
+
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
+      expect(run.stderr).toBe(
+        `[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '${storageRoot}'.\n`,
+      )
+    },
+  )
 
   it("keeps an explicit VAULT_PATH when STORAGE_ROOT is set", () => {
     const run = runPrinter({

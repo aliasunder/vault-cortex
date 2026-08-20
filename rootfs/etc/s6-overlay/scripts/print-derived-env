@@ -29,14 +29,24 @@ if [ -z "${STORAGE_ROOT:-}" ]; then
     printf 'INDEX_DB_PATH=%s\n' /data/index.db
   fi
 else
-  # Strip one trailing slash so "/persist/" and "/persist" derive the same
-  # paths. "/" strips to "" — refuse it rather than derive /config and
-  # /data/logs, which sit on the container's ephemeral layer, not on any
-  # mount: Sync device state and the deletion-storm sentinel would vanish
-  # on the next recreation.
-  storage_root="${STORAGE_ROOT%/}"
-  if [ -z "$storage_root" ]; then
-    echo "[vault-cortex] ERROR: STORAGE_ROOT must name a directory inside a persistent mount (e.g. /persist), not /." >&2
+  # Normalize so "/persist/", "/persist//" and "/persist" derive the same
+  # paths: collapse runs of slashes, then drop trailing ones.
+  storage_root=$(printf '%s' "$STORAGE_ROOT" | sed 's://*:/:g; s:/*$::')
+  # Refuse the filesystem root in any spelling ("/", "//", "/.", "/..") and
+  # any relative or dot-segment path: the derived /config and /data/logs
+  # would sit on the container's ephemeral layer, not on a mount, so Sync
+  # device state and the deletion-storm sentinel would vanish on the next
+  # recreation. The check is lexical — whether the directory is actually a
+  # mount is the operator's contract.
+  case "$storage_root" in
+    /?*) storage_root_is_usable=true ;;
+    *) storage_root_is_usable=false ;;
+  esac
+  case "$storage_root" in
+    /. | /.. | */./* | */../* | */. | */..) storage_root_is_usable=false ;;
+  esac
+  if [ "$storage_root_is_usable" != true ]; then
+    echo "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '$STORAGE_ROOT'." >&2
     exit 1
   fi
   if [ -z "${VAULT_PATH:-}" ]; then
