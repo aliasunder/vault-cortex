@@ -53,14 +53,16 @@ const waitFor = async (
   throw new Error(`waitFor timed out after ${timeoutMs}ms`)
 }
 
-/** Retry policy for suites that watch real temp dirs. On macOS, fs.watch
- *  rides libuv's FSEventStream, whose kernel-side capture starts
- *  asynchronously — a write landing right after the watcher reports ready
- *  can produce no event at all, so the test's waitFor times out (observed
- *  as bursty local-only failures; events either arrive in <1s or never).
- *  Linux (CI and every production deployment) registers inotify watches
- *  synchronously and has no such gap, so retries there only ever absorb a
- *  genuine environment hiccup — a code regression fails every attempt. */
+/** Retry policy for suites that watch real temp dirs.
+ *
+ *  Why: on macOS, fs.watch rides libuv's FSEventStream, whose kernel-side
+ *  capture starts asynchronously — a write landing right after the watcher
+ *  reports ready can produce no event at all, so waitFor times out
+ *  (observed as bursty local-only failures; events arrive in <1s or never).
+ *
+ *  Why it's safe: Linux (CI and every production deployment) registers
+ *  inotify watches synchronously and has no such gap, and a code
+ *  regression fails every attempt — retries only absorb the macOS race. */
 const REAL_WATCHER_RETRY = { retry: 2 }
 
 beforeEach(async () => {
