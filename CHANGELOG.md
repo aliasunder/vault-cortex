@@ -76,6 +76,21 @@
 
 
 
+
+## [0.38.1] — 2026-08-20
+
+### ⚠ BREAKING CHANGES
+
+- self-hosted deployments behind a reverse proxy or tunnel (Caddy, nginx, Cloudflare Tunnel) must set `TRUST_PROXY_HOPS=1` — without it, all clients share the proxy's OAuth rate-limit budget. The AWS reference deployment and direct-exposure setups need no action.
+
+### Bug Fixes
+
+- **security:** Gate Forwarded/X-Forwarded-For client-IP trust behind explicit proxy config (#468)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.38.0
+
 ## [0.38.0] — 2026-08-20
 
 ### Features
