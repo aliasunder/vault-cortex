@@ -12,9 +12,12 @@ permissions:
 
 # Non-trigger comments still create a (guard-skipped) run — isolate them in a
 # per-run group so they can't cancel an in-flight review. Every comment the
-# review posts on the PR would otherwise kill the very run it belongs to.
+# review posts on the PR would otherwise kill the very run it belongs to, and
+# the owner check mirrors the job guard: concurrency resolves before `if`,
+# so a non-owner "@umm review" would otherwise cancel a live review and then
+# skip.
 concurrency:
-  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '@umm review')) && format('-noop-{0}', github.run_id) || '' }}
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !(github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
