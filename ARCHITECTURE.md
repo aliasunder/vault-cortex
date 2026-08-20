@@ -594,6 +594,12 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
   so it can't mint a fresh bucket.
+- With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
+  between API Gateway and the instance —
+  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the `Forwarded`
+  header passes through the tunnel unverified, so the deployment flips to
+  `TRUST_FORWARDED_HEADER=false` + `TRUST_PROXY_HOPS=2`: the client IP then
+  comes from the `X-Forwarded-For` chain, one trusted hop per proxy.
 
 (express-rate-limit's built-in validators are disabled — they assume
 direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
