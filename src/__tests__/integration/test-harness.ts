@@ -125,37 +125,38 @@ export const startServer = async (
   const { child, vaultPath, dataDir, stderr, started } =
     await spawnServerProcess(port, envOverrides)
 
+  // Both watchdogs are detached once the boot races settle: a timer that
+  // fires later, or the exit event that cleanup() itself triggers, would
+  // otherwise reject a Promise nobody awaits any more (an unhandled
+  // rejection in the test runner).
+  const earlyExit = Promise.withResolvers<never>()
+  const rejectOnExit = (code: number | null): void =>
+    earlyExit.reject(new Error(`Server exited early with code ${code}`))
+  child.once("exit", rejectOnExit)
+  const startTimeout = Promise.withResolvers<never>()
+  const startTimeoutTimer = setTimeout(
+    () =>
+      startTimeout.reject(
+        new Error(
+          `Server on port ${port} did not log "server started" within 15000ms`,
+        ),
+      ),
+    15_000,
+  )
+  startTimeoutTimer.unref()
+
   try {
-    const earlyExit = new Promise<never>((_, reject) => {
-      child.once("exit", (code) =>
-        reject(new Error(`Server exited early with code ${code}`)),
-      )
-    })
-    // Mutable — captured synchronously inside the Promise constructor,
-    // cleared after the race so the losing timer doesn't fire and reject
-    // an unwatched Promise (unhandled rejection in the test runner).
-    let startTimeoutTimer: ReturnType<typeof setTimeout> | undefined
-    const startTimeout = new Promise<never>((_, reject) => {
-      startTimeoutTimer = setTimeout(
-        () =>
-          reject(
-            new Error(
-              `Server on port ${port} did not log "server started" within 15000ms`,
-            ),
-          ),
-        15_000,
-      )
-      startTimeoutTimer.unref()
-    })
-    await Promise.race([started, earlyExit, startTimeout])
-    clearTimeout(startTimeoutTimer)
-    await Promise.race([pollHealthz(port, 15_000), earlyExit])
+    await Promise.race([started, earlyExit.promise, startTimeout.promise])
+    await Promise.race([pollHealthz(port, 15_000), earlyExit.promise])
   } catch (err) {
     child.kill("SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
     const reason = err instanceof Error ? err.message : String(err)
     throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: err })
+  } finally {
+    clearTimeout(startTimeoutTimer)
+    child.off("exit", rejectOnExit)
   }
 
   const cleanup = async (): Promise<void> => {
