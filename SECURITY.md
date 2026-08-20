@@ -231,7 +231,7 @@ gh release download v0.38.0 --pattern 'digests.txt*'
 
 cosign verify-blob \
   --bundle digests.txt.sigstore.json \
-  --certificate-identity-regexp 'https://github.com/aliasunder/vault-cortex/' \
+  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/(auto_release|manual_release)\.yml@.*$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   digests.txt
 ```
