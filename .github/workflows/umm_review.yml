@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Non-trigger comments still create a (guard-skipped) run — isolate them in a
 # per-run group so they can't cancel an in-flight review. Every comment the
@@ -33,6 +34,8 @@ jobs:
       )
     permissions:
       contents: read
+      # The comment-trigger step below reads the PR via the REST API
+      pull-requests: read
     steps:
       # issue_comment events check out the default branch unless overridden —
       # the action reads workspace files for context, so it needs the PR head.
