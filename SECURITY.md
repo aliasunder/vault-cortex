@@ -238,7 +238,7 @@ cosign verify-blob \
 Then confirm the image you pulled matches a signed digest:
 
 ```bash
-docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:latest
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:v0.38.0
 # Compare the sha256:... with the corresponding line in digests.txt
 ```
 
