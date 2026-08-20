@@ -152,19 +152,18 @@ export const startServer = async (
   // otherwise reject a Promise nobody awaits any more (an unhandled
   // rejection in the test runner).
   const earlyExit = Promise.withResolvers<never>()
-  const rejectOnExit = (code: number | null): void =>
+  const rejectOnExit = (code: number | null): void => {
     earlyExit.reject(new Error(`Server exited early with code ${code}`))
+  }
   child.once("exit", rejectOnExit)
   const startTimeout = Promise.withResolvers<never>()
-  const startTimeoutTimer = setTimeout(
-    () =>
-      startTimeout.reject(
-        new Error(
-          `Server on port ${port} did not log "server started" within 15000ms`,
-        ),
+  const startTimeoutTimer = setTimeout(() => {
+    startTimeout.reject(
+      new Error(
+        `Server on port ${port} did not log "server started" within 15000ms`,
       ),
-    15_000,
-  )
+    )
+  }, 15_000)
   startTimeoutTimer.unref()
 
   try {
