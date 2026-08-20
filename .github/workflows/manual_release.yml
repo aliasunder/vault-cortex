@@ -136,6 +136,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+      id-token: write # cosign keyless signing via Fulcio OIDC
     steps:
       - name: Generate App token
         id: app-token
@@ -197,3 +198,30 @@ jobs:
           done
           echo "Failed to create release after 3 attempts"
           exit 1
+
+      - name: Install cosign
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create digest file
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        env:
+          IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
+          VERSION: ${{ needs.bump-and-tag.outputs.version }}
+          DIGEST_LOCAL: ${{ needs.deploy.outputs.digest-local }}
+          DIGEST_REMOTE: ${{ needs.deploy.outputs.digest-remote }}
+        run: |
+          printf '%s %s\n' "$DIGEST_LOCAL" "$IMAGE:v$VERSION" > digests.txt
+          printf '%s %s\n' "$DIGEST_REMOTE" "$IMAGE:v$VERSION-remote" >> digests.txt
+          cat digests.txt
+
+      - name: Sign digest file
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        run: cosign sign-blob --yes --bundle digests.txt.sigstore.json digests.txt
+
+      - name: Upload signed digests to release
+        if: ${{ needs.deploy.outputs.digest-local != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.bump-and-tag.outputs.tag }}
+        run: gh release upload "$TAG" digests.txt digests.txt.sigstore.json

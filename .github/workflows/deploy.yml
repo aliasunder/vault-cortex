@@ -25,6 +25,13 @@ on:
         required: false
         default: false
         type: boolean
+    outputs:
+      digest-local:
+        description: Manifest digest of the local target (empty when skip_build is true)
+        value: ${{ jobs.deploy.outputs.digest-local }}
+      digest-remote:
+        description: Manifest digest of the remote target (empty when skip_build is true)
+        value: ${{ jobs.deploy.outputs.digest-remote }}
 
 # Top-level token is read-only; the job declares its writes. Callers'
 # job-level grants are the ceiling — they must cover the same set.
@@ -34,6 +41,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    outputs:
+      digest-local: ${{ steps.build-local.outputs.digest }}
+      digest-remote: ${{ steps.build-remote.outputs.digest }}
     permissions:
       id-token: write # AWS OIDC role assumption
       contents: read
@@ -160,6 +170,7 @@ jobs:
       # server.json / the base Dockerfile LABEL.
       - name: Build and push image (remote target)
         if: ${{ !inputs.skip_build }}
+        id: build-remote
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -188,6 +199,7 @@ jobs:
 
       - name: Build and push image (local target)
         if: ${{ !inputs.skip_build }}
+        id: build-local
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
