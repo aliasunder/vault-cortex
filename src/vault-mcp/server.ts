@@ -23,7 +23,7 @@ import env from "env-var"
  *  comes from config so a spoofed Forwarded header can't pollute log IPs in
  *  direct-exposure deployments. */
 export const createErrorMiddleware =
-  (trustForwardedHeader: boolean) =>
+  ({ trustForwardedHeader }: { trustForwardedHeader: boolean }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
@@ -161,7 +161,11 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(createErrorMiddleware(config.trustForwardedHeader))
+  app.use(
+    createErrorMiddleware({
+      trustForwardedHeader: config.trustForwardedHeader,
+    }),
+  )
 
   const httpServer = app.listen(port, host, () => {
     logger.info("server started", { host, port })
