@@ -634,7 +634,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     })
     // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —
     // the security property is that the logged IP is the real peer, never
-    // the attacker-supplied header value.
+    // the client-supplied header value.
     expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(
       event?.data.clientIp,
     )

@@ -246,7 +246,7 @@ export const loadConfig = (
 
   // Default false: without a proxy that writes the Forwarded header
   // (e.g. AWS API Gateway), the header is client-supplied — trusting it
-  // by default would hand attackers the rate-limit bucket key.
+  // by default would let any client choose its own rate-limit bucket.
   const trustForwardedHeader = envVar
     .from(env)
     .get("TRUST_FORWARDED_HEADER")

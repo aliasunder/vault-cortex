@@ -61,8 +61,8 @@ describe("extractClientIp", () => {
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
 
   describe("when the Forwarded header is not trusted (default)", () => {
-    // Without a trusted edge proxy the header is attacker-controlled, so it
-    // must never become the rate-limit identity.
+    // Without a trusted edge proxy, any client can choose the header's
+    // value, so it must never become the rate-limit identity.
     it("ignores a client-supplied Forwarded header and returns req.ip", () => {
       const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
       expect(extractClientIp(request, false)).toBe("10.0.0.1")
@@ -96,9 +96,9 @@ describe("extractClientIp", () => {
       expect(extractClientIp(request, true)).toBe("203.0.113.7")
     })
 
-    // A client can prepend its own elements, so the first for= is
-    // attacker-controlled whenever the edge proxy appends (as API Gateway
-    // does) rather than replaces — the last for= is the proxy's own claim.
+    // A client can prepend its own elements whenever the edge proxy appends
+    // (as API Gateway does) rather than replaces, so the first for= is
+    // client-chosen — the last for= is the proxy's own claim.
     it("takes the last for= element of a multi-element Forwarded header", () => {
       const request = requestWith(
         { forwarded: "for=203.0.113.7, for=70.41.3.18" },
