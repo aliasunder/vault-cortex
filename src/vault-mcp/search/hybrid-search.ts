@@ -1,4 +1,4 @@
-// ── Hybrid search: FTS + vector legs fused by RRF, optional rerank ──
+// ── Hybrid search pipeline ─────────────────────────────────────
 
 import type Database from "better-sqlite3"
 import type { Logger } from "../../logger.js"
