@@ -71,10 +71,37 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 export const stripTrailingSlashes = (folder: string): string =>
   folder.replace(/\/+$/, "")
 
+/** Folds only A–Z, exactly as SQLite's default LIKE does — so the TypeScript
+ *  mirror below can never disagree with the SQL predicate on a non-ASCII
+ *  folder name. */
+const foldAsciiCase = (value: string): string =>
+  value.replace(/[A-Z]/g, (character) => character.toLowerCase())
+
+/** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
+ *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
+ *  ASCII-case-insensitive, matching SQLite LIKE's folding exactly. */
+export const pathIsInFolder = ({
+  path,
+  folder,
+}: {
+  path: string
+  folder: string
+}): boolean =>
+  foldAsciiCase(path).startsWith(
+    `${foldAsciiCase(stripTrailingSlashes(folder))}/`,
+  )
+
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
 export const escapeLikeWildcards = (value: string): string =>
   value.replace(/[\\%_]/g, (character) => `\\${character}`)
+
+/** The `LIKE ... ESCAPE '\'` pattern that selects every path inside a folder
+ *  — segment-boundary (`Docs/%`, so "Docs" never matches "Docs2/") with the
+ *  folder's own wildcard characters escaped. One definition keeps every
+ *  search leg's folder predicate identical. */
+export const folderLikePattern = (folder: string): string =>
+  `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
 
 // ── FTS metadata builder ───────────────────────────────────────
 
@@ -263,7 +290,7 @@ export const noteMatchesSearchFilters = (
 ): boolean => {
   if (
     filters.folder &&
-    !note.path.startsWith(stripTrailingSlashes(filters.folder) + "/")
+    !pathIsInFolder({ path: note.path, folder: filters.folder })
   )
     return false
 
