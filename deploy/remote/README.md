@@ -395,6 +395,7 @@ docker compose down            # Compose
 docker compose down -v                                                   # Compose
 docker rm -f vault-cortex && docker volume rm vault-cortex_vault_data \
   vault-cortex_mcp_data vault-cortex_obsidian_config                     # docker run / CLI
+docker rm -f vault-cortex && docker volume rm vault-cortex_storage       # single volume
 
 # Stop without removing (any setup method; docker start resumes):
 docker stop vault-cortex
