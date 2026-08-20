@@ -77,6 +77,22 @@
 
 
 
+
+## [0.38.2] — 2026-08-20
+
+### Bug Fixes
+
+- **search:** Apply folder filters in SQL before the candidate window on every hybrid-search leg (#471)
+
+### Refactoring
+
+- **search:** Extract hybrid search pipeline into hybrid-search.ts (#470)
+
+### Documentation
+
+- Add v0.38.1 security section to CHANGELOG (#469)
+- Update CHANGELOG.md for v0.38.1
+
 ## [0.38.1] — 2026-08-20
 
 ### ⚠ BREAKING CHANGES
