@@ -131,10 +131,12 @@ const startServer = async (): Promise<void> => {
   })
 
   const app = express()
-  // Proxy trust is deployment-explicit (TRUST_PROXY_HOPS): 0 in direct
-  // exposure, so an injected X-Forwarded-For can't spoof req.ip (the OAuth
-  // rate limiter's fallback bucket key). `true` would trust the entire
-  // chain, letting clients claim any IP via appended headers.
+  // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
+  // X-Forwarded-For hop per proxy the deployment controls. With the
+  // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
+  // is the socket peer, and an injected header can't shift it. Never
+  // widen this to Express's blanket `true`: trusting the whole chain
+  // lets any client claim any IP via appended headers.
   app.set("trust proxy", config.trustProxyHops)
   app.use(express.json())
 
