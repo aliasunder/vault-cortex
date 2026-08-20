@@ -126,9 +126,9 @@ PORT=8000
 LOG_LEVEL=info
 
 # Directory for persistent log files inside the container.
-# Unset by default — logs go to stdout only. Set a path to also write
+# Off by default — logs go to stdout only. Set a path to also write
 # date-stamped log files there (the /data volume persists them);
-# "none" is the same as unset.
+# "none" disables file logging explicitly.
 # LOG_DIR=/data/logs
 
 # Days to retain persistent log files before cleanup (default: 30).
