@@ -71,14 +71,19 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 export const stripTrailingSlashes = (folder: string): string =>
   folder.replace(/\/+$/, "")
 
-/** TypeScript mirror of the `path LIKE 'folder/%'` predicate the FTS legs
- *  apply in SQL — segment-boundary (so "Docs" never matches "Docs2/") and
- *  case-insensitive (full Unicode via toLowerCase — a superset of LIKE's
- *  ASCII-only folding, so no false exclusions for non-ASCII folder names). */
+/** Folds only A–Z, exactly as SQLite's default LIKE does — so the TypeScript
+ *  mirror below can never disagree with the SQL predicate on a non-ASCII
+ *  folder name. */
+const foldAsciiCase = (value: string): string =>
+  value.replace(/[A-Z]/g, (character) => character.toLowerCase())
+
+/** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
+ *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
+ *  ASCII-case-insensitive, matching SQLite LIKE's folding exactly. */
 export const pathIsInFolder = (path: string, folder: string): boolean =>
-  path
-    .toLowerCase()
-    .startsWith(`${stripTrailingSlashes(folder).toLowerCase()}/`)
+  foldAsciiCase(path).startsWith(
+    `${foldAsciiCase(stripTrailingSlashes(folder))}/`,
+  )
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */

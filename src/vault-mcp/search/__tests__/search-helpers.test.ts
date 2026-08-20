@@ -795,9 +795,14 @@ describe("pathIsInFolder", () => {
     expect(pathIsInFolder("Docs/sub/deep.txt", "Docs")).toBe(true)
   })
 
-  it("ignores case, mirroring SQLite LIKE on the FTS legs", () => {
+  it("ignores ASCII case, mirroring SQLite LIKE on the SQL legs", () => {
     expect(pathIsInFolder("Projects/plan.md", "projects")).toBe(true)
     expect(pathIsInFolder("projects/plan.md", "PROJECTS")).toBe(true)
+  })
+
+  it("does not fold non-ASCII case, exactly like SQLite LIKE", () => {
+    expect(pathIsInFolder("Équipe/plan.md", "équipe")).toBe(false)
+    expect(pathIsInFolder("Équipe/plan.md", "Équipe")).toBe(true)
   })
 
   it("requires a segment boundary so a folder prefix is not enough", () => {
