@@ -38,6 +38,7 @@ import {
   escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
+import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
 
@@ -2356,7 +2357,7 @@ export const createSearchIndex = (
     removeFileContent,
     embedFileContent,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
-    hybridSearch: bindQueryContext(queries.hybridSearch),
+    hybridSearch: bindQueryContext(hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),
     searchByTag: bindQueryContext(queries.searchByTag),
     searchByFolder: bindQueryContext(queries.searchByFolder),
