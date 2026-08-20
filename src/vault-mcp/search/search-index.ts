@@ -1677,7 +1677,10 @@ export const createSearchIndex = (
     const existingHashes = new Map(
       selectFileChunkHashesStmt
         .all(params.filePath)
-        .map((row) => [row.chunk_index, row.content_hash]),
+        .map((chunkHashRow) => [
+          chunkHashRow.chunk_index,
+          chunkHashRow.content_hash,
+        ]),
     )
 
     let embeddedCount = 0
@@ -1745,10 +1748,16 @@ export const createSearchIndex = (
     logger: Logger,
   ): Promise<void> => {
     if (!embedder || !selectFileContentForEmbeddingStmt) return
-    const row = selectFileContentForEmbeddingStmt.get(params.filePath)
-    if (!row) return
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(
+      params.filePath,
+    )
+    if (!fileContentRow) return
     await embedAndStoreFileChunks(
-      { filePath: params.filePath, title: row.title, content: row.content },
+      {
+        filePath: params.filePath,
+        title: fileContentRow.title,
+        content: fileContentRow.content,
+      },
       logger,
     )
   }
@@ -2214,14 +2223,14 @@ export const createSearchIndex = (
                   "SELECT path FROM file_content",
                 )
                 .all()
-                .map((row) => row.path),
+                .map((fileContentPathRow) => fileContentPathRow.path),
             )
             const indexedFileChunkPaths = db
               .prepare<unknown[], { file_path: string }>(
                 "SELECT DISTINCT file_path FROM file_content_chunks",
               )
               .all()
-              .map((row) => row.file_path)
+              .map((chunkPathRow) => chunkPathRow.file_path)
 
             const deletedFilePaths = indexedFileChunkPaths.filter(
               (path) => !currentFilePaths.has(path),

@@ -165,24 +165,27 @@ const vectorSearch = (
   if (!knnSearchStmt) return []
 
   try {
-    const rows = knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
+    const noteKnnRows = knnSearchStmt.all(
+      params.queryEmbeddingBuffer,
+      params.limit,
+    )
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
     const bestChunkPerNote = new Map<string, VectorHit>()
-    for (const row of rows) {
-      if (!bestChunkPerNote.has(row.note_path)) {
-        bestChunkPerNote.set(row.note_path, {
-          path: row.note_path,
-          distance: row.distance,
-          chunkText: row.chunk_text,
+    for (const knnRow of noteKnnRows) {
+      if (!bestChunkPerNote.has(knnRow.note_path)) {
+        bestChunkPerNote.set(knnRow.note_path, {
+          path: knnRow.note_path,
+          distance: knnRow.distance,
+          chunkText: knnRow.chunk_text,
         })
       }
     }
 
     logger.info("vector search", {
       query: params.query,
-      knnHits: rows.length,
+      knnHits: noteKnnRows.length,
       uniqueNotes: bestChunkPerNote.size,
     })
     return [...bestChunkPerNote.values()]
@@ -194,8 +197,9 @@ const vectorSearch = (
   }
 }
 
-/** KNN over file content vectors. Accepts a pre-computed query embedding buffer
- *  to avoid re-embedding the same query text that vectorSearch already embedded. */
+/** KNN over file content vectors — returns the best-matching chunk per file
+ *  for a pre-computed query embedding. Empty when file content vectors are
+ *  disabled or the KNN query fails. */
 const fileContentVectorSearch = (
   context: SearchQueryContext,
   params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
@@ -205,22 +209,25 @@ const fileContentVectorSearch = (
   if (!knnSearchStmt) return []
 
   try {
-    const rows = knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
+    const fileKnnRows = knnSearchStmt.all(
+      params.queryEmbeddingBuffer,
+      params.limit,
+    )
 
     const bestChunkPerFile = new Map<string, VectorHit>()
-    for (const row of rows) {
-      if (!bestChunkPerFile.has(row.file_path)) {
-        bestChunkPerFile.set(row.file_path, {
-          path: row.file_path,
-          distance: row.distance,
-          chunkText: row.chunk_text,
+    for (const knnRow of fileKnnRows) {
+      if (!bestChunkPerFile.has(knnRow.file_path)) {
+        bestChunkPerFile.set(knnRow.file_path, {
+          path: knnRow.file_path,
+          distance: knnRow.distance,
+          chunkText: knnRow.chunk_text,
         })
       }
     }
 
     logger.info("file content vector search", {
       query: params.query,
-      knnHits: rows.length,
+      knnHits: fileKnnRows.length,
       uniqueFiles: bestChunkPerFile.size,
     })
     return [...bestChunkPerFile.values()]
