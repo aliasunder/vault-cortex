@@ -33,12 +33,12 @@ else
   # Normalize so "/persist/", "/persist//" and "/persist" derive the same
   # paths: collapse runs of slashes, then drop trailing ones.
   storage_root=$(printf '%s' "$STORAGE_ROOT" | sed 's://*:/:g; s:/*$::')
-  # Refuse the filesystem root in any spelling ("/", "//", "/.", "/..") and
-  # any relative or dot-segment path: the derived /config and /data/logs
-  # would sit on the container's ephemeral layer, not on a mount, so Sync
-  # device state and the deletion-storm sentinel would vanish on the next
-  # recreation. The check is lexical — whether the directory is actually a
-  # mount is the operator's contract.
+  # Refuse every form that resolves to the filesystem root ("/", "//", "/.",
+  # "/..") and any relative or dot-segment path: the derived /config and
+  # /data/logs would sit on the container's ephemeral layer, not on a mount,
+  # so Sync device state and the deletion-storm sentinel would vanish on the
+  # next recreation. The check is lexical — whether the directory is actually
+  # a mount is the operator's contract.
   case "$storage_root" in
     /?*) storage_root_is_usable=true ;;
     *) storage_root_is_usable=false ;;
