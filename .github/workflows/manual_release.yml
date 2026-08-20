@@ -181,12 +181,18 @@ jobs:
           git commit -m "docs: update CHANGELOG.md for $TAG"
           git push origin main
 
+      # Idempotent: skip creation if the release already exists so a
+      # re-run after a signing failure proceeds to the cosign steps.
       - name: Create GitHub release
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.bump-and-tag.outputs.tag }}
         run: |
+          if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping creation"
+            exit 0
+          fi
           for i in 1 2 3; do
             if gh release create "$TAG" \
                  --title "$TAG" \

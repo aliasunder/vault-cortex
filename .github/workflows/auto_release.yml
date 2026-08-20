@@ -118,11 +118,17 @@ jobs:
           git commit -m "docs: update CHANGELOG.md for $GITHUB_REF_NAME"
           git push origin main
 
+      # Idempotent: skip creation if the release already exists so a
+      # re-run after a signing failure proceeds to the cosign steps.
       - name: Create GitHub release
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" --json tagName > /dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, skipping creation"
+            exit 0
+          fi
           for i in 1 2 3; do
             if gh release create "$GITHUB_REF_NAME" \
                  --title "$GITHUB_REF_NAME" \

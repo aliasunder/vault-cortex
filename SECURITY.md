@@ -215,9 +215,10 @@ you've found a Vault Cortex–specific exploit path for one.
 
 ## Release Signing
 
-Every GitHub Release includes a signed digest file (`digests.txt` +
-`digests.txt.sigstore.json`) containing the GHCR image manifest digests for
-both the local and remote Docker targets. Signatures use
+Every server release (`v*` tags) includes a signed digest file (`digests.txt`
+\+ `digests.txt.sigstore.json`) containing the GHCR image manifest digests for
+both the local and remote Docker targets. CLI releases (`cli-v*` tags) are npm
+packages and do not include container digests. Signatures use
 [Sigstore cosign](https://docs.sigstore.dev/) keyless signing — no long-lived
 keys; the signing identity is the GitHub Actions OIDC token, and each signature
 is recorded in Sigstore's public transparency log
