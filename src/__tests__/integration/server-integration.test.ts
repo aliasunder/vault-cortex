@@ -703,6 +703,55 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
   })
 })
 
+// ── TRUST_PROXY_HOPS=1 ─────────────────────────────────────────
+
+describe("TRUST_PROXY_HOPS=1", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    const server = await startServer(port, { TRUST_PROXY_HOPS: "1" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
+  // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
+  // one client's bucket must leave another client's bucket fresh. If the
+  // config value never reached Express, every request would share the socket
+  // peer's bucket and the second client's request would 429.
+  it("buckets the /register rate limit by the X-Forwarded-For client IP", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register("203.0.113.50")
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("203.0.113.50")
+    expect(sixth.status).toBe(429)
+    const otherClient = await register("203.0.113.51")
+    expect(otherClient.status).toBe(201)
+  })
+})
+
 // ── TRUST_FORWARDED_HEADER=true ────────────────────────────────
 
 describe("TRUST_FORWARDED_HEADER=true", () => {

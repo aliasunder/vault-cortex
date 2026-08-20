@@ -32,8 +32,9 @@ const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 /**
  * The last `for=` value in an RFC 7239 Forwarded header — the claim of the
  * proxy closest to the server. Walking right-to-left matters: a client can
- * whenever the edge proxy appends (as API Gateway does) rather than
- * replaces. The last element is the edge proxy's own claim either way.
+ * prepend its own elements whenever the edge proxy appends (as API Gateway
+ * does) rather than replaces — the last element is the edge proxy's own
+ * claim either way.
  */
 const lastForwardedClientIp = (forwarded: string): string | undefined => {
   for (const element of forwarded.split(",").toReversed()) {
