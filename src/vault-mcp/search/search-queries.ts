@@ -577,6 +577,7 @@ export const hybridSearch = async (
   // Build the merged result set, ordered by RRF score
   const mergedResults: SearchResult[] = []
   for (const { identifier: path, score } of rrfScores) {
+    // Path found via note FTS — use its metadata and snippet, replace score
     const ftsResult = ftsResultsByPath.get(path)
     if (ftsResult) {
       mergedResults.push({ ...ftsResult, score })
