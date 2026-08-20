@@ -230,4 +230,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.bump-and-tag.outputs.tag }}
-        run: gh release upload "$TAG" digests.txt digests.txt.sigstore.json
+        run: gh release upload --clobber "$TAG" digests.txt digests.txt.sigstore.json

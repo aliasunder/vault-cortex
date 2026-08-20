@@ -165,4 +165,4 @@ jobs:
         if: ${{ needs.deploy.outputs.digest-local != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" digests.txt digests.txt.sigstore.json
+        run: gh release upload --clobber "$GITHUB_REF_NAME" digests.txt digests.txt.sigstore.json
