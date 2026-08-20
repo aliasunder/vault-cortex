@@ -125,12 +125,12 @@ PORT=8000
 # Log verbosity: debug | info | warn | error (default: info).
 LOG_LEVEL=info
 
-# Directory for persistent log files inside the container.
-# Off by default — only the container's own log (what \`docker logs\` shows)
-# is written, and Docker discards that when the container is recreated.
-# Set a path to also write date-stamped log files there (the /data volume
-# keeps them); "none" disables file logging explicitly.
-# LOG_DIR=/data/logs
+# Directory for persistent log files inside the container (default: none).
+# The container's own log (what \`docker logs\` shows) is always written, but
+# Docker discards it whenever the container is recreated — on image updates
+# or compose changes. Set a path (e.g. /data/logs) to also write date-stamped
+# log files there; the /data volume keeps them.
+LOG_DIR=none
 
 # Days to retain persistent log files before cleanup (default: 30).
 LOG_RETENTION_DAYS=30

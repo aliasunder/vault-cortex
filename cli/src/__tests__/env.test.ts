@@ -37,9 +37,16 @@ describe("buildLocalEnv", () => {
 
     expect(env).toContain("deploy/local/.env.example")
     expect(env).toContain("# TZ=America/New_York")
-    expect(env).toContain("# LOG_DIR=/data/logs")
     expect(env).not.toMatch(/^TZ=/m)
-    expect(env).not.toMatch(/^LOG_DIR=/m)
+  })
+
+  it("turns file logging off with the explicit none sentinel, not an absent line", () => {
+    const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
+
+    const logDirLines = env
+      .split("\n")
+      .filter((line) => line.startsWith("LOG_DIR="))
+    expect(logDirLines).toEqual(["LOG_DIR=none"])
   })
 
   it("tells the user how to change a setting and apply it", () => {
