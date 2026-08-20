@@ -471,7 +471,7 @@ required. These optional settings are worth knowing about:
 | `DAILY_NOTES_FOLDER`     | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                          |
 | `DAILY_NOTES_FORMAT`     | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                  |
 | `TRUST_PROXY_HOPS`       | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's     |
-| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front identifies clients with the RFC 7239 `Forwarded` header (e.g. AWS API Gateway)                 |
+| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front reports each visitor's IP in the RFC 7239 `Forwarded` header, as AWS API Gateway does          |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.
