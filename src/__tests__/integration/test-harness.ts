@@ -125,7 +125,10 @@ const terminateChild = async (
   child: ChildProcess,
   signal: "SIGTERM" | "SIGKILL",
 ): Promise<void> => {
-  if (child.exitCode !== null) return
+  // A child killed by a signal has exitCode null but signalCode set —
+  // both are terminal states where kill() is a no-op and "close" has
+  // already fired (or will never fire), so waiting would hang for 3 s.
+  if (child.exitCode !== null || child.signalCode !== null) return
   child.kill(signal)
   await new Promise<void>((resolveClosed) => {
     child.once("close", () => resolveClosed())

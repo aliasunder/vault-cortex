@@ -904,7 +904,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   **Exception — the remote image's s6 init scripts.** The shell scripts
   under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
   boot chain for the `:remote` target, not TypeScript modules, and
-  vitest discovers tests under `src/` only. Their specs live in
+  vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
+  `rootfs/`. Their specs live in
   `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `print-derived-env.test.ts`), run the real
   script under `sh` with stub binaries on `PATH`, and name the script

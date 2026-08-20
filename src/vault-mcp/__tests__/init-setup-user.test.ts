@@ -158,15 +158,13 @@ describe("init-setup-user ownership script", () => {
     expect(existsSync(join(run.tempDir, "persist", "data"))).toBe(true)
   })
 
-  it("treats a root-level INDEX_DB_PATH as living in /", () => {
+  it("rejects a root-level INDEX_DB_PATH to prevent chown -R /", () => {
     const run = runSetupUser({ indexDbPath: "/index.db" })
-    const legacyConfigDir = join(run.homeDir, ".config")
 
-    expect(run.status).toBe(0)
-    expect(run.calls).toEqual([
-      `chown -R 1000:1000 /home/obsidian ${run.vaultPath} / ${legacyConfigDir}`,
-      `chown 1000:1000 ${join(legacyConfigDir, ".applied-ids")}`,
-    ])
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain(
+      "INDEX_DB_PATH must include at least one directory component",
+    )
   })
 
   it("skips the recursive chown when the recorded IDs already match", () => {
