@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
 
