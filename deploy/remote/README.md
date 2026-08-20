@@ -151,10 +151,11 @@ the vault, the search index, Obsidian Sync state, and log files under that
 directory
 ([how the paths are laid out →](../../ARCHITECTURE.md#container-startup)).
 
-The same `.env` file works; the command sets `LOG_DIR` explicitly because
-the `.env.example` default, `/data/logs`, falls outside the volume (an `-e`
-flag wins over `--env-file`). On a plain Docker host the complete command
-is:
+The CLI's `init` always creates the three-volume layout, so single-volume
+mode is set up with `docker run` or through a hosting platform. The same
+`.env` file works; the command sets `LOG_DIR` explicitly because the
+`.env.example` default, `/data/logs`, falls outside the volume (an `-e` flag
+wins over `--env-file`). On a plain Docker host the complete command is:
 
 ```bash
 docker run -d --name vault-cortex \
