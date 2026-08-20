@@ -53,6 +53,16 @@ const waitFor = async (
   throw new Error(`waitFor timed out after ${timeoutMs}ms`)
 }
 
+/** Retry policy for suites that watch real temp dirs. On macOS, fs.watch
+ *  rides libuv's FSEventStream, whose kernel-side capture starts
+ *  asynchronously — a write landing right after the watcher reports ready
+ *  can produce no event at all, so the test's waitFor times out (observed
+ *  as bursty local-only failures; events either arrive in <1s or never).
+ *  Linux (CI and every production deployment) registers inotify watches
+ *  synchronously and has no such gap, so retries there only ever absorb a
+ *  genuine environment hiccup — a code regression fails every attempt. */
+const REAL_WATCHER_RETRY = { retry: 2 }
+
 beforeEach(async () => {
   vault = await mkdtemp(join(tmpdir(), "watcher-test-"))
   index = createSearchIndex(":memory:")
@@ -62,7 +72,7 @@ afterEach(async () => {
   await rm(vault, { recursive: true })
 })
 
-describe("file-watcher", () => {
+describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("indexes a new .md file", { timeout: 15000 }, async () => {
     await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
@@ -305,7 +315,7 @@ describe("file-watcher", () => {
   })
 })
 
-describe("file-watcher — file content indexing", () => {
+describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
   it(
     "indexes a text file into file content FTS",
     { timeout: 15000 },
@@ -487,7 +497,7 @@ describe("startFileWatcher — chokidar watch options", () => {
 // outside, so these tests drive the reconciliation directly: a fake watcher
 // captures the addDir handler, reports test-controlled tracking via
 // getWatched(), and records add() calls — against a real temp vault and index.
-describe("startFileWatcher — new-directory rescan", () => {
+describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
   const RESCAN_TEST_OPTIONS = {
     stabilityThreshold: 200,
     pollInterval: 50,
