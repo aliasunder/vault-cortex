@@ -17,8 +17,8 @@
 # STORAGE_ROOT set — hosts that allow a single persistent mount (Railway,
 # Render, Fly): the vault, the index, log files, and Obsidian Sync state all
 # live under it, so one volume carries everything that must survive a
-# redeploy. LOG_DIR=none (non-empty, so never overridden) turns log files
-# off, matching the remote Compose file's default-on behavior.
+# redeploy. LOG_DIR defaults to $STORAGE_ROOT/data/logs (matching the remote
+# Compose file's default-on behavior); LOG_DIR=none turns log files off.
 set -eu
 
 if [ -z "${STORAGE_ROOT:-}" ]; then
