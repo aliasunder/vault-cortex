@@ -75,6 +75,33 @@
 
 
 
+
+## [0.38.0] — 2026-08-20
+
+### Features
+
+- **search:** Embed non-markdown file content for semantic search (#463)
+
+### Documentation
+
+- Add OpenSSF Best Practices badge to README (#465)
+- Replace License badge with OpenSSF Scorecard badge (#461)
+- Update CHANGELOG.md for v0.37.4
+
+### CI / Infrastructure
+
+- Cosign keyless signing for GitHub releases (#466)
+
+### Maintenance
+
+- Add test:coverage npm script (#467)
+- Bump umm-actually to v0.3.10 (#464)
+
+### Other Changes
+
+- **cli:** Interactive PTY integration tests via node-pty (#462)
+- **integration:** Error contract tests for documented tool error paths (#460)
+
 ## [0.37.4] — 2026-08-19
 
 ### Bug Fixes
