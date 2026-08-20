@@ -64,11 +64,12 @@ else
   fi
 fi
 
-# The server requires PUBLIC_URL. Hosted platforms expose the service's
-# public hostname under their own variable, so map the first one present and
-# a template deploy boots without the user hand-typing a URL they can't know
-# until the platform assigns it. A non-empty PUBLIC_URL always wins; no match
-# leaves it unset so the server's required-variable error still fires.
+# The server requires PUBLIC_URL. Each hosted platform exposes the service's
+# public address under its own variable, so check them in order and build
+# PUBLIC_URL from the first one that is set — a template deploy then boots
+# without the user hand-typing a URL the platform only assigns at creation.
+# A non-empty PUBLIC_URL always wins; when no platform variable is set,
+# PUBLIC_URL stays unset so the server's required-variable error still fires.
 if [ -z "${PUBLIC_URL:-}" ]; then
   if [ -n "${RENDER_EXTERNAL_URL:-}" ]; then
     printf 'PUBLIC_URL=%s\n' "$RENDER_EXTERNAL_URL"

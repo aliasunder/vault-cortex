@@ -763,8 +763,9 @@ unaffected.
 
 **`PUBLIC_URL` derivation.** Hosted platforms assign a service's public
 address only at creation, so a template deploy cannot ask the user to type it
-up front. When `PUBLIC_URL` is unset, `init-derive-env` fills it from the
-first platform variable present:
+up front. When `PUBLIC_URL` is unset, `init-derive-env` checks these
+platform variables in order and builds `PUBLIC_URL` from the first one that
+is set:
 
 - `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
 - `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
