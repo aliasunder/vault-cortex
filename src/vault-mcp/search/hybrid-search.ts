@@ -106,9 +106,9 @@ const vectorSearch = (
   }
 }
 
-/** KNN over file content vectors — returns the best-matching chunk per file
- *  for a pre-computed query embedding. Empty when file content vectors are
- *  disabled or the KNN query fails. */
+/** KNN over file content vectors — the best-matching chunk per file. With a
+ *  folder pattern the k-window is taken over in-folder chunks only, mirroring
+ *  vectorSearch. Empty when file content vectors are disabled or the query fails. */
 const fileContentVectorSearch = (
   context: SearchQueryContext,
   params: {
