@@ -73,8 +73,8 @@ export const stripTrailingSlashes = (folder: string): string =>
 
 /** TypeScript mirror of the `path LIKE 'folder/%'` predicate the FTS legs
  *  apply in SQL — segment-boundary (so "Docs" never matches "Docs2/") and
- *  case-insensitive, because SQLite's LIKE is case-insensitive and a
- *  vector-only hit must pass the same folder filter its FTS twin would. */
+ *  case-insensitive (full Unicode via toLowerCase — a superset of LIKE's
+ *  ASCII-only folding, so no false exclusions for non-ASCII folder names). */
 export const pathIsInFolder = (path: string, folder: string): boolean =>
   path
     .toLowerCase()
@@ -84,6 +84,13 @@ export const pathIsInFolder = (path: string, folder: string): boolean =>
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
 export const escapeLikeWildcards = (value: string): string =>
   value.replace(/[\\%_]/g, (character) => `\\${character}`)
+
+/** The `LIKE ... ESCAPE '\'` pattern that selects every path inside a folder
+ *  — segment-boundary (`Docs/%`, so "Docs" never matches "Docs2/") with the
+ *  folder's own wildcard characters escaped. One definition keeps every
+ *  search leg's folder predicate identical. */
+export const folderLikePattern = (folder: string): string =>
+  `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
 
 // ── FTS metadata builder ───────────────────────────────────────
 

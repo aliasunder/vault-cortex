@@ -12,9 +12,7 @@ import {
   fileContentRowToSearchResult,
   noteMatchesSearchFilters,
   buildSnippetFromChunkText,
-  escapeLikeWildcards,
-  pathIsInFolder,
-  stripTrailingSlashes,
+  folderLikePattern,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -56,19 +54,30 @@ const embedQuery = async (
   }
 }
 
+/** KNN over note vectors — the best-matching chunk per note. With a folder
+ *  pattern the k-window is taken over in-folder chunks only, so a folder
+ *  filter can never be starved by closer matches elsewhere in the vault. */
 const vectorSearch = (
   context: SearchQueryContext,
-  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
+  params: {
+    query: string
+    queryEmbeddingBuffer: Buffer
+    limit: number
+    folderPathPattern: string | undefined
+  },
   logger: Logger,
 ): VectorHit[] => {
-  const { knnSearchStmt } = context.vector
-  if (!knnSearchStmt) return []
+  const { knnSearchStmt, knnSearchInFolderStmt } = context.vector
+  if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
   try {
-    const noteKnnRows = knnSearchStmt.all(
-      params.queryEmbeddingBuffer,
-      params.limit,
-    )
+    const noteKnnRows = params.folderPathPattern
+      ? knnSearchInFolderStmt.all(
+          params.queryEmbeddingBuffer,
+          params.limit,
+          params.folderPathPattern,
+        )
+      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
@@ -102,17 +111,25 @@ const vectorSearch = (
  *  disabled or the KNN query fails. */
 const fileContentVectorSearch = (
   context: SearchQueryContext,
-  params: { query: string; queryEmbeddingBuffer: Buffer; limit: number },
+  params: {
+    query: string
+    queryEmbeddingBuffer: Buffer
+    limit: number
+    folderPathPattern: string | undefined
+  },
   logger: Logger,
 ): VectorHit[] => {
-  const knnSearchStmt = context.fileContentVector?.knnSearchStmt
-  if (!knnSearchStmt) return []
+  if (!context.fileContentVector) return []
+  const { knnSearchStmt, knnSearchInFolderStmt } = context.fileContentVector
 
   try {
-    const fileKnnRows = knnSearchStmt.all(
-      params.queryEmbeddingBuffer,
-      params.limit,
-    )
+    const fileKnnRows = params.folderPathPattern
+      ? knnSearchInFolderStmt.all(
+          params.queryEmbeddingBuffer,
+          params.limit,
+          params.folderPathPattern,
+        )
+      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
     for (const knnRow of fileKnnRows) {
@@ -150,7 +167,7 @@ const runFileContentFts = (
     query: string
     snippetTokens: number
     limit: number
-    folder?: string | undefined
+    folderPathPattern: string | undefined
   },
 ): FileContentFtsRow[] => {
   if (!context.fileContentFts) return []
@@ -158,13 +175,10 @@ const runFileContentFts = (
   if (!sanitizedQuery) return []
   // "%" matches every path when no folder filter applies — the statement
   // keeps a fixed arity instead of needing a second, predicate-free variant.
-  const folderPathPattern = params.folder
-    ? `${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`
-    : "%"
   return context.fileContentFts.searchStmt.all(
     params.snippetTokens,
     sanitizedQuery,
-    folderPathPattern,
+    params.folderPathPattern ?? "%",
     params.limit,
   )
 }
@@ -271,6 +285,12 @@ export const hybridSearch = async (
   const snippetTokens = params.filters?.snippet_tokens ?? 30
   const includeLeadingCallout = params.filters?.include_leading_callout ?? false
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
+  // One LIKE pattern shared by every leg that scopes to a folder in SQL —
+  // the file-content FTS leg and both KNN legs (fullTextSearch builds its own
+  // from the same helper), so no leg can drift from the others.
+  const folderPathPattern = params.filters?.folder
+    ? folderLikePattern(params.filters.folder)
+    : undefined
 
   // Run FTS with inflated limit to give RRF enough candidates
   const ftsResults = fullTextSearch(
@@ -300,7 +320,7 @@ export const hybridSearch = async (
         query: params.query,
         snippetTokens,
         limit: candidateLimit,
-        folder: params.filters?.folder,
+        folderPathPattern,
       })
 
   // Embed the query once — shared by note and file content vector searches
@@ -310,7 +330,12 @@ export const hybridSearch = async (
   const vectorHits = queryEmbeddingBuffer
     ? vectorSearch(
         context,
-        { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
+        {
+          query: params.query,
+          queryEmbeddingBuffer,
+          limit: candidateLimit,
+          folderPathPattern,
+        },
         logger,
       )
     : []
@@ -321,7 +346,12 @@ export const hybridSearch = async (
       ? []
       : fileContentVectorSearch(
           context,
-          { query: params.query, queryEmbeddingBuffer, limit: candidateLimit },
+          {
+            query: params.query,
+            queryEmbeddingBuffer,
+            limit: candidateLimit,
+            folderPathPattern,
+          },
           logger,
         )
 
@@ -443,15 +473,9 @@ export const hybridSearch = async (
       const fileMetadata = context.selectFileContentMetadataStmt.get(path)
       if (!fileMetadata) continue
 
-      // Apply folder filter — file content FTS applies it via SQL, but
-      // vector-only results bypass FTS and need the same check here.
-      if (
-        params.filters?.folder &&
-        !pathIsInFolder(path, params.filters.folder)
-      ) {
-        continue
-      }
-
+      // No folder check here: every file-content leg (FTS and KNN) already
+      // scoped to the folder in SQL, so a file-only hit is in-folder by
+      // construction.
       mergedResults.push(
         fileContentRowToSearchResult(
           {

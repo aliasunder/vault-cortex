@@ -14,6 +14,7 @@ import {
   rowToTaskEntry,
   noteRowToSearchResult,
   escapeLikeWildcards,
+  folderLikePattern,
   stripTrailingSlashes,
   dayToEpochMsRange,
 } from "./search-helpers.js"
@@ -68,6 +69,12 @@ export type SearchQueryContext = {
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
+    /** Same KNN narrowed to chunks whose note path matches a folder LIKE
+     *  pattern before the k-window — used whenever a folder filter is set. */
+    readonly knnSearchInFolderStmt: Database.Statement<
+      unknown[],
+      VectorHitRow
+    > | null
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
@@ -98,6 +105,11 @@ export type SearchQueryContext = {
    *  the file content vector leg. */
   readonly fileContentVector: {
     readonly knnSearchStmt: Database.Statement<
+      unknown[],
+      FileContentVectorHitRow
+    >
+    /** Folder-scoped variant — see vector.knnSearchInFolderStmt. */
+    readonly knnSearchInFolderStmt: Database.Statement<
       unknown[],
       FileContentVectorHitRow
     >
@@ -149,9 +161,7 @@ export const fullTextSearch = (
 
   if (params.filters?.folder) {
     conditions.push("n.path LIKE ? ESCAPE '\\'")
-    queryParams.push(
-      `${escapeLikeWildcards(stripTrailingSlashes(params.filters.folder))}/%`,
-    )
+    queryParams.push(folderLikePattern(params.filters.folder))
   }
 
   if (params.filters?.tags) {

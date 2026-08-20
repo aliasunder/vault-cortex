@@ -1502,3 +1502,109 @@ describe("hybridSearch — file content FTS folder filter", () => {
     ])
   })
 })
+
+// ── hybridSearch — folder-scoped vector candidate window ──────
+
+describe("hybridSearch — folder-scoped vector candidate window", () => {
+  const EMBEDDING_DIMENSIONS = 384
+
+  /** Content-keyed embeddings: text mentioning "inside" lands on one axis,
+   *  everything else (including the query) on another — so every out-of-
+   *  folder item sits at distance 0 from the query and the in-folder item
+   *  is the furthest candidate. */
+  const createContentKeyedEmbedder = () => {
+    const axisFor = (text: string): Float32Array => {
+      const embedding = new Float32Array(EMBEDDING_DIMENSIONS).fill(0)
+      embedding[text.includes("inside") ? 1 : 0] = 1.0
+      return embedding
+    }
+    return {
+      embedText: vi
+        .fn()
+        .mockImplementation((text: string) => Promise.resolve(axisFor(text))),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(texts.map(axisFor)),
+        ),
+    }
+  }
+
+  it("returns an in-folder note that ranks below the vault-wide KNN window", async () => {
+    const mockEmbedder = createContentKeyedEmbedder()
+    const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+    // limit 1 → candidateLimit 3. Ten out-of-folder notes at distance 0 fill
+    // a vault-wide top-3 many times over; the only Work/ note is the furthest.
+    for (const noteNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const notePath = `Archive/outside-${noteNumber}.md`
+      const rawContent = `# Outside ${noteNumber}\n\nUnrelated archive material.\n`
+      hybridIndex.upsertNote(
+        { filePath: notePath, rawContent, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote({ notePath, rawContent }, logger)
+    }
+    const insideContent = "# Inside\n\nThe one note that lives inside Work.\n"
+    hybridIndex.upsertNote(
+      {
+        filePath: "Work/inside.md",
+        rawContent: insideContent,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await hybridIndex.embedNote(
+      { notePath: "Work/inside.md", rawContent: insideContent },
+      logger,
+    )
+
+    // No lexical overlap with anything seeded — vector legs only
+    const { results, search_mode } = await hybridIndex.hybridSearch(
+      { query: "zzqq", filters: { folder: "Work", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("hybrid")
+    expect(results.map((result) => result.path)).toEqual(["Work/inside.md"])
+  })
+
+  it("returns an in-folder file that ranks below the vault-wide KNN window", async () => {
+    const mockEmbedder = createContentKeyedEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    for (const fileNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const filePath = `Archive/outside-${fileNumber}.txt`
+      fileIndex.upsertNonMdFile(filePath, 100)
+      fileIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: "Unrelated archive material.",
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await fileIndex.embedFileContent({ filePath }, logger)
+    }
+    fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "Docs/inside.txt",
+        rawContent: "The one file that lives inside Docs.",
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+
+    const { results, search_mode } = await fileIndex.hybridSearch(
+      { query: "zzqq", filters: { folder: "Docs", limit: 1 } },
+      logger,
+    )
+
+    expect(search_mode).toBe("hybrid")
+    expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
+  })
+})
