@@ -117,6 +117,16 @@
           "default": "About Me"
         },
         {
+          "name": "TRUST_PROXY_HOPS",
+          "description": "Number of trusted reverse-proxy hops used to derive the client IP from X-Forwarded-For for OAuth rate limiting and request logs. With 0, injected forwarding headers are ignored.",
+          "default": "0"
+        },
+        {
+          "name": "TRUST_FORWARDED_HEADER",
+          "description": "Trust the RFC 7239 Forwarded header as the client identity for OAuth rate limiting and request logs. Enable only when the proxy in front sets it (e.g. AWS API Gateway).",
+          "default": "false"
+        },
+        {
           "name": "TZ",
           "description": "IANA timezone for timestamps and daily note resolution.",
           "default": "UTC"

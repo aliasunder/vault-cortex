@@ -30,19 +30,38 @@ export const parseBearer = (header: string | undefined): string | null => {
 const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 
 /**
- * Real client IP for logging and rate limiting. API Gateway sends it in
- * the RFC 7239 Forwarded header, which Express never reads — behind the
- * gateway, req.ip is the gateway's own egress node. The first `for=`
- * element is the original client (proxies append); req.ip is the
- * fallback for proxies that don't send Forwarded.
+ * The last `for=` value in an RFC 7239 Forwarded header — the claim of the
+ * proxy closest to the server. Walking right-to-left matters: a client can
+ * prepend its own elements whenever the edge proxy appends (as API Gateway
+ * does) rather than replaces — the last element is the edge proxy's own
+ * claim either way.
  */
+const lastForwardedClientIp = (forwarded: string): string | undefined => {
+  for (const element of forwarded.split(",").toReversed()) {
+    const match = FORWARDED_FOR_CLIENT.exec(element)
+    if (match?.[1]) return match[1]
+  }
+  return undefined
+}
+
+/** Real client IP for logging and rate limiting. */
 export const extractClientIp = (
   req: Pick<Request, "headers" | "ip">,
+  trustForwardedHeader: boolean,
 ): string => {
-  const forwarded = req.headers["forwarded"]
-  if (forwarded) {
-    const match = FORWARDED_FOR_CLIENT.exec(forwarded)
-    if (match?.[1]) return match[1]
+  if (trustForwardedHeader) {
+    // Node's HTTP parser joins duplicate header lines into one string, but
+    // middleware or custom stacks can deliver an array instead — join
+    // explicitly so the right-to-left walk spans every line, never just the
+    // first.
+    const forwardedHeader = req.headers["forwarded"]
+    const forwarded = Array.isArray(forwardedHeader)
+      ? forwardedHeader.join(", ")
+      : forwardedHeader
+    if (forwarded) {
+      const clientIp = lastForwardedClientIp(forwarded)
+      if (clientIp) return clientIp
+    }
   }
   return req.ip ?? "unknown"
 }

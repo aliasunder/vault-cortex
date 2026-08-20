@@ -58,7 +58,7 @@ describe("createErrorMiddleware", () => {
   it("returns 500 with json error when headers have not been sent", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, resStatus, resJson, next } = createMockReqRes()
     const err = new Error("boom")
 
@@ -71,7 +71,7 @@ describe("createErrorMiddleware", () => {
   it("does not call res.status or res.json when headers have already been sent", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, resStatus, resJson, next } = createMockReqRes({}, true)
     const err = new Error("boom")
 
@@ -85,7 +85,7 @@ describe("createErrorMiddleware", () => {
   it("logs unhandled_error with session, ip, method, path, error, and stack", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, next } = createMockReqRes({
       headers: { "mcp-session-id": "session-123" },
       ip: "192.0.2.5",
@@ -116,7 +116,7 @@ describe("createErrorMiddleware", () => {
   it("logs sessionId as undefined, error, and stack when mcp-session-id header is absent", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, next } = createMockReqRes({
       headers: {},
       ip: "192.0.2.6",
@@ -146,7 +146,7 @@ describe("createErrorMiddleware", () => {
   it("logs stack as undefined when the error has no stack property", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, next } = createMockReqRes({
       headers: { "mcp-session-id": "session-456" },
       ip: "10.0.0.2",
@@ -171,7 +171,7 @@ describe("createErrorMiddleware", () => {
   it("does not call next() (terminal error handler)", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
-    const middleware = createErrorMiddleware()
+    const middleware = createErrorMiddleware({ trustForwardedHeader: false })
     const { req, res, resStatus, next } = createMockReqRes()
 
     middleware(new Error("x"), req, res, next)

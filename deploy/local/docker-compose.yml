@@ -25,6 +25,11 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env — see .env.example}"
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      # Client-IP trust for rate limiting (see .env.example): the defaults
+      # are safe with nothing in front of the server; set TRUST_PROXY_HOPS=1
+      # when a proxy or tunnel sits in front.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_FORWARDED_HEADER: ${TRUST_FORWARDED_HEADER:-false}
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}

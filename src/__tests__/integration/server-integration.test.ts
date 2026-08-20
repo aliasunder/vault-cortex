@@ -621,6 +621,206 @@ describe("default config", () => {
       expect(status).toBe(401)
     })
   })
+
+  describe("OAuth rate limiting", () => {
+    const register = (forwardedIp: string) =>
+      fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: `for=${forwardedIp}`,
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+
+    // With the Forwarded header untrusted (the default), a distinct spoofed
+    // value per request must NOT mint a fresh rate-limit bucket — all six
+    // share the socket peer's bucket.
+    it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
+      for (let i = 1; i <= 5; i++) {
+        const response = await register(`198.51.100.${i}`)
+        expect(response.status).toBe(201)
+      }
+      const sixth = await register("198.51.100.6")
+      expect(sixth.status).toBe(429)
+    })
+  })
+})
+
+// ── X-Forwarded-For rate limiting (default proxy trust) ────────
+
+describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    // Dedicated default-config server: the limiter's in-memory store is
+    // per-process and blocked hits count, so the default-config describe's
+    // Forwarded test leaves its shared 5-req bucket exhausted inside the
+    // 60s window — running this test there would 429 on the first request.
+    const server = await startServer(port)
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
+  // (the default), a client-supplied X-Forwarded-For must not shift the
+  // bucket either — re-raising the hop count would reopen the bypass
+  // silently.
+  it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register(`198.51.100.${i}`)
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("198.51.100.6")
+    expect(sixth.status).toBe(429)
+  })
+})
+
+// ── TRUST_PROXY_HOPS=1 ─────────────────────────────────────────
+
+describe("TRUST_PROXY_HOPS=1", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    const server = await startServer(port, { TRUST_PROXY_HOPS: "1" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
+  // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
+  // one client's bucket must leave another client's bucket fresh. If the
+  // config value never reached Express, every request would share the socket
+  // peer's bucket and the second client's request would 429.
+  it("buckets the /register rate limit by the X-Forwarded-For client IP", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register("203.0.113.50")
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("203.0.113.50")
+    expect(sixth.status).toBe(429)
+    const otherClient = await register("203.0.113.51")
+    expect(otherClient.status).toBe(201)
+  })
+})
+
+// ── TRUST_FORWARDED_HEADER=true ────────────────────────────────
+
+describe("TRUST_FORWARDED_HEADER=true", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = randomPort()
+    const server = await startServer(port, { TRUST_FORWARDED_HEADER: "true" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (forwardedIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        forwarded: `for=${forwardedIp}`,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("buckets the /register rate limit by the Forwarded client IP", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("198.51.100.1")
+      expect(response.status).toBe(201)
+    }
+    const sixthSameClient = await register("198.51.100.1")
+    expect(sixthSameClient.status).toBe(429)
+    const firstOtherClient = await register("198.51.100.2")
+    expect(firstOtherClient.status).toBe(201)
+  })
+
+  // An edge proxy that appends (as API Gateway does) leaves any
+  // client-supplied prefix ahead of its own claim — the bucket key must be
+  // the LAST for= element, never the first.
+  it("buckets by the last for= element, not a client-supplied prefix", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: "for=203.0.113.99, for=198.51.100.4",
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+      expect(response.status).toBe(201)
+    }
+    // If the prefix (203.0.113.99) were the key, this plain request would
+    // open a fresh bucket instead of joining 198.51.100.4's exhausted one.
+    const sixth = await register("198.51.100.4")
+    expect(sixth.status).toBe(429)
+  })
 })
 
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────

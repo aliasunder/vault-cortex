@@ -660,4 +660,51 @@ describe("loadConfig", () => {
       )
     })
   })
+
+  describe("TRUST_PROXY_HOPS", () => {
+    it("defaults to 0 when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trustProxyHops).toBe(0)
+    })
+
+    it("accepts a custom non-negative integer", () => {
+      const config = loadConfig({ TRUST_PROXY_HOPS: "2" })
+      expect(config.trustProxyHops).toBe(2)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(
+        /TRUST_PROXY_HOPS/,
+      )
+    })
+
+    it.each(["-1", "1.5"])("rejects invalid hop count %s", (value) => {
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(
+        /TRUST_PROXY_HOPS/,
+      )
+    })
+  })
+
+  describe("TRUST_FORWARDED_HEADER", () => {
+    it("defaults to false when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trustForwardedHeader).toBe(false)
+    })
+
+    it("is true when set to 'true'", () => {
+      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
+      expect(config.trustForwardedHeader).toBe(true)
+    })
+
+    it("is false when set to 'false'", () => {
+      const config = loadConfig({ TRUST_FORWARDED_HEADER: "false" })
+      expect(config.trustForwardedHeader).toBe(false)
+    })
+
+    it("rejects a non-boolean value", () => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HEADER: "yes" })).toThrow(
+        /TRUST_FORWARDED_HEADER/,
+      )
+    })
+  })
 })

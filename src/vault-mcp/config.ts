@@ -99,6 +99,18 @@ export type VaultConfig = Readonly<{
    *  DISABLED_TOOLS (comma-separated tool names; unknown names fail the
    *  boot). */
   disabledTools: ReadonlySet<ToolName>
+  /** Number of proxy hops trusted when deriving the client IP from
+   *  X-Forwarded-For (Express `trust proxy`). With 0 — the default — req.ip
+   *  is the socket peer and injected forwarding headers are ignored. Set to
+   *  1 when a single reverse proxy (Caddy, nginx, Cloudflare Tunnel, API
+   *  Gateway) sits in front of the server. Set via TRUST_PROXY_HOPS. */
+  trustProxyHops: number
+  /** When true, the client IP (rate limiting, request logs) is read from
+   *  the RFC 7239 Forwarded header. Safe only when the proxy connecting to
+   *  this server writes that header itself (e.g. AWS API Gateway); when
+   *  false — the default — the header is ignored, since any client can
+   *  send one. Set via TRUST_FORWARDED_HEADER. */
+  trustForwardedHeader: boolean
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -223,6 +235,24 @@ export const loadConfig = (
     }),
   )
 
+  // Default 0: req.ip is the socket peer, so an injected X-Forwarded-For
+  // can't shift a client into a fresh rate-limit bucket. A deployment
+  // behind proxies opts into one hop per proxy it controls.
+  const trustProxyHops = envVar
+    .from(env)
+    .get("TRUST_PROXY_HOPS")
+    .default("0")
+    .asIntPositive()
+
+  // Default false: without a proxy that writes the Forwarded header
+  // (e.g. AWS API Gateway), the header is client-supplied — trusting it
+  // by default would let any client choose its own rate-limit bucket.
+  const trustForwardedHeader = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HEADER")
+    .default("false")
+    .asBool()
+
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -275,6 +305,8 @@ export const loadConfig = (
     fileToolsEnabled,
     readOnlyMode,
     disabledTools,
+    trustProxyHops,
+    trustForwardedHeader,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,
