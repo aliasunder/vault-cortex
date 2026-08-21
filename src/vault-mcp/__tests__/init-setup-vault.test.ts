@@ -53,10 +53,14 @@ type SetupRun = {
 
 type SetupRunOptions = {
   vaultName?: string
+  vaultPassword?: string
+  configDirName?: string
   deviceName?: string
   syncConfigs?: string
   /** When true, `ob sync-status` reports a saved setup for the vault path. */
   savedSetup?: boolean
+  /** Override the `ob sync-status` exit code directly (takes precedence over `savedSetup`). */
+  syncStatusExit?: number
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
 }
@@ -84,12 +88,19 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_STATUS_EXIT: String(
-        options.savedSetup ? 0 : OB_NO_SAVED_SETUP_EXIT,
+        options.syncStatusExit ??
+          (options.savedSetup ? 0 : OB_NO_SAVED_SETUP_EXIT),
       ),
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       ...(options.vaultName === undefined
         ? {}
         : { VAULT_NAME: options.vaultName }),
+      ...(options.vaultPassword === undefined
+        ? {}
+        : { VAULT_PASSWORD: options.vaultPassword }),
+      ...(options.configDirName === undefined
+        ? {}
+        : { CONFIG_DIR_NAME: options.configDirName }),
       ...(options.deviceName === undefined
         ? {}
         : { DEVICE_NAME: options.deviceName }),
@@ -179,5 +190,56 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       "sync-config --configs ",
     ])
+  })
+
+  it("passes VAULT_PASSWORD to sync-setup", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      vaultPassword: "s3cret",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault --password s3cret",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("passes CONFIG_DIR_NAME to sync-setup", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      configDirName: ".obsidian-custom",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault --config-dir .obsidian-custom",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("suppresses the VAULT_PASSWORD hint when the variable is already set", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      vaultPassword: "s3cret",
+      syncSetupFails: true,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: ob sync-setup failed.\n" +
+        "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct.\n",
+    )
+  })
+
+  it("treats any non-zero sync-status exit as a missing setup", () => {
+    const run = runSetupScript({ syncStatusExit: 2 })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(
+      `[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for ${run.vaultPath}.\n` +
+        "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart.\n",
+    )
+    expect(run.obCalls).toEqual(["sync-status"])
   })
 })
