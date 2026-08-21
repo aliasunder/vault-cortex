@@ -1070,6 +1070,28 @@ you've run `npx sst deploy` (or `sst dev`) once for your stage.
 If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 (or `sst dev`) to regenerate `sst-env.d.ts`.
 
+## Upgrading obsidian-headless
+
+The Sync CLI has no public documentation, so the `:remote` init chain
+depends on behaviour read out of the pinned `cli.js`. Treat every bump
+of `obsidian-headless/package.json` as a potential regression and
+re-verify each contract against the new source before merging:
+
+- Verbs and flags the scripts call: `login`, `sync-config`, `sync`,
+  `sync --continuous`, and `sync-setup --vault --device-name`.
+- `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
+  directory before transferring anything — `vault_has_content` in
+  `init-first-sync` excludes exactly those two.
+- The device's file record, which the deletion-storm guard reads:
+  `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
+  table `local_files`, loaded at engine startup and diffed against disk.
+
+The remote-boot stub (`src/__tests__/docker/fixtures/ob`) mirrors these
+contracts, so a change in the CLI does not fail the tier by itself:
+update the stub to the new behaviour, run the tier and the `sh` specs,
+then boot the new image once against real Obsidian Sync and confirm the
+first sync, the guard's file count, and continuous sync in the logs.
+
 ## Operational docs
 
 The README is the front door — humans land there first. The full AWS/SST
