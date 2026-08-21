@@ -11,8 +11,11 @@ VAULT_PATH="${VAULT_PATH:-/vault}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 # The index directory is INDEX_DB_PATH's parent — the same derivation the
 # server applies (server.ts); keep the two in lockstep.
-DATA_DIR="${INDEX_DB_PATH:-/data/index.db}"
-DATA_DIR="${DATA_DIR%/*}"
+INDEX_DB_FILE="${INDEX_DB_PATH:-/data/index.db}"
+# ${var%/*} deletes the shortest suffix matching "/*" — the final slash and
+# the filename after it — leaving the parent directory (a dirname without
+# spawning a process).
+DATA_DIR="${INDEX_DB_FILE%/*}"
 # A root-level file (/index.db) strips to "" — reject rather than
 # falling back to / (chown -R / would recursively chown the entire
 # container filesystem).
