@@ -13,8 +13,8 @@
 #
 # Logging "$*" cannot leak the Sync token: the real CLI reads
 # OBSIDIAN_AUTH_TOKEN from the environment and never receives it as an
-# argument, and the init scripts pass none of the secret-bearing env vars
-# on the command line.
+# argument. (VAULT_PASSWORD is a CLI argument to `ob sync-setup` when
+# set, but none of the CI scenarios set it.)
 #
 # Behaviour switches (container env, reaches the stub via with-contenv):
 #   OB_STUB_SYNC_FAIL=1 — one-shot `sync` exits 1 without writing notes, so
