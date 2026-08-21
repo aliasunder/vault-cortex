@@ -682,7 +682,7 @@ dependency-ordered service database.
 
 ```mermaid
 graph LR
-    A["init chain<br/>setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup → first sync"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
+    A["init chain<br/>derive-env → setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup → first sync"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
     B --> C["svc-vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
@@ -690,8 +690,13 @@ graph LR
     B -.->|sync state| F[("config volume<br/>/home/obsidian/.config")]
 ```
 
-1. **Init chain** — `init-setup-user` (adjusts the `obsidian` user to
-   PUID/PGID and fixes ownership of `/vault`, `/data`, and `/home/obsidian`) →
+1. **Init chain** — `init-derive-env` (publishes boot-time defaults to every
+   later stage via `/run/s6/container_environment/`: `VAULT_PATH` and
+   `INDEX_DB_PATH`, relocated under `STORAGE_ROOT` when set, and `PUBLIC_URL`
+   filled from the hosting platform's variable when unset — see "Single-volume
+   layout" below) → `init-setup-user` (adjusts the `obsidian` user to
+   PUID/PGID and fixes ownership of the vault, index, and config directories
+   plus `/home/obsidian`) →
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
    with `--device-name`, plus optional sync-config) → `init-first-sync`
@@ -736,6 +741,44 @@ through later continuous sync self-heal — the file watcher indexes them as
 they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
 update/delete writes.
+
+**Single-volume layout.** Hosted container platforms (Railway, Render,
+Fly.io) allow one persistent volume per service, while the image's default
+layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
+`init-derive-env` place everything under that one directory:
+
+- `$STORAGE_ROOT/vault` → `VAULT_PATH`
+- `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
+- `$STORAGE_ROOT/data/logs` → `LOG_DIR`
+- `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — the
+  [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)
+  variable for per-user config, `~/.config` when unset; obsidian-headless
+  keeps its Sync login and device registration under
+  `$XDG_CONFIG_HOME/obsidian-headless/`, and `init-setup-user` /
+  `init-first-sync` keep the `.applied-ids` record and the deletion-storm
+  sentinel beside it
+
+Derivation never overrides a variable that is already set to a non-empty
+value. `LOG_DIR=none` turns log files off; the sentinel exists because every
+deployment surface that defaults `LOG_DIR` on substitutes its default for an
+empty value, so "empty" cannot mean "off". Without `STORAGE_ROOT`, the layout
+is the three-mount one, and Compose and plain `docker run` deployments are
+unaffected.
+
+**`PUBLIC_URL` derivation.** Hosted platforms assign a service's public
+address only at creation, so a template deploy cannot ask the user to type it
+up front. When `PUBLIC_URL` is unset, `init-derive-env` checks these
+platform variables in order and builds `PUBLIC_URL` from the first one that
+is set:
+
+- `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
+- `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
+- `FLY_APP_NAME` → `https://$FLY_APP_NAME.fly.dev`
+
+When none is present, `PUBLIC_URL` stays unset and the server's
+required-variable error fires as usual. Both derivations live in one pure
+script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
+tests run directly under `sh`.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.

@@ -5,11 +5,36 @@ set -e
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 VAULT_PATH="${VAULT_PATH:-/vault}"
-# Records the last PUID:PGID whose recursive chown completed. Lives on the
-# config volume so it survives container recreation — comparing against the
-# image-baked passwd entry instead (always 1000 on a fresh container) would
-# miss a PUID change back to 1000 and strand volume contents at the old IDs.
-APPLIED_IDS_FILE=/home/obsidian/.config/.applied-ids
+# obsidian-headless keeps its config under $XDG_CONFIG_HOME (falling back to
+# $HOME/.config); single-volume mode (STORAGE_ROOT) relocates it, the
+# three-volume layout leaves it unset and resolves to /home/obsidian/.config.
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+# The index directory is INDEX_DB_PATH's parent — the same derivation the
+# server applies (server.ts); keep the two in lockstep.
+INDEX_DB_FILE="${INDEX_DB_PATH:-/data/index.db}"
+# ${var%/*} deletes the shortest suffix matching "/*" — the final slash and
+# the filename after it — leaving the parent directory (a dirname without
+# spawning a process).
+DATA_DIR="${INDEX_DB_FILE%/*}"
+# Require an absolute path with a directory component. A root-level file
+# (/index.db) strips to "" and would fall back to / (chown -R / would
+# recursively chown the entire container filesystem); a relative value
+# (index.db, data/index.db) would put the index in the working directory on
+# the ephemeral layer.
+case "$INDEX_DB_FILE" in
+  /?*/?*) ;;
+  *)
+    echo "[obsidian-sync] ERROR: INDEX_DB_PATH must be an absolute path with at least one directory component (got '${INDEX_DB_PATH}')." >&2
+    echo "[obsidian-sync] Use a path like /data/index.db, not a bare or relative filename." >&2
+    exit 1
+    ;;
+esac
+# Records the last PUID:PGID whose recursive chown completed. Lives in the
+# config directory so it survives container recreation — comparing against
+# the image-baked passwd entry instead (always 1000 on a fresh container)
+# would miss a PUID change back to 1000 and strand volume contents at the
+# old IDs.
+APPLIED_IDS_FILE="$CONFIG_HOME/.applied-ids"
 
 CURRENT_UID=$(id -u obsidian)
 CURRENT_GID=$(id -g obsidian)
@@ -25,9 +50,9 @@ if [ "$PUID" != "$CURRENT_UID" ]; then
 fi
 
 # Ensure the vault, index, and config directories exist.
-# /data is vault-cortex's index volume (INDEX_DB_PATH) — it must follow
-# PUID/PGID alongside /vault so svc-vault-mcp can write the search index.
-mkdir -p "$VAULT_PATH" /data /home/obsidian/.config
+# The index directory (INDEX_DB_PATH's parent) must follow PUID/PGID
+# alongside the vault so svc-vault-mcp can write the search index.
+mkdir -p "$VAULT_PATH" "$DATA_DIR" "$CONFIG_HOME"
 
 APPLIED_IDS=$(cat "$APPLIED_IDS_FILE" 2>/dev/null || true)
 if [ "$APPLIED_IDS" != "${PUID}:${PGID}" ]; then
@@ -36,12 +61,12 @@ if [ "$APPLIED_IDS" != "${PUID}:${PGID}" ]; then
   # PUID/PGID change in either direction so existing volume contents stay
   # accessible.
   echo "[obsidian-sync] Ownership IDs changed (${APPLIED_IDS:-unrecorded} → ${PUID}:${PGID}) — fixing ownership recursively..."
-  chown -R "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+  chown -R "$PUID:$PGID" /home/obsidian "$VAULT_PATH" "$DATA_DIR" "$CONFIG_HOME"
   echo "${PUID}:${PGID}" > "$APPLIED_IDS_FILE"
   chown "$PUID:$PGID" "$APPLIED_IDS_FILE"
 else
   # Just fix top-level ownership (fast — catches fresh mountpoints created by root)
-  chown "$PUID:$PGID" /home/obsidian "$VAULT_PATH" /data
+  chown "$PUID:$PGID" /home/obsidian "$VAULT_PATH" "$DATA_DIR" "$CONFIG_HOME"
 fi
 
 echo "[obsidian-sync] Running as UID=${PUID} GID=${PGID}"

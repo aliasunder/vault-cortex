@@ -141,6 +141,47 @@ docker run -d --name vault-cortex \
 
 </details>
 
+<details>
+<summary><strong>Single persistent volume</strong> (Railway, Render, Fly.io)</summary>
+
+Container hosting platforms that allow one volume per service can't attach
+the three mounts the Compose file and `docker run` command use. Mount the one
+volume anywhere and set `STORAGE_ROOT` to the same path — the container keeps
+the vault, the search index, Obsidian Sync state, and log files under that
+directory
+([how the paths are laid out →](../../ARCHITECTURE.md#container-startup)).
+
+The CLI's `init` always creates the three-volume layout, so single-volume
+mode is set up with `docker run` or through a hosting platform. The same
+`.env` file works; the command sets `LOG_DIR` explicitly because the
+`.env.example` default, `/data/logs`, falls outside the volume (an `-e` flag
+wins over `--env-file`). On a plain Docker host the complete command is:
+
+```bash
+docker run -d --name vault-cortex \
+  --hostname vault-cortex \
+  --env-file .env \
+  -e STORAGE_ROOT=/persist \
+  -e LOG_DIR=/persist/data/logs \
+  -v vault-cortex_storage:/persist \
+  -p 8000:8000 \
+  --restart unless-stopped \
+  --health-cmd "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" \
+  --health-interval 15s --health-timeout 5s --health-retries 5 \
+  --health-start-period 180s \
+  --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+  ghcr.io/aliasunder/vault-cortex:remote
+```
+
+On a hosting platform, set the same variables in the service's environment
+settings; restarts, health checks, and log rotation come from the platform,
+and `PUBLIC_URL` can be left unset — the container fills it in from the
+platform's own address variable (`RENDER_EXTERNAL_URL`,
+`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Set `LOG_DIR=none` to keep logs
+in the platform's log viewer only.
+
+</details>
+
 ## HTTPS access
 
 MCP clients need to reach your server over HTTPS. Pick one option — they can
@@ -274,8 +315,8 @@ curl http://localhost:8000/healthz
 # → {"ok":true}
 
 # One log stream for both processes — MCP server lines are structured
-# JSON; init-chain lines carry an [obsidian-sync] prefix and the ongoing
-# sync output is plain text:
+# JSON; init-chain lines carry an [obsidian-sync] or [vault-cortex] prefix
+# and the ongoing sync output is plain text:
 npx vault-cortex@latest logs   # set up with the CLI (run from your init directory)
 docker logs vault-cortex       # Compose or docker run
 # Sync output only: docker logs vault-cortex 2>&1 | grep -v '^{'
@@ -369,15 +410,17 @@ docker compose down            # Compose
 docker compose down -v                                                   # Compose
 docker rm -f vault-cortex && docker volume rm vault-cortex_vault_data \
   vault-cortex_mcp_data vault-cortex_obsidian_config                     # docker run / CLI
+docker rm -f vault-cortex && docker volume rm vault-cortex_storage       # single volume
 
 # Stop without removing (any setup method; docker start resumes):
 docker stop vault-cortex
 ```
 
-> **Never delete just the vault volume while keeping `obsidian_config`.**
-> The container refuses to start to prevent the sync engine from pushing
-> mass deletions to every connected device. Restore the vault volume, or
-> delete all volumes together to start fresh.
+> **Never delete just the vault volume while keeping `obsidian_config`**
+> (or, with a single volume, just the `vault` directory while keeping
+> `config`). The container refuses to start to prevent the sync engine from
+> pushing mass deletions to every connected device. Restore the vault, or
+> delete everything together to start fresh.
 
 **Set up with the CLI?** Start again any time with
 `npx vault-cortex@latest start` — your saved settings are reused
@@ -457,21 +500,22 @@ with `docker run`, re-create the container as described in the
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting                  | Default                       | What it does                                                                                                                           |
-| ------------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `TZ`                     | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                 |
-| `VAULT_PASSWORD`         | —                             | Set this if your vault has end-to-end encryption enabled                                                                               |
-| `EMBEDDING_ENABLED`      | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                  |
-| `RERANK_MODE`            | `blended`                     | Set `none` to skip reranking for lower latency                                                                                         |
-| `MEMORY_ENABLED`         | `true`                        | Set `false` to disable the structured memory layer                                                                                     |
-| `FILE_TOOLS_ENABLED`     | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                      |
-| `READONLY_MODE`          | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                       |
-| `DISABLED_TOOLS`         | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools) |
-| `SYNC_CONFIGS`           | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                   |
-| `DAILY_NOTES_FOLDER`     | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                          |
-| `DAILY_NOTES_FORMAT`     | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                  |
-| `TRUST_PROXY_HOPS`       | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's     |
-| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front reports each visitor's IP in the RFC 7239 `Forwarded` header (e.g. AWS API Gateway)            |
+| Setting                  | Default                       | What it does                                                                                                                                              |
+| ------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                     | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                    |
+| `VAULT_PASSWORD`         | —                             | Set this if your vault has end-to-end encryption enabled                                                                                                  |
+| `EMBEDDING_ENABLED`      | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                                     |
+| `RERANK_MODE`            | `blended`                     | Set `none` to skip reranking for lower latency                                                                                                            |
+| `MEMORY_ENABLED`         | `true`                        | Set `false` to disable the structured memory layer                                                                                                        |
+| `FILE_TOOLS_ENABLED`     | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                         |
+| `READONLY_MODE`          | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                          |
+| `DISABLED_TOOLS`         | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                    |
+| `SYNC_CONFIGS`           | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                      |
+| `DAILY_NOTES_FOLDER`     | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                             |
+| `DAILY_NOTES_FORMAT`     | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                     |
+| `TRUST_PROXY_HOPS`       | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                        |
+| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front reports each visitor's IP in the RFC 7239 `Forwarded` header (e.g. AWS API Gateway)                               |
+| `STORAGE_ROOT`           | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)) |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.
@@ -519,7 +563,11 @@ rebuilds.
 Nothing is lost — your data is still in the old volumes. Confirm with
 `docker volume ls`: unprefixed names (`vault_data`) alongside prefixed ones
 (`vault-cortex_vault_data`) mean an earlier setup used different volumes.
-Two ways to recover:
+The same thing happens when switching from the single-volume setup
+(`vault-cortex_storage`) to the CLI or Compose, which create the three-volume
+layout: `vault-cortex_storage` listed alongside the three is the tell, and
+the way back is the single-volume `docker run` command under
+[Setup](#setup). Two ways to recover from a three-volume mismatch:
 
 - **Let the re-sync finish (simplest).** Your vault's source of truth is
   Obsidian Sync, so the fresh volumes repopulate on their own — wait for the

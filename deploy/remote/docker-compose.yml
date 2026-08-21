@@ -58,7 +58,7 @@ services:
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ${LOG_DIR:-/data/logs}
-      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
       TZ: ${TZ:-UTC}
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
       MAX_FILE_BYTES: ${MAX_FILE_BYTES:-52428800}

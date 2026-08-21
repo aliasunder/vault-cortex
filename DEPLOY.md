@@ -126,7 +126,7 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 
 ### Tailing logs
 
-The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
+The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` or `[vault-cortex]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
 
 ```bash
 # Follow the logs in real time
@@ -342,8 +342,8 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `DAILY_NOTES_FORMAT`        | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                                          |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                                      |
 | `LOG_LEVEL`                 | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                                                |
-| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`.                                                                                                                                                                                      |
-| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup. Default: `30`.                                                                                                                                                                                           |
+| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`; `none` disables log files.                                                                                                                                                           |
+| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path. Default: `90`.                                                                                                                                                    |
 | `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                  |
 | `TRUST_PROXY_HOPS`          | Optional. Trusted reverse-proxy hops for deriving the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance). |
 | `TRUST_FORWARDED_HEADER`    | Optional. Whether the RFC 7239 `Forwarded` header identifies the client. The compose file defaults the instance to `true` (API Gateway reports visitors there); set `false` for `ORIGIN_URL` deployments so the `X-Forwarded-For` chain is used instead.                       |

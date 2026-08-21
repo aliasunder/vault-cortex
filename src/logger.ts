@@ -88,7 +88,7 @@ const LOG_FILE_SUFFIX = ".log"
 /** Matches date-stamped log files: vault-mcp-YYYY-MM-DD.log */
 const LOG_FILE_PATTERN = /^vault-mcp-(\d{4}-\d{2}-\d{2})\.log$/
 
-const DEFAULT_RETENTION_DAYS = 30
+const DEFAULT_RETENTION_DAYS = 90
 
 const todayDateString = (): string => DateTime.now().toISODate()
 
@@ -136,11 +136,27 @@ const parseRetentionDays = (
   return Number.isNaN(retentionDays) ? undefined : retentionDays
 }
 
-const fileSinkExtension: LogExtension | undefined = env.LOG_DIR
-  ? createFileSinkExtension(
-      env.LOG_DIR,
-      parseRetentionDays(env.LOG_RETENTION_DAYS),
-    )
+/** Sentinel that turns file logging off. Deployments that default LOG_DIR on
+ *  (the remote Compose file, STORAGE_ROOT single-volume mode) substitute
+ *  their default for an empty value, so "empty" can't serve as the off
+ *  switch — an explicit word can. */
+const LOG_DIR_OFF = "none"
+
+/** Resolves the LOG_DIR setting to a directory, or undefined when file
+ *  logging is off — unset, empty, or the `none` sentinel in any casing
+ *  (a literal `NONE/` log directory is never what an operator meant). */
+export const resolveLogDir = (
+  logDirSetting: string | undefined,
+): string | undefined => {
+  if (!logDirSetting || logDirSetting.toLowerCase() === LOG_DIR_OFF) {
+    return undefined
+  }
+  return logDirSetting
+}
+
+const logDir = resolveLogDir(env.LOG_DIR)
+const fileSinkExtension: LogExtension | undefined = logDir
+  ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
   : undefined
 
 const defaultExtensions: LogExtension[] = fileSinkExtension

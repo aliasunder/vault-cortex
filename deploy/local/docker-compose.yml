@@ -38,8 +38,8 @@ services:
       DISABLED_TOOLS: ${DISABLED_TOOLS:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOG_DIR: ${LOG_DIR:-}
-      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      LOG_DIR: ${LOG_DIR:-none}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true in .env when your vault is on a C: drive
       # (polling watcher + rename-based moves across the Docker Desktop/WSL2 bridge).

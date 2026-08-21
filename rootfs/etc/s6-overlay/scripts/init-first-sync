@@ -29,9 +29,13 @@ if ! cd "$VAULT_PATH"; then
   exit 1
 fi
 
-# Sentinel on the config volume: written after the first successful sync,
-# cleared when obsidian_config is wiped (fresh device = no sentinel = safe).
-SYNC_SENTINEL="${HOME}/.config/.vault-synced"
+# Sentinel in the Obsidian config directory (the obsidian_config volume under
+# Compose, $STORAGE_ROOT/config in single-volume mode): written after the
+# first successful sync, gone when that directory is wiped (fresh device =
+# no sentinel = safe). In single-volume mode the sentinel and the vault share
+# one mount, so the guard below still fires if only the vault directory is
+# emptied.
+SYNC_SENTINEL="${XDG_CONFIG_HOME:-$HOME/.config}/.vault-synced"
 
 # Pre-sync guard: an empty vault with a prior-sync sentinel means the vault
 # volume was wiped while the config volume (device state) was kept — syncing
@@ -50,7 +54,7 @@ if [ -f "$SYNC_SENTINEL" ] && ! vault_has_visible_files; then
   echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
   echo "[obsidian-sync] deletions to all connected devices." >&2
   echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
-  echo "[obsidian-sync] To start fresh: remove the obsidian_config volume (re-registers the device)." >&2
+  echo "[obsidian-sync] To start fresh: remove the Obsidian config directory (${XDG_CONFIG_HOME:-$HOME/.config} — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device." >&2
   exit 1
 fi
 

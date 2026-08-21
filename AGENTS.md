@@ -901,6 +901,16 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
+  **Exception — the remote image's s6 init scripts.** The shell scripts
+  under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
+  boot chain for the `:remote` target, not TypeScript modules, and
+  vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
+  `rootfs/`. Their specs live in
+  `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
+  `init-setup-user.test.ts`, `print-derived-env.test.ts`), run the real
+  script under `sh` with stub binaries on `PATH`, and name the script
+  they cover — don't move them under `rootfs/` or widen vitest's
+  include for them.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).

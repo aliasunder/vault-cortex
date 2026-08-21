@@ -140,12 +140,13 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 All settings are environment variables with sensible defaults. Remote deployments have additional settings not included below (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
-| --------------------------- | ----------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume) |
-| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata |
+| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render, Railway, and Fly.io (from `RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`) when left unset |
 | `OBSIDIAN_AUTH_TOKEN` | Remote only | — | Obsidian Sync auth token — the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/#get-sync-token) captures it for you |
 | `VAULT_NAME` | Remote only | — | Exact name of your Obsidian Sync vault (case-sensitive) |
+| `STORAGE_ROOT` | — | — | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render, Fly.io). Mount the volume there and set this to the same path |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
 | `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`. |
@@ -160,8 +161,8 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
 | `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
 | `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `LOG_DIR` | — | `/data/logs` (remote), unset (local) | Directory for persistent log files. When set, logs are written to date-stamped files there alongside stdout. Unset means stdout only. |
-| `LOG_RETENTION_DAYS` | — | `30` | Days to keep log files before automatic cleanup on startup |
+| `LOG_DIR` | — | `/data/logs` (remote), `$STORAGE_ROOT/data/logs` (single-volume), `none` (local) | Directory for log files that survive container re-creation. The container's own log (what `docker logs` shows) is always written, but Docker discards it whenever the container is recreated — on image updates or config changes. Date-stamped files under `LOG_DIR` live on the data volume and survive. `none` keeps only the container log. |
+| `LOG_RETENTION_DAYS` | — | `90` | Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path |
 | `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |

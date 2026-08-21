@@ -125,13 +125,16 @@ PORT=8000
 # Log verbosity: debug | info | warn | error (default: info).
 LOG_LEVEL=info
 
-# Directory for persistent log files inside the container.
-# Unset by default — logs go to stdout only. Set a path to also write
-# date-stamped log files there (the /data volume persists them).
-# LOG_DIR=/data/logs
+# Directory for persistent log files inside the container (default: none).
+# The container's own log (what \`docker logs\` shows) is always written, but
+# Docker discards it whenever the container is recreated — on image updates
+# or compose changes. Set a path (e.g. /data/logs) to also write date-stamped
+# log files there; the /data volume keeps them.
+LOG_DIR=none
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to keep log files before cleanup on startup (default: 90). Only
+# applies once LOG_DIR is a path.
+# LOG_RETENTION_DAYS=90
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
 # through Docker Desktop (switches the file watcher to polling and note moves
@@ -252,11 +255,14 @@ PORT=8000
 LOG_LEVEL=info
 
 # Directory for persistent log files inside the container (default: /data/logs).
-# Set to empty to disable file logging (logs still go to stdout either way).
+# The container's own log (what \`docker logs\` shows) is always written, but
+# Docker discards it whenever the container is recreated — on image updates
+# or compose changes. Log files under LOG_DIR live on the data volume and
+# survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to retain persistent log files before cleanup (default: 90).
+LOG_RETENTION_DAYS=90
 
 # User/group IDs for obsidian-sync (default: 1000).
 PUID=1000

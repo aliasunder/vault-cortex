@@ -1,7 +1,15 @@
 /** End-to-end integration tests — every tool and prompt called over real
  *  HTTP transport against a real server with a real vault on disk. */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  onTestFinished,
+  vi,
+} from "vitest"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -9,7 +17,7 @@ import {
   createTestClient,
   toolNames,
   promptNames,
-  randomPort,
+  freePort,
   mcpInitStatus,
   callTool,
   textContent,
@@ -33,7 +41,7 @@ describe("default config", () => {
   let port: number
 
   beforeAll(async () => {
-    port = randomPort()
+    port = await freePort()
     const server = await startServer(port)
     cleanup = server.cleanup
     client = await createTestClient(server.port)
@@ -660,7 +668,7 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
   let port: number
 
   beforeAll(async () => {
-    port = randomPort()
+    port = await freePort()
     // Dedicated default-config server: the limiter's in-memory store is
     // per-process and blocked hits count, so the default-config describe's
     // Forwarded test leaves its shared 5-req bucket exhausted inside the
@@ -710,7 +718,7 @@ describe("TRUST_PROXY_HOPS=1", () => {
   let port: number
 
   beforeAll(async () => {
-    port = randomPort()
+    port = await freePort()
     const server = await startServer(port, { TRUST_PROXY_HOPS: "1" })
     cleanup = server.cleanup
   }, 30_000)
@@ -759,7 +767,7 @@ describe("TRUST_FORWARDED_HEADER=true", () => {
   let port: number
 
   beforeAll(async () => {
-    port = randomPort()
+    port = await freePort()
     const server = await startServer(port, { TRUST_FORWARDED_HEADER: "true" })
     cleanup = server.cleanup
   }, 30_000)
@@ -830,7 +838,7 @@ describe("READONLY_MODE=true", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       READONLY_MODE: "true",
     })
     cleanup = server.cleanup
@@ -895,7 +903,7 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_delete_note,vault_move_note,vault_delete_memory",
     })
     cleanup = server.cleanup
@@ -959,7 +967,7 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_update_memory",
     })
     cleanup = server.cleanup
@@ -995,7 +1003,7 @@ describe("MEMORY_ENABLED=false", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       MEMORY_ENABLED: "false",
     })
     cleanup = server.cleanup
@@ -1034,7 +1042,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       FILE_TOOLS_ENABLED: "false",
     })
     cleanup = server.cleanup
@@ -1075,7 +1083,7 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const port = randomPort()
+    const port = await freePort()
     const server = await startServer(port, {
       DAILY_NOTES_FORMAT: "MMMM Do, YYYY",
     })
@@ -1110,10 +1118,24 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(
-      randomPort(),
+      await freePort(),
       { DISABLED_TOOLS: "vault_fake_tool" },
     )
     expect(exitCode).toBe(1)
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
+
+  // Express 5 hands bind failures to the listen callback instead of
+  // throwing; without the check the second server would log "server
+  // started" and idle while the first one keeps answering the port.
+  it("exits with error when the port is already in use", async () => {
+    const port = await freePort()
+    const occupant = await startServer(port)
+    onTestFinished(() => occupant.cleanup())
+
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {})
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain('"message":"server failed to listen"')
+    expect(stderr).toContain("EADDRINUSE")
+  }, 30_000)
 })

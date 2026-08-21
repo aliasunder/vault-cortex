@@ -318,7 +318,7 @@ jobs:
           SYNC_MODE=bidirectional
           LOG_LEVEL=${LOG_LEVEL:-info}
           LOG_DIR=${LOG_DIR:-/data/logs}
-          LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+          LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-90}
           WINDOWS_MODE=${WINDOWS_MODE:-false}
           TZ=${TZ:-UTC}
           EOF
