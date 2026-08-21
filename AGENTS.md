@@ -1033,8 +1033,9 @@ Remote image boot tests (`src/__tests__/docker/`) boot the built
 They catch what the per-script `sh` specs structurally can't — oneshot
 ordering, published env, volume layout, guards. Run via
 `npm run test:remote-boot` (builds the image, then runs a separate
-vitest config excluded from `npm test`). One boot per `describe`; only
-the guards block boots per scenario.
+vitest config excluded from `npm test`). One boot per `describe`; the
+guards and failing-sync blocks boot per scenario because each needs
+different env or outcome.
 
 **Always add:**
 

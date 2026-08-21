@@ -419,6 +419,19 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
+  it("allows sync when the vault holds a hidden non-lock entry under .obsidian/ and a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 3,
+      vaultFiles: [".obsidian/.hidden-plugin-data"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
   it("allows sync when the vault has visible files and a prior sync completed", () => {
     const run = runGateScript({
       syncOutcomes: [0],
