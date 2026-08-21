@@ -75,7 +75,7 @@ its fields are required and two are optional:
 | `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
 
 Fill in the token, vault name, and timezone **before** the first deploy — a container
-that starts without a vault name creates an empty vault of its own.
+that starts without the token or the vault name stops at Obsidian Sync setup.
 
 Click **Deploy**. Railway creates the service and volume, pulls the image,
 and starts the first deploy. Everything else — the MCP token, the public

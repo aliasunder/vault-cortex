@@ -17,10 +17,11 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 
 ## Prerequisites
 
-- A [Render](https://render.com) account on a paid plan — persistent disks
-  are not available on the free tier. The Blueprint picks the **Standard**
-  instance (1 CPU, 2 GB) plus a 5 GB disk; see
-  [Render's pricing](https://render.com/pricing) for the monthly cost.
+- A [Render](https://render.com) account with a payment card on file. The
+  free Hobby workspace is enough; the **Standard** instance (1 CPU, 2 GB) and
+  the 5 GB disk the Blueprint creates are paid compute — about
+  **$26 USD/month**, billed by the second
+  ([Render's pricing](https://render.com/pricing)).
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
 - Your Obsidian Sync login token — see
   [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
@@ -61,8 +62,9 @@ docker run --rm -it --entrypoint get-sync-token \
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
-Render reads the Blueprint and asks for three values before it creates
-anything:
+Render asks for a card first if your workspace has none on file, then reads
+the Blueprint and asks for a **Blueprint Name** (any name) and three values
+before it creates anything:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -70,14 +72,14 @@ anything:
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill the token and vault name in **before** the first deploy — a container that starts without a
-vault name creates an empty vault of its own. If your vault uses end-to-end
-encryption, the first deploy stops at Obsidian Sync setup; add
+Fill the token and vault name in **before** the first deploy — a container
+that starts without either stops at Obsidian Sync setup. If your vault uses end-to-end
+encryption, the first deploy stops there too; add
 `VAULT_PASSWORD` under the service's **Environment** tab and click **Manual
 Deploy** (see [Troubleshooting](#troubleshooting)).
 
-Click **Apply**. Render creates the service and disk, pulls the image, and
-starts the first deploy. Everything else — the MCP token, the public URL, the
+Click **Deploy Blueprint**. Render creates the service and disk, pulls the
+image, and starts the first deploy. Everything else — the MCP token, the public URL, the
 port, the storage layout — is set by the Blueprint.
 
 ## Your URL and token

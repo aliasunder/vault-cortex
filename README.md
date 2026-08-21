@@ -401,6 +401,8 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 
 Local runs on your machine. Remote deployments run on a VPS or a hosted container platform — your vault is accessible even when your laptop is closed.
 
+Whichever path you pick, the server is replaceable and your vault isn't. Your notes are plain Markdown files, synced by Obsidian to every device you own; the container holds a copy and an index it can rebuild from scratch. Shut down the VPS, delete the Render or Railway service, switch hosts — the same files are still on your machine and in Obsidian Sync, readable by anything. That's the difference from an AI notebook whose real home is the vendor's database: here the host is a convenience, not a custodian.
+
 | Path          | What                                                              | Guide                                                                         |
 | ------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)                                            |
