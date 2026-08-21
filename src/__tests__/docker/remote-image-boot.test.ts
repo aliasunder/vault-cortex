@@ -275,10 +275,39 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
         args: { query: "stubbed first sync" },
       })
       const searchResponse: unknown = JSON.parse(textContent(result))
-      expect(searchResponse).toMatchObject({
+      // `modified` is the boot-time mtime and `score` an RRF float — every
+      // other field of the response is fixed by the fixture, so pin those.
+      const isSearchResponse = (
+        value: unknown,
+      ): value is { results: Record<string, unknown>[] } =>
+        typeof value === "object" &&
+        value !== null &&
+        Array.isArray(Reflect.get(value, "results"))
+      if (!isSearchResponse(searchResponse)) {
+        throw new Error(
+          `unexpected vault_search response: ${textContent(result)}`,
+        )
+      }
+      const deterministicResults = searchResponse.results.map(
+        ({ modified: _modified, score: _score, ...fixedFields }) => fixedFields,
+      )
+      expect({ ...searchResponse, results: deterministicResults }).toEqual({
         total: 1,
         search_mode: "fts",
-        results: [{ path: "Projects/Remote Boot.md", title: "Remote Boot" }],
+        reranked: false,
+        results: [
+          {
+            path: "Projects/Remote Boot.md",
+            title: "Remote Boot",
+            folder: "Projects",
+            kind: "note",
+            type: null,
+            tags: ["ci", "remote-boot"],
+            bytes: 108,
+            snippet:
+              "\n# Remote Boot\n\nDelivered by the stubbed first sync. Links to [[Sync Log]].\n",
+          },
+        ],
       })
     } finally {
       await client.close()
@@ -355,9 +384,11 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`,
     )
     const metadata: unknown = await response.json()
-    expect(metadata).toMatchObject({
+    expect(metadata).toEqual({
       resource: "https://ci.example.test/mcp",
       authorization_servers: ["https://ci.example.test/"],
+      scopes_supported: ["vault"],
+      resource_documentation: "https://github.com/aliasunder/vault-cortex",
     })
   })
 
