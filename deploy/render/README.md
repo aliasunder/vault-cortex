@@ -113,9 +113,8 @@ variables, the logs, and the disk. Two steps close that, both from the
 dashboard:
 
 1. **Turn on two-factor authentication** for your Render account
-   (**Account Settings → Account Security**). The Sync token is the value
-   that matters most: it logs in to your whole Obsidian Sync account, not
-   just this vault.
+   (**Account Settings → Account Security**). The environment variables
+   hold the credentials that grant access to your vault.
 2. **Keep the workspace to yourself.** Members you invite can read every
    environment variable and every log line, search queries included.
 

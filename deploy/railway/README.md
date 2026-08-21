@@ -115,8 +115,7 @@ and the volume. Four steps close that, all from the dashboard:
    **⋮** menu beside `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and
    `VAULT_PASSWORD` and choose **Seal**. A sealed value still reaches the
    container but can never be viewed again — to rotate it later, set a new
-   value. The Sync token matters most: it logs in to your whole Obsidian
-   Sync account, not just this vault.
+   value. These are the credentials that grant access to your vault.
 2. **Turn on two-factor authentication** for your Railway account
    (profile photo → **Account Settings → Account Security**).
 3. **Keep the project to yourself.** Workspace members you invite can read
