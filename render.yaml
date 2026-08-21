@@ -51,3 +51,17 @@ services:
       # Your vault's name, exactly as shown in Obsidian Sync.
       - key: VAULT_NAME
         sync: false
+      # Optional settings, pre-filled with the image defaults so they can be
+      # changed from the Environment tab without knowing the names.
+      - key: MEMORY_ENABLED
+        value: "true"
+      - key: EMBEDDING_ENABLED
+        value: "true"
+      - key: READONLY_MODE
+        value: "false"
+      - key: FILE_TOOLS_ENABLED
+        value: "true"
+      - key: SYNC_MODE
+        value: bidirectional
+      - key: TZ
+        value: UTC

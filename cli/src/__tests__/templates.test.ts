@@ -94,6 +94,21 @@ const HOSTED_FIXED_ENV = {
 }
 
 /**
+ * Optional settings every hosted template pre-fills with the image's own
+ * defaults, so users change them in the platform's dashboard instead of
+ * creating variables by hand. A template value that drifts from the image
+ * default would silently change behaviour for button deploys only.
+ */
+const HOSTED_OPTIONAL_ENV = {
+  MEMORY_ENABLED: "true",
+  EMBEDDING_ENABLED: "true",
+  READONLY_MODE: "false",
+  FILE_TOOLS_ENABLED: "true",
+  SYNC_MODE: "bidirectional",
+  TZ: "UTC",
+}
+
+/**
  * Derived at boot by `init-derive-env` from STORAGE_ROOT and the platform's
  * own variables — a template that sets one overrides the derivation.
  */
@@ -162,6 +177,35 @@ describe("hosted platform templates", () => {
       const envVars = renderEnvVarsByKey(readRenderBlueprint())
       const derivedKeysSet = DERIVED_AT_BOOT.filter((key) => envVars.has(key))
       expect(derivedKeysSet).toEqual([])
+    })
+
+    it("pre-fills the optional settings with the image defaults", () => {
+      const envVars = renderEnvVarsByKey(readRenderBlueprint())
+      const optionalValues = Object.fromEntries(
+        Object.keys(HOSTED_OPTIONAL_ENV).map((key) => [
+          key,
+          envVars.get(key)?.value,
+        ]),
+      )
+      expect(optionalValues).toEqual(HOSTED_OPTIONAL_ENV)
+    })
+  })
+
+  describe("deploy/railway/README.md definition table", () => {
+    /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. */
+    const definitionTableValues = (): Map<string, string> => {
+      const guide = readRepoFile("deploy/railway/README.md")
+      const tableRows = guide.matchAll(/^\| `([A-Z_]+)`\s*\| `([^`]*)`\s*\|/gm)
+      return new Map([...tableRows].map((row) => [row[1], row[2]]))
+    }
+
+    it("records the same fixed and optional values as render.yaml", () => {
+      const tableValues = definitionTableValues()
+      const expectedValues = { ...HOSTED_FIXED_ENV, ...HOSTED_OPTIONAL_ENV }
+      const recordedValues = Object.fromEntries(
+        Object.keys(expectedValues).map((key) => [key, tableValues.get(key)]),
+      )
+      expect(recordedValues).toEqual(expectedValues)
     })
   })
 })

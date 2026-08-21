@@ -148,25 +148,29 @@ All from the service page:
 The template sets these; change them under the service's **Variables** tab
 (Railway stages the change and redeploys when you apply it):
 
-| Variable                          | Value          | What it does                                                                                                                                  |
-| --------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STORAGE_ROOT`                    | `/persist`     | Where the volume is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                |
-| `PORT`                            | `8000`         | The port the image listens on. Leave as is.                                                                                                   |
-| `DEVICE_NAME`                     | `vault-cortex` | The device name Obsidian Sync shows for this container.                                                                                       |
-| `TRUST_PROXY_HOPS`                | `2`            | Two Railway proxies sit between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
-| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`          | How long Railway waits for the first health check — the first start downloads the vault and builds the index.                                 |
-| `MCP_AUTH_TOKEN`                  | generated      | Your MCP client's token. Change it here to rotate it.                                                                                         |
-| `OBSIDIAN_AUTH_TOKEN`             | yours          | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                 |
-| `VAULT_NAME`                      | yours          | The vault this container syncs.                                                                                                               |
-| `VAULT_PASSWORD`                  | yours / empty  | End-to-end encryption password, if your vault has one.                                                                                        |
+| Variable                          | Value           | What it does                                                                                                                                  |
+| --------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STORAGE_ROOT`                    | `/persist`      | Where the volume is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                |
+| `PORT`                            | `8000`          | The port the image listens on. Leave as is.                                                                                                   |
+| `DEVICE_NAME`                     | `vault-cortex`  | The device name Obsidian Sync shows for this container.                                                                                       |
+| `TRUST_PROXY_HOPS`                | `2`             | Two Railway proxies sit between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
+| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`           | How long Railway waits for the first health check — the first start downloads the vault and builds the index.                                 |
+| `MCP_AUTH_TOKEN`                  | generated       | Your MCP client's token. Change it here to rotate it.                                                                                         |
+| `OBSIDIAN_AUTH_TOKEN`             | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                 |
+| `VAULT_NAME`                      | yours           | The vault this container syncs.                                                                                                               |
+| `VAULT_PASSWORD`                  | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                        |
+| `MEMORY_ENABLED`                  | `true`          | The About Me/ memory layer and its tools. Set `false` to hide them and skip creating the folder.                                              |
+| `EMBEDDING_ENABLED`               | `true`          | Semantic search. Set `false` to skip the models and use keyword search only — the container fits in much less memory.                         |
+| `READONLY_MODE`                   | `false`         | Set `true` to hide every tool that changes the vault — clients can only read and search.                                                      |
+| `FILE_TOOLS_ENABLED`              | `true`          | `vault_read_file` and `vault_list_files`. Set `false` when Obsidian Sync has attachment syncing off.                                          |
+| `SYNC_MODE`                       | `bidirectional` | Sync direction: `bidirectional`, `pull-only`, or `push-only`.                                                                                 |
+| `TZ`                              | `UTC`           | Your IANA timezone (for example `America/Toronto`) — affects daily notes and memory timestamps.                                               |
 
-Optional settings use the same names as the remote quickstart's
-[Configuration table](../remote/#configuration) — add them as new
-variables. The ones that matter most on a hosted instance:
-
-- `EMBEDDING_ENABLED=false` — skips the semantic-search models; search falls
-  back to keyword matching and the container fits in much less memory.
-- `READONLY_MODE=true` — hides every vault-writing tool.
+The last six are the settings most worth changing on a hosted instance;
+the template pre-fills them with the image defaults so you can edit them in
+place. Every other optional setting uses the same names as the remote
+quickstart's [Configuration table](../remote/#configuration) — add it as a
+new variable.
 
 Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Railway's own address variable at every start.
@@ -230,7 +234,7 @@ settings:
 | Healthcheck path  | `/healthz`                                            |
 | Restart policy    | On failure (Railway's default)                        |
 
-Variables, in the order the deploy form shows them (the last six sit under **Pre-Configured Environment Variables**, collapsed):
+Variables, in the order the deploy form shows them (everything after the three inputs sits under **Pre-Configured Environment Variables**, collapsed):
 
 | Variable                          | Value                                 | Description shown on the deploy form                                                                         |
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -243,6 +247,12 @@ Variables, in the order the deploy form shows them (the last six sit under **Pre
 | `DEVICE_NAME`                     | `vault-cortex`                        | The device name Obsidian Sync shows for this container                                                       |
 | `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address           |
 | `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index |
+| `MEMORY_ENABLED`                  | `true`                                | The About Me/ memory layer and its tools. Set false to hide them and skip creating the folder                |
+| `EMBEDDING_ENABLED`               | `true`                                | Semantic search. Set false to skip the models and use keyword search only — fits in much less memory         |
+| `READONLY_MODE`                   | `false`                               | Set true to hide every tool that changes the vault — clients can only read and search                        |
+| `FILE_TOOLS_ENABLED`              | `true`                                | vault_read_file and vault_list_files. Set false when Obsidian Sync has attachment syncing off                |
+| `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only, or push-only                                                       |
+| `TZ`                              | `UTC`                                 | Your IANA timezone (for example America/Toronto) — affects daily notes and memory timestamps                 |
 
 Update the template whenever the image tag, a boot-required variable, the
 port, or the health path changes, then re-publish; existing deployments keep
