@@ -36,7 +36,9 @@ shift
 exec "$@"
 `
 
-/** `ob sync-status` exit code when no setup is saved for the vault path. */
+/** Exit code of the pinned obsidian-headless `ob sync-status` when no setup
+ *  is saved for the working directory (`process.exit(3)` in its cli.js; 2 is
+ *  a saved-but-incomplete setup, 0 a usable one). */
 const OB_NO_SAVED_SETUP_EXIT = 3
 
 const DEFAULT_SYNC_CONFIGS_CALL =
