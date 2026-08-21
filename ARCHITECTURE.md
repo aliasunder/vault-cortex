@@ -742,8 +742,8 @@ they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
 update/delete writes.
 
-**Single-volume layout.** Hosted container platforms (Railway, Render,
-Fly.io) allow one persistent volume per service, while the image's default
+**Single-volume layout.** Hosted container platforms (Railway, Render)
+allow one persistent volume per service, while the image's default
 layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 `init-derive-env` place everything under that one directory:
 
@@ -780,8 +780,8 @@ required-variable error fires as usual. Both derivations live in one pure
 script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
 tests run directly under `sh`.
 
-**Hosted platform templates.** Three committed artifacts run the `:remote`
-image in single-volume mode on container hosting platforms — each sets
+**Hosted platform templates.** Two templates run the `:remote` image in
+single-volume mode on container hosting platforms — each sets
 `STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex` (the
 platform's container hostname is random, so the Sync device name cannot fall
 back to it), and the platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL`
@@ -789,9 +789,15 @@ to the derivation above:
 
 - `render.yaml` (repo root — Render reads Blueprints only from there) backs
   the "Deploy to Render" button; guide in `deploy/render/`
-- `deploy/fly/fly.toml` is consumed by the `flyctl` recipe in `deploy/fly/`
 - the Railway template lives in Railway's Template Composer; its definition
   is recorded in `deploy/railway/README.md`
+
+Both platforms hand PID 1 to the image's entrypoint, which s6-overlay v3
+requires. Fly.io does not — its Firecracker init stays PID 1 and runs the
+entrypoint as a child, so `/init` exits with
+`s6-overlay-suexec: fatal: can only run as pid 1` — and therefore has no
+template. The `FLY_APP_NAME` derivation above stays in place for an image
+variant that can boot there.
 
 `cli/src/__tests__/templates.test.ts` pins the two committed templates to
 the published image and to that key set.

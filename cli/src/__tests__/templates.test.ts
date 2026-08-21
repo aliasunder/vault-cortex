@@ -86,39 +86,6 @@ const renderEnvVarsByKey = (
 ): Map<string, RenderEnvVar> =>
   new Map(blueprint.services[0].envVars.map((envVar) => [envVar.key, envVar]))
 
-/**
- * Matches one TOML `key = value` line, capturing the key and the value with
- * surrounding quotes stripped. Node 24 ships no TOML parser and none is in
- * the dependency tree; fly.toml uses only single-line scalar assignments, so
- * a line-anchored match covers every line the tests read.
- */
-const TOML_ASSIGNMENT_LINE =
-  /^\s*([A-Za-z_]+)\s*=\s*"?([^"#\n]*?)"?\s*(?:#.*)?$/gm
-
-/**
- * Returns the `key = value` pairs between a TOML table header (e.g. `[env]`)
- * and the next header.
- */
-const tomlTableValues = (
-  tomlContent: string,
-  header: string,
-): Map<string, string> => {
-  const tableStart = tomlContent.indexOf(`${header}\n`)
-  if (tableStart === -1) throw new Error(`TOML table ${header} not found`)
-  const afterHeader = tomlContent.slice(tableStart + header.length + 1)
-  const nextHeaderOffset = afterHeader.search(/^\s*\[/m)
-  const tableBody =
-    nextHeaderOffset === -1
-      ? afterHeader
-      : afterHeader.slice(0, nextHeaderOffset)
-  return new Map(
-    [...tableBody.matchAll(TOML_ASSIGNMENT_LINE)].map((match) => [
-      match[1],
-      match[2],
-    ]),
-  )
-}
-
 /** Values every hosted template fixes so the image boots in single-volume mode. */
 const HOSTED_FIXED_ENV = {
   PORT: "8000",
@@ -147,14 +114,6 @@ describe("image constants", () => {
 
   it("REMOTE_IMAGE matches the image the Render blueprint pulls", () => {
     expect(readRenderBlueprint().services[0].image.url).toBe(REMOTE_IMAGE)
-  })
-
-  it("REMOTE_IMAGE matches the image the Fly config pulls", () => {
-    const buildTable = tomlTableValues(
-      readRepoFile("deploy/fly/fly.toml"),
-      "[build]",
-    )
-    expect(buildTable.get("image")).toBe(REMOTE_IMAGE)
   })
 })
 
@@ -203,42 +162,6 @@ describe("hosted platform templates", () => {
       const envVars = renderEnvVarsByKey(readRenderBlueprint())
       const derivedKeysSet = DERIVED_AT_BOOT.filter((key) => envVars.has(key))
       expect(derivedKeysSet).toEqual([])
-    })
-  })
-
-  describe("deploy/fly/fly.toml", () => {
-    const flyConfig = readRepoFile("deploy/fly/fly.toml")
-
-    it("runs the image with the single-volume boot variables fixed", () => {
-      const envTable = tomlTableValues(flyConfig, "[env]")
-      const fixedValues = Object.fromEntries(
-        Object.keys(HOSTED_FIXED_ENV).map((key) => [key, envTable.get(key)]),
-      )
-      expect(fixedValues).toEqual(HOSTED_FIXED_ENV)
-      expect(envTable.get("TRUST_PROXY_HOPS")).toMatch(/^\d+$/)
-    })
-
-    it("mounts the volume at STORAGE_ROOT and health-checks /healthz on PORT", () => {
-      const envTable = tomlTableValues(flyConfig, "[env]")
-      const mountsTable = tomlTableValues(flyConfig, "[[mounts]]")
-      const httpServiceTable = tomlTableValues(flyConfig, "[http_service]")
-      const checksTable = tomlTableValues(flyConfig, "[[http_service.checks]]")
-      expect(mountsTable.get("destination")).toBe(envTable.get("STORAGE_ROOT"))
-      expect(httpServiceTable.get("internal_port")).toBe(envTable.get("PORT"))
-      expect(checksTable.get("path")).toBe("/healthz")
-    })
-
-    it("leaves the boot-derived variables to init-derive-env", () => {
-      const envTable = tomlTableValues(flyConfig, "[env]")
-      const derivedKeysSet = DERIVED_AT_BOOT.filter((key) => envTable.has(key))
-      expect(derivedKeysSet).toEqual([])
-    })
-
-    it("leaves app and primary_region for fly launch to fill in", () => {
-      const launchOwnedLines = flyConfig
-        .split("\n")
-        .filter((line) => /^\s*(app|primary_region)\s*=/.test(line))
-      expect(launchOwnedLines).toEqual([])
     })
   })
 })

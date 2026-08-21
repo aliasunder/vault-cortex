@@ -142,7 +142,7 @@ docker run -d --name vault-cortex \
 </details>
 
 <details>
-<summary><strong>Single persistent volume</strong> (Railway, Render, Fly.io)</summary>
+<summary><strong>Single persistent volume</strong> (Railway, Render)</summary>
 
 Container hosting platforms that allow one volume per service can't attach
 the three mounts the Compose file and `docker run` command use. Mount the one
@@ -173,14 +173,17 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-Render, Railway, and Fly.io have ready-made setups that use this mode:
-[`deploy/render/`](../render/), [`deploy/railway/`](../railway/), and
-[`deploy/fly/`](../fly/). On another hosting platform, set the same
-variables in the service's environment settings; restarts, health checks,
-and log rotation come from the platform, and `PUBLIC_URL` can be left unset
-— the container fills it in from the platform's own address variable
-(`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Set
-`LOG_DIR=none` to keep logs in the platform's log viewer only.
+Render and Railway have ready-made setups that use this mode:
+[`deploy/render/`](../render/) and [`deploy/railway/`](../railway/). On
+another hosting platform, set the same variables in the service's
+environment settings; restarts, health checks, and log rotation come from
+the platform, and `PUBLIC_URL` can be left unset on Render and Railway — the
+container fills it in from the platform's own address variable
+(`RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`). Set `LOG_DIR=none` to
+keep logs in the platform's log viewer only. The platform must start the
+image's own entrypoint as the container's first process (PID 1) — Fly.io
+runs its own init in front of it, so the `:remote` image does not start
+there.
 
 </details>
 

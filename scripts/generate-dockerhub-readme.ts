@@ -76,7 +76,6 @@ const DIRECTORY_PATHS = [
   "deploy/remote/",
   "deploy/render/",
   "deploy/railway/",
-  "deploy/fly/",
   "templates/memory/",
 ]
 
