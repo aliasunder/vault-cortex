@@ -4,14 +4,10 @@
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
-# Pre-sync guard: if a prior sync delivered content (sentinel on the config
-# volume) but the vault is empty, the sync engine would interpret every
-# previously-synced file as a local deletion and push mass deletions
-# upstream (#440 incident 2026-08-15). FATAL in this case — the user must
-# restore the vault volume or wipe the config volume to re-register as a
-# fresh device. The sentinel is only written when the completed sync left
-# content behind: a vault that is empty on the remote too has nothing a
-# wipe could delete, and a sentinel there would stop every later boot.
+# Pre-sync guard: a sentinel from a prior sync beside a vault with no
+# content means the vault volume was wiped while device state was kept —
+# the sync engine would push every previously-synced file as a deletion.
+# FATAL before any sync runs.
 #
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
@@ -31,11 +27,11 @@ if ! cd "$VAULT_PATH"; then
 fi
 
 # Sentinel in the Obsidian config directory (the obsidian_config volume under
-# Compose, $STORAGE_ROOT/config in single-volume mode): written after a
-# successful sync that delivered files, gone when that directory is wiped
-# (fresh device = no sentinel = safe). In single-volume mode the sentinel and the vault share
-# one mount, so the guard below still fires if only the vault directory is
-# emptied.
+# Compose, $STORAGE_ROOT/config in single-volume mode): written only after
+# a sync that delivered content, so an empty remote vault never carries one
+# and stays bootable. Gone when that directory is wiped (fresh device = no
+# sentinel = safe). In single-volume mode the sentinel and the vault share
+# one mount, so the guard still fires if only the vault directory is emptied.
 SYNC_SENTINEL="${XDG_CONFIG_HOME:-$HOME/.config}/.vault-synced"
 
 # "Content" is anything sync could have delivered: a visible entry, or an
@@ -53,9 +49,6 @@ vault_has_content() {
   return 1
 }
 
-# Pre-sync guard: a vault without content but with a prior-sync sentinel
-# means the vault volume was wiped while the config volume (device state)
-# was kept — syncing would push mass deletions.
 if [ -f "$SYNC_SENTINEL" ] && ! vault_has_content; then
   echo "[obsidian-sync] ERROR: The vault is empty but this device has previously synced." >&2
   echo "[obsidian-sync] Starting sync in this state would cause the sync engine to interpret" >&2
