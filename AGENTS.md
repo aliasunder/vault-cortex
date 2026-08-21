@@ -1028,42 +1028,34 @@ from `npm test`).
 
 ### Remote image boot tests — when to add
 
-Remote image boot tests (`src/__tests__/docker/`) run the built
-`:remote` image with the obsidian-headless CLI replaced by the
-`fixtures/ob` stub (bind-mounted over the real `cli.js`), so the s6
-init chain runs end-to-end without Sync credentials or network. They
-catch what the per-script `sh` specs structurally can't — oneshot
-ordering, what `init-derive-env` actually publishes to
-`/run/s6/container_environment/`, where the sentinel, ownership record
-and index land on each volume layout, and whether a guard really stops
-the container. Run via `npm run test:remote-boot` against a prior
+Remote image boot tests (`src/__tests__/docker/`) boot the built
+`:remote` image with the Sync CLI replaced by the `fixtures/ob` stub,
+so the s6 init chain runs end-to-end without credentials or network.
+They catch what the per-script `sh` specs structurally can't — oneshot
+ordering, published env, volume layout, and whether a guard really
+stops the container. Run via `npm run test:remote-boot` after
 `docker build --target remote -t vault-cortex:remote-ci .` (separate
 vitest config, excluded from `npm test`); `arch_smoke.yml` runs it on
-both architectures on every PR. One container boot per `describe` —
-group assertions under an existing boot before adding a new one. The
-guards block is the exception: each guard needs its own env or volume
-state, so it boots one container per scenario.
+both architectures. One boot per `describe` — add assertions to an
+existing boot before adding a new one; only the guards block boots per
+scenario.
 
 **Always add:**
 
-- New init oneshot, or a change to oneshot ordering → extend the
-  expected `ob` call sequence or add a published-file assertion.
-- New variable derived by `print-derived-env` → assert its
-  `container_environment` file (exact bytes, no trailing newline).
-- New guard that stops the container → a scenario in the guards block
-  asserting the exact ERROR line and the failing service's name.
-- New failure mode of a Sync call → a switch on the stub (env var, like
-  `OB_STUB_SYNC_FAIL=1`) plus a scenario asserting the chain's response.
-- Change to where the sentinel, `.applied-ids`, or index lives → update
-  the layout assertions for both volume layouts.
+- New init oneshot or ordering change → extend the expected `ob` call
+  sequence or add a published-file assertion.
+- New derived variable → assert its `container_environment` file
+  (exact bytes, no trailing newline).
+- New guard that stops the container → a guards-block scenario
+  asserting the exact ERROR line and the failing service.
+- New Sync failure mode → a stub switch (like `OB_STUB_SYNC_FAIL=1`)
+  plus a scenario asserting the chain's response.
 
 **Never add:**
 
-- Branch logic inside one script (input normalization, message
-  wording) — the `sh` specs in `src/vault-mcp/__tests__/` cover it
-  without a boot.
-- Server tool behaviour — the integration tier
-  (`src/__tests__/integration/`) covers it without Docker.
+- Branch logic inside one script — the `sh` specs in
+  `src/vault-mcp/__tests__/` cover it without a boot.
+- Server tool behaviour — the integration tier covers it without Docker.
 - Anything that needs real Obsidian Sync — that stays a Test Deploy.
 
 ## SST conventions
