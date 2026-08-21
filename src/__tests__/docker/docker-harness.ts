@@ -55,7 +55,7 @@ const isExecFileError = (error: unknown): error is ExecFileError =>
   typeof Reflect.get(error, "stderr") === "string"
 
 /** Run `docker <argv>` and throw with the captured stderr when it fails. */
-const dockerOrThrow = async (argv: string[]): Promise<string> => {
+export const dockerOrThrow = async (argv: string[]): Promise<string> => {
   const result = await docker(argv)
   if (result.code !== 0) {
     throw new Error(
@@ -141,34 +141,90 @@ export const runContainer = async ({
   return { name, cleanup }
 }
 
-/** Create an empty file inside a named volume before any container mounts
- *  it — how a scenario fakes state left by a previous boot (a first-sync
- *  sentinel, for instance). Runs `touch` from the image under test with its
+/** Node one-liner that prints how many files the sync state under a config
+ *  directory records as present locally — the same query init-first-sync
+ *  runs. Prints 0 when no store exists. Takes the config directory as its
+ *  argument. */
+const COUNT_SYNC_STATE_FILES_SCRIPT = `
+  const { readdirSync, existsSync } = require("node:fs")
+  const { join } = require("node:path")
+  const { DatabaseSync } = require("node:sqlite")
+  const syncRoot = join(process.argv[1], "obsidian-headless", "sync")
+  const stores = existsSync(syncRoot)
+    ? readdirSync(syncRoot).map((vaultId) => join(syncRoot, vaultId, "state.db")).filter(existsSync)
+    : []
+  const counts = stores.map((file) => {
+    const db = new DatabaseSync(file, { readOnly: true })
+    const { n } = db.prepare("SELECT COUNT(*) AS n FROM local_files").get()
+    db.close()
+    return n
+  })
+  console.log(counts.reduce((total, n) => total + n, 0))
+`
+
+/** How many files the device's sync state (under `configDir` inside the
+ *  container) records as present locally. */
+export const countSyncStateFiles = async ({
+  name,
+  configDir,
+}: {
+  name: string
+  configDir: string
+}): Promise<number> => {
+  const output = await dockerOrThrow([
+    "exec",
+    name,
+    "node",
+    "--no-warnings",
+    "-e",
+    COUNT_SYNC_STATE_FILES_SCRIPT,
+    configDir,
+  ])
+  return Number(output.trim())
+}
+
+/** Seed a named config volume with sync state recording `knownFiles` local
+ *  files before any container mounts it — how a scenario fakes a device
+ *  that has synced before. Runs `node` from the image under test with its
  *  entrypoint bypassed, so the s6 init chain never starts and no other image
  *  has to be pulled. */
-export const seedVolumeFile = async ({
+export const seedSyncState = async ({
   image,
   volume,
   mountPath,
-  file,
+  knownFiles,
 }: {
   image: string
   volume: string
   /** Where the volume is mounted for the seeding run. */
   mountPath: string
-  /** Path of the file to create, relative to `mountPath`. */
-  file: string
+  knownFiles: number
 }): Promise<void> => {
   await dockerOrThrow([
     "run",
     "--rm",
     "--pull=never",
     "--entrypoint",
-    "touch",
+    "node",
     "-v",
     `${volume}:${mountPath}`,
     image,
-    `${mountPath}/${file}`,
+    "--no-warnings",
+    "-e",
+    `
+      const { mkdirSync } = require("node:fs")
+      const { join } = require("node:path")
+      const { DatabaseSync } = require("node:sqlite")
+      const stateDir = join(process.argv[1], "obsidian-headless", "sync", "seeded-vault-id")
+      mkdirSync(stateDir, { recursive: true })
+      const db = new DatabaseSync(join(stateDir, "state.db"))
+      db.exec("CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
+      const insert = db.prepare("INSERT INTO local_files VALUES (?, ?)")
+      for (let i = 0; i < Number(process.argv[2]); i += 1) insert.run("note-" + i + ".md", "{}")
+      db.close()
+    `,
+    mountPath,
+    String(knownFiles),
   ])
 }
 

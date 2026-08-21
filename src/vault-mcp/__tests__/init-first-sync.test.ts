@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,6 +8,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -55,12 +55,8 @@ type GateRun = {
   stdout: string
   stderr: string
   syncCalls: number
-  /** Obsidian config directory the script resolved (sentinel's parent). */
+  /** Obsidian config directory the script resolved. */
   configDir: string
-  /** Path to the sentinel file for post-run assertions. */
-  sentinelPath: string
-  /** Where the sentinel lands with XDG_CONFIG_HOME unset ($HOME/.config). */
-  legacySentinelPath: string
 }
 
 type GateRunOptions = {
@@ -75,11 +71,28 @@ type GateRunOptions = {
   vaultFiles?: string[]
   /** When false, VAULT_PATH points at a directory that doesn't exist. */
   vaultExists?: boolean
-  /** When true, pre-creates the .vault-synced sentinel (simulates a prior sync). */
-  sentinel?: boolean
+  /** Number of files to record in the device's sync state
+   *  (`obsidian-headless/sync/<vaultId>/state.db`, `local_files` table) —
+   *  what a prior sync would have left behind. Omit for a fresh device. */
+  knownSyncFiles?: number
+  /** When true, writes a state.db that is not a SQLite database. */
+  corruptSyncState?: boolean
   /** When true, runs with XDG_CONFIG_HOME pointing at a directory outside
-   *  $HOME (single-volume mode) — the sentinel must follow it. */
+   *  $HOME (single-volume mode) — the sync state must be read from there. */
   xdgConfigHome?: boolean
+}
+
+/** Mirror of the sync engine's local_files table, with one row per file. */
+const writeSyncState = (stateDbPath: string, knownFiles: number): void => {
+  const db = new DatabaseSync(stateDbPath)
+  db.exec(
+    "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)",
+  )
+  const insert = db.prepare("INSERT INTO local_files VALUES (?, ?)")
+  for (let fileIndex = 0; fileIndex < knownFiles; fileIndex += 1) {
+    insert.run(`note-${fileIndex}.md`, "{}")
+  }
+  db.close()
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
@@ -91,8 +104,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   const legacyConfigDir = join(homeDir, ".config")
   const xdgConfigDir = join(tempDir, "persist", "config")
   const configDir = options.xdgConfigHome ? xdgConfigDir : legacyConfigDir
-  const sentinelPath = join(configDir, ".vault-synced")
-  const legacySentinelPath = join(legacyConfigDir, ".vault-synced")
+  const syncStateDir = join(configDir, "obsidian-headless", "sync", "vault-id")
   mkdirSync(stubBinDir)
   mkdirSync(legacyConfigDir, { recursive: true })
   mkdirSync(xdgConfigDir, { recursive: true })
@@ -106,8 +118,13 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     mkdirSync(dirname(join(vaultPath, vaultFile)), { recursive: true })
     writeFileSync(join(vaultPath, vaultFile), "")
   }
-  if (options.sentinel) {
-    writeFileSync(sentinelPath, "")
+  if (options.knownSyncFiles !== undefined) {
+    mkdirSync(syncStateDir, { recursive: true })
+    writeSyncState(join(syncStateDir, "state.db"), options.knownSyncFiles)
+  }
+  if (options.corruptSyncState) {
+    mkdirSync(syncStateDir, { recursive: true })
+    writeFileSync(join(syncStateDir, "state.db"), "not a database")
   }
 
   writeFileSync(join(stubBinDir, "ob"), OB_STUB, { mode: 0o755 })
@@ -152,8 +169,6 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     stderr: result.stderr,
     syncCalls,
     configDir,
-    sentinelPath,
-    legacySentinelPath,
   }
 }
 
@@ -336,13 +351,13 @@ describe("init-first-sync gate script", () => {
     )
   })
 
-  // -- Sync-state vault guard (empty vault + prior-sync sentinel) ----------
+  // -- Sync-state vault guard (recorded local files + vault without content) --
 
-  it("refuses to sync when the vault is empty but a prior sync completed", () => {
+  it("refuses to sync when the vault is empty but the device recorded synced files", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
     })
 
     expect(run.status).toBe(1)
@@ -365,7 +380,7 @@ describe("init-first-sync gate script", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
       vaultDirs: [".obsidian/.sync.lock"],
     })
 
@@ -380,7 +395,7 @@ describe("init-first-sync gate script", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
       vaultFiles: [".trash"],
     })
 
@@ -395,7 +410,7 @@ describe("init-first-sync gate script", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
       vaultFiles: [".obsidian/app.json"],
     })
 
@@ -408,7 +423,7 @@ describe("init-first-sync gate script", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
       vaultDirs: ["About Me"],
     })
 
@@ -417,7 +432,7 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
-  it("allows sync on a fresh device with an empty vault (no sentinel)", () => {
+  it("allows sync on a fresh device with an empty vault (no sync state)", () => {
     const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
 
     expect(run.status).toBe(0)
@@ -425,82 +440,39 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
-  it("writes the sentinel file after a successful sync that delivered files", () => {
+  it("allows sync on a device whose sync state records zero files and an empty vault", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      vaultDirs: ["Notes"],
+      knownSyncFiles: 0,
     })
-
-    expect(run.status).toBe(0)
-    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
-    expect(existsSync(run.sentinelPath)).toBe(true)
-  })
-
-  it("does not write the sentinel when the completed sync left the vault empty", () => {
-    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
 
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(1)
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
-    expect(existsSync(run.sentinelPath)).toBe(false)
   })
 
-  it("does not write the sentinel when the sync left only its own .obsidian/.sync.lock", () => {
+  it("refuses to sync when the sync state exists but cannot be read", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      vaultDirs: [".obsidian/.sync.lock"],
+      corruptSyncState: true,
     })
 
-    expect(run.status).toBe(0)
-    expect(existsSync(run.sentinelPath)).toBe(false)
-  })
-
-  it("writes the sentinel when the sync delivered only Obsidian config", () => {
-    const run = runGateScript({
-      syncOutcomes: [0],
-      vaultName: "Test",
-      vaultFiles: [".obsidian/app.json"],
-    })
-
-    expect(run.status).toBe(0)
-    expect(existsSync(run.sentinelPath)).toBe(true)
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      `ERROR: Could not read this device's sync state under ${join(run.configDir, "obsidian-headless", "sync")}.`,
+    )
   })
 
   // -- XDG_CONFIG_HOME relocation (single-volume mode) ---------------------
 
-  it("writes the sentinel under $HOME/.config when XDG_CONFIG_HOME is unset", () => {
+  it("stops when the vault is empty and the sync state sits under XDG_CONFIG_HOME", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
-      vaultDirs: ["Notes"],
-    })
-
-    expect(run.status).toBe(0)
-    expect(run.sentinelPath).toBe(run.legacySentinelPath)
-    expect(existsSync(run.legacySentinelPath)).toBe(true)
-  })
-
-  it("writes the sentinel under XDG_CONFIG_HOME when set, not under $HOME", () => {
-    const run = runGateScript({
-      syncOutcomes: [0],
-      vaultName: "Test",
-      vaultDirs: ["Notes"],
-      xdgConfigHome: true,
-    })
-
-    expect(run.status).toBe(0)
-    expect(run.syncCalls).toBe(1)
-    expect(existsSync(run.sentinelPath)).toBe(true)
-    expect(existsSync(run.legacySentinelPath)).toBe(false)
-  })
-
-  it("stops when the vault is empty and the sentinel sits under XDG_CONFIG_HOME", () => {
-    const run = runGateScript({
-      syncOutcomes: [0],
-      vaultName: "Test",
-      sentinel: true,
+      knownSyncFiles: 3,
       xdgConfigHome: true,
     })
 
@@ -514,26 +486,8 @@ describe("init-first-sync gate script", () => {
     )
   })
 
-  it("does not write the sentinel file when sync fails fatally", () => {
-    const run = runGateScript({ syncOutcomes: [1], vaultName: "Test" })
-
-    expect(run.status).toBe(1)
-    expect(existsSync(run.sentinelPath)).toBe(false)
-  })
-
-  it("does not write the sentinel file when sync fails but services start", () => {
-    const run = runGateScript({
-      syncOutcomes: [1],
-      vaultName: "Test",
-      vaultDirs: ["About Me"],
-    })
-
-    expect(run.status).toBe(0)
-    expect(existsSync(run.sentinelPath)).toBe(false)
-  })
-
   it("fires the guard regardless of VAULT_NAME", () => {
-    const run = runGateScript({ syncOutcomes: [0], sentinel: true })
+    const run = runGateScript({ syncOutcomes: [0], knownSyncFiles: 3 })
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)

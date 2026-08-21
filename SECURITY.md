@@ -128,12 +128,11 @@ mechanism-level detail.
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
   completion before the server starts, so memory bootstrap can never race
   an incoming sync
-- Sync-state vault guard (remote image): a sentinel on the config volume
-  records that a prior sync delivered content (notes or synced `.obsidian/`
-  settings) — if the vault volume has none but that sentinel exists, the
-  container refuses to start before any sync attempt,
-  preventing the sync engine from interpreting the empty vault as mass
-  local deletions
+- Sync-state vault guard (remote image): the Sync client's own device
+  record of locally held files is read before any sync attempt — if it
+  lists files but the vault volume has no content (notes or synced
+  `.obsidian/` settings), the container refuses to start, preventing the
+  sync engine from interpreting the empty vault as mass local deletions
 - Memory shrink guard: refuses writes that would remove >50% of a file's
   bytes — defense-in-depth against bugs that would silently erase most of
   a memory file

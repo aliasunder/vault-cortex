@@ -27,15 +27,17 @@ import { callTool, textContent } from "../integration/test-harness.js"
 import {
   assertImagePresent,
   containerLogs,
+  countSyncStateFiles,
   createClient,
   docker,
+  dockerOrThrow,
   execInContainer,
   listFilesInContainer,
   pathExistsInContainer,
   publishedPort,
   readContainerFile,
   runContainer,
-  seedVolumeFile,
+  seedSyncState,
   waitForHealthz,
   waitForStopped,
 } from "./docker-harness.js"
@@ -220,13 +222,10 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
     expect(callLog).toBe(callLogOf(1))
   })
 
-  it("writes the first-sync sentinel to /home/obsidian/.config/.vault-synced", async () => {
+  it("records the two synced notes in the sync state under /home/obsidian/.config", async () => {
     expect(
-      await pathExistsInContainer({
-        name,
-        path: "/home/obsidian/.config/.vault-synced",
-      }),
-    ).toBe(true)
+      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
+    ).toBe(2)
   })
 
   it("creates the search index at /data/index.db", async () => {
@@ -392,18 +391,18 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
     })
   })
 
-  it("writes the ownership record and first-sync sentinel under /persist/config", async () => {
+  it("writes the ownership record and the sync state under /persist/config", async () => {
     const appliedIds = await readContainerFile({
       name,
       path: "/persist/config/.applied-ids",
     })
-    const sentinelPresent = await pathExistsInContainer({
+    const knownSyncFiles = await countSyncStateFiles({
       name,
-      path: "/persist/config/.vault-synced",
+      configDir: "/persist/config",
     })
-    expect({ appliedIds, sentinelPresent }).toEqual({
+    expect({ appliedIds, knownSyncFiles }).toEqual({
       appliedIds: "1000:1000\n",
-      sentinelPresent: true,
+      knownSyncFiles: 2,
     })
   })
 
@@ -490,16 +489,16 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       ).toBe(callLogOf(2))
     })
 
-    it("keeps the first-sync sentinel and the synced notes", async () => {
-      const sentinelPresent = await pathExistsInContainer({
+    it("keeps the sync state and the synced notes", async () => {
+      const knownSyncFiles = await countSyncStateFiles({
         name,
-        path: "/persist/config/.vault-synced",
+        configDir: "/persist/config",
       })
       const syncedNotes = (
         await listFilesInContainer({ name, directory: "/persist/vault" })
       ).filter((path) => !path.startsWith("/persist/vault/About Me/"))
-      expect({ sentinelPresent, syncedNotes }).toEqual({
-        sentinelPresent: true,
+      expect({ knownSyncFiles, syncedNotes }).toEqual({
+        knownSyncFiles: 2,
         syncedNotes: [
           "/persist/vault/Projects/Remote Boot.md",
           "/persist/vault/Sync Log.md",
@@ -605,13 +604,13 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
       )
     })
 
-    it("does not write the first-sync sentinel", async () => {
+    it("records no synced files", async () => {
       expect(
-        await pathExistsInContainer({
+        await countSyncStateFiles({
           name,
-          path: "/home/obsidian/.config/.vault-synced",
+          configDir: "/home/obsidian/.config",
         }),
-      ).toBe(false)
+      ).toBe(0)
     })
 
     it("serves an empty vault over MCP rather than refusing requests", async () => {
@@ -633,8 +632,8 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
 describe("remote image boot — empty remote vault with the memory layer disabled", () => {
   // Nothing ever lands in the vault: the stub delivers no notes and memory
   // is off, so no About Me/ templates are bootstrapped either. The device
-  // must stay bootable across restarts — the wipe guard keys on a sentinel
-  // that only a content-delivering sync may write.
+  // must stay bootable across restarts — its sync state records no files,
+  // so an empty vault is not a wiped one.
   const name = uniqueName("empty-vault")
   const env = {
     ...BASE_ENV,
@@ -661,7 +660,7 @@ describe("remote image boot — empty remote vault with the memory layer disable
     await handle?.cleanup()
   })
 
-  it("completes the first sync with an empty vault and writes no sentinel", async () => {
+  it("completes the first sync with an empty vault and records no files", async () => {
     expect(await containerLogs(name)).toContain(
       "[obsidian-sync] First sync complete.",
     )
@@ -669,11 +668,8 @@ describe("remote image boot — empty remote vault with the memory layer disable
       [],
     )
     expect(
-      await pathExistsInContainer({
-        name,
-        path: "/home/obsidian/.config/.vault-synced",
-      }),
-    ).toBe(false)
+      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
+    ).toBe(0)
   })
 
   describe("after docker restart", () => {
@@ -700,11 +696,68 @@ describe("remote image boot — empty remote vault with the memory layer disable
   })
 })
 
+describe("remote image boot — vault wiped after files arrived while the container ran", () => {
+  // The device started with an empty vault, received files through
+  // continuous sync (no restart involved), and then had its vault volume
+  // emptied. The sync state still records those files, so the next boot
+  // must stop before the engine can push them as deletions.
+  const name = uniqueName("wiped-while-running")
+  const env = {
+    ...BASE_ENV,
+    MEMORY_ENABLED: "false",
+    PUBLIC_URL: "http://localhost:8000",
+    OB_STUB_SYNC_EMPTY: "1",
+  }
+  let handle: ContainerHandle | undefined
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env,
+      volumes: [],
+      publishPort: true,
+    })
+    const port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    // What continuous sync would do: deliver a note and record it in the
+    // sync state, as the obsidian user the stub normally runs as.
+    await dockerOrThrow([
+      "exec",
+      "--user",
+      "obsidian",
+      "--env",
+      "HOME=/home/obsidian",
+      name,
+      "sh",
+      "-c",
+      'printf "# Arrived later\n" > "/vault/Arrived Later.md" && ob sync-record "Arrived Later.md"',
+    ])
+    // The wipe: the vault volume emptied while device state is kept.
+    await execInContainer(name, ["rm", "-f", "/vault/Arrived Later.md"])
+    await docker(["restart", name])
+    await waitForStopped({ name, deadlineMs: STOP_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("stops on the next boot instead of syncing the wiped vault", async () => {
+    const logs = await containerLogs(name)
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+    )
+  })
+})
+
 describe("remote image boot — remote vault holding only synced .obsidian/ settings", () => {
   // Settings are synced but there are no notes and memory is off. The
-  // settings are content a wipe could delete, so the sentinel must be
-  // written — and on restart the guard must read them as content too, or
-  // the device locks itself out.
+  // settings are recorded in the sync state, so on restart the guard must
+  // read them as content too, or the device locks itself out.
   const name = uniqueName("config-only")
   const env = {
     ...BASE_ENV,
@@ -731,16 +784,13 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
     await handle?.cleanup()
   })
 
-  it("writes the sentinel for a vault whose only content is .obsidian/ settings", async () => {
+  it("records the synced settings file in the sync state", async () => {
     expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([
       "/vault/.obsidian/appearance.json",
     ])
     expect(
-      await pathExistsInContainer({
-        name,
-        path: "/home/obsidian/.config/.vault-synced",
-      }),
-    ).toBe(true)
+      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
+    ).toBe(1)
   })
 
   describe("after docker restart", () => {
@@ -853,17 +903,17 @@ describe("remote image boot — init-chain guards stop the container", () => {
     expect(logs).not.toContain("[obsidian-sync] Authenticated.")
   })
 
-  it("refuses to sync an empty vault when a previous sync's sentinel is present", async () => {
-    // The #440 data-loss guard: a kept config volume (device state + sentinel)
-    // with a wiped vault volume would have the sync engine push every
-    // previously-synced file as a deletion. Seed the sentinel the way a prior
-    // boot would leave it, then boot against an empty anonymous /vault.
+  it("refuses to sync an empty vault when the device's sync state records files", async () => {
+    // A kept config volume (sync state recording files) with a wiped vault
+    // volume would have the sync engine push every recorded file as a
+    // deletion. Seed the state the way a synced device carries it, then
+    // boot against an empty anonymous /vault.
     const configVolume = `${uniqueName("synced-config")}-volume`
-    await seedVolumeFile({
+    await seedSyncState({
       image: IMAGE,
       volume: configVolume,
       mountPath: "/home/obsidian/.config",
-      file: ".vault-synced",
+      knownFiles: 3,
     })
     const logs = await logsAfterGuardStops({
       scenario: "empty-vault-after-sync",
