@@ -1088,10 +1088,13 @@ re-verify each contract against the new source before merging:
   table `local_files`, loaded at engine startup and diffed against disk.
 
 The remote-boot stub (`src/__tests__/docker/fixtures/ob`) mirrors these
-contracts, so a change in the CLI does not fail the tier by itself:
-update the stub to the new behaviour, run the tier and the `sh` specs,
-then boot the new image once against real Obsidian Sync and confirm the
-first sync, the guard's file count, and continuous sync in the logs.
+contracts, so a change in the CLI does not fail the tier by itself.
+After updating the pinned version:
+
+1. Update the stub to match the new behaviour.
+2. Run the remote-boot tier and the `sh` specs.
+3. Boot the new image once against real Obsidian Sync and confirm the
+   first sync, the guard's file count, and continuous sync in the logs.
 
 ## Operational docs
 
