@@ -563,7 +563,11 @@ rebuilds.
 Nothing is lost — your data is still in the old volumes. Confirm with
 `docker volume ls`: unprefixed names (`vault_data`) alongside prefixed ones
 (`vault-cortex_vault_data`) mean an earlier setup used different volumes.
-Two ways to recover:
+The same thing happens when switching from the single-volume setup
+(`vault-cortex_storage`) to the CLI or Compose, which create the three-volume
+layout: `vault-cortex_storage` listed alongside the three is the tell, and
+the way back is the single-volume `docker run` command under
+[Setup](#setup). Two ways to recover from a three-volume mismatch:
 
 - **Let the re-sync finish (simplest).** Your vault's source of truth is
   Obsidian Sync, so the fresh volumes repopulate on their own — wait for the

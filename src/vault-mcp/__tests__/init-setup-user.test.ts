@@ -55,6 +55,10 @@ type SetupUserRunOptions = {
   /** Relative to the temp dir (or absolute, used as-is); the script
    *  receives its parent as the index directory to create and chown. */
   indexDbPath?: string
+  /** Pass indexDbPath to the script verbatim instead of resolving it under
+   *  the temp dir — for asserting the script's own rejection of relative
+   *  values. */
+  rawIndexDbPath?: boolean
   /** When true, XDG_CONFIG_HOME points at <tmp>/persist/config. */
   xdgConfigHome?: boolean
   /** Pre-recorded "<uid>:<gid>" in .applied-ids (simulates a prior boot). */
@@ -67,9 +71,10 @@ const runSetupUser = (options: SetupUserRunOptions): SetupUserRun => {
   const homeDir = join(tempDir, "home")
   const vaultPath = join(tempDir, "vault")
   const indexDbPathOption = options.indexDbPath ?? "data/index.db"
-  const indexDbPath = isAbsolute(indexDbPathOption)
-    ? indexDbPathOption
-    : join(tempDir, indexDbPathOption)
+  const indexDbPath =
+    options.rawIndexDbPath || isAbsolute(indexDbPathOption)
+      ? indexDbPathOption
+      : join(tempDir, indexDbPathOption)
   const dataDir = resolve(indexDbPath, "..")
   const xdgConfigDir = join(tempDir, "persist", "config")
   const configDir = options.xdgConfigHome
@@ -163,8 +168,18 @@ describe("init-setup-user ownership script", () => {
 
     expect(run.status).toBe(1)
     expect(run.stderr).toContain(
-      "INDEX_DB_PATH must include at least one directory component",
+      "INDEX_DB_PATH must be an absolute path with at least one directory component",
     )
+  })
+
+  it("rejects a relative INDEX_DB_PATH so the index cannot land on the ephemeral layer", () => {
+    const run = runSetupUser({ indexDbPath: "index.db", rawIndexDbPath: true })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain(
+      "INDEX_DB_PATH must be an absolute path with at least one directory component",
+    )
+    expect(run.calls).toEqual([])
   })
 
   it("skips the recursive chown when the recorded IDs already match", () => {
