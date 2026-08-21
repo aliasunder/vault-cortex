@@ -103,8 +103,9 @@ Render's edge and is checked by the server before any vault data moves:
 - **Encrypted at rest, snapshotted daily.** The disk holding your vault,
   index, and Sync device state is encrypted, and Render snapshots it every
   24 hours (kept at least seven days) — restore from **Disks → Snapshots**.
-- **Logs carry no secrets.** The server never writes tokens, passwords, or
-  note contents to its logs — only paths, tool names, and outcomes.
+- **Logs carry no secrets.** The server logs note paths, headings, search
+  queries, and error text — your vault's own metadata — never tokens,
+  passwords, or note bodies.
 
 What the server can't protect is the Render account that holds it: anyone
 who can open this service in the dashboard can read the environment
@@ -116,7 +117,7 @@ dashboard:
    that matters most: it logs in to your whole Obsidian Sync account, not
    just this vault.
 2. **Keep the workspace to yourself.** Members you invite can read every
-   environment variable and every log line.
+   environment variable and every log line, search queries included.
 
 Optional settings narrow what a connected client can do — change them
 under **Environment**: `READONLY_MODE=true` removes every tool that writes

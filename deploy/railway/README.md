@@ -103,8 +103,9 @@ Railway's edge and is checked by the server before any vault data moves:
 - **Encrypted at rest.** The volume holding your vault, index, and Sync
   device state is encrypted by Railway
   ([Trust Center](https://trust.railway.com)).
-- **Logs carry no secrets.** The server never writes tokens, passwords, or
-  note contents to its logs — only paths, tool names, and outcomes.
+- **Logs carry no secrets.** The server logs note paths, headings, search
+  queries, and error text — your vault's own metadata — never tokens,
+  passwords, or note bodies.
 
 What the server can't protect is the Railway account that holds it: anyone
 who can open this project in the dashboard can read the variables, the logs,
@@ -119,7 +120,7 @@ and the volume. Four steps close that, all from the dashboard:
 2. **Turn on two-factor authentication** for your Railway account
    (profile photo → **Account Settings → Account Security**).
 3. **Keep the project to yourself.** Workspace members you invite can read
-   unsealed variables and every log line.
+   unsealed variables and every log line, search queries included.
 4. **Schedule volume backups** (open the volume on the project canvas →
    **Backups**). A daily schedule keeps six days; restoring is one click.
 
