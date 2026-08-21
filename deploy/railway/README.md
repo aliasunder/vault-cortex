@@ -63,7 +63,10 @@ docker run --rm -it --entrypoint get-sync-token \
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-Railway asks for these values before it creates anything:
+The button opens the template's page. Click **Deploy Now**, then
+**Configure** on the `vault-cortex` service card. The card says "2 variable
+values needed" because two fields are required; the other two are optional
+and sit on the same form:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
