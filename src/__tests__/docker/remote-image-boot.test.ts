@@ -17,7 +17,14 @@
  *  restart block re-derives its handle from the boot it nests under. */
 
 import { randomBytes } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+} from "vitest"
 import { callTool, textContent } from "../integration/test-harness.js"
 import {
   assertImagePresent,
@@ -44,7 +51,10 @@ const FAKE_SYNC_TOKEN = "fake-obsidian-sync-token-for-ci"
 const FAKE_MCP_TOKEN = "fake-mcp-token-for-ci"
 
 const BOOT_DEADLINE_MS = 120_000
-const STOP_DEADLINE_MS = 60_000
+/** Under the 30 s test timeout, so a guard that fails to stop the container
+ *  fails on waitForStopped's own message (with logs) rather than a bare
+ *  timeout. A real guard failure halts the container within seconds. */
+const STOP_DEADLINE_MS = 20_000
 
 /** Env every scenario shares. Embeddings stay off so the boot doesn't
  *  download a model; the chain under test doesn't touch search ranking. */
@@ -441,10 +451,13 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
 })
 
 describe("remote image boot — init-chain guards stop the container", () => {
-  const bootExpectingStop = async (
+  /** Boot with the given env, register cleanup for the current test before
+   *  anything can throw, and return the logs once the container has stopped
+   *  on its own. */
+  const logsAfterGuardStops = async (
     scenario: string,
     env: Record<string, string>,
-  ): Promise<{ name: string; logs: string; cleanup: () => Promise<void> }> => {
+  ): Promise<string> => {
     const name = uniqueName(scenario)
     const handle = await runContainer({
       name,
@@ -453,63 +466,49 @@ describe("remote image boot — init-chain guards stop the container", () => {
       volumes: [],
       publishPort: false,
     })
+    onTestFinished(handle.cleanup)
     await waitForStopped({ name, deadlineMs: STOP_DEADLINE_MS })
-    return { name, logs: await containerLogs(name), cleanup: handle.cleanup }
+    return containerLogs(name)
   }
 
   it("refuses STORAGE_ROOT=/ with the init-derive-env error", async () => {
-    const { logs, cleanup } = await bootExpectingStop("storage-root-slash", {
+    const logs = await logsAfterGuardStops("storage-root-slash", {
       ...BASE_ENV,
       STORAGE_ROOT: "/",
     })
-    try {
-      expect(logs).toContain(
-        "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '/'.",
-      )
-      expect(logs).toContain(
-        "s6-rc: warning: unable to start service init-derive-env: command exited 1",
-      )
-    } finally {
-      await cleanup()
-    }
+    expect(logs).toContain(
+      "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '/'.",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-derive-env: command exited 1",
+    )
   })
 
   it("refuses a relative INDEX_DB_PATH with the init-setup-user error", async () => {
-    const { logs, cleanup } = await bootExpectingStop("relative-index-db", {
+    const logs = await logsAfterGuardStops("relative-index-db", {
       ...BASE_ENV,
       INDEX_DB_PATH: "relative/index.db",
     })
-    try {
-      expect(logs).toContain(
-        "[obsidian-sync] ERROR: INDEX_DB_PATH must be an absolute path with at least one directory component (got 'relative/index.db').",
-      )
-      expect(logs).toContain(
-        "s6-rc: warning: unable to start service init-setup-user: command exited 1",
-      )
-    } finally {
-      await cleanup()
-    }
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: INDEX_DB_PATH must be an absolute path with at least one directory component (got 'relative/index.db').",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-user: command exited 1",
+    )
   })
 
   it("refuses to start without OBSIDIAN_AUTH_TOKEN before ever calling the Sync client", async () => {
     const { OBSIDIAN_AUTH_TOKEN: _omitted, ...envWithoutToken } = BASE_ENV
-    const { logs, cleanup } = await bootExpectingStop(
-      "missing-token",
-      envWithoutToken,
+    const logs = await logsAfterGuardStops("missing-token", envWithoutToken)
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is empty or unset.",
     )
-    try {
-      expect(logs).toContain(
-        "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is empty or unset.",
-      )
-      expect(logs).toContain(
-        "s6-rc: warning: unable to start service init-check-auth: command exited 1",
-      )
-      // A stopped container can't `exec`, so the call log is out of reach;
-      // init-obsidian-login logs "Authenticated." only after `ob login`
-      // returns, so its absence proves the gate fired before the stub ran.
-      expect(logs).not.toContain("[obsidian-sync] Authenticated.")
-    } finally {
-      await cleanup()
-    }
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-check-auth: command exited 1",
+    )
+    // A stopped container can't `exec`, so the call log is out of reach;
+    // init-obsidian-login logs "Authenticated." only after `ob login`
+    // returns, so its absence proves the gate fired before the stub ran.
+    expect(logs).not.toContain("[obsidian-sync] Authenticated.")
   })
 })
