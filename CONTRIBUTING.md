@@ -128,16 +128,19 @@ truth. Key points:
    npm run prettier:check && npm run lint && npm test && npm run build
    ```
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **Required checks must pass** — the `CI` workflow runs prettier, lint,
-   test, and build on every PR. The `Arch Smoke` workflow builds the Docker
-   image and boots it on native amd64 and arm64 runners (`arch-smoke (amd64)`
-   and `arch-smoke (arm64)` checks), with the arm64 check also build-verifying
-   the remote image target — a native-binding, startup, or remote-build
-   failure on either architecture blocks the merge. Two security scans also gate merges:
-   **Gitleaks** (secret detection) and **Trivy** (vulnerability scan of the
-   Docker image built from your branch — a fixable CRITICAL/HIGH CVE fails
-   the `trivy-pr` check and blocks the merge; the finding details are in the
-   job log)
+5. **Required checks must pass** — the `main` ruleset requires all eight;
+   each blocks the merge and the finding details are in its job log:
+   - `checks` — prettier, lint, test, and build
+   - `cli-smoke (20)` / `cli-smoke (22)` / `cli-smoke (24)` — builds the
+     CLI and runs `init` on each supported Node major, catching APIs too
+     new for the CLI's `engines` range
+   - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
+     and boots it on a native runner for each architecture, then boots the
+     remote image with a stubbed Sync client to run its init chain
+     end-to-end (`npm run test:remote-boot`)
+   - `gitleaks` — secret detection
+   - `trivy-pr` — vulnerability scan of the Docker image built from your
+     branch; a fixable CRITICAL/HIGH CVE fails it
 
 ## Issues
 
