@@ -185,8 +185,8 @@ the platform. Three things to know:
   (`RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`). Elsewhere, set it.
 - **`LOG_DIR=none`** keeps logs in the platform's log viewer only.
 - **PID 1** — the platform must start the image's own entrypoint as the
-  container's first process. Fly.io runs its own init in front of it, so
-  the `:remote` image does not start there.
+  container's first process; one that runs its own init in front of it
+  cannot start this image.
 
 </details>
 

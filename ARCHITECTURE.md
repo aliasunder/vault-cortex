@@ -774,7 +774,8 @@ is set:
 
 - `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
 - `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
-- `FLY_APP_NAME` → `https://$FLY_APP_NAME.fly.dev`
+- `FLY_APP_NAME` → `https://$FLY_APP_NAME.fly.dev` (no shipped template;
+  the derivation is kept for an image variant that can boot there)
 
 When none is present, `PUBLIC_URL` stays unset and the server's
 required-variable error fires as usual. Both derivations live in one pure
@@ -793,13 +794,11 @@ to the derivation above:
 - the Railway template lives in Railway's Template Composer; its definition
   is recorded in `deploy/railway/README.md`
 
-Both platforms start the image's entrypoint as PID 1, which s6-overlay v3
-requires. Fly.io has no template for that reason:
-
-- Fly's Firecracker init stays PID 1 and runs the entrypoint as a child.
-- `/init` then exits with `s6-overlay-suexec: fatal: can only run as pid 1`.
-- The `FLY_APP_NAME` derivation above stays in place for an image variant
-  that can boot there.
+A platform qualifies only if it starts the image's entrypoint as PID 1 —
+s6-overlay v3 refuses to run as a child of a platform-injected init
+(`s6-overlay-suexec: fatal: can only run as pid 1`). Both platforms above
+do; the probe is a deploy with no variables set, which must reach
+`init-check-auth`'s own error rather than the s6 one.
 
 `cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
 image and to that key set.
