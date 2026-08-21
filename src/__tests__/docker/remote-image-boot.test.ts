@@ -1,11 +1,10 @@
 /** Remote image boot tier — runs the built `:remote` image end-to-end with the
  *  obsidian-headless CLI replaced by `fixtures/ob`.
  *
- *  The s6 init chain (derive-env → setup-user → check-auth → login →
- *  setup-vault → first-sync → sync → mcp) was validated by hand against real
- *  Obsidian Sync before it shipped; this tier is the per-PR regression net
- *  for the assembled chain — ordering, published env, volume layout, guards —
- *  that the per-script `sh` specs in `src/vault-mcp/__tests__/` cannot see.
+ *  Covers the assembled s6 init chain (derive-env → setup-user → check-auth →
+ *  login → setup-vault → first-sync → sync → mcp) — ordering, published env,
+ *  volume layout, guards — which the per-script `sh` specs in
+ *  `src/vault-mcp/__tests__/` cannot see.
  *
  *  Needs Docker and a prior `docker build --target remote -t
  *  vault-cortex:remote-ci .`; run with `npm run test:remote-boot`

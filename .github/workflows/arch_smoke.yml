@@ -17,8 +17,6 @@ name: Arch Smoke
 #      env derivation, ownership record, login → sync-setup → first-sync
 #      ordering, sentinel, index location, STORAGE_ROOT single-volume
 #      layout, restart reuse, and the guards that stop the container.
-#      The chain was validated by hand against real Sync before it
-#      shipped; this is the per-PR regression net.
 #
 # EMBEDDING_ENABLED=false at runtime is fine: onnxruntime-node's dynamic
 # import is never reached, but the deps-stage assertion already executed
