@@ -269,13 +269,31 @@ describe("init-first-sync gate script", () => {
     )
   })
 
-  it("makes a single tolerated attempt when VAULT_NAME is unset", () => {
+  it("retries three times and refuses when VAULT_NAME is unset and the memory folder is absent", () => {
     const run = runGateScript({ syncOutcomes: [1] })
 
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(3)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+        "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+        "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.\n" +
+        "[obsidian-sync] Refusing to start: the MCP server would create memory template files\n" +
+        "[obsidian-sync] that sync could push over your real notes once it recovers.\n" +
+        "[obsidian-sync] Check network and credentials — the container's restart policy retries.\n",
+    )
+  })
+
+  it("retries three times and continues when VAULT_NAME is unset but the memory folder is present", () => {
+    const run = runGateScript({ syncOutcomes: [1], vaultDirs: ["About Me"] })
+
     expect(run.status).toBe(0)
-    expect(run.syncCalls).toBe(1)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
+    expect(run.syncCalls).toBe(3)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+        "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+        "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
+        "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n",
     )
   })
 

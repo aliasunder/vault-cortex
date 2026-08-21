@@ -27,21 +27,21 @@ run_sync_setup() {
   fi
 }
 
-# No hard fail on a missing VAULT_NAME: a container whose config volume
-# already holds a completed sync setup restarts fine without it. But on a
-# fresh volume the skip means `ob sync --continuous` crash-loops against an
-# unconfigured vault, so make the skip loud — plain `docker run --env-file`
-# performs no `:?` interpolation, unlike Compose.
+# VAULT_NAME may be omitted only when a sync setup for $VAULT_PATH is
+# already saved on the config volume. `ob sync-status` is ob's own local
+# lookup for that (no network; non-zero exit when nothing usable is saved
+# for the working directory). Compose enforces VAULT_NAME via `:?`; plain
+# `docker run` does not, so the check has to live here.
 if [ -z "$VAULT_NAME" ]; then
-  echo "[obsidian-sync] WARNING: VAULT_NAME is not set — skipping vault setup." >&2
-  echo "[obsidian-sync] Continuous sync will fail unless a previous setup persisted in the config volume." >&2
-fi
-
-if [ -n "$VAULT_NAME" ]; then
+  if ! s6-setuidgid obsidian ob sync-status; then
+    echo "[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for $VAULT_PATH." >&2
+    echo "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart." >&2
+    exit 1
+  fi
+  echo "[obsidian-sync] VAULT_NAME is not set — reusing the saved sync setup for $VAULT_PATH."
+else
   echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
-  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only. (The
-  # fork's 460f7d4 upstream merge kept a duplicate leading `sync-setup`
-  # token here — `ob sync-setup sync-setup …` — fixed during absorption.)
+  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only.
   set -- --vault "$VAULT_NAME"
   if [ -n "$VAULT_PASSWORD" ]; then
     set -- "$@" --password "$VAULT_PASSWORD"

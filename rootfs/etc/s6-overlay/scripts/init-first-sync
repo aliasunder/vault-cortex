@@ -14,13 +14,11 @@
 # is possible — bootstrap writes templates only when the memory layer is
 # enabled AND the memory folder is missing (fresh volume, or partial sync
 # where the folder hasn't arrived), so:
-# - VAULT_NAME set + memory enabled + folder missing: FATAL —
-#   S6_BEHAVIOUR_IF_STAGE2_FAILS=2 stops the container; the restart policy
-#   owns the outer retry.
+# - Memory enabled + folder missing: FATAL — S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+#   stops the container; the restart policy owns the outer retry.
 # - Folder present, or memory disabled: warn and continue — bootstrap is a
 #   no-op; continuous sync keeps retrying.
-# - VAULT_NAME unset: single attempt, warn and continue — matches
-#   init-setup-vault's skip for unconfigured vaults.
+# Sync is always configured here — init-setup-vault exits 1 otherwise.
 set -e
 
 VAULT_PATH="${VAULT_PATH:-/vault}"
@@ -68,14 +66,7 @@ MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
 MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
 
-# VAULT_NAME unset means either a persisted config volume (sync succeeds
-# anyway) or a truly unconfigured vault (sync fails fast) — retry only when
-# configuration is certain, so the unconfigured path stays quick.
-if [ -n "$VAULT_NAME" ]; then
-  MAX_ATTEMPTS=3
-else
-  MAX_ATTEMPTS=1
-fi
+MAX_ATTEMPTS=3
 
 ATTEMPT=1
 while :; do
@@ -96,7 +87,7 @@ done
 # Checked at decision time, not before the attempts: a failed sync may still
 # have delivered the memory folder, and a partially delivered folder already
 # defuses the bootstrap (it only writes templates when the folder is absent).
-if [ -n "$VAULT_NAME" ] && [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
+if [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
   echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
   echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
   echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2
