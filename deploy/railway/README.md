@@ -17,8 +17,10 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 ## Prerequisites
 
 - A [Railway](https://railway.com) account on the **Hobby** plan or higher —
-  the trial plan caps memory below what semantic search needs, and Hobby
-  includes the 5 GB volume this template uses. See
+  the trial plan caps volumes at 0.5 GB, which a typical vault plus its
+  search index overflows, and Hobby includes the 5 GB volume this template
+  uses. Upgrade **before** deploying: a volume keeps the size of the plan it
+  was created on. See
   [Railway's pricing](https://railway.com/pricing); a typical instance uses
   roughly 1–2 GB of memory.
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
@@ -133,17 +135,17 @@ All from the service page:
 The template sets these; change them under the service's **Variables** tab
 (Railway stages the change and redeploys when you apply it):
 
-| Variable                          | Value          | What it does                                                                                                                                    |
-| --------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STORAGE_ROOT`                    | `/persist`     | Where the volume is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                  |
-| `PORT`                            | `8000`         | The port the image listens on. Leave as is.                                                                                                     |
-| `DEVICE_NAME`                     | `vault-cortex` | The device name Obsidian Sync shows for this container.                                                                                         |
-| `TRUST_PROXY_HOPS`                | `1`            | Railway's edge proxy sits between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
-| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`          | How long Railway waits for the first health check — the first start downloads the vault and builds the index.                                   |
-| `MCP_AUTH_TOKEN`                  | generated      | Your MCP client's token. Change it here to rotate it.                                                                                           |
-| `OBSIDIAN_AUTH_TOKEN`             | yours          | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                   |
-| `VAULT_NAME`                      | yours          | The vault this container syncs.                                                                                                                 |
-| `VAULT_PASSWORD`                  | yours / empty  | End-to-end encryption password, if your vault has one.                                                                                          |
+| Variable                          | Value          | What it does                                                                                                                                  |
+| --------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STORAGE_ROOT`                    | `/persist`     | Where the volume is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                |
+| `PORT`                            | `8000`         | The port the image listens on. Leave as is.                                                                                                   |
+| `DEVICE_NAME`                     | `vault-cortex` | The device name Obsidian Sync shows for this container.                                                                                       |
+| `TRUST_PROXY_HOPS`                | `2`            | Two Railway proxies sit between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
+| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`          | How long Railway waits for the first health check — the first start downloads the vault and builds the index.                                 |
+| `MCP_AUTH_TOKEN`                  | generated      | Your MCP client's token. Change it here to rotate it.                                                                                         |
+| `OBSIDIAN_AUTH_TOKEN`             | yours          | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                 |
+| `VAULT_NAME`                      | yours          | The vault this container syncs.                                                                                                               |
+| `VAULT_PASSWORD`                  | yours / empty  | End-to-end encryption password, if your vault has one.                                                                                        |
 
 Optional settings use the same names as the remote quickstart's
 [Configuration table](../remote/#configuration) — add them as new
@@ -180,6 +182,12 @@ that. **Redeploy**: the files and index that already reached the volume are
 reused, so the second attempt is much faster. For very large vaults, set
 `EMBEDDING_ENABLED=false` for the first deploy and remove it once the vault
 has synced.
+
+**The logs repeat `ENOSPC: no space left on device`.** The volume is full.
+A volume created on the trial plan is 0.5 GB and stays that size after an
+upgrade. Upgrade to Hobby, delete the volume (**Settings → Volumes**), add a
+new one at `/persist`, then **Redeploy** — the container registers a fresh
+Sync device and downloads the vault again.
 
 **A second `vault-cortex` device appeared in Obsidian Sync.** The container
 re-registered, which happens when the volume was replaced or the device
@@ -220,7 +228,7 @@ Variables, in the order the deploy form shows them:
 | `PORT`                            | `8000`                                | _(hidden)_                                                                            |
 | `STORAGE_ROOT`                    | `/persist`                            | _(hidden)_                                                                            |
 | `DEVICE_NAME`                     | `vault-cortex`                        | _(hidden)_                                                                            |
-| `TRUST_PROXY_HOPS`                | `1`                                   | _(hidden)_                                                                            |
+| `TRUST_PROXY_HOPS`                | `2`                                   | _(hidden)_                                                                            |
 | `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | _(hidden)_                                                                            |
 
 Update the template whenever the image tag, a boot-required variable, the
