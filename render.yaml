@@ -53,7 +53,7 @@ services:
         sync: false
       # Your timezone as an IANA name (America/Toronto) — decides what "today"
       # means for daily notes, task due dates, and memory timestamps. Leave
-      # empty for UTC.
+      # empty for UTC. List: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
       - key: TZ
         sync: false
       # Optional settings, pre-filled with the image defaults so they can be

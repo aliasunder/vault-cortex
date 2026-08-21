@@ -45,11 +45,11 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 Render reads the Blueprint and asks for three values before it creates
 anything:
 
-| Field                 | Value                                                                                                                                                      |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                             |
-| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                  |
-| `TZ`                  | Your timezone as an IANA name (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| Field                 | Value                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                                                                                             |
+| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                  |
+| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
 Fill the token and vault name in **before** the first deploy — a container that starts without a
 vault name creates an empty vault of its own. If your vault uses end-to-end
