@@ -61,7 +61,7 @@ docker run --rm -it --entrypoint get-sync-token \
 
 ## Deploy
 
-<!-- RAILWAY_TEMPLATE_BUTTON: replaced with the published template's button -->
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/Ev_Ly4?utm_medium=integration&utm_source=button&utm_campaign=vault-cortex)
 
 Railway asks for these values before it creates anything:
 
