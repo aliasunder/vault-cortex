@@ -67,6 +67,12 @@ URL, the port, the storage layout — is set by the template.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Variables** tab. Railway
   generated it for you; your MCP client enters it once on the consent page.
 
+Railway shows every variable's value in the dashboard. Once you have copied
+the token, you can hide the sensitive ones for good: open the **⋮** menu
+beside `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_PASSWORD` and
+choose **Seal**. A sealed value still reaches the container but can never be
+viewed again — to rotate it later, set a new value.
+
 ## First start
 
 The first deploy takes longer than later ones. In order, the container logs
