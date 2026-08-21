@@ -11,7 +11,7 @@ name: Arch Smoke
 #      returning 200 proves better-sqlite3 + sqlite-vec loaded and the
 #      FTS index built (server.ts exits 1 on any startup failure), then
 #      an authenticated MCP initialize round-trip is asserted
-#   3. build --target remote, then `npm run test:remote-boot` boots it with
+#   3. build --target remote, then the remote-boot vitest tier boots it with
 #      the obsidian-headless CLI stubbed (src/__tests__/docker/fixtures/ob)
 #      — the s6 init chain runs end-to-end without Sync credentials:
 #      env derivation, ownership record, login → sync-setup → first-sync
@@ -193,8 +193,10 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # Runs the vitest config directly: `npm run test:remote-boot` would
+      # rebuild the image, and the buildx step above already built it.
       - name: Remote image boot tests (stubbed Sync client)
-        run: npm run test:remote-boot
+        run: npx vitest run --config vitest.remote-boot.config.ts
         env:
           REMOTE_IMAGE: vault-cortex:remote-ci
 

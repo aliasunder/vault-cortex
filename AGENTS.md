@@ -1031,22 +1031,18 @@ from `npm test`).
 Remote image boot tests (`src/__tests__/docker/`) boot the built
 `:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
 They catch what the per-script `sh` specs structurally can't — oneshot
-ordering, published env, volume layout, guards that must stop the
-container. Run via `npm run test:remote-boot` after
-`docker build --target remote -t vault-cortex:remote-ci .` (separate
-vitest config, excluded from `npm test`; `arch_smoke.yml` runs it on
-both architectures). One boot per `describe`; only the guards block
-boots per scenario.
+ordering, published env, volume layout, guards. Run via
+`npm run test:remote-boot` (builds the image, then runs a separate
+vitest config excluded from `npm test`). One boot per `describe`; only
+the guards block boots per scenario.
 
 **Always add:**
 
 - New init oneshot or ordering change → extend the expected `ob` call
   sequence.
 - New derived variable → assert its `container_environment` file.
-- New guard → a guards-block scenario asserting the ERROR line and the
-  failing service.
-- New Sync failure mode → a stub switch (like `OB_STUB_SYNC_FAIL=1`)
-  plus a scenario.
+- New guard → a guards-block scenario asserting the ERROR line.
+- New Sync failure mode → a stub switch (like `OB_STUB_SYNC_FAIL=1`).
 
 **Never add:**
 

@@ -72,7 +72,7 @@ export const assertImagePresent = async (image: string): Promise<void> => {
   const result = await docker(["image", "inspect", image])
   if (result.code !== 0) {
     throw new Error(
-      `Remote image "${image}" not found — build it first: docker build --target remote -t ${image} .`,
+      `Remote image "${image}" not found — build it first: npm run build:remote-image (tags vault-cortex:remote-ci; set REMOTE_IMAGE to test another tag)`,
     )
   }
 }

@@ -6,9 +6,8 @@
  *  volume layout, guards — which the per-script `sh` specs in
  *  `src/vault-mcp/__tests__/` cannot see.
  *
- *  Needs Docker and a prior `docker build --target remote -t
- *  vault-cortex:remote-ci .`; run with `npm run test:remote-boot`
- *  (REMOTE_IMAGE overrides the tag).
+ *  Needs Docker; `npm run test:remote-boot` builds the image and runs the
+ *  tier (REMOTE_IMAGE points the tests at a different image tag).
  *
  *  One container per describe block: a boot is the expensive resource that
  *  justifies `beforeAll` over const-per-test. Each test then reads its own

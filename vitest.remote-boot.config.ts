@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config"
 
 // Remote-boot tier: boots the built `:remote` Docker image with a stubbed
-// Sync client. Excluded from `npm test` (needs Docker + a prior image build);
-// run via `npm run test:remote-boot` — locally and from arch_smoke.yml.
+// Sync client. Excluded from `npm test` (needs Docker). Locally
+// `npm run test:remote-boot` builds the image then runs this config;
+// arch_smoke.yml builds via buildx and runs the config directly.
 export default defineConfig({
   test: {
     globals: false,

@@ -67,7 +67,8 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",
-    "test:remote-boot": "vitest run --config vitest.remote-boot.config.ts",
+    "build:remote-image": "docker build --target remote -t vault-cortex:remote-ci .",
+    "test:remote-boot": "npm run build:remote-image && vitest run --config vitest.remote-boot.config.ts",
     "prepare": "husky",
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
