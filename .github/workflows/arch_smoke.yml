@@ -1,22 +1,19 @@
 name: Arch Smoke
 
 # Builds and boots the Docker image on both production architectures on
-# every PR — native runners, no QEMU. Motivated by v0.33.0–v0.33.4: the
-# arm64 image crash-looped (better-sqlite3 v13's linux-arm64 prebuild
-# needs glibc >= 2.38, the base had 2.36) and nothing at PR time ever
-# executed an arm64 artifact — trivy-pr builds amd64 only. Each leg:
+# every PR — native runners, no QEMU. This is the only PR-time check that
+# executes an arm64 artifact (trivy-pr builds amd64 only), so it is what
+# catches a native prebuild whose glibc requirement the base image no
+# longer meets. Each leg:
 #   1. build --target local — natively executes the Dockerfile deps-stage
 #      native-binding assertion for its arch
 #   2. boot smoke — run the image against a small fixture vault; /healthz
 #      returning 200 proves better-sqlite3 + sqlite-vec loaded and the
 #      FTS index built (server.ts exits 1 on any startup failure), then
 #      an authenticated MCP initialize round-trip is asserted
-#   3. build --target remote, then the remote-boot vitest tier boots it with
-#      the obsidian-headless CLI stubbed (src/__tests__/docker/fixtures/ob)
-#      — the s6 init chain runs end-to-end without Sync credentials:
-#      env derivation, ownership record, login → sync-setup → first-sync
-#      ordering, sentinel, index location, STORAGE_ROOT single-volume
-#      layout, restart reuse, and the guards that stop the container.
+#   3. build --target remote, then the remote-boot vitest tier boots it
+#      with the Sync CLI stubbed (src/__tests__/docker/fixtures/ob), so
+#      the s6 init chain runs end-to-end without Sync credentials
 #
 # EMBEDDING_ENABLED=false at runtime is fine: onnxruntime-node's dynamic
 # import is never reached, but the deps-stage assertion already executed
