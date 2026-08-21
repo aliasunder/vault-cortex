@@ -774,8 +774,6 @@ is set:
 
 - `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
 - `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
-- `FLY_APP_NAME` → `https://$FLY_APP_NAME.fly.dev` (no shipped template;
-  the derivation is kept for an image variant that can boot there)
 
 When none is present, `PUBLIC_URL` stays unset and the server's
 required-variable error fires as usual. Both derivations live in one pure
