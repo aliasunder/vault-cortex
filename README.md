@@ -421,7 +421,7 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 Run the `:remote` image on a hosted platform without managing a server. Each guide walks through the deploy, where to find your URL and token, and how to update.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/Ev_Ly4?utm_medium=integration&utm_source=button&utm_campaign=vault-cortex)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 - **Render** — button, from the [`render.yaml`](./render.yaml) Blueprint at the repo root. Guide: [`deploy/render/`](./deploy/render/)
 - **Railway** — button, from a published template. Guide: [`deploy/railway/`](./deploy/railway/)

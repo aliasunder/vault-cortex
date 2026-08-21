@@ -61,7 +61,7 @@ docker run --rm -it --entrypoint get-sync-token \
 
 ## Deploy
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/Ev_Ly4?utm_medium=integration&utm_source=button&utm_campaign=vault-cortex)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 Railway asks for these values before it creates anything:
 
