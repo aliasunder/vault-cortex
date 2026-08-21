@@ -41,8 +41,10 @@ case "${1:-}" in
     fi
     # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
     # "deliver" the remote vault by writing the fixture notes into the
-    # current directory. Visible files here are also what keeps the
-    # empty-vault guard from firing on the next boot.
+    # current directory. These visible files are also what keeps the
+    # sentinel-plus-empty-vault guard quiet on the next boot: the sentinel
+    # is written after this sync, and an empty vault beside it reads as a
+    # wiped vault.
     mkdir -p Projects
     cat > "Projects/Remote Boot.md" << 'EOF'
 ---

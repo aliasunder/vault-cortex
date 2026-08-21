@@ -418,7 +418,7 @@ describe("init-first-sync gate script", () => {
     expect(existsSync(run.legacySentinelPath)).toBe(false)
   })
 
-  it("fires the empty-vault guard from a sentinel under XDG_CONFIG_HOME", () => {
+  it("stops when the vault is empty and the sentinel sits under XDG_CONFIG_HOME", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
