@@ -15,6 +15,10 @@
 # OBSIDIAN_AUTH_TOKEN from the environment and never receives it as an
 # argument, and the init scripts pass none of the secret-bearing env vars
 # on the command line.
+#
+# Behaviour switches (container env, reaches the stub via with-contenv):
+#   OB_STUB_SYNC_FAIL=1 — one-shot `sync` exits 1 without writing notes, so
+#                         init-first-sync walks its retry and failure paths
 set -eu
 
 CALL_LOG="${XDG_CONFIG_HOME:-$HOME/.config}/ob-calls.log"
@@ -30,6 +34,10 @@ case "${1:-}" in
       # resulting process; blocking forever keeps the service "up" instead
       # of restart-looping, which is what a healthy sync daemon looks like.
       exec sleep infinity
+    fi
+    if [ "${OB_STUB_SYNC_FAIL:-}" = "1" ]; then
+      echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
+      exit 1
     fi
     # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
     # "deliver" the remote vault by writing the fixture notes into the

@@ -168,16 +168,25 @@ const isRunning = async (name: string): Promise<boolean> => {
   return state.trim() === "true"
 }
 
-/** Combined stdout + stderr of the container (s6 writes oneshot output to
- *  both streams). `since` narrows to lines after a Docker timestamp, which
- *  is how the restart scenario ignores the first boot's output. */
+/** The container's stdout and stderr merged in emission order (init scripts
+ *  log progress on stdout and retries/errors on stderr, and tests assert the
+ *  interleaving). Merging has to happen at the source — two pipes read back
+ *  separately can't be re-interleaved — so this is the one Docker call that
+ *  goes through `sh`, with the name passed as a positional argument rather
+ *  than spliced into the command string. `since` narrows to lines after a
+ *  Docker timestamp, which is how the restart scenario ignores the first
+ *  boot's output. */
 export const containerLogs = async (
   name: string,
   since?: string,
 ): Promise<string> => {
   const sinceArgs = since ? ["--since", since] : []
-  const result = await docker(["logs", ...sinceArgs, name])
-  return `${result.stdout}${result.stderr}`
+  const { stdout } = await execFileAsync(
+    "sh",
+    ["-c", 'docker logs "$@" 2>&1', "sh", ...sinceArgs, name],
+    { maxBuffer: 64 * 1024 * 1024 },
+  )
+  return stdout
 }
 
 /** Poll `/healthz` until it answers 200, failing early — with the container

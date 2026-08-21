@@ -1049,13 +1049,16 @@ group assertions under an existing boot before adding a new one.
   `container_environment` file (exact bytes, no trailing newline).
 - New guard that stops the container → a scenario in the guards block
   asserting the exact ERROR line and the failing service's name.
+- New failure mode of a Sync call → a switch on the stub (env var, like
+  `OB_STUB_SYNC_FAIL=1`) plus a scenario asserting the chain's response.
 - Change to where the sentinel, `.applied-ids`, or index lives → update
   the layout assertions for both volume layouts.
 
 **Never add:**
 
-- Branch logic inside one script (retry counts, warning text) — the
-  `sh` specs in `src/vault-mcp/__tests__/` cover it without a boot.
+- Branch logic inside one script (input normalization, message
+  wording) — the `sh` specs in `src/vault-mcp/__tests__/` cover it
+  without a boot.
 - Server tool behaviour — the integration tier
   (`src/__tests__/integration/`) covers it without Docker.
 - Anything that needs real Obsidian Sync — that stays a Test Deploy.

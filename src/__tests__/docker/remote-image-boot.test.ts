@@ -55,6 +55,27 @@ const BOOT_DEADLINE_MS = 120_000
  *  timeout. A real guard failure halts the container within seconds. */
 const STOP_DEADLINE_MS = 20_000
 
+/** A first sync that keeps failing takes three attempts with two 10 s
+ *  sleeps between them (init-first-sync's MAX_ATTEMPTS=3 when VAULT_NAME is
+ *  set), so those scenarios get their own, longer budgets. */
+const FAILING_SYNC_TEST_TIMEOUT_MS = 120_000
+const FAILING_SYNC_STOP_DEADLINE_MS = 90_000
+
+/** init-first-sync's progress, retry, and outcome lines all name the step —
+ *  "First sync (attempt …)", "First sync failed …", "First sync did not
+ *  complete …" — which is what lets a test read the whole run back in
+ *  order from the merged container logs. */
+const isFirstSyncLine = (line: string): boolean => line.includes("First sync")
+
+/** Log lines init-first-sync emits across a fully failing run. */
+const FIRST_SYNC_ATTEMPT_LINES = [
+  "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...",
+  "[obsidian-sync] First sync failed — retrying in 10s...",
+  "[obsidian-sync] First sync (attempt 2/3) — waiting for completion before starting services...",
+  "[obsidian-sync] First sync failed — retrying in 10s...",
+  "[obsidian-sync] First sync (attempt 3/3) — waiting for completion before starting services...",
+]
+
 /** Env every scenario shares. Embeddings stay off so the boot doesn't
  *  download a model; the chain under test doesn't touch search ranking. */
 const BASE_ENV = {
@@ -445,6 +466,123 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
 
     it("still serves the synced note over MCP", async () => {
       expect(await readSyncedNoteOverMcp(port)).toBe(REMOTE_BOOT_NOTE)
+    })
+  })
+})
+
+describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)", () => {
+  describe("with the memory layer enabled and no memory folder synced", () => {
+    it(
+      "retries three times, then refuses to start so the server cannot bootstrap templates over unsynced notes",
+      async () => {
+        const name = uniqueName("failing-sync-memory-on")
+        const handle = await runContainer({
+          name,
+          image: IMAGE,
+          env: { ...BASE_ENV, OB_STUB_SYNC_FAIL: "1" },
+          volumes: [],
+          publishPort: false,
+        })
+        onTestFinished(handle.cleanup)
+        await waitForStopped({
+          name,
+          deadlineMs: FAILING_SYNC_STOP_DEADLINE_MS,
+        })
+        const logs = await containerLogs(name)
+        const attemptLines = logs.split("\n").filter(isFirstSyncLine)
+        expect(attemptLines).toEqual([
+          ...FIRST_SYNC_ATTEMPT_LINES,
+          "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.",
+        ])
+        expect(logs).toContain(
+          "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+        )
+      },
+      FAILING_SYNC_TEST_TIMEOUT_MS,
+    )
+  })
+
+  describe("with the memory layer disabled", () => {
+    const name = uniqueName("failing-sync-memory-off")
+    const env = {
+      ...BASE_ENV,
+      OB_STUB_SYNC_FAIL: "1",
+      MEMORY_ENABLED: "false",
+      PUBLIC_URL: "http://localhost:8000",
+    }
+
+    // Assigned once the container is up — the beforeAll boot is the one place
+    // these are written; every test only reads them.
+    let handle: ContainerHandle | undefined
+    let port = 0
+
+    beforeAll(async () => {
+      handle = await runContainer({
+        name,
+        image: IMAGE,
+        env,
+        volumes: [],
+        publishPort: true,
+      })
+      port = await publishedPort(name)
+      await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    })
+
+    afterAll(async () => {
+      await handle?.cleanup()
+    })
+
+    it("retries three times, warns, and starts the services anyway", async () => {
+      const logs = await containerLogs(name)
+      const attemptLines = logs.split("\n").filter(isFirstSyncLine)
+      expect(attemptLines).toEqual([
+        ...FIRST_SYNC_ATTEMPT_LINES,
+        "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.",
+      ])
+    })
+
+    it("calls `ob sync` once per attempt before handing over to continuous sync", async () => {
+      const callLog = await readContainerFile(
+        name,
+        "/home/obsidian/.config/ob-calls.log",
+      )
+      expect(callLog).toBe(
+        [
+          "login",
+          "sync-setup --vault ci-vault --device-name ci-device",
+          "sync-config --device-name ci-device",
+          "sync-config --configs core-plugin-data,community-plugin-data",
+          "sync",
+          "sync",
+          "sync",
+          "sync --continuous",
+        ]
+          .map((call) => `${call}\n`)
+          .join(""),
+      )
+    })
+
+    it("does not write the first-sync sentinel", async () => {
+      expect(
+        await pathExistsInContainer(
+          name,
+          "/home/obsidian/.config/.vault-synced",
+        ),
+      ).toBe(false)
+    })
+
+    it("serves an empty vault over MCP rather than refusing requests", async () => {
+      const client = await createClient(port, FAKE_MCP_TOKEN)
+      try {
+        const result = await callTool({
+          client,
+          name: "vault_list_notes",
+          args: {},
+        })
+        expect(JSON.parse(textContent(result))).toEqual([])
+      } finally {
+        await client.close()
+      }
     })
   })
 })
