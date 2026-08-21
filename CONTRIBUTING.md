@@ -128,9 +128,12 @@ truth. Key points:
    npm run prettier:check && npm run lint && npm test && npm run build
    ```
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **Required checks must pass** — every check below blocks the merge;
-   the finding details are in each job's log:
-   - `CI` — prettier, lint, test, and build
+5. **Required checks must pass** — the `main` ruleset requires all eight;
+   each blocks the merge and the finding details are in its job log:
+   - `checks` — prettier, lint, test, and build
+   - `cli-smoke (20)` / `cli-smoke (22)` / `cli-smoke (24)` — builds the
+     CLI and runs `init` on each supported Node major, catching APIs too
+     new for the CLI's `engines` range
    - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
      and boots it on a native runner for each architecture, then boots the
      remote image with a stubbed Sync client to run its init chain
