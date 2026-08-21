@@ -1,9 +1,15 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 /**
  * Behavioral spec for the remote image's vault setup stage
@@ -59,6 +65,7 @@ type SetupRunOptions = {
 
 const runSetupScript = (options: SetupRunOptions): SetupRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-setup-vault-"))
+  onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
   mkdirSync(stubBinDir)

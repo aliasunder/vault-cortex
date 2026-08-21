@@ -5,11 +5,12 @@ import {
   mkdtempSync,
   readFileSync,
   writeFileSync,
+  rmSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { loadConfig } from "../config.js"
 
@@ -81,6 +82,7 @@ type GateRunOptions = {
 
 const runGateScript = (options: GateRunOptions): GateRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-first-sync-"))
+  onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
   const homeDir = join(tempDir, "home")
