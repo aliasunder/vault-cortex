@@ -7,11 +7,11 @@ import { describe, expect, it } from "vitest"
 
 /**
  * Behavioral spec for the remote image's vault setup stage
- * (rootfs/etc/s6-overlay/scripts/init-setup-vault). The VAULT_NAME
- * decision is the first line of defense for a fresh volume — a container
- * that continues without a saved setup reaches the first-sync stage
- * unconfigured — so every branch is exercised here by running the real
- * script under `sh` with stub `ob` and `s6-setuidgid` executables on PATH.
+ * (rootfs/etc/s6-overlay/scripts/init-setup-vault). The VAULT_NAME guard
+ * is the first line of defense — a container that continues without a vault
+ * name reaches the first-sync stage unconfigured — so every branch is
+ * exercised here by running the real script under `sh` with stub `ob` and
+ * `s6-setuidgid` executables on PATH.
  */
 
 const SCRIPT_PATH = resolve(
@@ -19,12 +19,11 @@ const SCRIPT_PATH = resolve(
   "../../../rootfs/etc/s6-overlay/scripts/init-setup-vault",
 )
 
-/** Stub `ob`: logs each invocation; `sync-status` and `sync-setup` exit
- *  with the codes the test configures, every other subcommand succeeds. */
+/** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
+ *  test configures, every other subcommand succeeds. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
 case "$1" in
-  sync-status) exit "$OB_SYNC_STATUS_EXIT" ;;
   sync-setup) exit "$OB_SYNC_SETUP_EXIT" ;;
   *) exit 0 ;;
 esac
@@ -35,11 +34,6 @@ const SETUIDGID_STUB = `#!/bin/sh
 shift
 exec "$@"
 `
-
-/** Exit code of the pinned obsidian-headless `ob sync-status` when no setup
- *  is saved for the working directory (`process.exit(3)` in its cli.js; 2 is
- *  a saved-but-incomplete setup, 0 a usable one). */
-const OB_NO_SAVED_SETUP_EXIT = 3
 
 const DEFAULT_SYNC_CONFIGS_CALL =
   "sync-config --configs core-plugin-data,community-plugin-data"
@@ -59,10 +53,6 @@ type SetupRunOptions = {
   configDirName?: string
   deviceName?: string
   syncConfigs?: string
-  /** When true, `ob sync-status` reports a saved setup for the vault path. */
-  savedSetup?: boolean
-  /** Override the `ob sync-status` exit code directly (takes precedence over `savedSetup`). */
-  syncStatusExit?: number
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
 }
@@ -89,10 +79,6 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       HOME: join(tempDir, "home"),
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
-      OB_SYNC_STATUS_EXIT: String(
-        options.syncStatusExit ??
-          (options.savedSetup ? 0 : OB_NO_SAVED_SETUP_EXIT),
-      ),
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       ...(options.vaultName === undefined
         ? {}
@@ -125,35 +111,33 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
 }
 
 describe("init-setup-vault script", () => {
-  it("refuses to start when VAULT_NAME is unset and no sync setup is saved", () => {
-    const run = runSetupScript({ savedSetup: false })
+  it("refuses to start when VAULT_NAME is unset", () => {
+    const run = runSetupScript({})
 
     expect(run.status).toBe(1)
+    expect(run.stdout).toBe("")
     expect(run.stderr).toBe(
-      `[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for ${run.vaultPath}.\n` +
+      "[obsidian-sync] ERROR: VAULT_NAME is not set.\n" +
         "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart.\n",
     )
-    expect(run.obCalls).toEqual(["sync-status"])
+    expect(run.obCalls).toEqual([])
   })
 
-  it("reuses the saved sync setup when VAULT_NAME is unset", () => {
-    const run = runSetupScript({ savedSetup: true })
+  it("refuses to start when VAULT_NAME is empty", () => {
+    const run = runSetupScript({ vaultName: "" })
 
-    expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
-      `[obsidian-sync] VAULT_NAME is not set — reusing the saved sync setup for ${run.vaultPath}.\n`,
-    )
-    expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual(["sync-status", DEFAULT_SYNC_CONFIGS_CALL])
+    expect(run.status).toBe(1)
+    expect(run.obCalls).toEqual([])
   })
 
-  it("does not probe for a saved setup when VAULT_NAME is set", () => {
-    const run = runSetupScript({ vaultName: "MyVault", savedSetup: false })
+  it("configures sync for the named vault", () => {
+    const run = runSetupScript({ vaultName: "MyVault" })
 
     expect(run.status).toBe(0)
     expect(run.stdout).toBe(
       `[obsidian-sync] Configuring sync for vault: 'MyVault' → ${run.vaultPath}\n`,
     )
+    expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -232,16 +216,5 @@ describe("init-setup-vault script", () => {
       "[obsidian-sync] ERROR: ob sync-setup failed.\n" +
         "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct.\n",
     )
-  })
-
-  it("treats any non-zero sync-status exit as a missing setup", () => {
-    const run = runSetupScript({ syncStatusExit: 2 })
-
-    expect(run.status).toBe(1)
-    expect(run.stderr).toBe(
-      `[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for ${run.vaultPath}.\n` +
-        "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart.\n",
-    )
-    expect(run.obCalls).toEqual(["sync-status"])
   })
 })

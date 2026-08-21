@@ -18,7 +18,7 @@
 #   stops the container; the restart policy owns the outer retry.
 # - Folder present, or memory disabled: warn and continue — bootstrap is a
 #   no-op; continuous sync keeps retrying.
-# Sync is always configured here — init-setup-vault exits 1 otherwise.
+# Sync is always configured here — init-setup-vault requires VAULT_NAME.
 set -e
 
 VAULT_PATH="${VAULT_PATH:-/vault}"

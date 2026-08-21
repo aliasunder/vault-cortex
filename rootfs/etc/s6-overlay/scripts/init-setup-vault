@@ -27,35 +27,32 @@ run_sync_setup() {
   fi
 }
 
-# VAULT_NAME may be omitted only when a sync setup for $VAULT_PATH is
-# already saved on the config volume. `ob sync-status` checks that locally
-# (no network). Compose enforces VAULT_NAME via `:?`; plain `docker run`
-# does not, so the check has to live here.
+# VAULT_NAME is required: Obsidian Sync needs a vault to sync, and a boot
+# without one would reach the first-sync stage unconfigured. Compose enforces
+# this via `:?`; plain `docker run` and hosting-platform settings pages do
+# not, so the check lives here too.
 if [ -z "$VAULT_NAME" ]; then
-  if ! s6-setuidgid obsidian ob sync-status; then
-    echo "[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for $VAULT_PATH." >&2
-    echo "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart." >&2
-    exit 1
+  echo "[obsidian-sync] ERROR: VAULT_NAME is not set." >&2
+  echo "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart." >&2
+  exit 1
+fi
+
+echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
+# run_sync_setup prepends `ob sync-setup`, so $@ holds flags only.
+set -- --vault "$VAULT_NAME"
+if [ -n "$VAULT_PASSWORD" ]; then
+  set -- "$@" --password "$VAULT_PASSWORD"
+fi
+if [ -n "$CONFIG_DIR_NAME" ]; then
+  set -- "$@" --config-dir "$CONFIG_DIR_NAME"
+fi
+if ! run_sync_setup "$@"; then
+  echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
+  echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
+  if [ -z "$VAULT_PASSWORD" ]; then
+    echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
   fi
-  echo "[obsidian-sync] VAULT_NAME is not set — reusing the saved sync setup for $VAULT_PATH."
-else
-  echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
-  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only.
-  set -- --vault "$VAULT_NAME"
-  if [ -n "$VAULT_PASSWORD" ]; then
-    set -- "$@" --password "$VAULT_PASSWORD"
-  fi
-  if [ -n "$CONFIG_DIR_NAME" ]; then
-    set -- "$@" --config-dir "$CONFIG_DIR_NAME"
-  fi
-  if ! run_sync_setup "$@"; then
-    echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
-    echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
-    if [ -z "$VAULT_PASSWORD" ]; then
-      echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
-    fi
-    exit 1
-  fi
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------

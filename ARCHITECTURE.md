@@ -699,9 +699,8 @@ graph LR
    plus `/home/obsidian`) →
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config; when `VAULT_NAME` is
-   unset it reuses the sync setup saved on the config volume and refuses to
-   start if there is none) → `init-first-sync`
+   with `--device-name`, plus optional sync-config; fails fast when
+   `VAULT_NAME` is missing) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; failure
    branches under "`init-first-sync` gates vault state" below). Any
    fatal init failure stops the container
