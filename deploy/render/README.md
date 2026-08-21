@@ -22,21 +22,40 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
   instance (1 CPU, 2 GB) plus a 5 GB disk; see
   [Render's pricing](https://render.com/pricing) for the monthly cost.
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Your Obsidian Sync login token. With Node.js >= 20.12 on your computer:
+- Your Obsidian Sync login token — see
+  [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
+  below. It is the one step that happens on your own computer.
 
-  ```bash
-  npx vault-cortex@latest get-sync-token
-  ```
+### Getting your Obsidian Sync token
 
-  Without Node.js, run the helper in a throwaway container — it prints the
-  token and exits:
+The token lets the container log in to Obsidian Sync as you. Obsidian only
+hands it out after an interactive login, so this step runs in a terminal on
+your computer — once, before you click the button.
 
-  ```bash
-  docker run --rm -it --entrypoint get-sync-token \
-    ghcr.io/aliasunder/vault-cortex:remote
-  ```
+1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
+   Windows: search the Start menu for **Terminal** (or **PowerShell**).
+2. **Install Node.js** if you don't have it: download the LTS installer from
+   [nodejs.org](https://nodejs.org) and run it. (Already have Docker but not
+   Node? See the alternative below.)
+3. **Paste this line and press Enter:**
 
-  Keep the token handy — the deploy form asks for it.
+   ```bash
+   npx vault-cortex@latest get-sync-token
+   ```
+
+   It asks for your Obsidian account email, password, and two-factor code
+   (if you use one), prints the token, and exits. Nothing is installed
+   permanently.
+
+4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
+
+With Docker instead of Node.js, the same helper runs in a throwaway
+container:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token \
+  ghcr.io/aliasunder/vault-cortex:remote
+```
 
 ## Deploy
 
@@ -47,7 +66,7 @@ anything:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                                                                                                  |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 

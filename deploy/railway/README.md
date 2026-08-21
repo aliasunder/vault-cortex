@@ -24,21 +24,40 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
   [Railway's pricing](https://railway.com/pricing); a typical instance uses
   roughly 1–2 GB of memory.
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Your Obsidian Sync login token. With Node.js >= 20.12 on your computer:
+- Your Obsidian Sync login token — see
+  [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
+  below. It is the one step that happens on your own computer.
 
-  ```bash
-  npx vault-cortex@latest get-sync-token
-  ```
+### Getting your Obsidian Sync token
 
-  Without Node.js, run the helper in a throwaway container — it prints the
-  token and exits:
+The token lets the container log in to Obsidian Sync as you. Obsidian only
+hands it out after an interactive login, so this step runs in a terminal on
+your computer — once, before you click the button.
 
-  ```bash
-  docker run --rm -it --entrypoint get-sync-token \
-    ghcr.io/aliasunder/vault-cortex:remote
-  ```
+1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
+   Windows: search the Start menu for **Terminal** (or **PowerShell**).
+2. **Install Node.js** if you don't have it: download the LTS installer from
+   [nodejs.org](https://nodejs.org) and run it. (Already have Docker but not
+   Node? See the alternative below.)
+3. **Paste this line and press Enter:**
 
-  Keep the token handy — the deploy form asks for it.
+   ```bash
+   npx vault-cortex@latest get-sync-token
+   ```
+
+   It asks for your Obsidian account email, password, and two-factor code
+   (if you use one), prints the token, and exits. Nothing is installed
+   permanently.
+
+4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
+
+With Docker instead of Node.js, the same helper runs in a throwaway
+container:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token \
+  ghcr.io/aliasunder/vault-cortex:remote
+```
 
 ## Deploy
 
@@ -48,10 +67,10 @@ Railway asks for these values before it creates anything:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                                                                                                  |
-| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
 
 Fill in the token, vault name, and timezone **before** the first deploy — a container
 that starts without a vault name creates an empty vault of its own.
@@ -239,10 +258,10 @@ Variables, in the order the deploy form shows them (everything after the four in
 
 | Variable                          | Value                                 | Description shown on the deploy form                                                                                                                                                                                            |
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                              | _(optional input)_                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 | `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
 | `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                                                                                                                                           |
-| `TZ`                              | _(optional input)_                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 | `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                                                                                                                                        |
 | `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                                                                                                                                     |
 | `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.                                                                                                                      |
