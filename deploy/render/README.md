@@ -1,0 +1,195 @@
+# Render Quickstart (one-click)
+
+Run Vault Cortex on [Render](https://render.com) from a button — no server to
+manage. Render gives you HTTPS, restarts, and a log viewer; Obsidian Sync keeps
+your vault current; MCP tools work from Claude Desktop, Claude Code, claude.ai,
+or any MCP client.
+
+The button deploys the `vault-cortex:remote` image — Obsidian Sync and the
+MCP server supervised together in **one container** — from the
+[`render.yaml`](../../render.yaml) Blueprint at the root of this repository,
+with one persistent disk holding your vault, the search index, and Obsidian
+Sync's device state
+([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
+Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
+
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+
+## Prerequisites
+
+- A [Render](https://render.com) account on a paid plan — persistent disks
+  are not available on the free tier. The Blueprint picks the **Standard**
+  instance (1 CPU, 2 GB) plus a 5 GB disk; see
+  [Render's pricing](https://render.com/pricing) for the monthly cost.
+- An [Obsidian Sync](https://obsidian.md/sync) subscription
+- Your Obsidian Sync login token. With Node.js >= 20.12 on your computer:
+
+  ```bash
+  npx vault-cortex@latest get-sync-token
+  ```
+
+  Without Node.js, run the helper in a throwaway container — it prints the
+  token and exits:
+
+  ```bash
+  docker run --rm -it --entrypoint get-sync-token \
+    ghcr.io/aliasunder/vault-cortex:remote
+  ```
+
+  Keep the token handy — the deploy form asks for it.
+
+## Deploy
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
+
+Render reads the Blueprint and asks for two values before it creates
+anything:
+
+| Field                 | Value                                                     |
+| --------------------- | --------------------------------------------------------- |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)            |
+| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync |
+
+Fill both in **before** the first deploy — a container that starts without a
+vault name creates an empty vault of its own. If your vault uses end-to-end
+encryption, the first deploy stops at Obsidian Sync setup; add
+`VAULT_PASSWORD` under the service's **Environment** tab and click **Manual
+Deploy** (see [Troubleshooting](#troubleshooting)).
+
+Click **Apply**. Render creates the service and disk, pulls the image, and
+starts the first deploy. Everything else — the MCP token, the public URL, the
+port, the storage layout — is set by the Blueprint.
+
+## Your URL and token
+
+- **URL:** shown at the top of the service page, `https://<name>.onrender.com`.
+  Your MCP client connects at `https://<name>.onrender.com/mcp`.
+- **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
+  generated it for you; your MCP client enters it once on the consent page.
+
+## First start
+
+The first deploy takes longer than later ones. In order, the container logs
+in to Obsidian Sync, registers a device named **vault-cortex**, downloads your
+vault, builds the search index, and only then answers health checks and
+receives traffic. Render allows up to 15 minutes for this; a large vault can
+take most of it.
+
+Watch the **Logs** tab. Lines prefixed `[obsidian-sync]` are the Sync setup
+and download; `[vault-cortex]` lines show the storage layout and the public
+URL the container derived (`PUBLIC_URL derived from RENDER_EXTERNAL_URL`);
+the structured JSON lines are the MCP server. `server started` means the
+deploy is about to go live.
+
+## Connect your MCP client
+
+Add a remote MCP server with URL `https://<name>.onrender.com/mcp`. Leave
+OAuth Client ID and Secret empty; a consent page opens in your browser —
+enter your `MCP_AUTH_TOKEN` to approve. Claude Code accepts the URL
+directly:
+
+```bash
+claude mcp add --scope user --transport http vault-cortex https://<name>.onrender.com/mcp
+```
+
+Client-by-client details, including the static bearer-token form for CLI
+tools, are in the remote quickstart's
+[Connect your MCP client](../remote/#connect-your-mcp-client).
+
+## Verify
+
+```bash
+curl https://<name>.onrender.com/healthz
+# → {"ok":true}
+```
+
+In Obsidian, **Settings → Sync → Devices** lists one new device named
+**vault-cortex**. In your MCP client, run a search — results come from your
+vault.
+
+## Updating
+
+Image services on Render don't redeploy on their own when a new image is
+published. To update: open the service, click **Manual Deploy → Deploy latest
+reference**. Render pulls the current `:remote` image and restarts the
+container; your vault, search index, and Sync device stay on the disk, so the
+update is quick and registers no new device.
+
+Release notes: [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases).
+
+## Restart, stop, delete
+
+All from the service page:
+
+- **Restart** — **Manual Deploy → Restart service**. Same container, same disk.
+- **Stop** — **Settings → Suspend Service**. Billing stops; the disk and
+  everything on it stay. **Resume** picks up where it left off.
+- **Delete** — **Settings → Delete Service**. This deletes the disk too. Your
+  vault in Obsidian Sync is untouched — the container only held a copy.
+  Remove the **vault-cortex** device from **Settings → Sync → Devices** in
+  Obsidian afterwards.
+
+## Configuration
+
+The Blueprint sets these; change them under the service's **Environment**
+tab (each change triggers a redeploy):
+
+| Variable              | Value          | What it does                                                                                                                                            |
+| --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STORAGE_ROOT`        | `/persist`     | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                            |
+| `PORT`                | `8000`         | The port the image listens on. Leave as is.                                                                                                             |
+| `DEVICE_NAME`         | `vault-cortex` | The device name Obsidian Sync shows for this container.                                                                                                 |
+| `TRUST_PROXY_HOPS`    | `2`            | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
+| `MCP_AUTH_TOKEN`      | generated      | Your MCP client's token. Change it here to rotate it.                                                                                                   |
+| `OBSIDIAN_AUTH_TOKEN` | yours          | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                           |
+| `VAULT_NAME`          | yours          | The vault this container syncs.                                                                                                                         |
+
+Optional settings use the same names as the remote quickstart's
+[Configuration table](../remote/#configuration) — add them as new
+environment variables. The ones that matter most on a hosted instance:
+
+- `VAULT_PASSWORD` — required for end-to-end-encrypted vaults.
+- `EMBEDDING_ENABLED=false` — skips the semantic-search models; search falls
+  back to keyword matching and the container fits in much less memory.
+- `READONLY_MODE=true` — hides every vault-writing tool.
+
+Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
+them from `STORAGE_ROOT` and Render's own address variable at every start.
+
+Instance size and disk size are changed under **Settings** (Render can grow a
+disk, never shrink it).
+
+## Troubleshooting
+
+**The first deploy failed.** Open **Logs** and look at the last
+`[obsidian-sync]` lines:
+
+- `OBSIDIAN_AUTH_TOKEN is empty or unset` — the token wasn't entered. Add it
+  under **Environment**, then **Manual Deploy**.
+- `login was rejected` — the token is stale. Run `get-sync-token` again,
+  update `OBSIDIAN_AUTH_TOKEN`, then **Manual Deploy**.
+- `ob sync-setup failed` — the vault name doesn't match Obsidian Sync
+  exactly (it is case-sensitive), or the vault is end-to-end encrypted and
+  `VAULT_PASSWORD` is missing. Fix the variable, then **Manual Deploy**.
+- `VAULT_NAME is not set` — add it under **Environment**, then **Manual
+  Deploy**.
+
+**The deploy timed out waiting for the health check.** Render allows 15
+minutes from container start. The first start of a large vault — download
+plus search-index build — can exceed that. Click **Manual Deploy** again: the
+files and index that already reached the disk are reused, so the second
+attempt is much faster. For very large vaults, set `EMBEDDING_ENABLED=false`
+for the first deploy and remove it once the vault has synced.
+
+**A second `vault-cortex` device appeared in Obsidian Sync.** The container
+re-registered, which happens when the disk was replaced or the device state
+under `/persist/config` was removed. Delete the stale device in Obsidian;
+nothing else is needed.
+
+**`The vault is empty but this device has previously synced.`** The
+container refused to start because the vault directory on the disk is empty
+while the device state says a sync already happened — starting would push
+deletions to your other devices. This happens only if something removed
+`/persist/vault` by hand. Restore the disk from a snapshot (**Disks → Snapshots**
+on the service page), or remove `/persist/config` as well to start over with
+a fresh device.
