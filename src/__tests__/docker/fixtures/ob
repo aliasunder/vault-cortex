@@ -1,0 +1,59 @@
+#!/bin/sh
+# Stand-in for the obsidian-headless CLI (`ob`) used by the remote-boot tier.
+#
+# The tier bind-mounts this file over
+# /opt/obsidian-headless/node_modules/obsidian-headless/cli.js — the target of
+# the `.bin/ob` symlink the image puts on PATH — so the real s6 init chain runs
+# unchanged while every Sync call lands here instead of on Obsidian's servers.
+#
+# Every invocation runs as the `obsidian` user under with-contenv, after
+# init-setup-user has created and chowned the config dir, so the call log
+# below lives beside .vault-synced and .applied-ids and survives a
+# `docker restart` — the test asserts the cumulative sequence across boots.
+#
+# Logging "$*" cannot leak the Sync token: the real CLI reads
+# OBSIDIAN_AUTH_TOKEN from the environment and never receives it as an
+# argument, and the init scripts pass none of the secret-bearing env vars
+# on the command line.
+set -eu
+
+CALL_LOG="${XDG_CONFIG_HOME:-$HOME/.config}/ob-calls.log"
+printf '%s\n' "$*" >> "$CALL_LOG"
+
+case "${1:-}" in
+  login | sync-setup | sync-config)
+    exit 0
+    ;;
+  sync)
+    if [ "${2:-}" = "--continuous" ]; then
+      # svc-obsidian-sync execs `ob sync --continuous` and s6 supervises the
+      # resulting process; blocking forever keeps the service "up" instead
+      # of restart-looping, which is what a healthy sync daemon looks like.
+      exec sleep infinity
+    fi
+    # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
+    # "deliver" the remote vault by writing the fixture notes into the
+    # current directory. Visible files here are also what keeps the
+    # empty-vault guard from firing on the next boot.
+    mkdir -p Projects
+    cat > "Projects/Remote Boot.md" << 'EOF'
+---
+tags: [ci, remote-boot]
+---
+
+# Remote Boot
+
+Delivered by the stubbed first sync. Links to [[Sync Log]].
+EOF
+    cat > "Sync Log.md" << 'EOF'
+# Sync Log
+
+Second fixture note; links back to [[Remote Boot]].
+EOF
+    exit 0
+    ;;
+  *)
+    echo "ob stub: unexpected invocation: $*" >&2
+    exit 64
+    ;;
+esac

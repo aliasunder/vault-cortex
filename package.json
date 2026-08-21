@@ -67,6 +67,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",
+    "test:remote-boot": "vitest run --config vitest.remote-boot.config.ts",
     "prepare": "husky",
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
