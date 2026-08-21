@@ -1,0 +1,53 @@
+# Render Blueprint for Vault Cortex — backs the "Deploy to Render" button.
+# Guide: deploy/render/README.md
+#
+# One web service running the published :remote image (Obsidian Sync + MCP
+# server in one container) on one persistent disk.
+services:
+  - type: web
+    name: vault-cortex
+    runtime: image
+    image:
+      url: ghcr.io/aliasunder/vault-cortex:remote
+    # Standard is 1 CPU / 2 GB — the floor for semantic search. Persistent
+    # disks need a paid plan. Large vaults: switch to Pro (4 GB) in the
+    # dashboard after the first deploy.
+    plan: standard
+    # Render routes traffic only once this path answers. The server answers
+    # after the first Obsidian Sync and the search-index build finish, so the
+    # first deploy of a large vault takes a while (see the guide's
+    # Troubleshooting section).
+    healthCheckPath: /healthz
+    # Image services redeploy from "Manual Deploy" in the dashboard; nothing
+    # here deploys on git pushes.
+    autoDeployTrigger: off
+    disk:
+      name: vault-cortex-storage
+      # Must equal STORAGE_ROOT below: the vault, search index, Sync device
+      # state, and logs all live under this one disk.
+      mountPath: /persist
+      sizeGB: 5
+    envVars:
+      # Render injects PORT=10000 unless set; the image listens on 8000.
+      - key: PORT
+        value: "8000"
+      - key: STORAGE_ROOT
+        value: /persist
+      # Name shown in Obsidian Sync's device list. Without it the device is
+      # registered under the container's random hostname.
+      - key: DEVICE_NAME
+        value: vault-cortex
+      # Cloudflare → Render load balancer → container: two proxy hops.
+      - key: TRUST_PROXY_HOPS
+        value: "2"
+      # Token your MCP client enters on the consent page. Render generates a
+      # random value; read it from the service's Environment tab.
+      - key: MCP_AUTH_TOKEN
+        generateValue: true
+      # Prompted for when you click the button.
+      # Obsidian Sync login token: npx vault-cortex@latest get-sync-token
+      - key: OBSIDIAN_AUTH_TOKEN
+        sync: false
+      # Your vault's name, exactly as shown in Obsidian Sync.
+      - key: VAULT_NAME
+        sync: false
