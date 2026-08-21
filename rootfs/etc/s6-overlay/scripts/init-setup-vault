@@ -28,10 +28,9 @@ run_sync_setup() {
 }
 
 # VAULT_NAME may be omitted only when a sync setup for $VAULT_PATH is
-# already saved on the config volume. `ob sync-status` is ob's own local
-# lookup for that (no network; non-zero exit when nothing usable is saved
-# for the working directory). Compose enforces VAULT_NAME via `:?`; plain
-# `docker run` does not, so the check has to live here.
+# already saved on the config volume. `ob sync-status` checks that locally
+# (no network). Compose enforces VAULT_NAME via `:?`; plain `docker run`
+# does not, so the check has to live here.
 if [ -z "$VAULT_NAME" ]; then
   if ! s6-setuidgid obsidian ob sync-status; then
     echo "[obsidian-sync] ERROR: VAULT_NAME is not set and no saved sync setup exists for $VAULT_PATH." >&2
