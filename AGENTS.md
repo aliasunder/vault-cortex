@@ -1039,7 +1039,9 @@ the container. Run via `npm run test:remote-boot` against a prior
 `docker build --target remote -t vault-cortex:remote-ci .` (separate
 vitest config, excluded from `npm test`); `arch_smoke.yml` runs it on
 both architectures on every PR. One container boot per `describe` —
-group assertions under an existing boot before adding a new one.
+group assertions under an existing boot before adding a new one. The
+guards block is the exception: each guard needs its own env or volume
+state, so it boots one container per scenario.
 
 **Always add:**
 

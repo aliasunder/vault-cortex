@@ -36,6 +36,7 @@ import {
   publishedPort,
   readContainerFile,
   runContainer,
+  seedVolumeFile,
   waitForHealthz,
   waitForStopped,
 } from "./docker-harness.js"
@@ -634,16 +635,21 @@ describe("remote image boot — init-chain guards stop the container", () => {
   /** Boot with the given env, register cleanup for the current test before
    *  anything can throw, and return the logs once the container has stopped
    *  on its own. */
-  const logsAfterGuardStops = async (
-    scenario: string,
-    env: Record<string, string>,
-  ): Promise<string> => {
+  const logsAfterGuardStops = async ({
+    scenario,
+    env,
+    volumes = [],
+  }: {
+    scenario: string
+    env: Record<string, string>
+    volumes?: string[]
+  }): Promise<string> => {
     const name = uniqueName(scenario)
     const handle = await runContainer({
       name,
       image: IMAGE,
       env,
-      volumes: [],
+      volumes,
       publishPort: false,
     })
     onTestFinished(handle.cleanup)
@@ -652,9 +658,9 @@ describe("remote image boot — init-chain guards stop the container", () => {
   }
 
   it("refuses STORAGE_ROOT=/ with the init-derive-env error", async () => {
-    const logs = await logsAfterGuardStops("storage-root-slash", {
-      ...BASE_ENV,
-      STORAGE_ROOT: "/",
+    const logs = await logsAfterGuardStops({
+      scenario: "storage-root-slash",
+      env: { ...BASE_ENV, STORAGE_ROOT: "/" },
     })
     expect(logs).toContain(
       "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '/'.",
@@ -665,9 +671,9 @@ describe("remote image boot — init-chain guards stop the container", () => {
   })
 
   it("refuses a relative INDEX_DB_PATH with the init-setup-user error", async () => {
-    const logs = await logsAfterGuardStops("relative-index-db", {
-      ...BASE_ENV,
-      INDEX_DB_PATH: "relative/index.db",
+    const logs = await logsAfterGuardStops({
+      scenario: "relative-index-db",
+      env: { ...BASE_ENV, INDEX_DB_PATH: "relative/index.db" },
     })
     expect(logs).toContain(
       "[obsidian-sync] ERROR: INDEX_DB_PATH must be an absolute path with at least one directory component (got 'relative/index.db').",
@@ -679,7 +685,10 @@ describe("remote image boot — init-chain guards stop the container", () => {
 
   it("refuses to start without OBSIDIAN_AUTH_TOKEN before ever calling the Sync client", async () => {
     const { OBSIDIAN_AUTH_TOKEN: _omitted, ...envWithoutToken } = BASE_ENV
-    const logs = await logsAfterGuardStops("missing-token", envWithoutToken)
+    const logs = await logsAfterGuardStops({
+      scenario: "missing-token",
+      env: envWithoutToken,
+    })
     expect(logs).toContain(
       "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is empty or unset.",
     )
@@ -690,5 +699,34 @@ describe("remote image boot — init-chain guards stop the container", () => {
     // init-obsidian-login logs "Authenticated." only after `ob login`
     // returns, so its absence proves the gate fired before the stub ran.
     expect(logs).not.toContain("[obsidian-sync] Authenticated.")
+  })
+
+  it("refuses to sync an empty vault when a previous sync's sentinel is present", async () => {
+    // The #440 data-loss guard: a kept config volume (device state + sentinel)
+    // with a wiped vault volume would have the sync engine push every
+    // previously-synced file as a deletion. Seed the sentinel the way a prior
+    // boot would leave it, then boot against an empty anonymous /vault.
+    const configVolume = `${uniqueName("synced-config")}-volume`
+    await seedVolumeFile({
+      image: IMAGE,
+      volume: configVolume,
+      mountPath: "/home/obsidian/.config",
+      file: ".vault-synced",
+    })
+    const logs = await logsAfterGuardStops({
+      scenario: "empty-vault-after-sync",
+      env: BASE_ENV,
+      volumes: [`${configVolume}:/home/obsidian/.config`],
+    })
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+    )
+    // The guard sits before the first `ob sync`; the stub logs nothing
+    // itself, but init-first-sync announces each attempt, so no attempt
+    // line proves no sync was ever started.
+    expect(logs).not.toContain("First sync (attempt")
   })
 })

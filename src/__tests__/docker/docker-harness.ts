@@ -137,6 +137,37 @@ export const runContainer = async ({
   return { name, cleanup }
 }
 
+/** Create an empty file inside a named volume before any container mounts
+ *  it — how a scenario fakes state left by a previous boot (a first-sync
+ *  sentinel, for instance). Runs `touch` from the image under test with its
+ *  entrypoint bypassed, so the s6 init chain never starts and no other image
+ *  has to be pulled. */
+export const seedVolumeFile = async ({
+  image,
+  volume,
+  mountPath,
+  file,
+}: {
+  image: string
+  volume: string
+  /** Where the volume is mounted for the seeding run. */
+  mountPath: string
+  /** Path of the file to create, relative to `mountPath`. */
+  file: string
+}): Promise<void> => {
+  await dockerOrThrow([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "touch",
+    "-v",
+    `${volume}:${mountPath}`,
+    image,
+    `${mountPath}/${file}`,
+  ])
+}
+
 /** The named-volume half of a `name:/path` mount spec, or "" for a bind
  *  mount (absolute host path) — Docker treats a source without a leading
  *  slash as a volume name. */
