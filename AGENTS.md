@@ -907,7 +907,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
   `rootfs/`. Their specs live in
   `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
-  `init-setup-user.test.ts`, `print-derived-env.test.ts`), run the real
+  `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
+  `print-derived-env.test.ts`), run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them.
