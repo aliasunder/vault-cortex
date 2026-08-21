@@ -351,6 +351,9 @@ describe("init-first-sync gate script", () => {
       "ERROR: The vault is empty but this device has previously synced.",
     )
     expect(run.stderr).toContain(
+      "If you emptied the vault on purpose, this stop is expected — re-register the device as below; a fresh device downloads the empty vault without deleting anything.",
+    )
+    expect(run.stderr).toContain(
       "To start fresh: remove the Obsidian config directory (",
     )
     expect(run.stderr).toContain(

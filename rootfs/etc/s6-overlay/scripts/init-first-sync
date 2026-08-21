@@ -62,6 +62,7 @@ if [ -f "$SYNC_SENTINEL" ] && ! vault_has_content; then
   echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
   echo "[obsidian-sync] deletions to all connected devices." >&2
   echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
+  echo "[obsidian-sync] If you emptied the vault on purpose, this stop is expected — re-register the device as below; a fresh device downloads the empty vault without deleting anything." >&2
   echo "[obsidian-sync] To start fresh: remove the Obsidian config directory (${XDG_CONFIG_HOME:-$HOME/.config} — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device." >&2
   exit 1
 fi
