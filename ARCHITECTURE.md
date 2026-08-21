@@ -699,7 +699,8 @@ graph LR
    plus `/home/obsidian`) →
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config) → `init-first-sync`
+   with `--device-name`, plus optional sync-config; fails fast when
+   `VAULT_NAME` is missing) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; failure
    branches under "`init-first-sync` gates vault state" below). Any
    fatal init failure stops the container
@@ -730,8 +731,8 @@ process has spawned. Two mechanisms with distinct jobs:
      starts. The sentinel is written for subsequent boots.
   3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
      real files (memory layer enabled, memory folder absent). Warn-and-continue
-     when the memory folder is present, memory is disabled, or `VAULT_NAME`
-     is unset — the server starts while continuous sync keeps retrying.
+     when the memory folder is present or memory is disabled — the server
+     starts while continuous sync keeps retrying.
 
 On a fresh volume, the gate closes the memory-bootstrap race: either the vault
 already holds the user's real `About Me/` files when the server's bootstrap

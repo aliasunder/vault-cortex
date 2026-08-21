@@ -551,6 +551,13 @@ one makes a meaningful difference.
 
 ## Troubleshooting
 
+**"VAULT_NAME is not set" in `docker logs`, and the container stops.** The
+container needs your vault name to know which vault to sync. This guide's
+`docker-compose.yml` refuses to start without it, but `docker run` and
+hosting-platform settings pages don't check. Add
+`VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to `.env` (or
+pass `-e VAULT_NAME=...`) and start the container again.
+
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
 (`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
