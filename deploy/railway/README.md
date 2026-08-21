@@ -48,9 +48,9 @@ Railway asks for these values before it creates anything:
 
 | Field                 | Value                                                                |
 | --------------------- | -------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                       |
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync            |
 | `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                       |
 
 Fill in the token and vault name **before** the first deploy — a container
 that starts without a vault name creates an empty vault of its own.
@@ -230,19 +230,19 @@ settings:
 | Healthcheck path  | `/healthz`                                            |
 | Restart policy    | On failure (Railway's default)                        |
 
-Variables, in the order the deploy form shows them:
+Variables, in the order the deploy form shows them (the last six sit under **Pre-Configured Environment Variables**, collapsed):
 
-| Variable                          | Value                                 | Shown to the user                                                                     |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours |
-| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                             |
-| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                  |
-| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | _(hidden)_                                                                            |
-| `PORT`                            | `8000`                                | _(hidden)_                                                                            |
-| `STORAGE_ROOT`                    | `/persist`                            | _(hidden)_                                                                            |
-| `DEVICE_NAME`                     | `vault-cortex`                        | _(hidden)_                                                                            |
-| `TRUST_PROXY_HOPS`                | `2`                                   | _(hidden)_                                                                            |
-| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | _(hidden)_                                                                            |
+| Variable                          | Value                                 | Description shown on the deploy form                                                                         |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                    |
+| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                         |
+| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                        |
+| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                     |
+| `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                  |
+| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.   |
+| `DEVICE_NAME`                     | `vault-cortex`                        | The device name Obsidian Sync shows for this container                                                       |
+| `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address           |
+| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index |
 
 Update the template whenever the image tag, a boot-required variable, the
 port, or the health path changes, then re-publish; existing deployments keep
