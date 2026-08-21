@@ -116,11 +116,18 @@ vault.
 ## Updating
 
 Services deployed from a Docker-image template don't update on their own
-when a new image is published. To update: open the service, open the latest
-entry under **Deployments**, and choose **Redeploy**. Railway pulls the
-current `:remote` image and restarts the container; your vault, search
-index, and Sync device stay on the volume, so the update is quick and
-registers no new device.
+unless you turn that on. Either way, your vault, search index, and Sync
+device stay on the volume, so an update is quick and registers no new
+device.
+
+- **By hand** — open the service, open the latest entry under
+  **Deployments**, and choose **Redeploy**. Railway pulls the current
+  `:remote` image and restarts the container.
+- **Automatically** — **Settings → Source → Configure auto updates**, pick
+  **Update to the latest tag**, and choose a maintenance window (weekends,
+  overnight, as soon as ready, or custom hours). Railway checks the image
+  every few hours and redeploys when `:remote` changes; the container is
+  down for under a minute while it restarts.
 
 Release notes: [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases).
 
