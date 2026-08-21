@@ -630,6 +630,76 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
   })
 })
 
+describe("remote image boot — empty remote vault with the memory layer disabled", () => {
+  // Nothing ever lands in the vault: the stub delivers no notes and memory
+  // is off, so no About Me/ templates are bootstrapped either. The device
+  // must stay bootable across restarts — the wipe guard keys on a sentinel
+  // that only a content-delivering sync may write.
+  const name = uniqueName("empty-vault")
+  const env = {
+    ...BASE_ENV,
+    MEMORY_ENABLED: "false",
+    PUBLIC_URL: "http://localhost:8000",
+    OB_STUB_SYNC_EMPTY: "1",
+  }
+  let handle: ContainerHandle | undefined
+  let port = 0
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env,
+      volumes: [],
+      publishPort: true,
+    })
+    port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("completes the first sync with an empty vault and writes no sentinel", async () => {
+    expect(await containerLogs(name)).toContain(
+      "[obsidian-sync] First sync complete.",
+    )
+    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual(
+      [],
+    )
+    expect(
+      await pathExistsInContainer({
+        name,
+        path: "/home/obsidian/.config/.vault-synced",
+      }),
+    ).toBe(false)
+  })
+
+  describe("after docker restart", () => {
+    let restartedAt = ""
+
+    beforeAll(async () => {
+      const beforeRestart = await bootedStartedAt(name)
+      await docker(["restart", name])
+      restartedAt = await bootedStartedAt(name)
+      if (restartedAt === beforeRestart) {
+        throw new Error("docker restart did not produce a new StartedAt")
+      }
+      port = await publishedPort(name)
+      await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    })
+
+    it("syncs again instead of stopping on the empty-vault guard", async () => {
+      const logsSinceRestart = await containerLogs(name, restartedAt)
+      expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
+      expect(logsSinceRestart).not.toContain(
+        "The vault is empty but this device has previously synced.",
+      )
+    })
+  })
+})
+
 describe("remote image boot — init-chain guards stop the container", () => {
   /** Boot with the given env, register cleanup for the current test before
    *  anything can throw, and return the logs once the container has stopped
@@ -680,6 +750,22 @@ describe("remote image boot — init-chain guards stop the container", () => {
     expect(logs).toContain(
       "s6-rc: warning: unable to start service init-setup-user: command exited 1",
     )
+  })
+
+  it("refuses to start without VAULT_NAME before registering the vault", async () => {
+    const { VAULT_NAME: _omitted, ...envWithoutVaultName } = BASE_ENV
+    const logs = await logsAfterGuardStops({
+      scenario: "missing-vault-name",
+      env: envWithoutVaultName,
+    })
+    expect(logs).toContain("[obsidian-sync] ERROR: VAULT_NAME is not set.")
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-vault: command exited 1",
+    )
+    // init-setup-vault runs after login, so the guard fires with the
+    // device authenticated but never registered against a vault.
+    expect(logs).toContain("[obsidian-sync] Authenticated.")
+    expect(logs).not.toContain("First sync (attempt")
   })
 
   it("refuses to start without OBSIDIAN_AUTH_TOKEN before ever calling the Sync client", async () => {

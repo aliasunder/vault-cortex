@@ -17,8 +17,10 @@
 # set, but none of the CI scenarios set it.)
 #
 # Behaviour switches (container env, reaches the stub via with-contenv):
-#   OB_STUB_SYNC_FAIL=1 — one-shot `sync` exits 1 without writing notes, so
-#                         init-first-sync walks its retry and failure paths
+#   OB_STUB_SYNC_FAIL=1  — one-shot `sync` exits 1 without writing notes, so
+#                          init-first-sync walks its retry and failure paths
+#   OB_STUB_SYNC_EMPTY=1 — one-shot `sync` succeeds without writing notes:
+#                          a remote vault that has nothing in it yet
 set -eu
 
 CALL_LOG="${XDG_CONFIG_HOME:-$HOME/.config}/ob-calls.log"
@@ -38,6 +40,9 @@ case "${1:-}" in
     if [ "${OB_STUB_SYNC_FAIL:-}" = "1" ]; then
       echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
       exit 1
+    fi
+    if [ "${OB_STUB_SYNC_EMPTY:-}" = "1" ]; then
+      exit 0
     fi
     # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
     # "deliver" the remote vault by writing the fixture notes into the

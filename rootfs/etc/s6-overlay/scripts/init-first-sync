@@ -4,11 +4,14 @@
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
-# Pre-sync guard: if a prior sync completed (sentinel on the config volume)
-# but the vault is empty, the sync engine would interpret every previously-
-# synced file as a local deletion and push mass deletions upstream (#440
-# incident 2026-08-15). FATAL in this case — the user must restore the vault
-# volume or wipe the config volume to re-register as a fresh device.
+# Pre-sync guard: if a prior sync delivered content (sentinel on the config
+# volume) but the vault is empty, the sync engine would interpret every
+# previously-synced file as a local deletion and push mass deletions
+# upstream (#440 incident 2026-08-15). FATAL in this case — the user must
+# restore the vault volume or wipe the config volume to re-register as a
+# fresh device. The sentinel is only written when the completed sync left
+# visible files behind: a vault that is empty on the remote too has nothing
+# a wipe could delete, and a sentinel there would stop every later boot.
 #
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
@@ -28,9 +31,9 @@ if ! cd "$VAULT_PATH"; then
 fi
 
 # Sentinel in the Obsidian config directory (the obsidian_config volume under
-# Compose, $STORAGE_ROOT/config in single-volume mode): written after the
-# first successful sync, gone when that directory is wiped (fresh device =
-# no sentinel = safe). In single-volume mode the sentinel and the vault share
+# Compose, $STORAGE_ROOT/config in single-volume mode): written after a
+# successful sync that delivered files, gone when that directory is wiped
+# (fresh device = no sentinel = safe). In single-volume mode the sentinel and the vault share
 # one mount, so the guard below still fires if only the vault directory is
 # emptied.
 SYNC_SENTINEL="${XDG_CONFIG_HOME:-$HOME/.config}/.vault-synced"
@@ -72,7 +75,11 @@ ATTEMPT=1
 while :; do
   echo "[obsidian-sync] First sync (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — waiting for completion before starting services..."
   if s6-setuidgid obsidian ob sync; then
-    touch "$SYNC_SENTINEL"
+    # Only a vault with content needs the wipe guard on later boots; an
+    # empty remote vault (memory disabled, no notes yet) must stay bootable.
+    if vault_has_visible_files; then
+      touch "$SYNC_SENTINEL"
+    fi
     echo "[obsidian-sync] First sync complete."
     exit 0
   fi

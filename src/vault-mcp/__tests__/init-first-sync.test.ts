@@ -388,17 +388,35 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
-  it("writes the sentinel file after a successful sync", () => {
+  it("writes the sentinel file after a successful sync that delivered files", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultDirs: ["Notes"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+    expect(existsSync(run.sentinelPath)).toBe(true)
+  })
+
+  it("does not write the sentinel when the completed sync left the vault empty", () => {
     const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
 
     expect(run.status).toBe(0)
-    expect(existsSync(run.sentinelPath)).toBe(true)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+    expect(existsSync(run.sentinelPath)).toBe(false)
   })
 
   // -- XDG_CONFIG_HOME relocation (single-volume mode) ---------------------
 
   it("writes the sentinel under $HOME/.config when XDG_CONFIG_HOME is unset", () => {
-    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultDirs: ["Notes"],
+    })
 
     expect(run.status).toBe(0)
     expect(run.sentinelPath).toBe(run.legacySentinelPath)
@@ -409,6 +427,7 @@ describe("init-first-sync gate script", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
+      vaultDirs: ["Notes"],
       xdgConfigHome: true,
     })
 

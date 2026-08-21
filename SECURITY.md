@@ -129,8 +129,8 @@ mechanism-level detail.
   completion before the server starts, so memory bootstrap can never race
   an incoming sync
 - Sync-state vault guard (remote image): a sentinel on the config volume
-  tracks prior sync completion — if the vault volume is empty but a prior
-  sync completed, the container refuses to start before any sync attempt,
+  records that a prior sync delivered files — if the vault volume is empty
+  but that sentinel exists, the container refuses to start before any sync attempt,
   preventing the sync engine from interpreting the empty vault as mass
   local deletions
 - Memory shrink guard: refuses writes that would remove >50% of a file's
