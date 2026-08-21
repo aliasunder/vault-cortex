@@ -126,6 +126,10 @@ src/
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
       server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
+    docker/                            # Remote image boot tier (npm run test:remote-boot; excluded from npm test)
+      docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
+      remote-image-boot.test.ts        #   s6 init chain end-to-end against the built :remote image, ob stubbed
+      fixtures/ob                      #   POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -910,7 +914,11 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   `init-setup-user.test.ts`, `print-derived-env.test.ts`), run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
-  include for them.
+  include for them. Whole-image behaviour — the chain's ordering, the
+  `container_environment` files it publishes, the volume layout, and
+  the guards that stop the container — is the remote-boot tier's job
+  (`src/__tests__/docker/`, see "Remote image boot tests — when to
+  add"); per-script branch coverage stays in the `sh` specs.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).
@@ -1016,6 +1024,41 @@ from `npm test`).
 - Flag parsing — `program.test.ts` covers Commander.
 - Prompt branching logic — unit tests cover via scripted answers.
 - Docker interaction — unit tests inject `DockerRunner` stubs.
+
+### Remote image boot tests — when to add
+
+Remote image boot tests (`src/__tests__/docker/`) run the built
+`:remote` image with the obsidian-headless CLI replaced by the
+`fixtures/ob` stub (bind-mounted over the real `cli.js`), so the s6
+init chain runs end-to-end without Sync credentials or network. They
+catch what the per-script `sh` specs structurally can't — oneshot
+ordering, what `init-derive-env` actually publishes to
+`/run/s6/container_environment/`, where the sentinel, ownership record
+and index land on each volume layout, and whether a guard really stops
+the container. Run via `npm run test:remote-boot` against a prior
+`docker build --target remote -t vault-cortex:remote-ci .` (separate
+vitest config, excluded from `npm test`); `arch_smoke.yml` runs it on
+both architectures on every PR. One container boot per `describe` —
+group assertions under an existing boot before adding a new one.
+
+**Always add:**
+
+- New init oneshot, or a change to oneshot ordering → extend the
+  expected `ob` call sequence or add a published-file assertion.
+- New variable derived by `print-derived-env` → assert its
+  `container_environment` file (exact bytes, no trailing newline).
+- New guard that stops the container → a scenario in the guards block
+  asserting the exact ERROR line and the failing service's name.
+- Change to where the sentinel, `.applied-ids`, or index lives → update
+  the layout assertions for both volume layouts.
+
+**Never add:**
+
+- Branch logic inside one script (retry counts, warning text) — the
+  `sh` specs in `src/vault-mcp/__tests__/` cover it without a boot.
+- Server tool behaviour — the integration tier
+  (`src/__tests__/integration/`) covers it without Docker.
+- Anything that needs real Obsidian Sync — that stays a Test Deploy.
 
 ## SST conventions
 

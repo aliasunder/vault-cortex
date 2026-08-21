@@ -131,8 +131,9 @@ truth. Key points:
 5. **Required checks must pass** — the `CI` workflow runs prettier, lint,
    test, and build on every PR. The `Arch Smoke` workflow builds the Docker
    image and boots it on native amd64 and arm64 runners (`arch-smoke (amd64)`
-   and `arch-smoke (arm64)` checks), with the arm64 check also build-verifying
-   the remote image target — a native-binding, startup, or remote-build
+   and `arch-smoke (arm64)` checks), and on both architectures also boots the
+   remote image with a stubbed Sync client to run its init chain end-to-end
+   (`npm run test:remote-boot`) — a native-binding, startup, or init-chain
    failure on either architecture blocks the merge. Two security scans also gate merges:
    **Gitleaks** (secret detection) and **Trivy** (vulnerability scan of the
    Docker image built from your branch — a fixable CRITICAL/HIGH CVE fails

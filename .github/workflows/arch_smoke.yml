@@ -11,9 +11,14 @@ name: Arch Smoke
 #      returning 200 proves better-sqlite3 + sqlite-vec loaded and the
 #      FTS index built (server.ts exits 1 on any startup failure), then
 #      an authenticated MCP initialize round-trip is asserted
-#   3. arm64 only: build --target remote as a compile check (build-only —
-#      trivy-pr already builds remote on amd64, and booting remote would
-#      need obsidian-sync credentials)
+#   3. build --target remote, then `npm run test:remote-boot` boots it with
+#      the obsidian-headless CLI stubbed (src/__tests__/docker/fixtures/ob)
+#      — the s6 init chain runs end-to-end without Sync credentials:
+#      env derivation, ownership record, login → sync-setup → first-sync
+#      ordering, sentinel, index location, STORAGE_ROOT single-volume
+#      layout, restart reuse, and the guards that stop the container.
+#      The chain was validated by hand against real Sync before it
+#      shipped; this is the per-PR regression net.
 #
 # EMBEDDING_ENABLED=false at runtime is fine: onnxruntime-node's dynamic
 # import is never reached, but the deps-stage assertion already executed
@@ -85,17 +90,17 @@ jobs:
             type=gha
           cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-local
 
-      # Compile check only: nothing had ever built the remote target for
-      # arm64 before merge. No load/tags — the image is never run, and
-      # amd64 remote coverage is trivy-pr's job (building it here too
-      # would be pure redundancy in the same PR run). Reads the local
-      # scope too — both targets share the base/deps/build stages.
-      - name: Build image from branch (remote target, arm64 compile check)
-        if: matrix.arch == 'arm64'
+      # Loaded on both legs so the remote-boot tier below can run it by
+      # tag. Reads the local scope too — both targets share the
+      # base/deps/build stages — and the amd64 remote scope is seeded by
+      # the main push like the others.
+      - name: Build image from branch (remote target)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           target: remote
+          load: true
+          tags: vault-cortex:remote-ci
           build-args: APT_UPGRADE_DATE=${{ steps.date.outputs.date }}
           cache-from: |
             type=gha,scope=arch-smoke-${{ matrix.arch }}-remote
@@ -181,9 +186,25 @@ jobs:
           fi
           echo "MCP initialize ok"
 
+      # The remote-boot tier is a vitest suite, so it needs the repo's Node
+      # toolchain. It runs after the local smoke on purpose: a native-binding
+      # regression still fails fast, before the install.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Remote image boot tests (stubbed Sync client)
+        run: npm run test:remote-boot
+        env:
+          REMOTE_IMAGE: vault-cortex:remote-ci
+
       # Fires on any prior step's failure (build included — hence the
-      # container-existence guard) so a red run is diagnosable from the
-      # Actions log alone.
+      # container-existence guards) so a red run is diagnosable from the
+      # Actions log alone. The tier names its containers remote-boot-*
+      # and removes them itself; anything still present is a failure
+      # artifact worth dumping.
       - name: Dump container diagnostics
         if: failure()
         run: |
@@ -192,10 +213,16 @@ jobs:
             docker inspect -f '{{json .State}}' smoke
             docker logs smoke
           fi
+          for container in $(docker ps -aq --filter name=remote-boot-); do
+            docker inspect -f '{{.Name}} {{json .State}}' "$container"
+            docker logs "$container"
+          done
 
-      - name: Remove smoke container
+      - name: Remove smoke containers
         if: always()
         run: |
           if docker inspect smoke > /dev/null 2>&1; then
             docker rm -f smoke
           fi
+          docker ps -aq --filter name=remote-boot- | xargs -r docker rm -f -v
+          docker volume ls -q --filter name=remote-boot- | xargs -r docker volume rm
