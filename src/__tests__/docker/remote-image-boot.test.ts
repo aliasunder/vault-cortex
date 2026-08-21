@@ -417,7 +417,14 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       "-mindepth",
       "1",
     ])
-    expect(legacyEntries.stdout).toBe("")
+    // Assert both exit code and stdout: code 0 proves all three
+    // directories exist (find errors on a missing path), stdout ""
+    // proves they're empty. Without the code check, a missing directory
+    // would coincidentally pass (find errors to stderr, stdout stays "").
+    expect({ code: legacyEntries.code, stdout: legacyEntries.stdout }).toEqual({
+      code: 0,
+      stdout: "",
+    })
   })
 
   describe("after docker restart", () => {
