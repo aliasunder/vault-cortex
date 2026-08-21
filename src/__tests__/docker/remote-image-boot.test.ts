@@ -56,8 +56,8 @@ const BOOT_DEADLINE_MS = 120_000
 const STOP_DEADLINE_MS = 20_000
 
 /** A first sync that keeps failing takes three attempts with two 10 s
- *  sleeps between them (init-first-sync's MAX_ATTEMPTS=3 when VAULT_NAME is
- *  set), so those scenarios get their own, longer budgets. */
+ *  sleeps between them (init-first-sync's MAX_ATTEMPTS=3), so those
+ *  scenarios get their own, longer budgets. */
 const FAILING_SYNC_TEST_TIMEOUT_MS = 120_000
 const FAILING_SYNC_STOP_DEADLINE_MS = 90_000
 
@@ -691,6 +691,73 @@ describe("remote image boot — empty remote vault with the memory layer disable
     })
 
     it("syncs again instead of stopping on the empty-vault guard", async () => {
+      const logsSinceRestart = await containerLogs(name, restartedAt)
+      expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
+      expect(logsSinceRestart).not.toContain(
+        "The vault is empty but this device has previously synced.",
+      )
+    })
+  })
+})
+
+describe("remote image boot — remote vault holding only synced .obsidian/ settings", () => {
+  // Settings are synced but there are no notes and memory is off. The
+  // settings are content a wipe could delete, so the sentinel must be
+  // written — and on restart the guard must read them as content too, or
+  // the device locks itself out.
+  const name = uniqueName("config-only")
+  const env = {
+    ...BASE_ENV,
+    MEMORY_ENABLED: "false",
+    PUBLIC_URL: "http://localhost:8000",
+    OB_STUB_SYNC_CONFIG_ONLY: "1",
+  }
+  let handle: ContainerHandle | undefined
+  let port = 0
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env,
+      volumes: [],
+      publishPort: true,
+    })
+    port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("writes the sentinel for a vault whose only content is .obsidian/ settings", async () => {
+    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([
+      "/vault/.obsidian/appearance.json",
+    ])
+    expect(
+      await pathExistsInContainer({
+        name,
+        path: "/home/obsidian/.config/.vault-synced",
+      }),
+    ).toBe(true)
+  })
+
+  describe("after docker restart", () => {
+    let restartedAt = ""
+
+    beforeAll(async () => {
+      const beforeRestart = await bootedStartedAt(name)
+      await docker(["restart", name])
+      restartedAt = await bootedStartedAt(name)
+      if (restartedAt === beforeRestart) {
+        throw new Error("docker restart did not produce a new StartedAt")
+      }
+      port = await publishedPort(name)
+      await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    })
+
+    it("reads the synced settings as content and syncs again", async () => {
       const logsSinceRestart = await containerLogs(name, restartedAt)
       expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
       expect(logsSinceRestart).not.toContain(

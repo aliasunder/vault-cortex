@@ -8,7 +8,7 @@ import {
   rmSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -71,6 +71,8 @@ type GateRunOptions = {
   memoryEnabled?: string
   /** Vault-relative directories to create before running. */
   vaultDirs?: string[]
+  /** Vault-relative empty files to create before running (parents created). */
+  vaultFiles?: string[]
   /** When false, VAULT_PATH points at a directory that doesn't exist. */
   vaultExists?: boolean
   /** When true, pre-creates the .vault-synced sentinel (simulates a prior sync). */
@@ -99,6 +101,10 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   }
   for (const vaultDir of options.vaultDirs ?? []) {
     mkdirSync(join(vaultPath, vaultDir), { recursive: true })
+  }
+  for (const vaultFile of options.vaultFiles ?? []) {
+    mkdirSync(dirname(join(vaultPath, vaultFile)), { recursive: true })
+    writeFileSync(join(vaultPath, vaultFile), "")
   }
   if (options.sentinel) {
     writeFileSync(sentinelPath, "")
@@ -352,12 +358,12 @@ describe("init-first-sync gate script", () => {
     )
   })
 
-  it("refuses when the vault has only hidden entries and a prior sync completed", () => {
+  it("refuses when the vault holds only the Sync client's own .obsidian/.sync.lock and a prior sync completed", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
       sentinel: true,
-      vaultDirs: [".obsidian"],
+      vaultDirs: [".obsidian/.sync.lock"],
     })
 
     expect(run.status).toBe(1)
@@ -365,6 +371,34 @@ describe("init-first-sync gate script", () => {
     expect(run.stderr).toContain(
       "ERROR: The vault is empty but this device has previously synced.",
     )
+  })
+
+  it("refuses when the vault has only a non-Obsidian dotfile and a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+      vaultFiles: [".trash"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("allows sync when the vault holds only synced Obsidian config and a prior sync completed", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      sentinel: true,
+      vaultFiles: [".obsidian/app.json"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
   it("allows sync when the vault has visible files and a prior sync completed", () => {
@@ -407,6 +441,28 @@ describe("init-first-sync gate script", () => {
     expect(run.syncCalls).toBe(1)
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
     expect(existsSync(run.sentinelPath)).toBe(false)
+  })
+
+  it("does not write the sentinel when the sync left only its own .obsidian/.sync.lock", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultDirs: [".obsidian/.sync.lock"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(existsSync(run.sentinelPath)).toBe(false)
+  })
+
+  it("writes the sentinel when the sync delivered only Obsidian config", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultFiles: [".obsidian/app.json"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(existsSync(run.sentinelPath)).toBe(true)
   })
 
   // -- XDG_CONFIG_HOME relocation (single-volume mode) ---------------------

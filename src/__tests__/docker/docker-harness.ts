@@ -245,9 +245,9 @@ export const waitForHealthz = async ({
     // a server that accepts the connection but never answers would otherwise
     // hold `fetch` open past the deadline and the failure would surface as a
     // bare hook timeout with no logs attached.
-    const attemptTimeoutMs = Math.min(
-      HEALTHZ_ATTEMPT_TIMEOUT_MS,
-      deadline - Date.now(),
+    const attemptTimeoutMs = Math.max(
+      0,
+      Math.min(HEALTHZ_ATTEMPT_TIMEOUT_MS, deadline - Date.now()),
     )
     try {
       const response = await fetch(`http://127.0.0.1:${port}/healthz`, {

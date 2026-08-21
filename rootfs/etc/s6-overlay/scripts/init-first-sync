@@ -10,8 +10,8 @@
 # upstream (#440 incident 2026-08-15). FATAL in this case — the user must
 # restore the vault volume or wipe the config volume to re-register as a
 # fresh device. The sentinel is only written when the completed sync left
-# visible files behind: a vault that is empty on the remote too has nothing
-# a wipe could delete, and a sentinel there would stop every later boot.
+# content behind: a vault that is empty on the remote too has nothing a
+# wipe could delete, and a sentinel there would stop every later boot.
 #
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
@@ -38,18 +38,25 @@ fi
 # emptied.
 SYNC_SENTINEL="${XDG_CONFIG_HOME:-$HOME/.config}/.vault-synced"
 
-# Pre-sync guard: an empty vault with a prior-sync sentinel means the vault
-# volume was wiped while the config volume (device state) was kept — syncing
-# would push mass deletions. The glob excludes dotfiles, so .obsidian/ alone
-# counts as empty.
-vault_has_visible_files() {
-  for entry in "$VAULT_PATH"/*; do
-    [ -e "$entry" ] && return 0
+# "Content" is anything sync could have delivered: a visible entry, or an
+# entry inside .obsidian/ (synced settings and plugin data). Other dotfiles
+# are not synced. `ob sync` itself creates .obsidian/ and a .sync.lock
+# directory in it before transferring anything (obsidian-headless cli.js),
+# so those two alone do not count — otherwise every empty vault would look
+# like it had content after its first sync.
+vault_has_content() {
+  for entry in "$VAULT_PATH"/* "$VAULT_PATH"/.obsidian/* "$VAULT_PATH"/.obsidian/.[!.]*; do
+    [ -e "$entry" ] || continue
+    [ "$entry" = "$VAULT_PATH/.obsidian/.sync.lock" ] && continue
+    return 0
   done
   return 1
 }
 
-if [ -f "$SYNC_SENTINEL" ] && ! vault_has_visible_files; then
+# Pre-sync guard: a vault without content but with a prior-sync sentinel
+# means the vault volume was wiped while the config volume (device state)
+# was kept — syncing would push mass deletions.
+if [ -f "$SYNC_SENTINEL" ] && ! vault_has_content; then
   echo "[obsidian-sync] ERROR: The vault is empty but this device has previously synced." >&2
   echo "[obsidian-sync] Starting sync in this state would cause the sync engine to interpret" >&2
   echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
@@ -77,7 +84,7 @@ while :; do
   if s6-setuidgid obsidian ob sync; then
     # Only a vault with content needs the wipe guard on later boots; an
     # empty remote vault (memory disabled, no notes yet) must stay bootable.
-    if vault_has_visible_files; then
+    if vault_has_content; then
       touch "$SYNC_SENTINEL"
     fi
     echo "[obsidian-sync] First sync complete."

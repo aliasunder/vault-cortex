@@ -724,12 +724,14 @@ process has spawned. Two mechanisms with distinct jobs:
   MCP server.
 - **`init-first-sync` gates vault state.** Three outcomes, checked in order:
   1. **Deletion-storm guard** (before sync runs): a sentinel on the config
-     volume records that a prior sync delivered files. If the sentinel exists
-     but the vault is empty (no visible files — dotfiles like `.obsidian/`
-     excluded), the container refuses to start.
+     volume records that a prior sync delivered content. If the sentinel
+     exists but the vault has no content, the container refuses to start.
+     Content is any visible entry or anything inside `.obsidian/` (synced
+     settings) except the Sync client's own `.sync.lock`; other dotfiles are
+     not synced and do not count.
   2. **Sync succeeds**: the first sync runs to completion before any service
-     starts. The sentinel is written only if the vault now has visible files
-     — an empty remote vault has nothing a wipe could delete, and a sentinel
+     starts. The sentinel is written only if the vault now has content — an
+     empty remote vault has nothing a wipe could delete, and a sentinel
      beside it would stop every later boot.
   3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
      real files (memory layer enabled, memory folder absent). Warn-and-continue

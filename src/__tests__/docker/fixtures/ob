@@ -21,6 +21,8 @@
 #                          init-first-sync walks its retry and failure paths
 #   OB_STUB_SYNC_EMPTY=1 — one-shot `sync` succeeds without writing notes:
 #                          a remote vault that has nothing in it yet
+#   OB_STUB_SYNC_CONFIG_ONLY=1 — one-shot `sync` delivers only .obsidian/
+#                          settings, no notes
 set -eu
 
 CALL_LOG="${XDG_CONFIG_HOME:-$HOME/.config}/ob-calls.log"
@@ -41,7 +43,15 @@ case "${1:-}" in
       echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
       exit 1
     fi
+    # The real client creates .obsidian/ and takes a .obsidian/.sync.lock
+    # directory before transferring anything, so every one-shot sync
+    # leaves these behind — init-first-sync must not read them as content.
+    mkdir -p .obsidian/.sync.lock
     if [ "${OB_STUB_SYNC_EMPTY:-}" = "1" ]; then
+      exit 0
+    fi
+    if [ "${OB_STUB_SYNC_CONFIG_ONLY:-}" = "1" ]; then
+      printf '{"theme":"obsidian"}\n' > .obsidian/appearance.json
       exit 0
     fi
     # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
