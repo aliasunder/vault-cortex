@@ -105,7 +105,6 @@ const HOSTED_OPTIONAL_ENV = {
   READONLY_MODE: "false",
   FILE_TOOLS_ENABLED: "true",
   SYNC_MODE: "bidirectional",
-  TZ: "UTC",
 }
 
 /**
@@ -157,7 +156,7 @@ describe("hosted platform templates", () => {
       expect(blueprint.services[0].healthCheckPath).toBe("/healthz")
     })
 
-    it("generates MCP_AUTH_TOKEN and prompts for the Sync token and vault name", () => {
+    it("generates MCP_AUTH_TOKEN and prompts for the Sync token, vault name, and timezone", () => {
       const envVars = renderEnvVarsByKey(readRenderBlueprint())
       expect(envVars.get("MCP_AUTH_TOKEN")).toEqual({
         key: "MCP_AUTH_TOKEN",
@@ -171,6 +170,7 @@ describe("hosted platform templates", () => {
         key: "VAULT_NAME",
         sync: false,
       })
+      expect(envVars.get("TZ")).toEqual({ key: "TZ", sync: false })
     })
 
     it("leaves the boot-derived variables to init-derive-env", () => {

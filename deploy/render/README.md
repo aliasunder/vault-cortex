@@ -42,15 +42,16 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
-Render reads the Blueprint and asks for two values before it creates
+Render reads the Blueprint and asks for three values before it creates
 anything:
 
-| Field                 | Value                                                     |
-| --------------------- | --------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)            |
-| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync |
+| Field                 | Value                                                                                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                             |
+| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                  |
+| `TZ`                  | Your timezone as an IANA name (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill both in **before** the first deploy — a container that starts without a
+Fill the token and vault name in **before** the first deploy — a container that starts without a
 vault name creates an empty vault of its own. If your vault uses end-to-end
 encryption, the first deploy stops at Obsidian Sync setup; add
 `VAULT_PASSWORD` under the service's **Environment** tab and click **Manual
@@ -143,14 +144,14 @@ tab (each change triggers a redeploy):
 | `MCP_AUTH_TOKEN`      | generated       | Your MCP client's token. Change it here to rotate it.                                                                                                   |
 | `OBSIDIAN_AUTH_TOKEN` | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                           |
 | `VAULT_NAME`          | yours           | The vault this container syncs.                                                                                                                         |
+| `TZ`                  | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                       |
 | `MEMORY_ENABLED`      | `true`          | The About Me/ memory layer and its tools. Set `false` to hide them and skip creating the folder.                                                        |
 | `EMBEDDING_ENABLED`   | `true`          | Semantic search. Set `false` to skip the models and use keyword search only — the container fits in much less memory.                                   |
 | `READONLY_MODE`       | `false`         | Set `true` to hide every tool that changes the vault — clients can only read and search.                                                                |
 | `FILE_TOOLS_ENABLED`  | `true`          | `vault_read_file` and `vault_list_files`. Set `false` when Obsidian Sync has attachment syncing off.                                                    |
 | `SYNC_MODE`           | `bidirectional` | Sync direction: `bidirectional`, `pull-only`, or `push-only`.                                                                                           |
-| `TZ`                  | `UTC`           | Your IANA timezone (for example `America/Toronto`) — affects daily notes and memory timestamps.                                                         |
 
-The last six are the settings most worth changing on a hosted instance;
+The last five are the settings most worth changing on a hosted instance;
 the Blueprint pre-fills them with the image defaults so you can edit them in
 place. `VAULT_PASSWORD` (end-to-end-encrypted vaults only) and every other
 optional setting use the same names as the remote quickstart's

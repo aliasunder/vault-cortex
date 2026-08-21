@@ -46,13 +46,14 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 
 Railway asks for these values before it creates anything:
 
-| Field                 | Value                                                                |
-| --------------------- | -------------------------------------------------------------------- |
-| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync            |
-| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                       |
+| Field                 | Value                                                                                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                  |
+| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN` | The token from [Prerequisites](#prerequisites)                                                                                                             |
+| `TZ`                  | Your timezone as an IANA name (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill in the token and vault name **before** the first deploy — a container
+Fill in the token, vault name, and timezone **before** the first deploy — a container
 that starts without a vault name creates an empty vault of its own.
 
 Click **Deploy**. Railway creates the service and volume, pulls the image,
@@ -159,14 +160,14 @@ The template sets these; change them under the service's **Variables** tab
 | `OBSIDIAN_AUTH_TOKEN`             | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                 |
 | `VAULT_NAME`                      | yours           | The vault this container syncs.                                                                                                               |
 | `VAULT_PASSWORD`                  | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                        |
+| `TZ`                              | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                             |
 | `MEMORY_ENABLED`                  | `true`          | The About Me/ memory layer and its tools. Set `false` to hide them and skip creating the folder.                                              |
 | `EMBEDDING_ENABLED`               | `true`          | Semantic search. Set `false` to skip the models and use keyword search only — the container fits in much less memory.                         |
 | `READONLY_MODE`                   | `false`         | Set `true` to hide every tool that changes the vault — clients can only read and search.                                                      |
 | `FILE_TOOLS_ENABLED`              | `true`          | `vault_read_file` and `vault_list_files`. Set `false` when Obsidian Sync has attachment syncing off.                                          |
 | `SYNC_MODE`                       | `bidirectional` | Sync direction: `bidirectional`, `pull-only`, or `push-only`.                                                                                 |
-| `TZ`                              | `UTC`           | Your IANA timezone (for example `America/Toronto`) — affects daily notes and memory timestamps.                                               |
 
-The last six are the settings most worth changing on a hosted instance;
+The last five are the settings most worth changing on a hosted instance;
 the template pre-fills them with the image defaults so you can edit them in
 place. Every other optional setting uses the same names as the remote
 quickstart's [Configuration table](../remote/#configuration) — add it as a
@@ -234,25 +235,25 @@ settings:
 | Healthcheck path  | `/healthz`                                            |
 | Restart policy    | On failure (Railway's default)                        |
 
-Variables, in the order the deploy form shows them (everything after the three inputs sits under **Pre-Configured Environment Variables**, collapsed):
+Variables, in the order the deploy form shows them (everything after the four inputs sits under **Pre-Configured Environment Variables**, collapsed):
 
-| Variable                          | Value                                 | Description shown on the deploy form                                                                         |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                    |
-| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                         |
-| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                        |
-| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                     |
-| `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                  |
-| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.   |
-| `DEVICE_NAME`                     | `vault-cortex`                        | The device name Obsidian Sync shows for this container                                                       |
-| `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address           |
-| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index |
-| `MEMORY_ENABLED`                  | `true`                                | The About Me/ memory layer and its tools. Set false to hide them and skip creating the folder                |
-| `EMBEDDING_ENABLED`               | `true`                                | Semantic search. Set false to skip the models and use keyword search only — fits in much less memory         |
-| `READONLY_MODE`                   | `false`                               | Set true to hide every tool that changes the vault — clients can only read and search                        |
-| `FILE_TOOLS_ENABLED`              | `true`                                | vault_read_file and vault_list_files. Set false when Obsidian Sync has attachment syncing off                |
-| `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only, or push-only                                                       |
-| `TZ`                              | `UTC`                                 | Your IANA timezone (for example America/Toronto) — affects daily notes and memory timestamps                 |
+| Variable                          | Value                                 | Description shown on the deploy form                                                                                                                       |
+| --------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                  |
+| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                                                                      |
+| `TZ`                              | _(optional input)_                    | Your timezone as an IANA name (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                                                                   |
+| `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                                                                |
+| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.                                                 |
+| `DEVICE_NAME`                     | `vault-cortex`                        | The device name Obsidian Sync shows for this container                                                                                                     |
+| `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address                                                         |
+| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index                                               |
+| `MEMORY_ENABLED`                  | `true`                                | The About Me/ memory layer and its tools. Set false to hide them and skip creating the folder                                                              |
+| `EMBEDDING_ENABLED`               | `true`                                | Semantic search. Set false to skip the models and use keyword search only — fits in much less memory                                                       |
+| `READONLY_MODE`                   | `false`                               | Set true to hide every tool that changes the vault — clients can only read and search                                                                      |
+| `FILE_TOOLS_ENABLED`              | `true`                                | vault_read_file and vault_list_files. Set false when Obsidian Sync has attachment syncing off                                                              |
+| `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only, or push-only                                                                                                     |
 
 Update the template whenever the image tag, a boot-required variable, the
 port, or the health path changes, then re-publish; existing deployments keep
