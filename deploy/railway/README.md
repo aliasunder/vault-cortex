@@ -12,7 +12,7 @@ index, and Obsidian Sync's device state
 ([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
 Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting) · [Template definition](#template-definition-maintainers)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting) · [Template definition](#template-definition-maintainers)
 
 ## Prerequisites
 
@@ -87,11 +87,52 @@ URL, the port, the storage layout — is set by the template.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Variables** tab. Railway
   generated it for you; your MCP client enters it once on the consent page.
 
-Railway shows every variable's value in the dashboard. Once you have copied
-the token, you can hide the sensitive ones for good: open the **⋮** menu
-beside `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_PASSWORD` and
-choose **Seal**. A sealed value still reaches the container but can never be
-viewed again — to rotate it later, set a new value.
+## Security
+
+Out of the box, every request to your instance travels over HTTPS to
+Railway's edge and is checked by the server before any vault data moves:
+
+- **HTTPS everywhere.** Railway provisions and renews the certificate and
+  terminates TLS at its edge; the container is never reachable directly.
+- **Nothing without the token.** `/mcp` answers `401` to any request that
+  lacks a valid token. OAuth clients get one through the consent page (full
+  OAuth 2.1 with PKCE and refresh-token rotation); scripts send
+  `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
+  endpoints are rate-limited per visitor address — `TRUST_PROXY_HOPS=2` is
+  what lets the server see that address through Railway's proxies.
+- **Encrypted at rest.** The volume holding your vault, index, and Sync
+  device state is encrypted by Railway
+  ([Trust Center](https://trust.railway.com)).
+- **Logs carry no secrets.** The server never writes tokens, passwords, or
+  note contents to its logs — only paths, tool names, and outcomes.
+
+What the server can't protect is the Railway account that holds it: anyone
+who can open this project in the dashboard can read the variables, the logs,
+and the volume. Four steps close that, all from the dashboard:
+
+1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`: open the
+   **⋮** menu beside `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and
+   `VAULT_PASSWORD` and choose **Seal**. A sealed value still reaches the
+   container but can never be viewed again — to rotate it later, set a new
+   value. The Sync token matters most: it logs in to your whole Obsidian
+   Sync account, not just this vault.
+2. **Turn on two-factor authentication** for your Railway account
+   (profile photo → **Account Settings → Account Security**).
+3. **Keep the project to yourself.** Workspace members you invite can read
+   unsealed variables and every log line.
+4. **Schedule volume backups** (open the volume on the project canvas →
+   **Backups**). A daily schedule keeps six days; restoring is one click.
+
+Optional settings narrow what a connected client can do — change them
+under **Variables**: `READONLY_MODE=true` removes every tool that writes to
+the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
+those tool groups entirely (see [Configuration](#configuration)).
+
+Rotating `MCP_AUTH_TOKEN` invalidates the access tokens issued under it;
+clients that still hold a refresh token reconnect on their own, so remove
+the server from a client you no longer trust rather than relying on
+rotation alone. The full attack-surface inventory is in
+[SECURITY.md](../../SECURITY.md).
 
 ## First start
 

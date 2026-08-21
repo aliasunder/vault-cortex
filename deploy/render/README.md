@@ -13,7 +13,7 @@ Sync's device state
 ([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
 Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -86,6 +86,48 @@ port, the storage layout — is set by the Blueprint.
   Your MCP client connects at `https://<name>.onrender.com/mcp`.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
+
+## Security
+
+Out of the box, every request to your instance travels over HTTPS to
+Render's edge and is checked by the server before any vault data moves:
+
+- **HTTPS everywhere.** Render provisions and renews the certificate and
+  terminates TLS at its edge; the container is never reachable directly.
+- **Nothing without the token.** `/mcp` answers `401` to any request that
+  lacks a valid token. OAuth clients get one through the consent page (full
+  OAuth 2.1 with PKCE and refresh-token rotation); scripts send
+  `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
+  endpoints are rate-limited per visitor address — `TRUST_PROXY_HOPS=2` is
+  what lets the server see that address through Render's proxies.
+- **Encrypted at rest, snapshotted daily.** The disk holding your vault,
+  index, and Sync device state is encrypted, and Render snapshots it every
+  24 hours (kept at least seven days) — restore from **Disks → Snapshots**.
+- **Logs carry no secrets.** The server never writes tokens, passwords, or
+  note contents to its logs — only paths, tool names, and outcomes.
+
+What the server can't protect is the Render account that holds it: anyone
+who can open this service in the dashboard can read the environment
+variables, the logs, and the disk. Two steps close that, both from the
+dashboard:
+
+1. **Turn on two-factor authentication** for your Render account
+   (**Account Settings → Account Security**). The Sync token is the value
+   that matters most: it logs in to your whole Obsidian Sync account, not
+   just this vault.
+2. **Keep the workspace to yourself.** Members you invite can read every
+   environment variable and every log line.
+
+Optional settings narrow what a connected client can do — change them
+under **Environment**: `READONLY_MODE=true` removes every tool that writes
+to the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
+those tool groups entirely (see [Configuration](#configuration)).
+
+Rotating `MCP_AUTH_TOKEN` invalidates the access tokens issued under it;
+clients that still hold a refresh token reconnect on their own, so remove
+the server from a client you no longer trust rather than relying on
+rotation alone. The full attack-surface inventory is in
+[SECURITY.md](../../SECURITY.md).
 
 ## First start
 
