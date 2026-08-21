@@ -197,20 +197,16 @@ jobs:
         env:
           REMOTE_IMAGE: vault-cortex:remote-ci
 
-      # Fires on any prior step's failure (build included — hence the
-      # container-existence guards) so a red run is diagnosable from the
-      # Actions log alone. The tier names its containers remote-boot-*
-      # and removes them itself; anything still present is a failure
-      # artifact worth dumping.
+      # Fires on any prior step's failure (build included, so the list may
+      # be empty) so a red run is diagnosable from the Actions log alone.
+      # Two name filters OR together: the boot smoke's fixed `smoke` name
+      # and the remote-boot tier's remote-boot-* containers, which the
+      # tier removes itself — anything still present is a failure artifact.
       - name: Dump container diagnostics
         if: failure()
         run: |
           docker ps -a
-          if docker inspect smoke > /dev/null 2>&1; then
-            docker inspect -f '{{json .State}}' smoke
-            docker logs smoke
-          fi
-          for container in $(docker ps -aq --filter name=remote-boot-); do
+          for container in $(docker ps -aq --filter name=smoke --filter name=remote-boot-); do
             docker inspect -f '{{.Name}} {{json .State}}' "$container"
             docker logs "$container"
           done
@@ -218,8 +214,5 @@ jobs:
       - name: Remove smoke containers
         if: always()
         run: |
-          if docker inspect smoke > /dev/null 2>&1; then
-            docker rm -f smoke
-          fi
-          docker ps -aq --filter name=remote-boot- | xargs -r docker rm -f -v
+          docker ps -aq --filter name=smoke --filter name=remote-boot- | xargs -r docker rm -f -v
           docker volume ls -q --filter name=remote-boot- | xargs -r docker volume rm
