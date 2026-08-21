@@ -78,6 +78,25 @@
 
 
 
+
+## [0.39.0] — 2026-08-21
+
+### Features
+
+- **remote:** STORAGE_ROOT single-volume mode and PUBLIC_URL derivation at boot (#472)
+
+### Bug Fixes
+
+- Mirror the owner check in the umm_review concurrency noop guard (#474)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.38.2
+
+### Maintenance
+
+- Bump umm-actually to v0.3.11 (#473)
+
 ## [0.38.2] — 2026-08-20
 
 ### Bug Fixes
