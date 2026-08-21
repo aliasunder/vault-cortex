@@ -251,26 +251,35 @@ export const execInContainer = (
 
 /** Raw bytes of a file inside the container — no trimming, so a stray
  *  trailing newline in a published env value fails an exact assertion. */
-export const readContainerFile = (
-  name: string,
-  path: string,
-): Promise<string> => dockerOrThrow(["exec", name, "cat", path])
+export const readContainerFile = ({
+  name,
+  path,
+}: {
+  name: string
+  path: string
+}): Promise<string> => dockerOrThrow(["exec", name, "cat", path])
 
 /** Whether a path exists inside the container, via `test -e`'s exit code
  *  rather than a failed `cat` (which could also mean a permissions error). */
-export const pathExistsInContainer = async (
-  name: string,
-  path: string,
-): Promise<boolean> => {
+export const pathExistsInContainer = async ({
+  name,
+  path,
+}: {
+  name: string
+  path: string
+}): Promise<boolean> => {
   const result = await execInContainer(name, ["test", "-e", path])
   return result.code === 0
 }
 
 /** Sorted regular-file paths under a directory inside the container. */
-export const listFilesInContainer = async (
-  name: string,
-  directory: string,
-): Promise<string[]> => {
+export const listFilesInContainer = async ({
+  name,
+  directory,
+}: {
+  name: string
+  directory: string
+}): Promise<string[]> => {
   const listing = await dockerOrThrow([
     "exec",
     name,

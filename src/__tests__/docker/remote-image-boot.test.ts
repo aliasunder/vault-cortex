@@ -175,14 +175,14 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("publishes VAULT_PATH and INDEX_DB_PATH to container_environment without a trailing newline", async () => {
-    const vaultPath = await readContainerFile(
+    const vaultPath = await readContainerFile({
       name,
-      "/run/s6/container_environment/VAULT_PATH",
-    )
-    const indexDbPath = await readContainerFile(
+      path: "/run/s6/container_environment/VAULT_PATH",
+    })
+    const indexDbPath = await readContainerFile({
       name,
-      "/run/s6/container_environment/INDEX_DB_PATH",
-    )
+      path: "/run/s6/container_environment/INDEX_DB_PATH",
+    })
     expect({ vaultPath, indexDbPath }).toEqual({
       vaultPath: "/vault",
       indexDbPath: "/data/index.db",
@@ -190,14 +190,14 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("does not publish LOG_DIR or XDG_CONFIG_HOME when STORAGE_ROOT is unset", async () => {
-    const logDirPublished = await pathExistsInContainer(
+    const logDirPublished = await pathExistsInContainer({
       name,
-      "/run/s6/container_environment/LOG_DIR",
-    )
-    const xdgPublished = await pathExistsInContainer(
+      path: "/run/s6/container_environment/LOG_DIR",
+    })
+    const xdgPublished = await pathExistsInContainer({
       name,
-      "/run/s6/container_environment/XDG_CONFIG_HOME",
-    )
+      path: "/run/s6/container_environment/XDG_CONFIG_HOME",
+    })
     expect({ logDirPublished, xdgPublished }).toEqual({
       logDirPublished: false,
       xdgPublished: false,
@@ -205,29 +205,34 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("records the applied ownership IDs as 1000:1000 in the default config dir", async () => {
-    const appliedIds = await readContainerFile(
+    const appliedIds = await readContainerFile({
       name,
-      "/home/obsidian/.config/.applied-ids",
-    )
+      path: "/home/obsidian/.config/.applied-ids",
+    })
     expect(appliedIds).toBe("1000:1000\n")
   })
 
   it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×2, sync, sync --continuous", async () => {
-    const callLog = await readContainerFile(
+    const callLog = await readContainerFile({
       name,
-      "/home/obsidian/.config/ob-calls.log",
-    )
+      path: "/home/obsidian/.config/ob-calls.log",
+    })
     expect(callLog).toBe(callLogOf(1))
   })
 
   it("writes the first-sync sentinel to /home/obsidian/.config/.vault-synced", async () => {
     expect(
-      await pathExistsInContainer(name, "/home/obsidian/.config/.vault-synced"),
+      await pathExistsInContainer({
+        name,
+        path: "/home/obsidian/.config/.vault-synced",
+      }),
     ).toBe(true)
   })
 
   it("creates the search index at /data/index.db", async () => {
-    expect(await pathExistsInContainer(name, "/data/index.db")).toBe(true)
+    expect(await pathExistsInContainer({ name, path: "/data/index.db" })).toBe(
+      true,
+    )
   })
 
   it("keeps `ob sync --continuous` supervised as svc-obsidian-sync", async () => {
@@ -281,7 +286,7 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("leaves the vault containing exactly the first-sync notes when memory is disabled", async () => {
-    expect(await listFilesInContainer(name, "/vault")).toEqual([
+    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([
       "/vault/Projects/Remote Boot.md",
       "/vault/Sync Log.md",
     ])
@@ -329,10 +334,10 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
           "PUBLIC_URL",
         ].map(async (variable) => [
           variable,
-          await readContainerFile(
+          await readContainerFile({
             name,
-            `/run/s6/container_environment/${variable}`,
-          ),
+            path: `/run/s6/container_environment/${variable}`,
+          }),
         ]),
       ),
     )
@@ -357,14 +362,14 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   })
 
   it("writes the ownership record and first-sync sentinel under /persist/config", async () => {
-    const appliedIds = await readContainerFile(
+    const appliedIds = await readContainerFile({
       name,
-      "/persist/config/.applied-ids",
-    )
-    const sentinelPresent = await pathExistsInContainer(
+      path: "/persist/config/.applied-ids",
+    })
+    const sentinelPresent = await pathExistsInContainer({
       name,
-      "/persist/config/.vault-synced",
-    )
+      path: "/persist/config/.vault-synced",
+    })
     expect({ appliedIds, sentinelPresent }).toEqual({
       appliedIds: "1000:1000\n",
       sentinelPresent: true,
@@ -372,10 +377,10 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   })
 
   it("creates the search index and log directory under /persist/data", async () => {
-    const indexPresent = await pathExistsInContainer(
+    const indexPresent = await pathExistsInContainer({
       name,
-      "/persist/data/index.db",
-    )
+      path: "/persist/data/index.db",
+    })
     const logsDir = await execInContainer(name, [
       "test",
       "-d",
@@ -393,10 +398,10 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       "-d",
       "/persist/vault/About Me",
     ])
-    const syncedNotePresent = await pathExistsInContainer(
+    const syncedNotePresent = await pathExistsInContainer({
       name,
-      "/persist/vault/Projects/Remote Boot.md",
-    )
+      path: "/persist/vault/Projects/Remote Boot.md",
+    })
     expect({ memoryDirExit: memoryDir.code, syncedNotePresent }).toEqual({
       memoryDirExit: 0,
       syncedNotePresent: true,
@@ -437,23 +442,23 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
 
     it("keeps the ownership record unchanged", async () => {
       expect(
-        await readContainerFile(name, "/persist/config/.applied-ids"),
+        await readContainerFile({ name, path: "/persist/config/.applied-ids" }),
       ).toBe("1000:1000\n")
     })
 
     it("runs the full Sync sequence again, appending to the first boot's log", async () => {
       expect(
-        await readContainerFile(name, "/persist/config/ob-calls.log"),
+        await readContainerFile({ name, path: "/persist/config/ob-calls.log" }),
       ).toBe(callLogOf(2))
     })
 
     it("keeps the first-sync sentinel and the synced notes", async () => {
-      const sentinelPresent = await pathExistsInContainer(
+      const sentinelPresent = await pathExistsInContainer({
         name,
-        "/persist/config/.vault-synced",
-      )
+        path: "/persist/config/.vault-synced",
+      })
       const syncedNotes = (
-        await listFilesInContainer(name, "/persist/vault")
+        await listFilesInContainer({ name, directory: "/persist/vault" })
       ).filter((path) => !path.startsWith("/persist/vault/About Me/"))
       expect({ sentinelPresent, syncedNotes }).toEqual({
         sentinelPresent: true,
@@ -542,10 +547,10 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
     })
 
     it("calls `ob sync` once per attempt before handing over to continuous sync", async () => {
-      const callLog = await readContainerFile(
+      const callLog = await readContainerFile({
         name,
-        "/home/obsidian/.config/ob-calls.log",
-      )
+        path: "/home/obsidian/.config/ob-calls.log",
+      })
       expect(callLog).toBe(
         [
           "login",
@@ -564,10 +569,10 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
 
     it("does not write the first-sync sentinel", async () => {
       expect(
-        await pathExistsInContainer(
+        await pathExistsInContainer({
           name,
-          "/home/obsidian/.config/.vault-synced",
-        ),
+          path: "/home/obsidian/.config/.vault-synced",
+        }),
       ).toBe(false)
     })
 
