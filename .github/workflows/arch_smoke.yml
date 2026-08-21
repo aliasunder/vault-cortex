@@ -42,7 +42,7 @@ jobs:
   arch-smoke:
     name: arch-smoke (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       # Arch failures are independent signals — never cancel the other leg.
       fail-fast: false

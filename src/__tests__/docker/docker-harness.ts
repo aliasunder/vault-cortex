@@ -220,6 +220,8 @@ export const containerLogs = async (
   return stdout
 }
 
+const HEALTHZ_ATTEMPT_TIMEOUT_MS = 5_000
+
 /** Poll `/healthz` until it answers 200, failing early — with the container
  *  logs attached — if the container stops first, so an init-chain failure
  *  reads as the script's ERROR line rather than a bare timeout. */
@@ -239,11 +241,22 @@ export const waitForHealthz = async ({
         `container ${name} stopped before /healthz answered:\n${await containerLogs(name)}`,
       )
     }
+    // Each attempt is capped at the shorter of 5 s and the remaining budget:
+    // a server that accepts the connection but never answers would otherwise
+    // hold `fetch` open past the deadline and the failure would surface as a
+    // bare hook timeout with no logs attached.
+    const attemptTimeoutMs = Math.min(
+      HEALTHZ_ATTEMPT_TIMEOUT_MS,
+      deadline - Date.now(),
+    )
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/healthz`)
+      const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
+        signal: AbortSignal.timeout(attemptTimeoutMs),
+      })
       if (response.ok) return
     } catch {
-      // Connection refused while the server is still booting — keep polling.
+      // Connection refused while the server is still booting, or an attempt
+      // that timed out — keep polling.
     }
     await sleep(500)
   }
