@@ -5,14 +5,14 @@
   <defs>
     <!-- Neon glow: blur the constellation and merge the crisp shapes back on top -->
     <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="blur"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
   </defs>
-  <g transform="translate(200 200) scale(1.45) translate(-200 -211.5)">
+  <g transform="translate(200 200) scale(1.78) translate(-200 -211.5)">
   <!-- Constellation: a stylized V (vault) read as a knowledge graph -->
   <g filter="url(#glow)" stroke-linecap="round">
     <!-- Left arm: A -> B -> C -->
