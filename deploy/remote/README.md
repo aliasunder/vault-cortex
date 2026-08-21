@@ -174,16 +174,19 @@ docker run -d --name vault-cortex \
 ```
 
 Render and Railway have ready-made setups that use this mode:
-[`deploy/render/`](../render/) and [`deploy/railway/`](../railway/). On
-another hosting platform, set the same variables in the service's
-environment settings; restarts, health checks, and log rotation come from
-the platform, and `PUBLIC_URL` can be left unset on Render and Railway — the
-container fills it in from the platform's own address variable
-(`RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`). Set `LOG_DIR=none` to
-keep logs in the platform's log viewer only. The platform must start the
-image's own entrypoint as the container's first process (PID 1) — Fly.io
-runs its own init in front of it, so the `:remote` image does not start
-there.
+[`deploy/render/`](../render/) and [`deploy/railway/`](../railway/).
+
+On another hosting platform, set the same variables in the service's
+environment settings. Restarts, health checks, and log rotation come from
+the platform. Three things to know:
+
+- **`PUBLIC_URL`** — on Render and Railway it can stay unset; the container
+  fills it in from the platform's own address variable
+  (`RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`). Elsewhere, set it.
+- **`LOG_DIR=none`** keeps logs in the platform's log viewer only.
+- **PID 1** — the platform must start the image's own entrypoint as the
+  container's first process. Fly.io runs its own init in front of it, so
+  the `:remote` image does not start there.
 
 </details>
 

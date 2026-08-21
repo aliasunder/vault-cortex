@@ -793,15 +793,16 @@ to the derivation above:
 - the Railway template lives in Railway's Template Composer; its definition
   is recorded in `deploy/railway/README.md`
 
-Both platforms hand PID 1 to the image's entrypoint, which s6-overlay v3
-requires. Fly.io does not — its Firecracker init stays PID 1 and runs the
-entrypoint as a child, so `/init` exits with
-`s6-overlay-suexec: fatal: can only run as pid 1` — and therefore has no
-template. The `FLY_APP_NAME` derivation above stays in place for an image
-variant that can boot there.
+Both platforms start the image's entrypoint as PID 1, which s6-overlay v3
+requires. Fly.io has no template for that reason:
 
-`cli/src/__tests__/templates.test.ts` pins the two committed templates to
-the published image and to that key set.
+- Fly's Firecracker init stays PID 1 and runs the entrypoint as a child.
+- `/init` then exits with `s6-overlay-suexec: fatal: can only run as pid 1`.
+- The `FLY_APP_NAME` derivation above stays in place for an image variant
+  that can boot there.
+
+`cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
+image and to that key set.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
