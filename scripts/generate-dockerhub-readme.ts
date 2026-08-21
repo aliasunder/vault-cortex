@@ -71,7 +71,14 @@ const COMPACT_H2 = new Set([
 ])
 
 // Directories that need /tree/ instead of /blob/ in GitHub links
-const DIRECTORY_PATHS = ["deploy/local/", "deploy/remote/", "templates/memory/"]
+const DIRECTORY_PATHS = [
+  "deploy/local/",
+  "deploy/remote/",
+  "deploy/render/",
+  "deploy/railway/",
+  "deploy/fly/",
+  "templates/memory/",
+]
 
 const rewriteUrls = (line: string): string => {
   let result = line

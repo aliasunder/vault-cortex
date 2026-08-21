@@ -18,7 +18,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [Community Deployments](#community-deployments)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [One-click Deploy](#one-click-deploy) · [Community Deployments](#community-deployments)
 
 ## What you get
 
@@ -399,21 +399,33 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 
 ## Deployment Options
 
-Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+Local runs on your machine. Remote deployments run on a VPS or a hosted container platform — your vault is accessible even when your laptop is closed.
 
-| Path          | What                                                              | Guide                                |
-| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
-| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/) |
-| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)           |
+| Path          | What                                                                    | Guide                                                                                                          |
+| ------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Local**     | Your vault on your machine — free, no cloud                             | [`deploy/local/`](./deploy/local/)                                                                             |
+| **Remote**    | VPS + Obsidian Sync — access from any device                            | [`deploy/remote/`](./deploy/remote/)                                                                           |
+| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth       | [`DEPLOY.md`](./DEPLOY.md)                                                                                     |
+| **Hosted**    | Render, Railway, or Fly.io — one persistent volume, no server to manage | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) · [`deploy/fly/`](./deploy/fly/) |
 
 The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
-All three paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision (remote and AWS). One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
+Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision (remote, AWS, and hosted). One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
-**Cost:** A remote setup needs a VPS and $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29/mo all-in.
+**Cost:** A remote setup needs a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29/mo all-in.
+
+### One-click deploy
+
+Run the `:remote` image on a hosted platform without managing a server. Each guide walks through the deploy, where to find your URL and token, and how to update.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
+<!-- RAILWAY_TEMPLATE_BUTTON: replaced with the published template's button -->
+
+- **Render** — button, from the [`render.yaml`](./render.yaml) Blueprint at the repo root. Guide: [`deploy/render/`](./deploy/render/)
+- **Railway** — button, from a published template. Guide: [`deploy/railway/`](./deploy/railway/)
+- **Fly.io** — no button; a five-command `flyctl` recipe using the shipped [`fly.toml`](./deploy/fly/fly.toml). Guide: [`deploy/fly/`](./deploy/fly/)
 
 ### Community deployments
 

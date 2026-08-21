@@ -173,12 +173,14 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-On a hosting platform, set the same variables in the service's environment
-settings; restarts, health checks, and log rotation come from the platform,
-and `PUBLIC_URL` can be left unset — the container fills it in from the
-platform's own address variable (`RENDER_EXTERNAL_URL`,
-`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Set `LOG_DIR=none` to keep logs
-in the platform's log viewer only.
+Render, Railway, and Fly.io have ready-made setups that use this mode:
+[`deploy/render/`](../render/), [`deploy/railway/`](../railway/), and
+[`deploy/fly/`](../fly/). On another hosting platform, set the same
+variables in the service's environment settings; restarts, health checks,
+and log rotation come from the platform, and `PUBLIC_URL` can be left unset
+— the container fills it in from the platform's own address variable
+(`RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Set
+`LOG_DIR=none` to keep logs in the platform's log viewer only.
 
 </details>
 

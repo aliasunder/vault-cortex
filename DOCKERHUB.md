@@ -172,13 +172,14 @@ All settings are environment variables with sensible defaults. Remote deployment
 
 ## Deployment Options
 
-Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+Local runs on your machine. Remote deployments run on a VPS or a hosted container platform — your vault is accessible even when your laptop is closed.
 
 | Path | What | Guide |
-| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| ------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **Local** | Your vault on your machine — free, no cloud | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/) |
 | **Remote** | VPS + Obsidian Sync — access from any device | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
 | **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md) |
+| **Hosted** | Render, Railway, or Fly.io — one persistent volume, no server to manage | [`deploy/render/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/render/) · [`deploy/railway/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/railway/) · [`deploy/fly/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/fly/) |
 
 
 ## License

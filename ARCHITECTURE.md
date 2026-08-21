@@ -780,6 +780,22 @@ required-variable error fires as usual. Both derivations live in one pure
 script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
 tests run directly under `sh`.
 
+**Hosted platform templates.** Three committed artifacts run the `:remote`
+image in single-volume mode on container hosting platforms — each sets
+`STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex` (the
+platform's container hostname is random, so the Sync device name cannot fall
+back to it), and the platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL`
+to the derivation above:
+
+- `render.yaml` (repo root — Render reads Blueprints only from there) backs
+  the "Deploy to Render" button; guide in `deploy/render/`
+- `deploy/fly/fly.toml` is consumed by the `flyctl` recipe in `deploy/fly/`
+- the Railway template lives in Railway's Template Composer; its definition
+  is recorded in `deploy/railway/README.md`
+
+`cli/src/__tests__/templates.test.ts` pins the two committed templates to
+the published image and to that key set.
+
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
 

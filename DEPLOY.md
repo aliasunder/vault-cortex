@@ -2,7 +2,7 @@
 
 Full cloud deployment using SST v4 for infrastructure-as-code. Provisions a Lightsail VM, API Gateway with Lambda authorizer, and CI/CD via GitHub Actions.
 
-For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)).
+For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine), [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)), or the hosted one-click guides under [`deploy/render/`](./deploy/render/), [`deploy/railway/`](./deploy/railway/), and [`deploy/fly/`](./deploy/fly/).
 
 **Contents** — [Prerequisites](#prerequisites) · [One-time setup](#one-time-setup) · [Deploy](#deploy) · [Verify](#verify) · [Monitoring](#monitoring) · [Commands](#command-reference) · [Updating](#updating-the-deployed-app) · [Teardown](#tearing-down) · [CI/CD](#cicd) · [Hardening](#hardening) · [Custom Domain](#custom-domain-optional) · [Troubleshooting](#troubleshooting)
 
