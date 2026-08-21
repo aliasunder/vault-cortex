@@ -96,7 +96,9 @@ export type ContainerHandle = {
 /** Start a detached container from the image under test with the `ob` stub
  *  mounted over the real CLI. The returned cleanup removes the container
  *  together with its anonymous volumes (`rm -v`); named volumes passed in
- *  `volumes` are removed explicitly, since `rm -v` leaves those alone. */
+ *  `volumes` are removed explicitly, since `rm -v` leaves those alone. A
+ *  removal that fails throws, naming the container or volume, so a leak
+ *  fails the hook instead of accumulating silently across local runs. */
 export const runContainer = async ({
   name,
   image,
@@ -128,9 +130,11 @@ export const runContainer = async ({
   const namedVolumes = volumes.map(namedVolumeOf).filter((volume) => volume)
 
   const cleanup = async (): Promise<void> => {
-    await docker(["rm", "-f", "-v", name])
+    // Sequential on purpose: a named volume is still in use until the
+    // container is gone, so its removal only runs once `rm` succeeded.
+    await dockerOrThrow(["rm", "-f", "-v", name])
     if (namedVolumes.length > 0) {
-      await docker(["volume", "rm", "-f", ...namedVolumes])
+      await dockerOrThrow(["volume", "rm", "-f", ...namedVolumes])
     }
   }
 
