@@ -86,8 +86,10 @@ URL, the port, the storage layout — is set by the template.
 - **URL:** open the service, then **Settings → Networking**. The generated
   domain looks like `https://<name>.up.railway.app`; your MCP client
   connects at `https://<name>.up.railway.app/mcp`.
-- **Token:** `MCP_AUTH_TOKEN` under the service's **Variables** tab. Railway
-  generated it for you; your MCP client enters it once on the consent page.
+- **Token:** click the `vault-cortex` card on the project canvas, open
+  **Variables**, and use the eye or copy icon beside `MCP_AUTH_TOKEN`.
+  Railway generated it for you; your MCP client enters it once on the
+  consent page.
 
 ## Security
 
@@ -113,15 +115,17 @@ What the server can't protect is the Railway account that holds it: anyone
 who can open this project in the dashboard can read the variables, the logs,
 and the volume. Four steps close that, all from the dashboard:
 
-1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`: open the
-   **⋮** menu beside `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and
-   `VAULT_PASSWORD` and choose **Seal**. A sealed value still reaches the
+1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`. Values are
+   masked in the dashboard, but anyone with access can reveal them with the
+   eye icon; sealing makes that impossible. Open the **⋮** menu beside
+   `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_PASSWORD` and choose
+   **Seal**. A sealed value still reaches the
    container but can never be viewed again — to rotate it later, set a new
    value. These are the credentials that grant access to your vault.
 2. **Turn on two-factor authentication** for your Railway account
    (profile photo → **Account Settings → Account Security**).
-3. **Keep the project to yourself.** Workspace members you invite can read
-   unsealed variables and every log line, search queries included.
+3. **Keep the project to yourself.** Workspace members you invite can reveal
+   unsealed variables and read every log line, search queries included.
 4. **Schedule volume backups** (open the volume on the project canvas →
    **Backups**). A daily schedule keeps six days; restoring is one click.
 
