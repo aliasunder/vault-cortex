@@ -548,9 +548,9 @@ one makes a meaningful difference.
 
 **"VAULT_NAME is not set and no saved sync setup exists" in `docker logs`,
 and the container stops.** The container needs your vault name the first
-time it starts on a new set of volumes. Docker Compose refuses to start
-without it, but `docker run` and hosting-platform settings pages don't
-check. Add `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to
+time it starts on a new set of volumes. This guide's `docker-compose.yml`
+refuses to start without it, but `docker run` and hosting-platform settings
+pages don't check. Add `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to
 `.env` (or pass `-e VAULT_NAME=...`) and start the container again. Once
 setup has completed on these volumes, the name is remembered and later
 restarts work without it.
