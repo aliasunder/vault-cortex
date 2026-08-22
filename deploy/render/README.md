@@ -42,8 +42,9 @@ your computer — once, before you click the button.
 1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
    Windows: search the Start menu for **Terminal** (or **PowerShell**).
 2. **Install Node.js** if you don't have it: download the LTS installer from
-   [nodejs.org](https://nodejs.org) and run it. (Already have Docker but not
-   Node? See the alternative below.)
+   [nodejs.org](https://nodejs.org) and run it. You also need Docker Desktop
+   (or another Docker-compatible runtime such as OrbStack or Colima) running
+   — both ways below do the login inside a throwaway container.
 3. **Paste this line and press Enter:**
 
    ```bash
@@ -56,8 +57,7 @@ your computer — once, before you click the button.
 
 4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
 
-With Docker instead of Node.js, the same helper runs in a throwaway
-container:
+With Docker alone, skip Node.js and run the same helper directly:
 
 ```bash
 docker run --rm -it --entrypoint get-sync-token \
@@ -199,7 +199,8 @@ Image services on Render don't redeploy on their own when a new image is
 published. To update: open the service, click **Manual Deploy → Deploy latest
 reference**. Render pulls the current `:remote` image and restarts the
 container. Your vault and search index stay on the disk, so the update takes
-a minute or two — nothing is downloaded or rebuilt.
+a minute or two: the new image is pulled, then the container starts the same
+way a restart does.
 
 Before you redeploy, skim
 [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each

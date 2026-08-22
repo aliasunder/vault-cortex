@@ -26,11 +26,13 @@ const SCRIPT_PATH = resolve(
 )
 
 /** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
- *  test configures, every other subcommand succeeds. */
+ *  test configures, `sync-config` fails when its flag matches
+ *  `OB_SYNC_CONFIG_FAIL_FLAG`, every other invocation succeeds. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
 case "$1" in
   sync-setup) exit "$OB_SYNC_SETUP_EXIT" ;;
+  sync-config) [ "$2" = "$OB_SYNC_CONFIG_FAIL_FLAG" ] && exit 1; exit 0 ;;
   *) exit 0 ;;
 esac
 `
@@ -69,6 +71,8 @@ type SetupRunOptions = {
   syncFileTypes?: string
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
+  /** The `ob sync-config` flag whose invocation fails (e.g. `--file-types`). */
+  syncConfigFailsFor?: string
 }
 
 const runSetupScript = (options: SetupRunOptions): SetupRun => {
@@ -95,6 +99,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
+      OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
       ...(options.vaultName === undefined
         ? {}
         : { VAULT_NAME: options.vaultName }),
@@ -190,6 +195,26 @@ describe("init-setup-vault script", () => {
       "sync-config --device-name vault cortex box",
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("warns and keeps going when a filter's sync-config call fails", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncFileTypes: "image,pdf",
+      syncConfigFailsFor: "--file-types",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] WARNING: ob sync-config --file-types 'image,pdf' failed — continuing without it.\n",
+    )
+    // The call after the failed one still runs.
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      "sync-config --file-types image,pdf",
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
