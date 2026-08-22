@@ -91,8 +91,12 @@ port, the storage layout — is set by the Blueprint.
 
 ## Your URL and token
 
-- **URL:** shown at the top of the service page, `https://<name>.onrender.com`.
-  Your MCP client connects at `https://<name>.onrender.com/mcp`.
+- **URL:** shown at the top of the service page. Render builds it from the
+  service name the Blueprint sets, `vault-cortex`, and adds a short suffix
+  when that subdomain is already taken — so expect
+  `https://vault-cortex.onrender.com` or `https://vault-cortex-xxxx.onrender.com`.
+  The commands below write it as `<host>`; your MCP client connects at
+  `https://<host>/mcp`.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
 
@@ -158,7 +162,7 @@ The same three steps in every app:
 
 1. In Claude Desktop, claude.ai, Perplexity, or any app with an **Add custom
    connector** (remote MCP server) option, paste
-   `https://<name>.onrender.com/mcp`. Leave Client ID and Secret empty.
+   `https://<host>/mcp`. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Render generated.
 3. Done — the client renews its own access from then on. Under the hood that
@@ -171,7 +175,7 @@ The same three steps in every app:
   consent page opens:
 
   ```bash
-  claude mcp add --scope user --transport http vault-cortex https://<name>.onrender.com/mcp
+  claude mcp add --scope user --transport http vault-cortex https://<host>/mcp
   ```
 
 - **Scripts and MCP Inspector** — send `MCP_AUTH_TOKEN` as an
@@ -183,7 +187,7 @@ Client-by-client details are in the remote quickstart's
 ## Verify
 
 ```bash
-curl https://<name>.onrender.com/healthz
+curl https://<host>/healthz
 # → {"ok":true}
 ```
 

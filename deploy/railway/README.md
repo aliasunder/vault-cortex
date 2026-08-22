@@ -95,9 +95,11 @@ URL, the port, the storage layout — is set by the template.
 
 ## Your URL and token
 
-- **URL:** open the service, then **Settings → Networking**. The generated
-  domain looks like `https://<name>.up.railway.app`; your MCP client
-  connects at `https://<name>.up.railway.app/mcp`.
+- **URL:** open the service, then **Settings → Networking**. Railway
+  generates the domain from the service and environment names plus a short
+  suffix — `https://vault-cortex-production-xxxx.up.railway.app`. The
+  commands below write it as `<host>`; your MCP client connects at
+  `https://<host>/mcp`.
 - **Token:** click the `vault-cortex` card on the project canvas, open
   **Variables**, and use the eye or copy icon beside `MCP_AUTH_TOKEN`.
   Railway generated it for you; your MCP client enters it once on the
@@ -171,7 +173,7 @@ The same three steps in every app:
 
 1. In Claude Desktop, claude.ai, Perplexity, or any app with an **Add custom
    connector** (remote MCP server) option, paste
-   `https://<name>.up.railway.app/mcp`. Leave Client ID and Secret empty.
+   `https://<host>/mcp`. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Railway generated.
 3. Done — the client renews its own access from then on. Under the hood that
@@ -184,7 +186,7 @@ The same three steps in every app:
   consent page opens:
 
   ```bash
-  claude mcp add --scope user --transport http vault-cortex https://<name>.up.railway.app/mcp
+  claude mcp add --scope user --transport http vault-cortex https://<host>/mcp
   ```
 
 - **Scripts and MCP Inspector** — send `MCP_AUTH_TOKEN` as an
@@ -196,7 +198,7 @@ Client-by-client details are in the remote quickstart's
 ## Verify
 
 ```bash
-curl https://<name>.up.railway.app/healthz
+curl https://<host>/healthz
 # → {"ok":true}
 ```
 

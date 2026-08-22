@@ -149,11 +149,11 @@ docker compose up -d
 
 ### Connect your MCP client
 
-| Setup                    | Server URL                                                               |
-| ------------------------ | ------------------------------------------------------------------------ |
-| **Local**                | `http://localhost:8000/mcp`                                              |
-| **Remote (one-click)**   | `https://<name>.onrender.com/mcp` or `https://<name>.up.railway.app/mcp` |
-| **Remote (self-hosted)** | `<PUBLIC_URL>/mcp`                                                       |
+| Setup                    | Server URL                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| **Local**                | `http://localhost:8000/mcp`                                                               |
+| **Remote (one-click)**   | `https://<host>/mcp` — `<host>` is the domain Render or Railway shows on the service page |
+| **Remote (self-hosted)** | `<PUBLIC_URL>/mcp`                                                                        |
 
 Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, OpenCode, or any other. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
 
