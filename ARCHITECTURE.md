@@ -608,8 +608,10 @@ needed after deploys for active clients. Each refresh token is stored under an
 HMAC of the token keyed by `MCP_AUTH_TOKEN`, never in plaintext: a row is only
 reachable under the auth token that wrote it, and a copied `oauth.db` holds no
 token a client could present. Auth codes are in-memory (short-lived, 10
-minutes). Access tokens are JWTs (stateless, no storage needed). Revoked access
-tokens are tracked in SQLite; a revoked refresh token is simply deleted.
+minutes). A refresh token is honoured only for the client it was issued to, and
+a refresh may narrow the granted scope but never widen it. Access tokens are
+JWTs (stateless, no storage needed). Revoked access tokens are tracked in
+SQLite; a revoked refresh token is simply deleted.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
