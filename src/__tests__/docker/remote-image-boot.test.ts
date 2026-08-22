@@ -11,8 +11,10 @@
  *
  *  One container per describe block: a boot is the expensive resource that
  *  justifies `beforeAll` over const-per-test. Each test then reads its own
- *  state from the container — nothing is mutated between tests, and the
- *  restart block re-derives its handle from the boot it nests under. */
+ *  state from the container; nothing is mutated between tests. A nested
+ *  "after docker restart" block does not boot a second container — it
+ *  restarts the one its parent booted (same name, same volumes) and
+ *  re-reads the published port, which Docker may reassign. */
 
 import { randomBytes } from "node:crypto"
 import {
