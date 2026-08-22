@@ -163,7 +163,6 @@ describe("print-derived-env — PUBLIC_URL", () => {
   it.each([
     ["RENDER_EXTERNAL_URL", "https://x.onrender.com", "https://x.onrender.com"],
     ["RAILWAY_PUBLIC_DOMAIN", "x.up.railway.app", "https://x.up.railway.app"],
-    ["FLY_APP_NAME", "my-app", "https://my-app.fly.dev"],
   ])(
     "derives PUBLIC_URL from %s",
     (platformVar, platformValue, expectedUrl) => {
@@ -181,32 +180,17 @@ describe("print-derived-env — PUBLIC_URL", () => {
     },
   )
 
-  it("prefers RENDER_EXTERNAL_URL over the Railway and Fly variables", () => {
+  it("prefers RENDER_EXTERNAL_URL over RAILWAY_PUBLIC_DOMAIN", () => {
     const run = runPrinter({
       VAULT_PATH: "/vault",
       INDEX_DB_PATH: "/data/index.db",
       RENDER_EXTERNAL_URL: "https://x.onrender.com",
       RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-      FLY_APP_NAME: "my-app",
     })
 
     expect(run.stdout).toBe("PUBLIC_URL=https://x.onrender.com\n")
     expect(run.stderr).toBe(
       "[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL\n",
-    )
-  })
-
-  it("prefers RAILWAY_PUBLIC_DOMAIN over FLY_APP_NAME", () => {
-    const run = runPrinter({
-      VAULT_PATH: "/vault",
-      INDEX_DB_PATH: "/data/index.db",
-      RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-      FLY_APP_NAME: "my-app",
-    })
-
-    expect(run.stdout).toBe("PUBLIC_URL=https://x.up.railway.app\n")
-    expect(run.stderr).toBe(
-      "[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n",
     )
   })
 
@@ -217,7 +201,6 @@ describe("print-derived-env — PUBLIC_URL", () => {
       PUBLIC_URL: "https://vault.example.com",
       RENDER_EXTERNAL_URL: "https://x.onrender.com",
       RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-      FLY_APP_NAME: "my-app",
     })
 
     expect(run.stdout).toBe("")
@@ -238,13 +221,13 @@ describe("print-derived-env — PUBLIC_URL", () => {
     const run = runPrinter({
       VAULT_PATH: "/vault",
       INDEX_DB_PATH: "/data/index.db",
-      RAILWAY_PUBLIC_DOMAIN: "",
-      FLY_APP_NAME: "my-app",
+      RENDER_EXTERNAL_URL: "",
+      RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
     })
 
-    expect(run.stdout).toBe("PUBLIC_URL=https://my-app.fly.dev\n")
+    expect(run.stdout).toBe("PUBLIC_URL=https://x.up.railway.app\n")
     expect(run.stderr).toBe(
-      "[vault-cortex] PUBLIC_URL derived from FLY_APP_NAME\n",
+      "[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n",
     )
   })
 })

@@ -15,7 +15,7 @@
 # $HOME/.config).
 #
 # STORAGE_ROOT set — container hosting platforms that allow a single
-# persistent mount (Railway, Render, Fly): the vault, the index, log files,
+# persistent mount (Railway, Render): the vault, the index, log files,
 # and Obsidian Sync state all live under it, so one volume carries
 # everything that must survive a redeploy. LOG_DIR defaults to
 # $STORAGE_ROOT/data/logs (matching the remote Compose file's default-on
@@ -85,8 +85,5 @@ if [ -z "${PUBLIC_URL:-}" ]; then
   elif [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then
     printf 'PUBLIC_URL=https://%s\n' "$RAILWAY_PUBLIC_DOMAIN"
     echo "[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN" >&2
-  elif [ -n "${FLY_APP_NAME:-}" ]; then
-    printf 'PUBLIC_URL=https://%s.fly.dev\n' "$FLY_APP_NAME"
-    echo "[vault-cortex] PUBLIC_URL derived from FLY_APP_NAME" >&2
   fi
 fi
