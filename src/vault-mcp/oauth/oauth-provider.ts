@@ -80,7 +80,7 @@ const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 /** Registration refused because the clients table is at its cap. The SDK
  *  maps any OAuthError thrown by registerClient to a 400 carrying this
  *  code; RFC 7591 defines no code for a full server, so this one is
- *  vault-cortex's own. */
+ *  vault-cortex's own. https://www.rfc-editor.org/rfc/rfc7591#section-3.2.2 */
 class RegistrationLimitError extends OAuthError {
   static override errorCode = "registration_limit_reached"
 }
