@@ -73,10 +73,14 @@ case "${1:-}" in
     # directory before transferring anything, so every one-shot sync
     # leaves these behind — init-first-sync must not read them as content.
     mkdir -p .obsidian/.sync.lock
+    # A remote vault with nothing in it: the sync state records no files,
+    # so a restart must be read as a fresh device, not a wiped one.
     if [ "${OB_STUB_SYNC_EMPTY:-}" = "1" ]; then
       record_local_files
       exit 0
     fi
+    # A remote vault holding only Obsidian settings: the one recorded file
+    # lives under .obsidian/, which init-first-sync must count as content.
     if [ "${OB_STUB_SYNC_CONFIG_ONLY:-}" = "1" ]; then
       printf '{"theme":"obsidian"}\n' > .obsidian/appearance.json
       record_local_files ".obsidian/appearance.json"
