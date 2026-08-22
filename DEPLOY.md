@@ -547,7 +547,7 @@ By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway 
 - **Plain-HTTP exposure** — anyone who discovers the Lightsail IP (scanning, Shodan, historical records) can reach the port directly, without API Gateway's TLS.
 - **Forgeable client identity** — the reference configuration trusts the `Forwarded` header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Every bucket key is a real client IP only once the gateway is the sole way in — port 8000 closed, and the tunnel hostname locked to the gateway.
 
-With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup changes how far the client IP has to be trusted — the **Client-IP trust with ORIGIN_URL** callout below has the settings.
+With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup adds a proxy hop — the **Client-IP trust with ORIGIN_URL** callout below has the settings to adjust.
 
 #### How it works
 
@@ -555,7 +555,11 @@ With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunn
 
 `MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
-Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path, and `ORIGIN_ACCESS_SERVICE_TOKEN=true` lets the alternative path admit the gateway alone.
+Together:
+
+- `ORIGIN_URL` provides the alternative path
+- `MCP_PORT_CIDRS=none` blocks the direct path
+- `ORIGIN_ACCESS_SERVICE_TOKEN=true` lets the alternative path admit the gateway alone
 
 > **Client-IP trust with ORIGIN_URL:** this setup puts two proxies between clients and the container (API Gateway, then the tunnel/proxy). API Gateway reports the visitor only in the RFC 7239 `Forwarded` header and sends no `X-Forwarded-For`, so the instance settings are:
 >
