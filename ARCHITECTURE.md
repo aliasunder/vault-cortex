@@ -617,9 +617,9 @@ SQLite; a revoked refresh token is simply deleted.
 use rotates the token AND extends the window by another 60 days, so a daily
 client never sees expiry. A client dormant for >60 days is forced through the
 full OAuth flow on its next attempt. The schema column is `expires_at INTEGER
-NOT NULL`; rows past `expires_at` are purged each time a new refresh token is
-issued, so rows left by dormant clients or by a token rotation never
-accumulate. This bounds the blast radius of a leaked refresh token without
+NOT NULL`; a row past `expires_at` is deleted when its token is presented, and
+every remaining expired row is purged each time a new refresh token is issued,
+so rows left by dormant clients or by a token rotation never accumulate. This bounds the blast radius of a leaked refresh token without
 inconveniencing active sessions.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,

@@ -230,9 +230,11 @@ downtime.
 - **Refresh tokens** are in `oauth.db` on the restored disk. If the
   snapshot is recent (Scenario B) and `MCP_AUTH_TOKEN` is unchanged,
   refresh tokens carry over and clients silently get new JWTs on their
-  next refresh cycle. If the DB is gone (Scenario C), every client
-  re-auths via the consent page on its next token refresh — minor
-  inconvenience, no data loss.
+  next refresh cycle. A snapshot taken before refresh tokens were stored
+  under their HMAC key holds raw rows, which the first boot
+  clears — each client re-auths once. If the DB is gone (Scenario C),
+  every client re-auths via the consent page on its next token refresh —
+  minor inconvenience, no data loss.
 - **`MCP_AUTH_TOKEN`** is the JWT signing HMAC key and the key under which
   refresh tokens are stored. It's in SST secrets and gets redeployed to
   `/opt/vault-cortex/.env` on any fresh boot. If you rotated it during

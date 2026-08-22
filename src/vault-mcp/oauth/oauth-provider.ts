@@ -64,11 +64,11 @@ type OAuthProviderOptions = {
   logger: Logger
 }
 
-// Schema version recorded in SQLite's user_version pragma. Version 1 is
-// the first schema whose refresh_tokens rows are keyed by HMAC; rows
-// written by an older version are raw tokens of the same length, so
-// they can only be retired by version, not by shape.
-const REFRESH_TOKEN_KEYED_SCHEMA_VERSION = 1
+// Every stored refresh-token key starts with this prefix. Raw tokens
+// are bare hex, so the prefix is what tells a keyed row from one written
+// by a version that stored tokens in plaintext — including rows written
+// after a rollback to such a version.
+const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
@@ -104,41 +104,39 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
       "ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
     )
   }
-  // Migration for DBs whose refresh_tokens rows are raw tokens: the keyed
-  // lookup can never match them, so clear them and record the version in
-  // the same transaction (user_version is transactional). Every OAuth
-  // client re-authorizes once through the consent page.
-  const schemaVersion = db.pragma("user_version", { simple: true })
-  const needsKeyedSchemaMigration =
-    typeof schemaVersion === "number" &&
-    schemaVersion < REFRESH_TOKEN_KEYED_SCHEMA_VERSION
-  if (needsKeyedSchemaMigration) {
-    const clearRawRefreshTokens = db.transaction((): number => {
-      const { changes } = db.prepare("DELETE FROM refresh_tokens").run()
-      db.pragma(`user_version = ${REFRESH_TOKEN_KEYED_SCHEMA_VERSION}`)
-      return changes
-    })
-    const rowsCleared = clearRawRefreshTokens()
+  // Rows whose key lacks the prefix hold raw tokens written by a version
+  // that stored them in plaintext; the keyed lookup can never match them,
+  // so clear them on every boot. Each affected client re-authorizes once
+  // through the consent page.
+  const { changes: rawRowsCleared } = db
+    .prepare("DELETE FROM refresh_tokens WHERE token NOT LIKE ?")
+    .run(`${REFRESH_TOKEN_KEY_PREFIX}%`)
+  if (rawRowsCleared > 0) {
     logger.info("oauth_refresh_tokens_cleared", {
-      reason: "storage_key_upgrade",
-      rows: rowsCleared,
+      reason: "plaintext_rows",
+      rows: rawRowsCleared,
     })
   }
   return db
 }
 
 class SqliteClientsStore implements OAuthRegisteredClientsStore {
+  private readonly selectClientStmt: Database.Statement<
+    [string],
+    { data: string }
+  >
+
   constructor(
     private db: Database.Database,
     private logger: Logger,
-  ) {}
+  ) {
+    this.selectClientStmt = db.prepare(
+      "SELECT data FROM clients WHERE client_id = ?",
+    )
+  }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    const row = this.db
-      .prepare<unknown[], { data: string }>(
-        "SELECT data FROM clients WHERE client_id = ?",
-      )
-      .get(clientId)
+    const row = this.selectClientStmt.get(clientId)
     if (!row) return undefined
     const parsed: OAuthClientInformationFull = JSON.parse(row.data)
     return parsed
@@ -197,10 +195,12 @@ export const createOAuthProvider = ({
    *  auth token. Rows are only reachable under the secret that wrote
    *  them, so rotating MCP_AUTH_TOKEN ends every session, and a copied
    *  DB holds no token a client could present. */
-  const refreshTokenStorageKey = (token: string): string =>
-    createHmac("sha256", authToken)
+  const refreshTokenStorageKey = (token: string): string => {
+    const digest = createHmac("sha256", authToken)
       .update(REFRESH_TOKEN_KEY_LABEL + token)
       .digest("hex")
+    return REFRESH_TOKEN_KEY_PREFIX + digest
+  }
 
   const insertRefreshTokenStmt = db.prepare<[string, string, string, number]>(
     "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
@@ -238,8 +238,8 @@ export const createOAuthProvider = ({
     )
 
   /** Stores a refresh token under its storage key. Expired rows are
-   *  purged here rather than on read: a row is only ever read when its
-   *  own token is presented, so rows left by dormant clients — or made
+   *  purged here as well as on read: a row is only read when its own
+   *  token is presented, so rows left by dormant clients — or made
    *  unreachable by a rotation — would otherwise stay forever. */
   const saveRefreshToken = ({
     token,
@@ -390,7 +390,11 @@ export const createOAuthProvider = ({
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
-      const grantedScopes = scopes ?? stored.scopes
+      // RFC 6749 §6: an omitted or empty scope means the stored scope.
+      // The SDK splits `scope=` into [""], so blank entries count as empty.
+      const requestedScopes = (scopes ?? []).filter((scope) => scope !== "")
+      const grantedScopes =
+        requestedScopes.length > 0 ? requestedScopes : stored.scopes
       const requestedScopeWidens = grantedScopes.some(
         (scope) => !stored.scopes.includes(scope),
       )

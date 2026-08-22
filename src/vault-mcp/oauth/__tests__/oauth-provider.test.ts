@@ -47,6 +47,7 @@ const OTHER_AUTH_TOKEN = "rotated-static-token"
 // Mirrors the provider's storage-key derivation so tests can seed and
 // inspect rows without importing production as its own oracle.
 const refreshTokenKey = (token: string, secret = AUTH_TOKEN): string =>
+  "hmac-sha256:" +
   createHmac("sha256", secret).update(`refresh-token:${token}`).digest("hex")
 
 const storedRefreshTokenKeys = (db: Database.Database): string[] =>
@@ -64,9 +65,6 @@ const storedRevokedTokens = (db: Database.Database): string[] =>
     )
     .all()
     .map((revokedTokenRow) => revokedTokenRow.token)
-
-const schemaVersion = (db: Database.Database): unknown =>
-  db.pragma("user_version", { simple: true })
 
 const exchangeRefreshToken = (
   oauth: OAuthProvider,
@@ -217,12 +215,14 @@ describe("OAuth refresh token sliding expiry", () => {
   })
 
   it("rotates to a new token with a fresh 60-day window on use", async () => {
+    // Seeded far from a fresh window so a rotated token that inherited
+    // this expiry would miss the assertion below by ~59 days.
     seedRefreshToken(
       db,
       "first-token",
       client.client_id,
       ["vault"],
-      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      DateTime.now().plus({ days: 1 }).toUnixInteger(),
     )
 
     const tokens = await oauth.provider.exchangeRefreshToken!(
@@ -323,7 +323,7 @@ describe("OAuth refresh token schema migration", () => {
     ])
   })
 
-  it("clears raw refresh tokens written before keyed storage and records schema version 1", () => {
+  it("clears raw refresh tokens written by a version that stored them in plaintext", () => {
     const oldDb = new Database(dbPath)
     oldDb.exec(`
       CREATE TABLE refresh_tokens (
@@ -356,7 +356,40 @@ describe("OAuth refresh token schema migration", () => {
       db.close()
     })
     expect(storedRefreshTokenKeys(db)).toEqual([])
-    expect(schemaVersion(db)).toBe(1)
+  })
+
+  it("clears raw refresh tokens written after a rollback beside keyed rows it keeps", async () => {
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    const client = seedClient(db)
+    seedRefreshToken(
+      db,
+      "keyed-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+    db.prepare(
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      "raw-token-from-rollback",
+      client.client_id,
+      "vault",
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const reopened = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("keyed-token")])
+    const tokens = await exchangeRefreshToken(reopened, client, "keyed-token")
+    expect(tokens.scope).toBe("vault")
   })
 
   it("logs oauth_refresh_tokens_cleared when clearing raw tokens", () => {
@@ -397,14 +430,14 @@ describe("OAuth refresh token schema migration", () => {
         level: "info",
         message: "oauth_refresh_tokens_cleared",
         data: expect.objectContaining({
-          reason: "storage_key_upgrade",
+          reason: "plaintext_rows",
           rows: 1,
         }),
       }),
     )
   })
 
-  it("keeps keyed refresh tokens when the provider is re-opened on a migrated DB", async () => {
+  it("keeps keyed refresh tokens when the provider is re-opened", async () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
@@ -430,7 +463,6 @@ describe("OAuth refresh token schema migration", () => {
     })
 
     expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("live-token")])
-    expect(schemaVersion(db)).toBe(1)
     const tokens = await exchangeRefreshToken(reopened, client, "live-token")
     expect(tokens.scope).toBe("vault")
   })
@@ -942,6 +974,44 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
       client,
       "two-scope-token",
       ["vault"],
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("keeps a narrowed scope on the rotated refresh token", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+    const narrowed = await oauth.provider.exchangeRefreshToken(
+      client,
+      "two-scope-token",
+      ["vault"],
+    )
+    if (!narrowed.refresh_token) throw new Error("no refresh token issued")
+
+    const tokens = await exchangeRefreshToken(
+      oauth,
+      client,
+      narrowed.refresh_token,
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("issues the stored scope when a refresh sends a blank scope", async () => {
+    const { oauth, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    const tokens = await oauth.provider.exchangeRefreshToken(
+      client,
+      refreshToken,
+      [""],
     )
 
     expect(tokens.scope).toBe("vault")
