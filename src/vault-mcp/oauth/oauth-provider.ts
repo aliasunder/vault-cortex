@@ -221,8 +221,11 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       clientId: full.client_id,
       clientName: full.client_name ?? null,
     })
-    const nearingCap =
-      registeredClients >= this.maxClients * CLIENT_CAP_WARNING_FRACTION
+    // Floored so a small cap still warns before it is full (cap 2 → 1).
+    const nearingCapThreshold = Math.floor(
+      this.maxClients * CLIENT_CAP_WARNING_FRACTION,
+    )
+    const nearingCap = registeredClients >= nearingCapThreshold
     if (nearingCap) {
       this.logger.warn("oauth_client_cap_nearing", {
         registeredClients,

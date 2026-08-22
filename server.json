@@ -178,6 +178,12 @@
           "description": "Maximum PDF pages to render as images when raw: true is set on vault_read_file. The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES divided evenly across the rendered pages.",
           "default": "5",
           "format": "number"
+        },
+        {
+          "name": "MAX_OAUTH_CLIENTS",
+          "description": "Maximum number of OAuth clients the server will register. Past the cap, new registrations are refused with registration_limit_reached.",
+          "default": "1000",
+          "format": "number"
         }
       ]
     }
