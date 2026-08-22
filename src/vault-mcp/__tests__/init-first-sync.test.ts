@@ -127,7 +127,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     writeSyncState(join(syncStateDir, "state.db"), options.knownSyncFiles)
   }
   if (options.secondStoreSyncFiles !== undefined) {
-    // Sorts after "vault-id" so the glob hands it to the script last.
+    // Glob order is not what the name suggests: "vault-id-second/state.db"
+    // sorts before "vault-id/state.db" ("-" < "/"), so this store is the
+    // first one the script sees. The two-store specs cover both positions.
     const secondStoreDir = join(dirname(syncStateDir), "vault-id-second")
     mkdirSync(secondStoreDir, { recursive: true })
     writeSyncState(

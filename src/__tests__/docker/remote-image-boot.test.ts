@@ -276,7 +276,7 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
         args: { query: "stubbed first sync" },
       })
       const searchResponse: unknown = JSON.parse(textContent(result))
-      // `modified` is the boot-time mtime and `score` an RRF float — every
+      // `modified` is the boot-time mtime and `score` is an RRF float — every
       // other field of the response is fixed by the fixture, so pin those.
       const isSearchResponse = (
         value: unknown,

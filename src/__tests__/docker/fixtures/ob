@@ -32,8 +32,8 @@ printf '%s\n' "$*" >> "$CALL_LOG"
 # The real client records every file it holds locally in
 # obsidian-headless/sync/<vaultId>/state.db (table local_files) — the
 # record init-first-sync reads to decide whether an empty vault was wiped.
-# Each one-shot sync records what it delivered, vault-relative paths as
-# arguments.
+# Each one-shot sync records what it delivered; the vault-relative paths
+# arrive as the arguments.
 record_local_files() {
   state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
   mkdir -p "$state_dir"
