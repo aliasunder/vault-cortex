@@ -43,7 +43,8 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
-      # API Gateway is the immediate upstream: its RFC 7239 Forwarded claim is
+      # API Gateway is the immediate upstream: its RFC 7239 Forwarded claim
+      # (https://www.rfc-editor.org/rfc/rfc7239) is
       # the client identity for rate limiting. Traffic that reaches this port
       # directly (bypassing the gateway) can claim any Forwarded identity —
       # see DEPLOY.md "Port 8000 Hardening" before relying on these defaults.

@@ -17,6 +17,7 @@ type OAuthRoutesOptions = {
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
   /** Whether — and how far from its end — the RFC 7239 Forwarded header
+   *  (https://www.rfc-editor.org/rfc/rfc7239)
    *  is read for the client IP (rate limiting + logs); from
    *  TRUST_FORWARDED_HEADER and TRUST_FORWARDED_HOPS. Only trusted where a
    *  known edge proxy (API Gateway) sets or appends it. */

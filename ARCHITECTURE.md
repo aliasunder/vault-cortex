@@ -620,7 +620,7 @@ active sessions.
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
 client-IP key derived from the deployment's explicit proxy-trust config:
 
-- `TRUST_FORWARDED_HEADER` (default `false`) honors the RFC 7239
+- `TRUST_FORWARDED_HEADER` (default `false`) honors the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239)
   `Forwarded` header. The proxy that writes it appends its own peer as the
   **last** `for=` element; a client can prepend elements, but its entries
   land before the proxy's append. Intended for the reference deployment,

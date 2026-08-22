@@ -118,7 +118,8 @@ PORT=8000
 # Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
 # IP — otherwise they all share one rate-limit budget.
 # Set TRUST_FORWARDED_HEADER=true only if the proxy reports each visitor's
-# IP in the RFC 7239 Forwarded header (e.g. AWS API Gateway). That proxy
+# IP in the RFC 7239 Forwarded header (https://www.rfc-editor.org/rfc/rfc7239,
+# e.g. AWS API Gateway). That proxy
 # lists its own peer last; with a CDN (e.g. Cloudflare) in front of it the
 # last entry is the CDN, so set TRUST_FORWARDED_HOPS=2 to read the entry
 # before it.
@@ -251,7 +252,8 @@ PORT=8000
 # Tunnel), set TRUST_PROXY_HOPS=1 so visitors are told apart by their real
 # IP — otherwise they all share one rate-limit budget.
 # Set TRUST_FORWARDED_HEADER=true only if the proxy reports each visitor's
-# IP in the RFC 7239 Forwarded header (e.g. AWS API Gateway). That proxy
+# IP in the RFC 7239 Forwarded header (https://www.rfc-editor.org/rfc/rfc7239,
+# e.g. AWS API Gateway). That proxy
 # lists its own peer last; with a CDN (e.g. Cloudflare) in front of it the
 # last entry is the CDN, so set TRUST_FORWARDED_HOPS=2 to read the entry
 # before it.

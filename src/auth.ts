@@ -29,7 +29,8 @@ export const parseBearer = (header: string | undefined): string | null => {
 /** Bare or quoted `for=` value; capture stops at `"`, `;`, or `,`. */
 const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 
-/** How the RFC 7239 Forwarded header contributes to the client IP. */
+/** How the RFC 7239 Forwarded header contributes to the client IP.
+ *  Spec: https://www.rfc-editor.org/rfc/rfc7239 */
 export type ForwardedHeaderTrust = {
   /** Read the client IP from the Forwarded header at all. Safe only when
    *  the proxy connecting to this server writes that header itself. */

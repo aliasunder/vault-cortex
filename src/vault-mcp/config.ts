@@ -106,7 +106,8 @@ export type VaultConfig = Readonly<{
    *  Gateway) sits in front of the server. Set via TRUST_PROXY_HOPS. */
   trustProxyHops: number
   /** When true, the client IP (rate limiting, request logs) is read from
-   *  the RFC 7239 Forwarded header. Safe only when the proxy connecting to
+   *  the RFC 7239 Forwarded header (https://www.rfc-editor.org/rfc/rfc7239).
+   *  Safe only when the proxy connecting to
    *  this server writes that header itself (e.g. AWS API Gateway); when
    *  false — the default — the header is ignored, since any client can
    *  send one. Set via TRUST_FORWARDED_HEADER. */
