@@ -1093,9 +1093,11 @@ re-verify each contract against the new source before merging:
   server-push handler feeds the download path, which writes each file's
   row on completion. The stub's `sync-record` verb mirrors this.
 
-The remote-boot stub (`src/__tests__/docker/fixtures/ob`) mirrors these
-contracts, so a change in the CLI does not fail the tier by itself.
-After updating the pinned version:
+The remote-boot tests never run the real CLI — they run the stub
+(`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
+above. So if a new CLI version behaves differently, the tests still pass,
+because the stub still behaves the old way. After updating the pinned
+version:
 
 1. Update the stub to match the new behaviour.
 2. Run the remote-boot tier and the `sh` specs.
