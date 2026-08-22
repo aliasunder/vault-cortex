@@ -1082,9 +1082,9 @@ re-verify each contract against the new source before merging:
 - Verbs and flags the scripts call: `login`, `sync-config`, `sync`,
   `sync --continuous`, and `sync-setup --vault --device-name`.
 - `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
-  directory before transferring anything, so their presence does not mean
-  files arrived — `vault_has_content` in `init-first-sync` ignores both
-  when deciding whether the vault holds content.
+  directory before transferring anything. `vault_has_content` in
+  `init-first-sync` therefore treats an `.obsidian/` folder that holds
+  nothing but `.sync.lock` as an empty vault.
 - The device's file record, which the deletion-storm guard reads:
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
   table `local_files`, loaded at engine startup and diffed against disk.
