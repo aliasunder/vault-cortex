@@ -75,6 +75,10 @@ type GateRunOptions = {
    *  (`obsidian-headless/sync/<vaultId>/state.db`, `local_files` table) —
    *  what a prior sync would have left behind. Omit for a fresh device. */
   knownSyncFiles?: number
+  /** Number of files to record in a second store
+   *  (`obsidian-headless/sync/<otherVaultId>/state.db`) — a device whose
+   *  sync root holds more than one vault's state. Omit for one store. */
+  secondStoreSyncFiles?: number
   /** When true, writes a state.db that is not a SQLite database. */
   corruptSyncState?: boolean
   /** When true, runs with XDG_CONFIG_HOME pointing at a directory outside
@@ -121,6 +125,14 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   if (options.knownSyncFiles !== undefined) {
     mkdirSync(syncStateDir, { recursive: true })
     writeSyncState(join(syncStateDir, "state.db"), options.knownSyncFiles)
+  }
+  if (options.secondStoreSyncFiles !== undefined) {
+    const secondStoreDir = join(dirname(syncStateDir), "other-vault-id")
+    mkdirSync(secondStoreDir, { recursive: true })
+    writeSyncState(
+      join(secondStoreDir, "state.db"),
+      options.secondStoreSyncFiles,
+    )
   }
   if (options.corruptSyncState) {
     mkdirSync(syncStateDir, { recursive: true })
@@ -458,6 +470,37 @@ describe("init-first-sync gate script", () => {
       syncOutcomes: [0],
       vaultName: "Test",
       knownSyncFiles: 0,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("refuses to sync when only a second store records files and the vault is empty", () => {
+    // The guard reads every store under the sync root, not just the first
+    // match — a device that has registered more than one vault keeps a
+    // store per vault, and rows in any of them mean files were delivered.
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 0,
+      secondStoreSyncFiles: 2,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("allows sync when two stores both record zero files and the vault is empty", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 0,
+      secondStoreSyncFiles: 0,
     })
 
     expect(run.status).toBe(0)

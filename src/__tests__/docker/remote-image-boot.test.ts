@@ -711,6 +711,7 @@ describe("remote image boot — vault wiped after files arrived while the contai
     OB_STUB_SYNC_EMPTY: "1",
   }
   let handle: ContainerHandle | undefined
+  let restartedAt = ""
 
   beforeAll(async () => {
     handle = await runContainer({
@@ -737,7 +738,12 @@ describe("remote image boot — vault wiped after files arrived while the contai
     ])
     // The wipe: the vault volume emptied while device state is kept.
     await execInContainer(name, ["rm", "-f", "/vault/Arrived Later.md"])
+    const beforeRestart = await bootedStartedAt(name)
     await docker(["restart", name])
+    restartedAt = await bootedStartedAt(name)
+    if (restartedAt === beforeRestart) {
+      throw new Error("docker restart did not produce a new StartedAt")
+    }
     await waitForStopped({ name, deadlineMs: STOP_DEADLINE_MS })
   })
 
@@ -745,14 +751,18 @@ describe("remote image boot — vault wiped after files arrived while the contai
     await handle?.cleanup()
   })
 
-  it("stops on the next boot instead of syncing the wiped vault", async () => {
-    const logs = await containerLogs(name)
-    expect(logs).toContain(
+  it("stops on the next boot before any sync attempt", async () => {
+    // Scoped to the restarted boot: the first boot's logs legitimately
+    // contain a sync attempt, so a guard that had slipped behind the first
+    // `ob sync` would still pass an assertion over the full two-boot log.
+    const logsSinceRestart = await containerLogs(name, restartedAt)
+    expect(logsSinceRestart).toContain(
       "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
     )
-    expect(logs).toContain(
+    expect(logsSinceRestart).toContain(
       "s6-rc: warning: unable to start service init-first-sync: command exited 1",
     )
+    expect(logsSinceRestart).not.toContain("First sync (attempt")
   })
 })
 
