@@ -4,11 +4,11 @@
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
-# Pre-sync guard: if a prior sync completed (sentinel on the config volume)
-# but the vault is empty, the sync engine would interpret every previously-
-# synced file as a local deletion and push mass deletions upstream (#440
-# incident 2026-08-15). FATAL in this case — the user must restore the vault
-# volume or wipe the config volume to re-register as a fresh device.
+# Pre-sync guard: the sync engine keeps a per-device record of the files
+# it holds locally and, at startup, pushes every recorded file that is
+# missing from disk as a deletion. A non-empty record alongside a vault
+# with no content means the vault volume was wiped while the device state
+# was kept. The guard exits FATAL before any sync runs.
 #
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
@@ -27,31 +27,80 @@ if ! cd "$VAULT_PATH"; then
   exit 1
 fi
 
-# Sentinel in the Obsidian config directory (the obsidian_config volume under
-# Compose, $STORAGE_ROOT/config in single-volume mode): written after the
-# first successful sync, gone when that directory is wiped (fresh device =
-# no sentinel = safe). In single-volume mode the sentinel and the vault share
-# one mount, so the guard below still fires if only the vault directory is
-# emptied.
-SYNC_SENTINEL="${XDG_CONFIG_HOME:-$HOME/.config}/.vault-synced"
+# obsidian-headless keeps one SQLite store per configured vault:
+# $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db. Its
+# local_files table is the record the engine compares against disk.
+#
+# The guard sums local_files across every store instead of resolving
+# <vaultId>. The image serves one vault, so a second store exists only
+# after the device was registered against a different remote vault
+# (one deleted and re-created, or a manual sync-setup). Counting that
+# store too keeps the guard conservative; the cost is a stopped
+# container until the device is re-registered.
+SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
-# Pre-sync guard: an empty vault with a prior-sync sentinel means the vault
-# volume was wiped while the config volume (device state) was kept — syncing
-# would push mass deletions. The glob excludes dotfiles, so .obsidian/ alone
-# counts as empty.
-vault_has_visible_files() {
-  for entry in "$VAULT_PATH"/*; do
-    [ -e "$entry" ] && return 0
-  done
-  return 1
+# Prints the number of files the sync state records as present locally;
+# 0 when no store exists yet (fresh device). A store that exists but
+# cannot be read is a non-zero exit — the caller treats that as fatal
+# rather than assuming the device is fresh.
+# stdout is the return value: the caller captures it with $(...) and
+# compares it as an integer, so the only output is the bare number.
+#
+# local_files holds folders as well as files; each row's data JSON carries
+# "folder": true or false. Only file rows count: folder rows survive a
+# vault emptied of notes while the folders stay, and a deleted folder is
+# not what the guard protects against. A row whose data does not say
+# either way is counted, so an unexpected shape errs toward stopping.
+known_sync_files() {
+  set -- "$SYNC_STATE_ROOT"/*/state.db
+  [ -e "$1" ] || { echo 0; return 0; }
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const storeCounts = process.argv.slice(1).map((file) => {
+      const db = new DatabaseSync(file, { readOnly: true })
+      const { count } = db
+        .prepare("SELECT COUNT(*) AS count FROM local_files WHERE COALESCE(json_extract(data, ?), 0) = 0")
+        .get("$.folder")
+      db.close()
+      return count
+    })
+    const knownFiles = storeCounts.reduce((total, count) => total + count, 0)
+    console.log(knownFiles)
+  ' "$@"
 }
 
-if [ -f "$SYNC_SENTINEL" ] && ! vault_has_visible_files; then
+# "Content" is a regular file that sync could have delivered: a file at
+# any depth whose path has no dot-named component, or any file under
+# .obsidian/ (synced settings and plugin data). Dotfiles elsewhere are not
+# synced and do not count. `ob sync` itself creates .obsidian/ and a
+# .sync.lock directory in it before transferring anything
+# (obsidian-headless cli.js), so that directory is skipped.
+#
+# Directories alone are not content: a wipe that deletes files but leaves
+# the folder tree in place (`find -type f -delete`, a restore that kept
+# empty directories) must still read as an empty vault, or the guard would
+# let the engine push every recorded file as a deletion.
+vault_has_content() {
+  find "$VAULT_PATH" -mindepth 1 \
+    \( -path "$VAULT_PATH/.obsidian/.sync.lock" -prune \) -o \
+    \( -name '.*' ! -path "$VAULT_PATH/.obsidian" ! -path "$VAULT_PATH/.obsidian/*" -prune \) -o \
+    -type f -print | grep -q .
+}
+
+if ! KNOWN_SYNC_FILES=$(known_sync_files); then
+  echo "[obsidian-sync] ERROR: Could not read this device's sync state under ${SYNC_STATE_ROOT}." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which files this device has already synced." >&2
+  exit 1
+fi
+
+if [ "$KNOWN_SYNC_FILES" -gt 0 ] && ! vault_has_content; then
   echo "[obsidian-sync] ERROR: The vault is empty but this device has previously synced." >&2
   echo "[obsidian-sync] Starting sync in this state would cause the sync engine to interpret" >&2
   echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
   echo "[obsidian-sync] deletions to all connected devices." >&2
   echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
+  echo "[obsidian-sync] If you emptied the vault on purpose, this stop is expected." >&2
+  echo "[obsidian-sync] Re-register the device as below. A fresh device downloads the empty vault without deleting anything." >&2
   echo "[obsidian-sync] To start fresh: remove the Obsidian config directory (${XDG_CONFIG_HOME:-$HOME/.config} — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device." >&2
   exit 1
 fi
@@ -72,7 +121,6 @@ ATTEMPT=1
 while :; do
   echo "[obsidian-sync] First sync (attempt ${ATTEMPT}/${MAX_ATTEMPTS}) — waiting for completion before starting services..."
   if s6-setuidgid obsidian ob sync; then
-    touch "$SYNC_SENTINEL"
     echo "[obsidian-sync] First sync complete."
     exit 0
   fi
