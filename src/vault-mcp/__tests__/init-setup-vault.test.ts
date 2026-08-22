@@ -59,6 +59,8 @@ type SetupRunOptions = {
   configDirName?: string
   deviceName?: string
   syncConfigs?: string
+  syncExcludedFolders?: string
+  syncFileTypes?: string
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
 }
@@ -102,6 +104,12 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       ...(options.syncConfigs === undefined
         ? {}
         : { SYNC_CONFIGS: options.syncConfigs }),
+      ...(options.syncExcludedFolders === undefined
+        ? {}
+        : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
+      ...(options.syncFileTypes === undefined
+        ? {}
+        : { SYNC_FILE_TYPES: options.syncFileTypes }),
     },
   })
 
@@ -172,6 +180,34 @@ describe("init-setup-vault script", () => {
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --device-name vault cortex box",
       "sync-config --device-name vault cortex box",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("passes SYNC_EXCLUDED_FOLDERS and SYNC_FILE_TYPES to sync-config", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncExcludedFolders: "Daily Notes,Private",
+      syncFileTypes: "image,pdf",
+    })
+
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      "sync-config --excluded-folders Daily Notes,Private",
+      "sync-config --file-types image,pdf",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("skips the folder and file-type flags when their variables are empty", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncExcludedFolders: "",
+      syncFileTypes: "",
+    })
+
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
