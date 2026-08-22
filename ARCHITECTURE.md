@@ -602,25 +602,33 @@ sequenceDiagram
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express can verify independently — no shared state needed.
 
-**Token storage:** Refresh tokens and registered clients are persisted in
-SQLite (`/data/oauth.db`) — survives container restarts, no re-authentication
-needed after deploys for active clients. Each refresh token is stored under an
-HMAC of the token keyed by `MCP_AUTH_TOKEN`, never in plaintext: a row is only
-reachable under the auth token that wrote it, and a copied `oauth.db` holds no
-token a client could present. Auth codes are in-memory (short-lived, 10
-minutes). A refresh token is honoured only for the client it was issued to, and
-a refresh may narrow the granted scope but never widen it. Access tokens are
-JWTs (stateless, no storage needed). Revoked access tokens are tracked in
-SQLite; a revoked refresh token is simply deleted.
+**Token storage:** what each credential is and where it lives.
+
+- **Registered clients** — persisted in SQLite (`/data/oauth.db`), so they
+  survive container restarts and active clients don't re-authenticate after a
+  deploy.
+- **Refresh tokens** — persisted in the same database, stored under an HMAC of
+  the token keyed by `MCP_AUTH_TOKEN`, never in plaintext. A row is only
+  reachable under the auth token that wrote it, and a copied `oauth.db` holds
+  no token a client could present.
+- **Refresh grants** — a refresh token is honoured only for the client it was
+  issued to, and a refresh may narrow the granted scope but never widen it.
+- **Auth codes** — in-memory, short-lived (10 minutes).
+- **Access tokens** — JWTs; stateless, no storage.
+- **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
+  refresh token is simply deleted.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
 client never sees expiry. A client dormant for >60 days is forced through the
-full OAuth flow on its next attempt. The schema column is `expires_at INTEGER
-NOT NULL`; a row past `expires_at` is deleted when its token is presented, and
-every remaining expired row is purged each time a new refresh token is issued,
-so rows left by dormant clients or by a token rotation never accumulate. This bounds the blast radius of a leaked refresh token without
-inconveniencing active sessions.
+full OAuth flow on its next attempt. This bounds the blast radius of a leaked
+refresh token without inconveniencing active sessions. Expired rows
+(`expires_at INTEGER NOT NULL`) are removed two ways:
+
+- a row past `expires_at` is deleted when its token is presented;
+- every remaining expired row is purged each time a new refresh token is
+  issued, so rows left by dormant clients or by a token rotation never
+  accumulate.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
@@ -647,12 +655,15 @@ direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
-**Rotating `MCP_AUTH_TOKEN`:** Update the SST secret AND the Lightsail `.env`, then redeploy
-both. Rotation ends every OAuth session: existing JWTs signed with the old key
-become invalid immediately, and every stored refresh token becomes unreachable
-because rows are keyed under the old token. Each client goes back through the
-consent page on its next request. Procedure:
-[`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token).
+**Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
+then redeploy both
+([`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token)). Rotation ends every
+OAuth session:
+
+- existing JWTs signed with the old key become invalid immediately;
+- every stored refresh token becomes unreachable, because rows are keyed
+  under the old token;
+- each client goes back through the consent page on its next request.
 
 ### Optional hardening + customization
 
