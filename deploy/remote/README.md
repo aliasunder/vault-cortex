@@ -149,7 +149,7 @@ the three mounts the Compose file and `docker run` command use. Mount the one
 volume anywhere and set `STORAGE_ROOT` to the same path — the container keeps
 the vault, the search index, Obsidian Sync state, and log files under that
 directory
-([how the paths are laid out →](../../ARCHITECTURE.md#container-startup)).
+([how the paths are laid out →](../../ARCHITECTURE.md#single-volume-layout)).
 
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same

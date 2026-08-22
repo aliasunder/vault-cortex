@@ -743,7 +743,9 @@ they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
 update/delete writes.
 
-**Single-volume layout.** Hosted container platforms (Railway, Render)
+#### Single-volume layout
+
+Hosted container platforms (Railway, Render)
 allow one persistent volume per service, while the image's default
 layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 `init-derive-env` place everything under that one directory:
@@ -766,7 +768,9 @@ empty value, so "empty" cannot mean "off". Without `STORAGE_ROOT`, the layout
 is the three-mount one, and Compose and plain `docker run` deployments are
 unaffected.
 
-**`PUBLIC_URL` derivation.** Hosted platforms assign a service's public
+#### `PUBLIC_URL` derivation
+
+Hosted platforms assign a service's public
 address only at creation, so a template deploy cannot ask the user to type it
 up front. When `PUBLIC_URL` is unset, `init-derive-env` checks these
 platform variables in order and builds `PUBLIC_URL` from the first one that
@@ -780,7 +784,9 @@ required-variable error fires as usual. The derivations live in one pure
 script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
 tests run directly under `sh`.
 
-**Hosted platform templates.** Two templates run the `:remote` image in
+#### Hosted platform templates
+
+Two templates run the `:remote` image in
 single-volume mode on container hosting platforms. Each sets
 `STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex`, and the
 platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL` to the derivation
