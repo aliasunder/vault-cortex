@@ -173,7 +173,7 @@ describe("OAuth refresh token sliding expiry", () => {
       DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
-    const tokens = await oauth.provider.exchangeRefreshToken!(
+    const tokens = await oauth.provider.exchangeRefreshToken(
       client,
       "fresh-token",
     )
@@ -194,7 +194,7 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "expired-token"),
+      oauth.provider.exchangeRefreshToken(client, "expired-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
@@ -208,7 +208,7 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "expired-token"),
+      oauth.provider.exchangeRefreshToken(client, "expired-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
 
     expect(storedRefreshTokenKeys(db)).toEqual([])
@@ -225,24 +225,22 @@ describe("OAuth refresh token sliding expiry", () => {
       DateTime.now().plus({ days: 1 }).toUnixInteger(),
     )
 
-    const tokens = await oauth.provider.exchangeRefreshToken!(
-      client,
-      "first-token",
-    )
+    const tokens = await exchangeRefreshToken(oauth, client, "first-token")
     const newToken = tokens.refresh_token
-    expect(typeof newToken).toBe("string")
-    expect(newToken!.length).toBeGreaterThan(0)
+    if (!newToken) throw new Error("no refresh token issued")
 
     const row = db
-      .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
-      .get(refreshTokenKey(newToken!)) as { expires_at: number } | undefined
-    expect(row).not.toBeUndefined()
+      .prepare<[string], { expires_at: number }>(
+        "SELECT expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(refreshTokenKey(newToken))
+    if (!row) throw new Error("rotated refresh token was not stored")
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
     // a fresh window, not inherited from the old token's expires_at.
     const expected = DateTime.now().plus({ days: 60 }).toUnixInteger()
-    expect(row!.expires_at).toBeGreaterThanOrEqual(expected - 5)
-    expect(row!.expires_at).toBeLessThanOrEqual(expected + 5)
+    expect(row.expires_at).toBeGreaterThanOrEqual(expected - 5)
+    expect(row.expires_at).toBeLessThanOrEqual(expected + 5)
   })
 
   it("invalidates the old token after rotation (single-use)", async () => {
@@ -254,10 +252,10 @@ describe("OAuth refresh token sliding expiry", () => {
       DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
-    await oauth.provider.exchangeRefreshToken!(client, "first-token")
+    await oauth.provider.exchangeRefreshToken(client, "first-token")
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "first-token"),
+      oauth.provider.exchangeRefreshToken(client, "first-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
@@ -265,13 +263,13 @@ describe("OAuth refresh token sliding expiry", () => {
     seedRefreshToken(db, "pre-migration-token", client.client_id, ["vault"], 0)
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "pre-migration-token"),
+      oauth.provider.exchangeRefreshToken(client, "pre-migration-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
   it("rejects a non-existent refresh token", async () => {
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "never-existed"),
+      oauth.provider.exchangeRefreshToken(client, "never-existed"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 })
@@ -680,7 +678,7 @@ describe("OAuth audit logging", () => {
     )
     logs.length = 0
 
-    await oauth.provider.exchangeRefreshToken!(client, "audit-refresh")
+    await oauth.provider.exchangeRefreshToken(client, "audit-refresh")
 
     const event = logs.find((log) => log.message === "oauth_token_refreshed")
     expect(event).toBeDefined()
@@ -692,7 +690,7 @@ describe("OAuth audit logging", () => {
     const { logs, oauth, client } = await setupAuditTest()
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "nonexistent"),
+      oauth.provider.exchangeRefreshToken(client, "nonexistent"),
     ).rejects.toThrow("Refresh token expired or invalid")
 
     const event = logs.find(
