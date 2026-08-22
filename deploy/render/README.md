@@ -106,7 +106,7 @@ port, the storage layout — is set by the Blueprint.
 Out of the box, every request to your instance travels over HTTPS to
 Render's edge and is checked by the server before any vault data moves:
 
-- **HTTPS everywhere.** Render provisions and renews the certificate and
+- **Always HTTPS.** Render provisions and renews the certificate and
   terminates TLS at its edge; the container is never reachable directly.
 - **Nothing without the token.** `/mcp` answers `401` to any request that
   lacks a valid token. OAuth clients get one through the consent page (full

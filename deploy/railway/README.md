@@ -110,7 +110,7 @@ URL, the port, the storage layout — is set by the template.
 Out of the box, every request to your instance travels over HTTPS to
 Railway's edge and is checked by the server before any vault data moves:
 
-- **HTTPS everywhere.** Railway provisions and renews the certificate and
+- **Always HTTPS.** Railway provisions and renews the certificate and
   terminates TLS at its edge; the container is never reachable directly.
 - **Nothing without the token.** `/mcp` answers `401` to any request that
   lacks a valid token. OAuth clients get one through the consent page (full
@@ -274,11 +274,10 @@ new variable.
 Don't set `PUBLIC_URL` or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Railway's own address variable at every start.
 
-Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here:
-it sleeps a service only after ten minutes without outbound traffic, and the
-Obsidian Sync connection keeps sending — with the default bidirectional sync
-the service never went idle in thirteen minutes with no requests at all — so
-the container stays up and billed either way.
+Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here.
+Serverless sleeps a service after ten minutes without outbound traffic, and
+the Obsidian Sync connection keeps sending. The container stays up, and you
+are billed for it, whether the toggle is on or off.
 
 Volume size is changed from the volume's settings on the project canvas
 (Railway can grow a volume, never shrink it).
