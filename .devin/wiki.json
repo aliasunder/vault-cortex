@@ -103,7 +103,7 @@
     },
     {
       "title": "Hosted Platform Templates",
-      "purpose": "The one-click deployments of the :remote image on Render and Railway. Both run the image in single-volume mode: STORAGE_ROOT names the one mount and print-derived-env in rootfs/ derives PUBLIC_URL from the platform. Render deploys from render.yaml at the repo root, documented in deploy/render/. Railway deploys from a template built in its composer, whose definition is recorded in deploy/railway/README.md. cli/src/__tests__/templates.test.ts pins render.yaml and the Railway definition table.",
+      "purpose": "The one-click deployments of the :remote image on Render and Railway. Both run the image in single-volume mode: STORAGE_ROOT names the one mount and print-derived-env in rootfs/ derives PUBLIC_URL from the platform. Render deploys from render.yaml at the repo root, documented in deploy/render/. Railway deploys from a template built in its composer, whose definition is recorded in CONTRIBUTING.md. cli/src/__tests__/templates.test.ts pins render.yaml and the Railway definition table.",
       "parent": "Deployment"
     },
     {

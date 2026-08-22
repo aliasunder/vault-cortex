@@ -796,7 +796,7 @@ random, so the Sync device name cannot fall back to it.
 - `render.yaml` (repo root — Render reads Blueprints only from there) backs
   the "Deploy to Render" button; guide in `deploy/render/`
 - the Railway template lives in Railway's Template Composer; its definition
-  is recorded in `deploy/railway/README.md`
+  is recorded in `CONTRIBUTING.md` → Railway template
 
 A platform qualifies only if it starts the image's entrypoint as PID 1 —
 s6-overlay v3 refuses to run as a child of a platform-injected init

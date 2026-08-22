@@ -19,7 +19,7 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 Curious how the container is put together?
 [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting) · [Template definition](#template-definition-maintainers)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -312,45 +312,3 @@ push deletions to your other devices. This happens only if something removed
 `/persist/vault` by hand. Restore the volume from a backup (the volume's
 **Backups** tab), or remove `/persist/config` as well to start over with a
 fresh device.
-
-## Template definition (maintainers)
-
-The Railway template lives in Railway's Template Composer, not in this
-repository. Re-creating it from scratch is mechanical — these are its
-settings:
-
-| Setting           | Value                                                 |
-| ----------------- | ----------------------------------------------------- |
-| Service name      | `vault-cortex`                                        |
-| Source            | Docker image `ghcr.io/aliasunder/vault-cortex:remote` |
-| Volume            | mount path `/persist`                                 |
-| Public networking | HTTP, port `8000`                                     |
-| Healthcheck path  | `/healthz`                                            |
-| Restart policy    | On failure (Railway's default)                        |
-
-Variables, in the order the deploy form shows them (everything after the four inputs sits under **Pre-Configured Environment Variables**, collapsed):
-
-| Variable                          | Value                                 | Description shown on the deploy form                                                                                                                                                                                            |
-| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TZ`                              | _(optional input)_                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
-| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
-| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                                                                                                                                           |
-| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                                                                                                                                        |
-| `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                                                                                                                                     |
-| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.                                                                                                                      |
-| `DEVICE_NAME`                     | `vault-cortex`                        | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                     |
-| `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address                                                                                                                              |
-| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index                                                                                                                    |
-| `MEMORY_ENABLED`                  | `true`                                | The About Me/ memory layer and its tools. Set false to hide them and skip creating the folder                                                                                                                                   |
-| `EMBEDDING_ENABLED`               | `true`                                | Semantic search. Set false to skip the models and use keyword search only — fits in much less memory                                                                                                                            |
-| `READONLY_MODE`                   | `false`                               | Set true to hide every tool that changes the vault — clients can only read and search                                                                                                                                           |
-| `FILE_TOOLS_ENABLED`              | `true`                                | vault_read_file and vault_list_files. Set false when Obsidian Sync has attachment syncing off                                                                                                                                   |
-| `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only (server edits are kept locally but never uploaded), or mirror-remote (server edits are undone; the server is an exact copy)                                                            |
-| `CONFLICT_STRATEGY`               | `merge`                               | Obsidian Sync conflict resolution: merge integrates changes automatically; conflict writes a separate conflict file                                                                                                             |
-| `SYNC_EXCLUDED_FOLDERS`           | _(empty)_                             | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing                                                                                                     |
-| `SYNC_FILE_TYPES`                 | _(empty)_                             | Attachment types to sync: image, audio, video, pdf, unsupported — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default                                                                   |
-
-Update the template whenever the image tag, a boot-required variable, the
-port, or the health path changes, then re-publish; existing deployments keep
-their settings until their owners redeploy.

@@ -211,12 +211,12 @@ describe("hosted platform templates", () => {
     })
   })
 
-  describe("deploy/railway/README.md definition table", () => {
+  describe("CONTRIBUTING.md Railway template definition table", () => {
     /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. A
      *  value cell of `_(empty)_` is the table's readable form of an empty
      *  pre-filled value and maps to "". */
     const definitionTableValues = (): Map<string, string> => {
-      const guide = readRepoFile("deploy/railway/README.md")
+      const guide = readRepoFile("CONTRIBUTING.md")
       const tableRows = guide.matchAll(
         /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(empty\)_)\s*\|/gm,
       )
