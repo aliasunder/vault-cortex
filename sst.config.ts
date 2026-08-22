@@ -44,18 +44,14 @@ export default $config({
 
     // ORIGIN_ACCESS_SERVICE_TOKEN=true: API Gateway presents a Cloudflare
     // Access service token to the ORIGIN_URL host on every request, so an
-    // Access policy on that host can admit the gateway alone. Requires
-    // ORIGIN_URL and the OriginAccessClientId / OriginAccessClientSecret
-    // secrets.
-    const originAccessServiceToken = env("ORIGIN_ACCESS_SERVICE_TOKEN")
-      .default("false")
-      .asBool()
-    if (originAccessServiceToken && !originUrl) {
-      throw new Error(
-        "ORIGIN_ACCESS_SERVICE_TOKEN requires ORIGIN_URL — the service " +
-          "token is presented to the tunnel/proxy host, not the instance.",
-      )
-    }
+    // Access policy on that host can admit the gateway alone. Reads the
+    // OriginAccessClientId / OriginAccessClientSecret secrets. Without
+    // ORIGIN_URL there is no host to present it to, so the flag is
+    // ignored — rollback deploys blank ORIGIN_URL on the command line and
+    // must not have to unset this too.
+    const originAccessServiceToken =
+      Boolean(originUrl) &&
+      env("ORIGIN_ACCESS_SERVICE_TOKEN").default("false").asBool()
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):

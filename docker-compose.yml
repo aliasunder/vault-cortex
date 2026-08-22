@@ -48,10 +48,13 @@ services:
       # directly (bypassing the gateway) can claim any Forwarded identity —
       # see DEPLOY.md "Port 8000 Hardening" before relying on these defaults.
       # With ORIGIN_URL (a tunnel/proxy BETWEEN the gateway and this container)
-      # set TRUST_FORWARDED_HEADER=false and TRUST_PROXY_HOPS=2 — the
-      # X-Forwarded-For chain carries the client.
+      # keep TRUST_FORWARDED_HEADER=true — the gateway sends no
+      # X-Forwarded-For, so only the Forwarded header carries the client —
+      # and set TRUST_PROXY_HOPS=2. With a CDN in front of the gateway's
+      # custom domain, also set TRUST_FORWARDED_HOPS=2.
       TRUST_FORWARDED_HEADER: ${TRUST_FORWARDED_HEADER:-true}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ${LOG_DIR:-/data/logs}
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}

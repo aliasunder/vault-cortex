@@ -621,20 +621,29 @@ active sessions.
 client-IP key derived from the deployment's explicit proxy-trust config:
 
 - `TRUST_FORWARDED_HEADER` (default `false`) honors the RFC 7239
-  `Forwarded` header, keying on the **last** `for=` element — the edge
-  proxy's own claim, since a client can prepend elements but its entries
+  `Forwarded` header. The proxy that writes it appends its own peer as the
+  **last** `for=` element; a client can prepend elements, but its entries
   land before the proxy's append. Intended for the reference deployment,
-  where API Gateway is the immediate upstream.
+  where API Gateway writes the header. API Gateway folds a client-supplied
+  `X-Forwarded-For` into the same list as leading elements and sends no
+  `X-Forwarded-For` of its own, so `Forwarded` is the only carrier of the
+  client IP behind the gateway.
+- `TRUST_FORWARDED_HOPS` (default `1`) picks which trailing element is the
+  client: `1` reads the last element; `2` reads the one before it, for a
+  gateway whose custom domain sits behind a CDN — the gateway's peer is
+  then the CDN, and the CDN had already recorded the client ahead of it.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
   so it can't mint a fresh bucket.
 - With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
   between API Gateway and the instance —
-  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the `Forwarded`
-  header passes through the tunnel unverified, so the deployment flips to
-  `TRUST_FORWARDED_HEADER=false` + `TRUST_PROXY_HOPS=2`: the client IP then
-  comes from the `X-Forwarded-For` chain, one trusted hop per proxy.
+  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel
+  host is a second front door that passes a client-written `Forwarded`
+  through unverified. `ORIGIN_ACCESS_SERVICE_TOKEN` closes it: API Gateway
+  presents a Cloudflare Access service token on every request and an
+  Access policy on the tunnel host admits nothing else, so the only
+  `Forwarded` header reaching the container is the gateway's.
 
 (express-rate-limit's built-in validators are disabled — they assume
 direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter

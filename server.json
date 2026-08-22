@@ -127,6 +127,11 @@
           "default": "false"
         },
         {
+          "name": "TRUST_FORWARDED_HOPS",
+          "description": "How many trailing for= entries of the Forwarded header belong to proxies you control; the client is the entry before them. 2 when a CDN fronts the proxy that writes the header.",
+          "default": "1"
+        },
+        {
           "name": "TZ",
           "description": "IANA timezone for timestamps and daily note resolution.",
           "default": "UTC"

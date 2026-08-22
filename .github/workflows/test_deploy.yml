@@ -70,6 +70,7 @@ jobs:
           SSH_CIDRS: ${{ secrets.SSH_CIDRS }}
           ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
           MCP_PORT_CIDRS: ${{ secrets.MCP_PORT_CIDRS }}
+          ORIGIN_ACCESS_SERVICE_TOKEN: ${{ vars.ORIGIN_ACCESS_SERVICE_TOKEN }}
           CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
           CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
         run: npx sst deploy --stage "$SST_STAGE"
@@ -219,6 +220,7 @@ jobs:
           DISABLED_TOOLS: ${{ vars.DISABLED_TOOLS }}
           TRUST_FORWARDED_HEADER: ${{ vars.TRUST_FORWARDED_HEADER }}
           TRUST_PROXY_HOPS: ${{ vars.TRUST_PROXY_HOPS }}
+          TRUST_FORWARDED_HOPS: ${{ vars.TRUST_FORWARDED_HOPS }}
           TZ: ${{ vars.TZ }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_DIR: ${{ vars.LOG_DIR }}
@@ -264,6 +266,7 @@ jobs:
           if [ -n "$DISABLED_TOOLS" ]; then echo "DISABLED_TOOLS=$DISABLED_TOOLS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$TRUST_FORWARDED_HEADER" ]; then echo "TRUST_FORWARDED_HEADER=$TRUST_FORWARDED_HEADER" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$TRUST_PROXY_HOPS" ]; then echo "TRUST_PROXY_HOPS=$TRUST_PROXY_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$TRUST_FORWARDED_HOPS" ]; then echo "TRUST_FORWARDED_HOPS=$TRUST_FORWARDED_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:
