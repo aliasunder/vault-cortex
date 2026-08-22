@@ -441,6 +441,14 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       memoryDirExit: 0,
       syncedNotePresent: true,
     })
+    // Existence alone holds in either order. The stub lists the vault's
+    // top-level entries just before its one-shot sync delivers anything;
+    // an empty listing proves the memory folder was not there yet.
+    const entriesBeforeFirstSync = await readContainerFile({
+      name,
+      path: "/persist/config/pre-sync-entries.log",
+    })
+    expect(entriesBeforeFirstSync).toBe("")
   })
 
   it("writes nothing into the legacy /vault, /data and /home/obsidian/.config paths", async () => {

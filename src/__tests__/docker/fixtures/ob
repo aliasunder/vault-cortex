@@ -98,6 +98,11 @@ case "${1:-}" in
       echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
       exit 1
     fi
+    # What the vault held before this one-shot sync delivered anything,
+    # one top-level entry per line (.obsidian excluded). A test reads it to
+    # prove the server's memory bootstrap ran after the first sync, not
+    # before: an "About Me" line here means the templates landed first.
+    find . -mindepth 1 -maxdepth 1 ! -name '.obsidian' | sort >> "$CONFIG_HOME/pre-sync-entries.log"
     # The real client creates .obsidian/ and a .obsidian/.sync.lock
     # directory before transferring anything, so every one-shot sync
     # leaves these behind — init-first-sync must not count them as content.
