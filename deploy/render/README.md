@@ -25,9 +25,9 @@ Curious how the container is put together?
 
 - A [Render](https://render.com) account with a payment card on file. The
   free Hobby workspace is enough; the **Standard** instance (1 CPU, 2 GB) and
-  the 5 GB disk the Blueprint creates are paid compute — about
-  **$26 USD/month**, billed by the second
-  ([Render's pricing](https://render.com/pricing)).
+  the 5 GB disk the Blueprint creates are paid — about **$26 USD/month**
+  together, the instance billed by the second and the disk as its own line
+  item ([Render's pricing](https://render.com/pricing)).
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
 - Your Obsidian Sync login token — see
   [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
@@ -207,8 +207,10 @@ release lists what changed since the last one, and an entry marked
 All from the service page:
 
 - **Restart** — **Manual Deploy → Restart service**. Same container, same disk.
-- **Stop** — **Settings → Suspend Service**. Billing stops; the disk and
-  everything on it stay. **Resume** picks up where it left off.
+- **Stop** — **Settings → Suspend Service**. The instance stops billing;
+  the disk and everything on it stay, and Render's pricing lists the disk as
+  its own line item, so expect it to keep billing until the service is
+  deleted. **Resume** picks up where it left off.
 - **Delete** — two steps, because the Blueprint would otherwise re-create
   the service: open the Blueprint (**Blueprints** in the left nav) →
   **Settings → Disconnect Blueprint**, then the service → **Settings →
