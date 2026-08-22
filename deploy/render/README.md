@@ -133,8 +133,9 @@ those tool groups entirely (see [Configuration](#configuration)).
 
 Rotating `MCP_AUTH_TOKEN` ends every session: access tokens issued under
 the old value stop working, stored refresh tokens become unusable, and each
-client goes back through the consent page on its next request. The full
-attack-surface inventory is in [SECURITY.md](../../SECURITY.md).
+client goes back through the consent page on its next request.
+[SECURITY.md](../../SECURITY.md) describes what the server exposes and how
+each part is hardened.
 
 ## First start
 

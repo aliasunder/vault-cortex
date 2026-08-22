@@ -3,12 +3,12 @@
 ## Scope
 
 Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS.
-The attack surface below covers the server itself — what ships in the Docker
+This section covers the server itself — what ships in the Docker
 image. Deployers bring their own TLS termination, reverse proxy, and CI/CD
 pipeline; those are outside vault-cortex's scope but the reference deployment
 notes below describe what the maintainer uses.
 
-### Server attack surface
+### What the server exposes
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   JWT tokens (HS256), static bearer token fallback, Express middleware (defense
