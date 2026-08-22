@@ -115,7 +115,7 @@ Railway opens the template; click **Deploy Now**, then **Configure** to enter yo
 
 #### Self-hosted: your own VPS
 
-The CLI sets up the same container on any Linux box you run — you manage the server, the image, and updates.
+The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates.
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
