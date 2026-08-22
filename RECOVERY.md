@@ -237,11 +237,15 @@ downtime.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
     starts empty, so every client re-auths via the consent page on its next
     token refresh — minor inconvenience, no data loss.
-- **`MCP_AUTH_TOKEN`** signs JWTs and keys the stored refresh tokens. It's
-  in SST secrets and gets redeployed to `/opt/vault-cortex/.env` on any
-  fresh boot. If you rotated it during the outage, every JWT and every
-  stored refresh token stops working, and every client re-auths on its
-  next call.
+- **`MCP_AUTH_TOKEN`** signs access JWTs and keys the lookup of stored
+  refresh tokens. It's in SST secrets and gets redeployed to
+  `/opt/vault-cortex/.env` on any fresh boot. If you also rotated it during
+  the outage, the rotation rules apply on top of the restore: existing
+  access JWTs are rejected on their next request (their signatures were
+  made with the old secret — unlike a restore without rotation, where they
+  stay valid until they expire), stored refresh tokens can no longer be
+  found, and you approve each client again on the consent page the next
+  time it connects.
 
 ## Verifying the seatbelts work
 
