@@ -111,11 +111,11 @@ export type VaultConfig = Readonly<{
    *  false — the default — the header is ignored, since any client can
    *  send one. Set via TRUST_FORWARDED_HEADER. */
   trustForwardedHeader: boolean
-  /** How many trailing `for=` elements of the Forwarded header were
-   *  written by proxies the deployment controls — the client IP is the
-   *  element just before them. 1 (the default) when the proxy writing the
-   *  header talks to clients directly; 2 when a CDN fronts that proxy, so
-   *  the last element names the CDN. Only read when
+  /** How many entries from the end of the Forwarded header's `for=`
+   *  list to reach the client IP — the proxy that writes the header
+   *  appends its peer last. 1 (the default) when the proxy writing the
+   *  header talks to clients directly; 2 when a CDN fronts that proxy,
+   *  so the last element names the CDN. Only read when
    *  TRUST_FORWARDED_HEADER is true. Set via TRUST_FORWARDED_HOPS. */
   trustForwardedHops: number
   memoryDir: string

@@ -128,7 +128,7 @@
         },
         {
           "name": "TRUST_FORWARDED_HOPS",
-          "description": "How many trailing for= entries of the Forwarded header belong to proxies you control; the client is the entry before them. 2 when a CDN fronts the proxy that writes the header.",
+          "description": "How many entries from the end of the Forwarded header's for= list to count to reach the client IP. 2 when a CDN fronts the proxy that writes the header.",
           "default": "1"
         },
         {
