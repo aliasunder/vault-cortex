@@ -79,6 +79,29 @@
 
 
 
+
+## [0.40.0] — 2026-08-22
+
+### Features
+
+- **deploy:** One-click Render and Railway deployments for the remote image (#480)
+
+### Bug Fixes
+
+- **remote:** Read the Sync client's file record in the deletion-storm guard; boot the remote image in CI on both architectures (#475)
+- **remote:** Stop on a fresh volume when VAULT_NAME is unset (#476)
+
+### Documentation
+
+- **contributing:** List every check the main ruleset requires
+- Update CHANGELOG.md for v0.39.0
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 3 updates (#478)
+- **deps:** Bump @napi-rs/canvas from 1.0.6 to 1.0.7 in the production group (#477)
+- **deps:** Bump docker/setup-buildx-action from 4.2.0 to 4.3.0 (#479)
+
 ## [0.39.0] — 2026-08-21
 
 ### Features
