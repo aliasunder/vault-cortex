@@ -641,6 +641,17 @@ direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
+**Client registration cap:** the rate limiter is the only control between an
+anonymous request and a `/register` write, so `MAX_OAUTH_CLIENTS` (default 1000) bounds the `clients` table independently:
+
+- Count and insert run in one SQLite transaction — a burst cannot overshoot
+  the cap
+- A registration past the cap returns `400 registration_limit_reached` and
+  logs `oauth_client_registration_refused`
+- Every registration from 80 % of the cap logs `oauth_client_cap_nearing`
+- Nothing deletes registrations, so the default is generous; an operator who
+  hits it clears stale rows from `clients` in `oauth.db` by hand
+
 **Rotating `MCP_AUTH_TOKEN`:** Update the SST secret AND the Lightsail `.env`, then redeploy
 both. Existing JWTs signed with the old key become invalid immediately.
 Refresh tokens in SQLite are unaffected — clients silently get new JWTs
