@@ -92,12 +92,11 @@ port, the storage layout — is set by the Blueprint.
 ## Your URL and token
 
 - **URL:** shown at the top of the service page. Render builds it from the
-  service name the Blueprint sets, `vault-cortex`, and `onrender.com`
-  subdomains are unique across all of Render — when `vault-cortex` is
-  already taken, Render keeps the service name and adds four random
-  characters to the subdomain, so expect `https://vault-cortex-xxxx.onrender.com`.
-  The commands below write it as `<host>`; your MCP client connects at
-  `https://<host>/mcp`.
+  service name the Blueprint sets, `vault-cortex`, plus four random
+  characters, because `onrender.com` subdomains are unique across all of
+  Render and the bare name is taken. Expect
+  `https://vault-cortex-xxxx.onrender.com`. The commands below write it as
+  `<host>`; your MCP client connects at `https://<host>/mcp`.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
 
