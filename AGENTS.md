@@ -1037,10 +1037,11 @@ writes, the volume layout, and the checks that stop the container
 on bad state. Run via `npm run test:remote-boot` (builds the image,
 then runs a separate vitest config excluded from `npm test`).
 
-Tests in a `describe` block share one booted container. The
-guard-scenario and failing-sync `describe` blocks are the exception:
-every test there boots its own container, since each sets a different
-environment or expects a different exit outcome.
+Tests in a `describe` block share one booted container. Two places boot
+more often, because each scenario sets a different environment or
+expects a different exit outcome: every guard scenario boots inside its
+own `it()`, and the failing-sync block boots once per sub-`describe`
+(memory on, memory off).
 
 **Always add:**
 
