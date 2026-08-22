@@ -144,7 +144,7 @@ describe("hosted platform templates", () => {
       )
       expect(blueprint.services[0].runtime).toBe("image")
       expect(fixedValues).toEqual(HOSTED_FIXED_ENV)
-      expect(envVars.get("TRUST_PROXY_HOPS")?.value).toMatch(/^\d+$/)
+      expect(envVars.get("TRUST_PROXY_HOPS")?.value).toBe("2")
     })
 
     it("mounts the disk at STORAGE_ROOT and health-checks /healthz", () => {
