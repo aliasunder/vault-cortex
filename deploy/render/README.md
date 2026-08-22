@@ -208,9 +208,10 @@ All from the service page:
 
 - **Restart** — **Manual Deploy → Restart service**. Same container, same disk.
 - **Stop** — **Settings → Suspend Service**. The instance stops billing;
-  the disk and everything on it stay, and Render's pricing lists the disk as
-  its own line item, so expect it to keep billing until the service is
-  deleted. **Resume** picks up where it left off.
+  the disk and everything on it stay, and Render bills disks separately at
+  $0.25 USD per GB per month — about $1.25 a month for the 5 GB disk — so
+  expect that charge to continue until the service is deleted. **Resume**
+  picks up where it left off.
 - **Delete** — two steps, because the Blueprint would otherwise re-create
   the service: open the Blueprint (**Blueprints** in the left nav) →
   **Settings → Disconnect Blueprint**, then the service → **Settings →
