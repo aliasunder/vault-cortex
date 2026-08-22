@@ -768,6 +768,79 @@ describe("remote image boot — vault wiped after files arrived while the contai
   })
 })
 
+describe("remote image boot — notes deleted by hand while the container ran", () => {
+  // The engine drops a file's row from the sync state when the file is
+  // deleted locally, so a vault emptied on purpose while the device runs
+  // leaves an empty record. The next boot must read that as "nothing to
+  // push" and start normally, not as a wipe.
+  const name = uniqueName("emptied-by-hand")
+  const env = {
+    ...BASE_ENV,
+    MEMORY_ENABLED: "false",
+    PUBLIC_URL: "http://localhost:8000",
+    OB_STUB_SYNC_EMPTY: "1",
+  }
+  let handle: ContainerHandle | undefined
+  let restartedAt = ""
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env,
+      volumes: [],
+      publishPort: true,
+    })
+    const port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    // A note arrives through continuous sync, then the user deletes it;
+    // the engine records the arrival and then forgets the row.
+    await dockerOrThrow([
+      "exec",
+      "--user",
+      "obsidian",
+      "--env",
+      "HOME=/home/obsidian",
+      name,
+      "sh",
+      "-c",
+      'printf "# Arrived later\n" > "/vault/Arrived Later.md" && ob sync-record "Arrived Later.md" && rm "/vault/Arrived Later.md" && ob sync-forget "Arrived Later.md"',
+    ])
+    const beforeRestart = await bootedStartedAt(name)
+    await docker(["restart", name])
+    restartedAt = await bootedStartedAt(name)
+    if (restartedAt === beforeRestart) {
+      throw new Error("docker restart did not produce a new StartedAt")
+    }
+    const restartedPort = await publishedPort(name)
+    await waitForHealthz({
+      name,
+      port: restartedPort,
+      deadlineMs: BOOT_DEADLINE_MS,
+    })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("boots again after the restart without the deletion-storm guard firing", async () => {
+    const logsSinceRestart = await containerLogs(name, restartedAt)
+    expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
+    expect(logsSinceRestart).not.toContain(
+      "The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("records no files once the deleted note's row is gone", async () => {
+    const knownFiles = await countSyncStateFiles({
+      name,
+      configDir: "/home/obsidian/.config",
+    })
+    expect(knownFiles).toBe(0)
+  })
+})
+
 describe("remote image boot — remote vault holding only synced .obsidian/ settings", () => {
   // Settings are synced but there are no notes and memory is off. The
   // settings are recorded in the sync state, so on restart the guard must

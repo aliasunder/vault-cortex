@@ -1099,8 +1099,8 @@ re-verify each contract against the new source before merging:
   table `local_files`. The deletion-storm guard reads this table. The
   engine loads it at startup and compares it against the files on disk.
 - Files delivered by `sync --continuous` are recorded in that same
-  table as they arrive. The stub's `sync-record` verb mirrors this
-  recording.
+  table as they arrive, and a file deleted locally has its row removed.
+  The stub's `sync-record` and `sync-forget` verbs mirror the two.
 
 The remote-boot tests never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed

@@ -27,6 +27,11 @@
 #                          a remote vault that has nothing in it yet
 #   OB_STUB_SYNC_CONFIG_ONLY=1 — one-shot `sync` delivers only .obsidian/
 #                          settings, no notes
+#
+# Test-only verbs (not real ob commands) that stand in for what continuous
+# sync does to the record while the container runs:
+#   ob sync-record <paths>  — files arrived: add their rows
+#   ob sync-forget <paths>  — files were deleted locally: drop their rows
 set -eu
 
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -51,6 +56,19 @@ record_local_files() {
   ' "$state_dir/state.db" "$@"
 }
 
+# The real client drops a file's row when the file is deleted locally, so
+# a vault emptied by hand while the device runs leaves an empty record.
+forget_local_files() {
+  state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const db = new DatabaseSync(process.argv[1])
+    const remove = db.prepare("DELETE FROM local_files WHERE path = ?")
+    for (const path of process.argv.slice(2)) remove.run(path)
+    db.close()
+  ' "$state_dir/state.db" "$@"
+}
+
 case "${1:-}" in
   login | sync-setup | sync-config)
     exit 0
@@ -60,6 +78,13 @@ case "${1:-}" in
     # (which the stub otherwise just sleeps through). Not a real ob command.
     shift
     record_local_files "$@"
+    exit 0
+    ;;
+  sync-forget)
+    # Test-only verb: drop the rows for files deleted locally while the
+    # stub's continuous sync was "running". Not a real ob command.
+    shift
+    forget_local_files "$@"
     exit 0
     ;;
   sync)
