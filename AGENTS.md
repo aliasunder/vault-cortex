@@ -1073,8 +1073,9 @@ If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 
 ## Upgrading obsidian-headless
 
-The Sync CLI has no public documentation, so the `:remote` init chain
-depends on behaviour read out of the pinned `cli.js`. Treat every bump
+The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)
+covers usage, not internals, so the `:remote` init chain depends on
+behaviour read out of the pinned `cli.js`. Treat every bump
 of `obsidian-headless/package.json` as a potential regression and
 re-verify each contract against the new source before merging:
 
