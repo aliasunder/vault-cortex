@@ -885,8 +885,18 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
       )
       expect(response.status).toBe(201)
     }
+    // The exhausted bucket is keyed on 198.51.100.4 alone: neither the
+    // prefix (203.0.113.99) nor the CDN element (172.69.0.1) is part of
+    // the key, so a different prefix and a different CDN edge both land
+    // in it.
     const sixth = await register("for=198.51.100.4, for=172.69.0.1")
     expect(sixth.status).toBe(429)
+    const otherPrefixAndEdge = await register(
+      "for=203.0.113.77, for=198.51.100.4, for=172.69.0.2",
+    )
+    expect(otherPrefixAndEdge.status).toBe(429)
+    const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1")
+    expect(prefixAsClient.status).toBe(201)
   })
 })
 
