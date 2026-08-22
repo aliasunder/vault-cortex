@@ -13,7 +13,9 @@ notes below describe what the maintainer uses.
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   JWT tokens (HS256), static bearer token fallback, Express middleware (defense
   in depth)
-- **Express server** — handles MCP protocol messages, OAuth flows, consent page
+- **Express server** — handles MCP protocol messages, OAuth flows, consent page.
+  OAuth endpoints are rate-limited per client IP, and `MAX_OAUTH_CLIENTS`
+  bounds the registered-client table if the limiter is bypassed
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
