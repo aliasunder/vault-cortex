@@ -162,17 +162,30 @@ are the MCP server. `server started` means the deploy is about to go live.
 
 ## Connect your MCP client
 
-Add a remote MCP server with URL `https://<name>.up.railway.app/mcp`. Leave
-OAuth Client ID and Secret empty; a consent page opens in your browser —
-enter your `MCP_AUTH_TOKEN` to approve. Claude Code accepts the URL
-directly:
+The same three steps in every app:
 
-```bash
-claude mcp add --scope user --transport http vault-cortex https://<name>.up.railway.app/mcp
-```
+1. In Claude Desktop, claude.ai, Perplexity, or any app with an **Add custom
+   connector** (remote MCP server) option, paste
+   `https://<name>.up.railway.app/mcp`. Leave Client ID and Secret empty.
+2. A consent page opens in your browser. Approve it with the
+   `MCP_AUTH_TOKEN` Railway generated.
+3. Done — the client renews its own access from then on. Under the hood that
+   is full OAuth 2.1, with PKCE, dynamic client registration, and
+   refresh-token rotation on a 60-day sliding expiry.
 
-Client-by-client details, including the static bearer-token form for CLI
-tools, are in the remote quickstart's
+**Other clients:**
+
+- **Claude Code** — one command instead of a settings screen; the same
+  consent page opens:
+
+  ```bash
+  claude mcp add --scope user --transport http vault-cortex https://<name>.up.railway.app/mcp
+  ```
+
+- **Scripts and MCP Inspector** — send `MCP_AUTH_TOKEN` as an
+  `Authorization: Bearer` header.
+
+Client-by-client details are in the remote quickstart's
 [Connect your MCP client](../remote/#connect-your-mcp-client).
 
 ## Verify
