@@ -185,7 +185,7 @@ Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 | `npm run docker:publish` | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                       |
 | `npm run lightsail:up`   | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist.  |
 | `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                       |
-| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24/mo Lightsail cost.               |
+| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost.           |
 
 All commands are idempotent and safe to run repeatedly.
 

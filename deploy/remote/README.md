@@ -236,7 +236,7 @@ HTTPS URL like:
 https://<id>.execute-api.<region>.amazonaws.com
 ```
 
-HTTP API pricing is $1.00 per million requests with a free tier of 1M
+HTTP API pricing is $1.00 USD per million requests with a free tier of 1M
 requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
