@@ -135,8 +135,8 @@ rotation alone. The full attack-surface inventory is in
 ## First start
 
 The first deploy takes longer than later ones. In order, the container logs
-in to Obsidian Sync, registers a device named **vault-cortex**, downloads your
-vault, builds the search index, and only then answers health checks and
+in to Obsidian Sync, downloads your vault, builds the search index, and only
+then answers health checks and
 receives traffic. A vault of a few thousand notes takes two to three
 minutes; Render allows up to 15, and a large vault can take most of it.
 Until then the URL answers `502` — that is Render waiting, not a failure.
@@ -176,8 +176,8 @@ In your MCP client, run a search — results come from your vault.
 Image services on Render don't redeploy on their own when a new image is
 published. To update: open the service, click **Manual Deploy → Deploy latest
 reference**. Render pulls the current `:remote` image and restarts the
-container; your vault, search index, and Sync device stay on the disk, so the
-update is quick and registers no new device.
+container. Your vault and search index stay on the disk, so the update takes
+a minute or two — nothing is downloaded or rebuilt.
 
 Release notes: [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases).
 
@@ -253,11 +253,10 @@ files and index that already reached the disk are reused, so the second
 attempt is much faster. For very large vaults, set `EMBEDDING_ENABLED=false`
 for the first deploy and remove it once the vault has synced.
 
-**The logs show a fresh Obsidian Sync login and a full vault download on a
-redeploy.** The container registered itself as a new device, which happens
-when the disk was replaced or the device state under `/persist/config` was
-removed. Nothing needs cleaning up — the old registration simply stops
-syncing.
+**A redeploy took as long as the first deploy and downloaded the whole vault
+again.** The disk was replaced, or `/persist/config` was removed, so the
+container started over with a fresh Obsidian Sync connection. Nothing needs
+cleaning up.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the disk is empty

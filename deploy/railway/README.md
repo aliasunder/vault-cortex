@@ -144,8 +144,8 @@ rotation alone. The full attack-surface inventory is in
 ## First start
 
 The first deploy takes longer than later ones. In order, the container logs
-in to Obsidian Sync, registers a device named **vault-cortex**, downloads your
-vault, builds the search index, and only then answers health checks and
+in to Obsidian Sync, downloads your vault, builds the search index, and only
+then answers health checks and
 receives traffic. A vault of a few thousand notes takes about three
 minutes; the template allows 15, and a large vault can take most of it.
 
@@ -182,9 +182,9 @@ In your MCP client, run a search — results come from your vault.
 ## Updating
 
 Services deployed from a Docker-image template don't update on their own
-unless you turn that on. Either way, your vault, search index, and Sync
-device stay on the volume, so an update is quick and registers no new
-device.
+unless you turn that on. Either way, your vault and search index stay on the
+volume, so an update takes a minute or two — nothing is downloaded or
+rebuilt.
 
 - **By hand** — open the service, open the latest entry under
   **Deployments**, and choose **Redeploy**. Railway pulls the current
@@ -275,14 +275,13 @@ has synced.
 **The logs repeat `ENOSPC: no space left on device`.** The volume is full.
 A volume created on the trial plan is 0.5 GB and stays that size after an
 upgrade. Upgrade to Hobby, delete the volume (**Settings → Volumes**), add a
-new one at `/persist`, then **Redeploy** — the container registers a fresh
-Sync device and downloads the vault again.
+new one at `/persist`, then **Redeploy** — the container downloads the vault
+again, like a first deploy.
 
-**The logs show a fresh Obsidian Sync login and a full vault download on a
-redeploy.** The container registered itself as a new device, which happens
-when the volume was replaced or the device state under `/persist/config` was
-removed. Nothing needs cleaning up — the old registration simply stops
-syncing.
+**A redeploy took as long as the first deploy and downloaded the whole vault
+again.** The volume was replaced, or `/persist/config` was removed, so the
+container started over with a fresh Obsidian Sync connection. Nothing needs
+cleaning up.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the volume is
