@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
+import { loadConfig } from "../../../src/vault-mcp/config.js"
 import { REMOTE_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
@@ -71,8 +72,9 @@ type RenderBlueprint = {
   services: Array<{
     runtime: string
     image: { url: string }
+    plan: string
     healthCheckPath: string
-    disk: { mountPath: string }
+    disk: { mountPath: string; sizeGB: number }
     envVars: RenderEnvVar[]
   }>
 }
@@ -97,13 +99,18 @@ const HOSTED_FIXED_ENV = {
  * Optional settings every hosted template pre-fills with the image's own
  * defaults, so users change them in the platform's dashboard instead of
  * creating variables by hand. A template value that drifts from the image
- * default would silently change behaviour for button deploys only.
+ * default would silently change behaviour for button deploys only — so the
+ * server-side defaults are read from `loadConfig` with an empty environment,
+ * not restated here. SYNC_MODE is passed straight to the Obsidian Sync
+ * client, whose own default is bidirectional (`deploy/remote/.env.example`
+ * documents the same), so it has no server-side source and stays a literal.
  */
+const imageDefaults = loadConfig({})
 const HOSTED_OPTIONAL_ENV = {
-  MEMORY_ENABLED: "true",
-  EMBEDDING_ENABLED: "true",
-  READONLY_MODE: "false",
-  FILE_TOOLS_ENABLED: "true",
+  MEMORY_ENABLED: String(imageDefaults.memoryEnabled),
+  EMBEDDING_ENABLED: String(imageDefaults.embeddingEnabled),
+  READONLY_MODE: String(imageDefaults.readOnlyMode),
+  FILE_TOOLS_ENABLED: String(imageDefaults.fileToolsEnabled),
   SYNC_MODE: "bidirectional",
 }
 
@@ -145,6 +152,12 @@ describe("hosted platform templates", () => {
       expect(blueprint.services[0].runtime).toBe("image")
       expect(fixedValues).toEqual(HOSTED_FIXED_ENV)
       expect(envVars.get("TRUST_PROXY_HOPS")?.value).toBe("2")
+    })
+
+    it("provisions the Standard instance and a 5 GB disk the guides quote as the cost", () => {
+      const blueprint = readRenderBlueprint()
+      expect(blueprint.services[0].plan).toBe("standard")
+      expect(blueprint.services[0].disk.sizeGB).toBe(5)
     })
 
     it("mounts the disk at STORAGE_ROOT and health-checks /healthz", () => {
