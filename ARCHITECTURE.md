@@ -723,16 +723,17 @@ process has spawned. Two mechanisms with distinct jobs:
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
 - **`init-first-sync` gates vault state.** Three outcomes, checked in order:
-  1. **Deletion-storm guard** (before sync runs): the Sync client keeps a
-     per-device record of the files it holds locally
-     (`obsidian-headless/sync/<vaultId>/state.db` on the config volume) and,
-     at startup, pushes every recorded file missing from disk as a deletion.
-     If that record lists files but the vault has no content, the container
-     refuses to start. Content is any visible entry or anything inside
-     `.obsidian/` (synced settings) except the Sync client's own
-     `.sync.lock`; other dotfiles are not synced and do not count. A record
-     that exists but cannot be read also stops the container. No record
-     means a fresh device, which downloads without deleting.
+  1. **Deletion-storm guard** (before sync runs): the container refuses to
+     start when the Sync client's file record lists files but the vault has
+     no content.
+     - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
+       config volume — at startup the client pushes every recorded file
+       missing from disk as a deletion.
+     - Content is any visible entry, or anything inside `.obsidian/` except
+       the client's own `.sync.lock`. Other dotfiles are not synced and do
+       not count.
+     - A record that exists but cannot be read also stops the container.
+     - No record means a fresh device, which downloads without deleting.
   2. **Sync succeeds**: the first sync runs to completion before any service
      starts.
   3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
