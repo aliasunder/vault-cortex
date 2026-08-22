@@ -55,6 +55,8 @@
 
 **Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
+---
+
 
 ## Quick Start
 
@@ -73,6 +75,8 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
 
 See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#files) for the image pipeline and dispatch model.
+
+---
 
 ## Tools
 
@@ -109,6 +113,8 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_list_files` | Browse the vault's non-markdown files with sizes and per-extension counts |
 | **Daily Notes** | `vault_get_daily_note` | Today's (or any date's) daily note |
 
+---
+
 ## Prompts
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
@@ -122,6 +128,8 @@ Tools are model-driven — the assistant calls them. **Prompts** are workflows _
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
 > **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
+
+---
 
 ## Properties
 
