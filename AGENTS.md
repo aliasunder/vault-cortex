@@ -909,17 +909,17 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
   boot chain for the `:remote` target, not TypeScript modules, and
   vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
-  `rootfs/`. Their specs live in
+  `rootfs/`. Their tests live in
   `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`), run the real
+  `print-derived-env.test.ts`). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them. Whole-image behaviour — the chain's ordering, the
   `container_environment` files it publishes, the volume layout, and
   the guards that stop the container — is the remote-boot tier's job
   (`src/__tests__/docker/`, see "Remote image boot tests — when to
-  add"); per-script branch coverage stays in the `sh` specs.
+  add"); the branches inside one script stay in that script's test file.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).
@@ -1030,7 +1030,7 @@ from `npm test`).
 
 Remote image boot tests (`src/__tests__/docker/`) boot the built
 `:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
-They catch what the per-script `sh` specs structurally can't — oneshot
+They catch what a single script's test file cannot — oneshot
 ordering, published env, volume layout, guards. Run via
 `npm run test:remote-boot` (builds the image, then runs a separate
 vitest config excluded from `npm test`). Tests in a `describe` block share
@@ -1048,7 +1048,7 @@ different env or expects a different outcome.
 
 **Never add:**
 
-- Branch logic inside one script — the `sh` specs cover it.
+- Branch logic inside one script — that script's test file covers it.
 - Server tool behaviour — the integration tier covers it.
 - Anything needing real Obsidian Sync — that stays a Test Deploy.
 
@@ -1100,7 +1100,7 @@ because the stub still behaves the old way. After updating the pinned
 version:
 
 1. Update the stub to match the new behaviour.
-2. Run the remote-boot tier and the `sh` specs.
+2. Run the remote-boot tests and the init-script tests.
 3. Boot the new image once against real Obsidian Sync and confirm the
    first sync, the guard's file count, and continuous sync in the logs.
 
