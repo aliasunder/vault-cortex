@@ -727,8 +727,8 @@ process has spawned. Two mechanisms with distinct jobs:
      start when the Sync client's file record lists files but the vault has
      no content.
      - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
-       config volume — at startup the client pushes every recorded file
-       missing from disk as a deletion.
+       config volume. At startup, the client pushes every recorded file
+       that is missing from disk as a deletion.
      - Content is any visible entry, or anything inside `.obsidian/` except
        the client's own `.sync.lock`. Other dotfiles are not synced and do
        not count.

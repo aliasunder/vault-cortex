@@ -1,13 +1,14 @@
-/** Remote image boot tier — runs the built `:remote` image end-to-end with the
- *  obsidian-headless CLI replaced by `fixtures/ob`.
+/** Remote image boot tests — runs the built `:remote` image end-to-end with
+ *  the obsidian-headless CLI replaced by `fixtures/ob`.
  *
  *  Covers the assembled s6 init chain (derive-env → setup-user → check-auth →
- *  login → setup-vault → first-sync → sync → mcp) — ordering, published env,
- *  volume layout, guards — which the per-script `sh` specs in
- *  `src/vault-mcp/__tests__/` cannot see.
+ *  login → setup-vault → first-sync → sync → mcp): script ordering, the
+ *  `container_environment` files each script writes, the volume layout, and
+ *  the safety checks that stop the container. The per-script tests in
+ *  `src/vault-mcp/__tests__/` cannot see these cross-script interactions.
  *
  *  Needs Docker; `npm run test:remote-boot` builds the image and runs the
- *  tier (REMOTE_IMAGE points the tests at a different image tag).
+ *  suite (REMOTE_IMAGE points the tests at a different image tag).
  *
  *  One container per describe block: a boot is the expensive resource that
  *  justifies `beforeAll` over const-per-test. Each test then reads its own
@@ -54,14 +55,15 @@ const FAKE_SYNC_TOKEN = "fake-obsidian-sync-token-for-ci"
 const FAKE_MCP_TOKEN = "fake-mcp-token-for-ci"
 
 const BOOT_DEADLINE_MS = 120_000
-/** Under the 30 s test timeout, so a guard that fails to stop the container
- *  fails on waitForStopped's own message (with logs) rather than a bare
- *  timeout. A real guard failure halts the container within seconds. */
+/** Set below the 30 s test timeout so that a safety check that fails to
+ *  stop the container reports via waitForStopped's message (with logs)
+ *  rather than a bare timeout. In practice the container halts within
+ *  seconds. */
 const STOP_DEADLINE_MS = 20_000
 
 /** A first sync that keeps failing takes three attempts with two 10 s
- *  sleeps between them (init-first-sync's MAX_ATTEMPTS=3), so those
- *  scenarios get their own, longer budgets. */
+ *  sleeps between them (init-first-sync's MAX_ATTEMPTS=3), so the
+ *  failing-sync scenarios get their own, longer budgets. */
 const FAILING_SYNC_TEST_TIMEOUT_MS = 120_000
 const FAILING_SYNC_STOP_DEADLINE_MS = 90_000
 
@@ -80,8 +82,9 @@ const FIRST_SYNC_ATTEMPT_LINES = [
   "[obsidian-sync] First sync (attempt 3/3) — waiting for completion before starting services...",
 ]
 
-/** Env every scenario shares. Embeddings stay off so the boot doesn't
- *  download a model; the chain under test doesn't touch search ranking. */
+/** Environment variables every scenario shares. Embeddings stay off so the
+ *  boot doesn't download a model; the init chain under test doesn't touch
+ *  search ranking. */
 const BASE_ENV = {
   OBSIDIAN_AUTH_TOKEN: FAKE_SYNC_TOKEN,
   VAULT_NAME: "ci-vault",
@@ -90,9 +93,9 @@ const BASE_ENV = {
   EMBEDDING_ENABLED: "false",
 }
 
-/** Every `ob` call one boot makes, in order, for BASE_ENV (only the
- *  sync-config flags whose env var is set are applied; SYNC_CONFIGS has a
- *  baked-in default). The stub appends "$*" per call. */
+/** Every `ob` call that a single boot makes, in order, for BASE_ENV.
+ *  Only the sync-config flags whose env var is set are applied;
+ *  SYNC_CONFIGS has a baked-in default. The stub appends "$*" per call. */
 const EXPECTED_BOOT_SEQUENCE = [
   "login",
   "sync-setup --vault ci-vault --device-name ci-device",
@@ -148,9 +151,9 @@ beforeAll(async () => {
 
 describe("remote image boot — three-volume layout (anonymous /vault, /data, /home/obsidian/.config)", () => {
   const name = uniqueName("three-volume")
-  // Memory off keeps the vault listing exact: with it on, the server would
-  // also bootstrap the About Me/ templates. The single-volume scenario
-  // covers the bootstrap path.
+  // Memory off keeps the vault listing exact: with memory enabled, the
+  // server would also bootstrap the About Me/ templates. The single-volume
+  // scenario covers the bootstrap path.
   const env = {
     ...BASE_ENV,
     MEMORY_ENABLED: "false",
@@ -699,10 +702,9 @@ describe("remote image boot — empty remote vault with the memory layer disable
 })
 
 describe("remote image boot — vault wiped after files arrived while the container ran", () => {
-  // The device started with an empty vault, received files through
-  // continuous sync (no restart involved), and then had its vault volume
-  // emptied. The sync state still records those files, so the next boot
-  // must stop before the engine can push them as deletions.
+  // The sync state records files that arrived while the container ran, so
+  // if the vault volume is emptied afterward, the next boot must stop
+  // before the engine can push those files as deletions.
   const name = uniqueName("wiped-while-running")
   const env = {
     ...BASE_ENV,
@@ -724,7 +726,8 @@ describe("remote image boot — vault wiped after files arrived while the contai
     const port = await publishedPort(name)
     await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
     // What continuous sync would do: deliver a note and record it in the
-    // sync state, as the obsidian user the stub normally runs as.
+    // sync state. The exec runs as the `obsidian` user, which is the user
+    // the stub normally runs as.
     await dockerOrThrow([
       "exec",
       "--user",
@@ -828,7 +831,7 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
   })
 })
 
-describe("remote image boot — init-chain guards stop the container", () => {
+describe("remote image boot — safety checks in the init chain stop the container", () => {
   /** Boot with the given env, register cleanup for the current test before
    *  anything can throw, and return the logs once the container has stopped
    *  on its own. */

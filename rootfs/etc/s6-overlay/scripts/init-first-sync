@@ -5,10 +5,10 @@
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
 # Pre-sync guard: the sync engine keeps a per-device record of the files
-# it holds locally and, at startup, pushes every recorded file missing from
-# disk as a deletion. A non-empty record beside a vault with no content
-# means the vault volume was wiped while device state was kept. FATAL
-# before any sync runs.
+# it holds locally and, at startup, pushes every recorded file that is
+# missing from disk as a deletion. A non-empty record alongside a vault
+# with no content means the vault volume was wiped while the device state
+# was kept. The guard exits FATAL before any sync runs.
 #
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
@@ -27,14 +27,15 @@ if ! cd "$VAULT_PATH"; then
   exit 1
 fi
 
-# obsidian-headless keeps one SQLite store per configured vault under its
-# config directory: $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db.
-# Its local_files table is the record the engine diffs against disk.
-# The guard sums that table across every store rather than resolving
+# obsidian-headless keeps one SQLite store per configured vault:
+# $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db. Its
+# local_files table is the record the engine compares against disk.
+#
+# The guard sums local_files across every store instead of resolving
 # <vaultId>. The image serves one vault, so a second store exists only
-# after this device was registered against a different remote vault
-# (one deleted and re-created, or a manual sync-setup); counting its
-# rows too keeps the guard conservative, at the cost of stopping the
+# after the device was registered against a different remote vault
+# (one deleted and re-created, or a manual sync-setup). Counting that
+# store too keeps the guard conservative; the cost is a stopped
 # container until the device is re-registered.
 SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
@@ -86,7 +87,8 @@ if [ "$KNOWN_SYNC_FILES" -gt 0 ] && ! vault_has_content; then
   echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
   echo "[obsidian-sync] deletions to all connected devices." >&2
   echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
-  echo "[obsidian-sync] If you emptied the vault on purpose, this stop is expected — re-register the device as below; a fresh device downloads the empty vault without deleting anything." >&2
+  echo "[obsidian-sync] If you emptied the vault on purpose, this stop is expected." >&2
+  echo "[obsidian-sync] Re-register the device as below. A fresh device downloads the empty vault without deleting anything." >&2
   echo "[obsidian-sync] To start fresh: remove the Obsidian config directory (${XDG_CONFIG_HOME:-$HOME/.config} — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device." >&2
   exit 1
 fi

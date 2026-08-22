@@ -1,4 +1,4 @@
-/** Remote-boot tier harness — drives the built `:remote` image through the
+/** Remote-boot test harness — drives the built `:remote` image through the
  *  Docker CLI and connects an MCP SDK Client to the published port.
  *
  *  Every Docker call goes through `execFile` with an argv array, never a
@@ -95,9 +95,9 @@ export type ContainerHandle = {
 
 /** Start a detached container from the image under test with exactly one
  *  file swapped: the `ob` stub is bind-mounted read-only over the real Sync
- *  client's `cli.js`, so every `ob` call the init chain makes hits the stub
- *  while the s6 chain, `init-first-sync`, and the volumes stay real. That
- *  single mount is what lets the tier run without Sync credentials.
+ *  client's `cli.js`, so every `ob` call that the init chain makes hits the
+ *  stub while the s6 chain, `init-first-sync`, and the volumes stay real.
+ *  That single mount is what lets the tests run without Sync credentials.
  *
  *  The returned cleanup removes the container together with its anonymous
  *  volumes (`rm -v`); named volumes passed in `volumes` are removed
@@ -121,8 +121,8 @@ export const runContainer = async ({
   const publishArgs = publishPort ? ["-p", `127.0.0.1::${CONTAINER_PORT}`] : []
 
   // `--pull=never`: only the image this run just built may boot. Without it,
-  // a missing local tag would pull the published `:remote` and the tier would
-  // silently test the released image instead of the branch.
+  // a missing local tag would pull the published `:remote` and the tests
+  // would silently run against the released image instead of the branch.
   await dockerOrThrow([
     "run",
     "-d",
@@ -270,14 +270,14 @@ const isRunning = async (name: string): Promise<boolean> => {
   return state.trim() === "true"
 }
 
-/** The container's stdout and stderr merged in emission order (init scripts
+/** The container's stdout and stderr merged in emission order. Init scripts
  *  log progress on stdout and retries/errors on stderr, and tests assert the
- *  interleaving). Merging has to happen at the source — two pipes read back
- *  separately can't be re-interleaved — so this is the one Docker call that
- *  goes through `sh`, with the name passed as a positional argument rather
- *  than spliced into the command string. `since` narrows to lines after a
- *  Docker timestamp, which is how the restart scenario ignores the first
- *  boot's output. */
+ *  interleaving. Two pipes read back separately cannot be re-interleaved, so
+ *  this is the one Docker call that goes through `sh`, with the name passed
+ *  as a positional argument rather than spliced into the command string.
+ *
+ *  `since` narrows to lines after a Docker timestamp, which is how the
+ *  restart scenarios ignore the first boot's output. */
 export const containerLogs = async (
   name: string,
   since?: string,
@@ -336,9 +336,10 @@ export const waitForHealthz = async ({
   )
 }
 
-/** Wait for the container to stop on its own (an init oneshot failed and
- *  S6_BEHAVIOUR_IF_STAGE2_FAILS=2 halted it). Kills the container at the
- *  deadline so a guard that failed to fire can't hang the suite. */
+/** Wait for the container to stop on its own (a one-shot init script failed
+ *  and S6_BEHAVIOUR_IF_STAGE2_FAILS=2 halted the container). Kills the
+ *  container at the deadline so a check that failed to fire cannot hang the
+ *  suite. */
 export const waitForStopped = async ({
   name,
   deadlineMs,
@@ -365,7 +366,8 @@ export const execInContainer = (
 ): Promise<CommandResult> => docker(["exec", name, ...argv])
 
 /** Raw bytes of a file inside the container — no trimming, so a stray
- *  trailing newline in a published env value fails an exact assertion. */
+ *  trailing newline in a `container_environment` value fails an exact
+ *  assertion. */
 export const readContainerFile = ({
   name,
   path,

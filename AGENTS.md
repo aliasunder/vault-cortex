@@ -126,7 +126,7 @@ src/
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
       server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
-    docker/                            # Remote image boot tier (npm run test:remote-boot; excluded from npm test)
+    docker/                            # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
       docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
       remote-image-boot.test.ts        #   s6 init chain end-to-end against the built :remote image, ob stubbed
       fixtures/ob                      #   POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
@@ -915,11 +915,12 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   `print-derived-env.test.ts`). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
-  include for them. Whole-image behaviour — the chain's ordering, the
-  `container_environment` files it publishes, the volume layout, and
-  the guards that stop the container — is the remote-boot tier's job
-  (`src/__tests__/docker/`, see "Remote image boot tests — when to
-  add"); the branches inside one script stay in that script's test file.
+  include for them. Whole-image behaviour (the init chain's ordering,
+  the `container_environment` files the chain publishes, the volume
+  layout, and the checks that stop the container) belongs in the
+  remote-boot test suite (`src/__tests__/docker/`, see "Remote image
+  boot tests — when to add"); the branches inside one script stay in
+  that script's test file.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).
@@ -1030,27 +1031,34 @@ from `npm test`).
 
 Remote image boot tests (`src/__tests__/docker/`) boot the built
 `:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
-They catch what a single script's test file cannot — oneshot
-ordering, published env, volume layout, guards. Run via
-`npm run test:remote-boot` (builds the image, then runs a separate
-vitest config excluded from `npm test`). Tests in a `describe` block share
-one booted container. The guard and failing-sync blocks are the exception:
-every scenario there boots its own container, since each one sets a
-different env or expects a different outcome.
+They catch what a single script's test file cannot: the ordering of
+init scripts, the `container_environment` files the init chain
+writes, the volume layout, and the checks that stop the container
+on bad state. Run via `npm run test:remote-boot` (builds the image,
+then runs a separate vitest config excluded from `npm test`).
+
+Tests in a `describe` block share one booted container. The
+guard-scenario and failing-sync `describe` blocks are the exception:
+every test there boots its own container, since each sets a different
+environment or expects a different exit outcome.
 
 **Always add:**
 
-- New init oneshot or ordering change → extend the expected `ob` call
+- New init script or ordering change → extend the expected `ob` call
   sequence.
-- New derived variable → assert its `container_environment` file.
-- New guard → a guards-block scenario asserting the ERROR line.
-- New Sync failure mode → a stub switch (like `OB_STUB_SYNC_FAIL=1`).
+- New variable that `init-derive-env` writes → assert its
+  `container_environment` file.
+- New safety check that stops the container → a guard-scenario test
+  asserting the ERROR line.
+- New Sync failure mode → a new stub switch (like
+  `OB_STUB_SYNC_FAIL=1`).
 
 **Never add:**
 
 - Branch logic inside one script — that script's test file covers it.
-- Server tool behaviour — the integration tier covers it.
-- Anything needing real Obsidian Sync — that stays a Test Deploy.
+- Server tool behaviour — the integration test suite covers it.
+- Anything needing real Obsidian Sync — that stays a manual test
+  deploy.
 
 ## SST conventions
 
@@ -1076,7 +1084,7 @@ If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 
 The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)
 covers usage, not internals, so the `:remote` init chain depends on
-behaviour read out of the pinned `cli.js`. Treat every bump
+behaviour observed in the pinned `cli.js`. Treat every bump
 of `obsidian-headless/package.json` as a potential regression and
 re-verify each contract against the new source before merging:
 
@@ -1086,12 +1094,13 @@ re-verify each contract against the new source before merging:
   directory before transferring anything. `vault_has_content` in
   `init-first-sync` therefore treats an `.obsidian/` folder that holds
   nothing but `.sync.lock` as an empty vault.
-- The device's file record, which the deletion-storm guard reads:
+- The device's file record is
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
-  table `local_files`, loaded at engine startup and diffed against disk.
-- Files delivered by `sync --continuous` land in that same table: the
-  server-push handler feeds the download path, which writes each file's
-  row on completion. The stub's `sync-record` verb mirrors this.
+  table `local_files`. The deletion-storm guard reads this table. The
+  engine loads it at startup and compares it against the files on disk.
+- Files delivered by `sync --continuous` are recorded in that same
+  table as they arrive. The stub's `sync-record` verb mirrors this
+  recording.
 
 The remote-boot tests never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed

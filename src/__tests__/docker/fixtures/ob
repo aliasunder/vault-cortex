@@ -1,22 +1,26 @@
 #!/bin/sh
-# Stand-in for the obsidian-headless CLI (`ob`) used by the remote-boot tier.
+# Stand-in for the obsidian-headless CLI (`ob`) used by the remote-boot
+# tests.
 #
-# The tier bind-mounts this file over
+# The test harness bind-mounts this file over
 # /opt/obsidian-headless/node_modules/obsidian-headless/cli.js — the target of
 # the `.bin/ob` symlink the image puts on PATH — so the real s6 init chain runs
 # unchanged while every Sync call lands here instead of on Obsidian's servers.
 #
-# Every invocation runs as the `obsidian` user under with-contenv, after
-# init-setup-user has created and chowned the config dir, so the call log
-# below lives beside .applied-ids and the sync state and survives a
-# `docker restart` — the test asserts the cumulative sequence across boots.
+# Every invocation runs as the `obsidian` user (s6's `with-contenv`
+# injects the container environment). init-setup-user has already created
+# and chowned the config directory by this point, so the call log lives
+# beside .applied-ids and the sync state. The log survives a
+# `docker restart`, which lets the test assert the cumulative call
+# sequence across boots.
 #
 # Logging "$*" cannot leak the Sync token: the real CLI reads
 # OBSIDIAN_AUTH_TOKEN from the environment and never receives it as an
 # argument. (VAULT_PASSWORD is a CLI argument to `ob sync-setup` when
 # set, but none of the CI scenarios set it.)
 #
-# Behaviour switches (container env, reaches the stub via with-contenv):
+# Behaviour switches (set as container env vars; s6's with-contenv makes
+# them visible to the stub):
 #   OB_STUB_SYNC_FAIL=1  — one-shot `sync` exits 1 without writing notes, so
 #                          init-first-sync walks its retry and failure paths
 #   OB_STUB_SYNC_EMPTY=1 — one-shot `sync` succeeds without writing notes:
@@ -69,12 +73,12 @@ case "${1:-}" in
       echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
       exit 1
     fi
-    # The real client creates .obsidian/ and takes a .obsidian/.sync.lock
+    # The real client creates .obsidian/ and a .obsidian/.sync.lock
     # directory before transferring anything, so every one-shot sync
-    # leaves these behind — init-first-sync must not read them as content.
+    # leaves these behind — init-first-sync must not count them as content.
     mkdir -p .obsidian/.sync.lock
     # A remote vault with nothing in it: the sync state records no files,
-    # so a restart must be read as a fresh device, not a wiped one.
+    # so on restart the guard must treat the device as fresh, not wiped.
     if [ "${OB_STUB_SYNC_EMPTY:-}" = "1" ]; then
       record_local_files
       exit 0

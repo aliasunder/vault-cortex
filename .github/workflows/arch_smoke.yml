@@ -2,18 +2,18 @@ name: Arch Smoke
 
 # Builds and boots the Docker image on both production architectures on
 # every PR — native runners, no QEMU. This is the only PR-time check that
-# executes an arm64 artifact (trivy-pr builds amd64 only), so it is what
-# catches a native prebuild whose glibc requirement the base image no
-# longer meets. Each leg:
+# executes an arm64 artifact (trivy-pr builds amd64 only), so it catches
+# cases where a native prebuild requires a newer glibc than the base image
+# provides. Each leg:
 #   1. build --target local — natively executes the Dockerfile deps-stage
 #      native-binding assertion for its arch
 #   2. boot smoke — run the image against a small fixture vault; /healthz
 #      returning 200 proves better-sqlite3 + sqlite-vec loaded and the
 #      FTS index built (server.ts exits 1 on any startup failure), then
 #      an authenticated MCP initialize round-trip is asserted
-#   3. build --target remote, then the remote-boot vitest tier boots it
-#      with the Sync CLI stubbed (src/__tests__/docker/fixtures/ob), so
-#      the s6 init chain runs end-to-end without Sync credentials
+#   3. build --target remote, then the remote-boot vitest suite boots
+#      the image with the Sync CLI stubbed (src/__tests__/docker/fixtures/ob),
+#      so the s6 init chain runs end-to-end without Sync credentials
 #
 # EMBEDDING_ENABLED=false at runtime is fine: onnxruntime-node's dynamic
 # import is never reached, but the deps-stage assertion already executed
@@ -85,10 +85,10 @@ jobs:
             type=gha
           cache-to: type=gha,mode=max,scope=arch-smoke-${{ matrix.arch }}-local
 
-      # Loaded on both legs so the remote-boot tier below can run it by
-      # tag. Reads the local scope too — both targets share the
-      # base/deps/build stages — and the amd64 remote scope is seeded by
-      # the main push like the others.
+      # Loaded on both legs so the remote-boot test suite below can run
+      # it by tag. Both targets share the base/deps/build stages, so this
+      # step reads the local cache scope too. The amd64 remote scope is
+      # seeded by the main-branch push like the others.
       - name: Build image from branch (remote target)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -181,9 +181,9 @@ jobs:
           fi
           echo "MCP initialize ok"
 
-      # The remote-boot tier is a vitest suite, so it needs the repo's Node
-      # toolchain. It runs after the local smoke on purpose: a native-binding
-      # regression still fails fast, before the install.
+      # The remote-boot tests are a vitest suite, so they need the repo's
+      # Node toolchain. They run after the local smoke on purpose: a
+      # native-binding regression still fails fast, before the install.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -200,8 +200,9 @@ jobs:
       # Fires on any prior step's failure (build included, so the list may
       # be empty) so a red run is diagnosable from the Actions log alone.
       # Two name filters OR together: the boot smoke's fixed `smoke` name
-      # and the remote-boot tier's remote-boot-* containers, which the
-      # tier removes itself — anything still present is a failure artifact.
+      # and the remote-boot-* containers the test suite creates. The suite
+      # removes its own containers on success; anything still present is a
+      # failure artifact.
       - name: Dump container diagnostics
         if: failure()
         run: |
