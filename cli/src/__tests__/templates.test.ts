@@ -213,12 +213,12 @@ describe("hosted platform templates", () => {
 
   describe("CONTRIBUTING.md Railway template definition table", () => {
     /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. A
-     *  value cell of `_(empty)_` is the table's readable form of an empty
-     *  pre-filled value and maps to "". */
+     *  value cell of `_(optional input)_` is an empty value the deploy form
+     *  lets the user fill; it maps to "". */
     const definitionTableValues = (): Map<string, string> => {
       const guide = readRepoFile("CONTRIBUTING.md")
       const tableRows = guide.matchAll(
-        /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(empty\)_)\s*\|/gm,
+        /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(optional input\)_)\s*\|/gm,
       )
       return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
     }
