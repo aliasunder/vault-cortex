@@ -752,9 +752,8 @@ describe("remote image boot — vault wiped after files arrived while the contai
   })
 
   it("stops on the next boot before any sync attempt", async () => {
-    // Scoped to the restarted boot: the first boot's logs legitimately
-    // contain a sync attempt, so a guard that had slipped behind the first
-    // `ob sync` would still pass an assertion over the full two-boot log.
+    // Only the restarted boot's logs: the first boot ran a sync on purpose,
+    // so "no sync attempt" can only be asserted after the restart.
     const logsSinceRestart = await containerLogs(name, restartedAt)
     expect(logsSinceRestart).toContain(
       "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
