@@ -275,8 +275,19 @@ DEVICE_NAME=vault-cortex
 # 'merge' integrates changes automatically; 'conflict' writes a separate conflict file.
 CONFLICT_STRATEGY=merge
 
-# Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
+# Sync direction: bidirectional | pull-only | mirror-remote (default: bidirectional).
+# 'pull-only' downloads changes and never uploads the server's edits;
+# 'mirror-remote' also reverts any local change so the server is an exact copy.
 SYNC_MODE=bidirectional
+
+# Folders to leave out of sync, comma-separated — the same list as Obsidian's
+# Sync → "Excluded folders". Empty keeps the Sync client's default (nothing excluded).
+EXCLUDED_FOLDERS=
+
+# Attachment types to sync, comma-separated: image, audio, video, pdf, unsupported —
+# the same toggles as Obsidian's Sync → "Selective sync". Empty keeps the Sync
+# client's default.
+FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
 # (default: the two the server reads — daily notes settings and community

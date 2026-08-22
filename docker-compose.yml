@@ -29,6 +29,8 @@ services:
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
+      EXCLUDED_FOLDERS: ${EXCLUDED_FOLDERS:-}
+      FILE_TYPES: ${FILE_TYPES:-}
       # Obsidian config-category sync (default: core plugin data, so the
       # vault's daily-notes settings reach the server). "none" disables;
       # the category values are listed in .env.example.

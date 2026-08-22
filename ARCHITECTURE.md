@@ -808,7 +808,8 @@ do; the probe is a deploy with no variables set, which must reach
 image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
 the image's own defaults for the optional settings it pre-fills
 (`MEMORY_ENABLED`, `EMBEDDING_ENABLED`, `READONLY_MODE`, `FILE_TOOLS_ENABLED`,
-`SYNC_MODE`), and to leaving the boot-derived variables unset.
+`SYNC_MODE`, `CONFLICT_STRATEGY`, `EXCLUDED_FOLDERS`, `FILE_TYPES`), and to
+leaving the boot-derived variables unset.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.

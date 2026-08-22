@@ -112,6 +112,9 @@ const HOSTED_OPTIONAL_ENV = {
   READONLY_MODE: String(imageDefaults.readOnlyMode),
   FILE_TOOLS_ENABLED: String(imageDefaults.fileToolsEnabled),
   SYNC_MODE: "bidirectional",
+  CONFLICT_STRATEGY: "merge",
+  EXCLUDED_FOLDERS: "",
+  FILE_TYPES: "",
 }
 
 /**
@@ -209,11 +212,15 @@ describe("hosted platform templates", () => {
   })
 
   describe("deploy/railway/README.md definition table", () => {
-    /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. */
+    /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. A
+     *  value cell of `_(empty)_` is the table's readable form of an empty
+     *  pre-filled value and maps to "". */
     const definitionTableValues = (): Map<string, string> => {
       const guide = readRepoFile("deploy/railway/README.md")
-      const tableRows = guide.matchAll(/^\| `([A-Z_]+)`\s*\| `([^`]*)`\s*\|/gm)
-      return new Map([...tableRows].map((row) => [row[1], row[2]]))
+      const tableRows = guide.matchAll(
+        /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(empty\)_)\s*\|/gm,
+      )
+      return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
     }
 
     it("records the same fixed and optional values as render.yaml", () => {

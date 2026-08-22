@@ -123,9 +123,9 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
         hint: "receive changes but never push",
       },
       {
-        value: "push-only",
-        label: "Push-only",
-        hint: "push changes but never pull",
+        value: "mirror-remote",
+        label: "Mirror remote",
+        hint: "receive changes and revert any server-side edit",
       },
     ],
     defaultValue: "bidirectional",
