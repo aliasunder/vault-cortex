@@ -715,6 +715,22 @@ describe("OAuth client registration cap", () => {
     expect(registeredClientNames(db)).toHaveLength(3)
   })
 
+  it("warns before a small cap is full", async () => {
+    const { oauth, logs } = await createCapTest(2)
+
+    await registerClient(oauth, "one")
+
+    expect(
+      logs.filter((log) => log.message === "oauth_client_cap_nearing"),
+    ).toEqual([
+      {
+        level: "warn",
+        message: "oauth_client_cap_nearing",
+        data: { component: "oauth", registeredClients: 1, maxClients: 2 },
+      },
+    ])
+  })
+
   it("warns once the table reaches 80% of the cap", async () => {
     const { oauth, logs } = await createCapTest(5)
     await registerClient(oauth, "one")
