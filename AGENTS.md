@@ -1035,7 +1035,7 @@ ordering, published env, volume layout, guards. Run via
 `npm run test:remote-boot` (builds the image, then runs a separate
 vitest config excluded from `npm test`). Tests in a `describe` block share
 one booted container. The guard and failing-sync blocks are the exception:
-every scenario there boots its own container, since each one sets
+every scenario there boots its own container, since each one sets a
 different env or expects a different outcome.
 
 **Always add:**
