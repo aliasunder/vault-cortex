@@ -450,17 +450,54 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
-  it("allows sync when the vault has visible files and a prior sync completed", () => {
+  it("allows sync when the vault has a note inside a folder and a prior sync completed", () => {
+    // The note sits in a subfolder with nothing at the vault root — a
+    // common layout, so the content check must look below the top level.
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
       knownSyncFiles: 3,
-      vaultDirs: ["About Me"],
+      vaultFiles: ["About Me/Principles.md"],
     })
 
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(1)
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("refuses when only empty folders remain and a prior sync completed", () => {
+    // A wipe that deleted the files but kept the folder tree must still
+    // read as an empty vault — directories alone are not content.
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 3,
+      vaultDirs: ["Projects", "About Me"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("refuses when a dotfile inside a folder is the only file and a prior sync completed", () => {
+    // Sync never delivers dotfiles outside .obsidian/, so a leftover
+    // Projects/.hidden-note.md is not evidence that the vault's files
+    // are still here.
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 3,
+      vaultFiles: ["Projects/.hidden-note.md"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
   })
 
   it("allows sync on a fresh device with an empty vault (no sync state)", () => {

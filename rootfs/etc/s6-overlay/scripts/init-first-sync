@@ -61,18 +61,22 @@ known_sync_files() {
   ' "$@"
 }
 
-# "Content" is anything sync could have delivered: a visible entry, or an
-# entry inside .obsidian/ (synced settings and plugin data). Other dotfiles
-# are not synced. `ob sync` itself creates .obsidian/ and a .sync.lock
-# directory in it before transferring anything (obsidian-headless cli.js),
-# so those two alone do not count.
+# "Content" is a regular file that sync could have delivered: a file at
+# any depth whose path has no dot-named component, or any file under
+# .obsidian/ (synced settings and plugin data). Dotfiles elsewhere are not
+# synced and do not count. `ob sync` itself creates .obsidian/ and a
+# .sync.lock directory in it before transferring anything
+# (obsidian-headless cli.js), so that directory is skipped.
+#
+# Directories alone are not content: a wipe that deletes files but leaves
+# the folder tree in place (`find -type f -delete`, a restore that kept
+# empty directories) must still read as an empty vault, or the guard would
+# let the engine push every recorded file as a deletion.
 vault_has_content() {
-  for entry in "$VAULT_PATH"/* "$VAULT_PATH"/.obsidian/* "$VAULT_PATH"/.obsidian/.[!.]*; do
-    [ -e "$entry" ] || continue
-    [ "$entry" = "$VAULT_PATH/.obsidian/.sync.lock" ] && continue
-    return 0
-  done
-  return 1
+  find "$VAULT_PATH" -mindepth 1 \
+    \( -path "$VAULT_PATH/.obsidian/.sync.lock" -prune \) -o \
+    \( -name '.*' ! -path "$VAULT_PATH/.obsidian" ! -path "$VAULT_PATH/.obsidian/*" -prune \) -o \
+    -type f -print | grep -q .
 }
 
 if ! KNOWN_SYNC_FILES=$(known_sync_files); then
