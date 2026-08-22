@@ -89,25 +89,21 @@ docker compose up
 
 ### Remote (access from anywhere)
 
-Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Pick a platform and click, or [self-host on your own VPS](#self-hosted-your-own-vps).
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Three ways to get there:
 
-|                | Railway                                                                                                                                                                             | Render                                                                                                                                                  |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|                | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic) | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex) |
-| **You enter**  | Obsidian Sync token, vault name, timezone — and the vault password if your vault is encrypted                                                                                       | The same four values                                                                                                                                    |
-| **You get**    | HTTPS, restarts, a generated MCP token, and one persistent volume for your vault and index                                                                                          | HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index                                                                |
-| **Account**    | [Railway](https://railway.com) on the Hobby plan or higher — the 5 GB volume is included                                                                                            | [Render](https://render.com) with a card on file                                                                                                        |
-| **Cost**       | Usage-metered: typically $20–30 USD/mo for a personal vault — a little under Render for a quiet vault, a little over for a busy one                                                 | Flat: about $26 USD/mo for the Standard instance (2 GB) and 5 GB disk, billed by the second                                                             |
-| **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | A predictable bill matters more than setup polish                                                                                                       |
-| **Guide**      | **[Railway guide →](./deploy/railway/)**                                                                                                                                            | **[Render guide →](./deploy/render/)**                                                                                                                  |
+|                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+|                | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic) | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex) | `npx vault-cortex@latest init --mode remote` on your server ([commands below](#self-hosted-your-own-vps)) |
+| **You enter**  | Obsidian Sync token, vault name, timezone — and the vault password if your vault is encrypted                                                                                       | The same four values                                                                                                                                    | The same four values, plus your public URL                                                                |
+| **You get**    | HTTPS, restarts, a generated MCP token, and one persistent volume for your vault and index                                                                                          | HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index                                                                | The same container on a Linux box you run — you manage the server, the image, and updates                 |
+| **Account**    | [Railway](https://railway.com) on the Hobby plan or higher — the 5 GB volume is included                                                                                            | [Render](https://render.com) with a card on file                                                                                                        | A VPS with [Docker](https://docs.docker.com/engine/install/), and Node.js >= 20.12 for the CLI            |
+| **Cost**       | Usage-metered: typically $20–30 USD/mo for a personal vault — a little under Render for a quiet vault, a little over for a busy one                                                 | Flat: about $26 USD/mo for the Standard instance (2 GB) and 5 GB disk, billed by the second                                                             | Whatever your VPS costs                                                                                   |
+| **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | A predictable bill matters more than setup polish                                                                                                       | You already run a server or want full control                                                             |
+| **Guide**      | **[Railway guide →](./deploy/railway/)**                                                                                                                                            | **[Render guide →](./deploy/render/)**                                                                                                                  | **[Remote guide →](./deploy/remote/)**                                                                    |
 
-Both need an [Obsidian Sync](https://obsidian.md/sync) subscription. Either way the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
+All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
 #### Self-hosted: your own VPS
-
-The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates.
-
-**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
 ```bash
 # On your VPS:
@@ -134,8 +130,6 @@ docker compose up -d
 ```
 
 </details>
-
-**[Full remote guide →](./deploy/remote/)**
 
 ### Connect your MCP client
 
