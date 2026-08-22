@@ -48,10 +48,12 @@ export default $config({
     // OriginAccessClientId / OriginAccessClientSecret secrets. Without
     // ORIGIN_URL there is no host to present it to, so the flag is
     // ignored — rollback deploys blank ORIGIN_URL on the command line and
-    // must not have to unset this too.
+    // must not have to unset this too. Compared as a string, like the
+    // other optional vars here: CI passes an unset repo Variable as "",
+    // which env-var's default() does not cover and asBool() rejects.
     const originAccessServiceToken =
       Boolean(originUrl) &&
-      env("ORIGIN_ACCESS_SERVICE_TOKEN").default("false").asBool()
+      env("ORIGIN_ACCESS_SERVICE_TOKEN").asString() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
