@@ -187,8 +187,11 @@ All from the service page:
 - **Restart** — **Manual Deploy → Restart service**. Same container, same disk.
 - **Stop** — **Settings → Suspend Service**. Billing stops; the disk and
   everything on it stay. **Resume** picks up where it left off.
-- **Delete** — **Settings → Delete Service**. This deletes the disk too. Your
-  vault in Obsidian Sync is untouched — the container only held a copy.
+- **Delete** — two steps, because the Blueprint would otherwise re-create
+  the service: open the Blueprint (**Blueprints** in the left nav) →
+  **Settings → Disconnect Blueprint**, then the service → **Settings →
+  Delete Service**. Deleting the service deletes the disk too. Your vault in
+  Obsidian Sync is untouched — the container only held a copy.
 
 ## Configuration
 
