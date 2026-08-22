@@ -69,6 +69,9 @@ type OAuthProviderOptions = {
 // by a version that stored tokens in plaintext — including rows written
 // after a rollback to such a version.
 const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
+// Prepended to the token before hashing, so this HMAC can never equal the
+// JWT signature, which uses the same key (see jwt.ts).
+const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
@@ -186,10 +189,6 @@ export const createOAuthProvider = ({
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
-
-  // Prefix that separates this HMAC from the JWT signature, which uses
-  // the same key (see jwt.ts).
-  const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
   /** Storage key for a refresh token: an HMAC of the token under the
    *  auth token. Rows are only reachable under the secret that wrote
