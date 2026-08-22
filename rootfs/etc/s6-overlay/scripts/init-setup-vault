@@ -76,8 +76,8 @@ apply_sync_config() {
 
 apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
-apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
-apply_sync_config --file-types "$FILE_TYPES"
+apply_sync_config --excluded-folders "$SYNC_EXCLUDED_FOLDERS"
+apply_sync_config --file-types "$SYNC_FILE_TYPES"
 apply_sync_config --mode "$SYNC_MODE"
 
 # Config-category sync defaults ON for the two categories the server

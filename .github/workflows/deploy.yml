@@ -286,8 +286,8 @@ jobs:
           ORPHAN_EXCLUDE_FOLDERS: ${{ vars.ORPHAN_EXCLUDE_FOLDERS }}
           SERVICE_DOCUMENTATION_URL: ${{ vars.SERVICE_DOCUMENTATION_URL }}
           SYNC_CONFIGS: ${{ vars.SYNC_CONFIGS }}
-          EXCLUDED_FOLDERS: ${{ vars.EXCLUDED_FOLDERS }}
-          FILE_TYPES: ${{ vars.FILE_TYPES }}
+          SYNC_EXCLUDED_FOLDERS: ${{ vars.SYNC_EXCLUDED_FOLDERS }}
+          SYNC_FILE_TYPES: ${{ vars.SYNC_FILE_TYPES }}
           DAILY_NOTES_FOLDER: ${{ vars.DAILY_NOTES_FOLDER }}
           DAILY_NOTES_FORMAT: ${{ vars.DAILY_NOTES_FORMAT }}
           READONLY_MODE: ${{ vars.READONLY_MODE }}
@@ -330,8 +330,8 @@ jobs:
           if [ -n "$ORPHAN_EXCLUDE_FOLDERS" ]; then echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SERVICE_DOCUMENTATION_URL" ]; then echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SYNC_CONFIGS" ]; then echo "SYNC_CONFIGS=$SYNC_CONFIGS" >> "$RUNNER_TEMP/lightsail.env"; fi
-          if [ -n "$EXCLUDED_FOLDERS" ]; then echo "EXCLUDED_FOLDERS=$EXCLUDED_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
-          if [ -n "$FILE_TYPES" ]; then echo "FILE_TYPES=$FILE_TYPES" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$SYNC_EXCLUDED_FOLDERS" ]; then echo "SYNC_EXCLUDED_FOLDERS=$SYNC_EXCLUDED_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$SYNC_FILE_TYPES" ]; then echo "SYNC_FILE_TYPES=$SYNC_FILE_TYPES" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$DAILY_NOTES_FOLDER" ]; then echo "DAILY_NOTES_FOLDER=$DAILY_NOTES_FOLDER" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$DAILY_NOTES_FORMAT" ]; then echo "DAILY_NOTES_FORMAT=$DAILY_NOTES_FORMAT" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$READONLY_MODE" ]; then echo "READONLY_MODE=$READONLY_MODE" >> "$RUNNER_TEMP/lightsail.env"; fi

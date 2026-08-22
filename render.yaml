@@ -76,7 +76,7 @@ services:
       # client's default.
       - key: CONFLICT_STRATEGY
         value: merge
-      - key: EXCLUDED_FOLDERS
+      - key: SYNC_EXCLUDED_FOLDERS
         value: ""
-      - key: FILE_TYPES
+      - key: SYNC_FILE_TYPES
         value: ""

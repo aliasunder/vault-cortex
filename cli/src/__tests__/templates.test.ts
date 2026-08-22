@@ -113,8 +113,8 @@ const HOSTED_OPTIONAL_ENV = {
   FILE_TOOLS_ENABLED: String(imageDefaults.fileToolsEnabled),
   SYNC_MODE: "bidirectional",
   CONFLICT_STRATEGY: "merge",
-  EXCLUDED_FOLDERS: "",
-  FILE_TYPES: "",
+  SYNC_EXCLUDED_FOLDERS: "",
+  SYNC_FILE_TYPES: "",
 }
 
 /**
