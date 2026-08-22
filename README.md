@@ -91,6 +91,8 @@ docker compose up
 
 Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Two ways to get there: one click on Render or Railway, or your own VPS. Either way the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
+**Which one?** Railway is the easier start: the template lands you in a configured project, the 5 GB volume is included on Hobby, and you pay for what the container uses — a personal vault usually comes in a little under Render's price, a busy one a little over. Render is a flat price for a fixed 2 GB instance; choose it if a predictable bill matters more than setup polish. Self-host if you already run a VPS or want full control.
+
 #### One-click: Render
 
 Click the button, paste your Obsidian Sync token and vault name, and Render builds the rest: HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index.
@@ -105,13 +107,15 @@ Render reads the Blueprint from this repo and asks for your Sync token, vault na
 
 Same idea on Railway: button, token, vault name, and one persistent volume for your vault and index.
 
-**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $18–45 USD/mo for a personal vault.
+**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $20–30 USD/mo for a personal vault.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 Railway opens the template; click **Deploy Now**, then **Configure** to enter your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Railway guide →](./deploy/railway/)**
 
 #### Self-hosted: your own VPS
+
+The CLI sets up the same container on any Linux box you run — you manage the server, the image, and updates.
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
