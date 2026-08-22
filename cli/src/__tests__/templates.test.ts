@@ -249,6 +249,37 @@ describe("hosted platform templates", () => {
       )
       expect(derivedKeysSet).toEqual([])
     })
+
+    it("records the six deploy-form inputs, and the Railway guide's Deploy table lists the same six", () => {
+      const contributing = readRepoFile("CONTRIBUTING.md")
+      const railwaySection = contributing.slice(
+        contributing.indexOf("## Railway template"),
+      )
+      const inputRows = railwaySection.matchAll(
+        /^\| `([A-Z_]+)`\s*\| _\((required|optional) input\)_/gm,
+      )
+      const recordedInputs = Object.fromEntries(
+        [...inputRows].map((row) => [row[1], row[2]]),
+      )
+      expect(recordedInputs).toEqual({
+        TZ: "optional",
+        VAULT_NAME: "required",
+        VAULT_PASSWORD: "optional",
+        OBSIDIAN_AUTH_TOKEN: "required",
+        SYNC_EXCLUDED_FOLDERS: "optional",
+        SYNC_FILE_TYPES: "optional",
+      })
+
+      const guide = readRepoFile("deploy/railway/README.md")
+      const deploySection = guide.slice(
+        guide.indexOf("## Deploy"),
+        guide.indexOf("## Your URL and token"),
+      )
+      const guideInputs = [...deploySection.matchAll(/^\| `([A-Z_]+)`/gm)].map(
+        (row) => row[1],
+      )
+      expect(guideInputs).toEqual(Object.keys(recordedInputs))
+    })
   })
 })
 
