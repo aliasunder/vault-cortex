@@ -276,8 +276,8 @@ DEVICE_NAME=vault-cortex
 CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | mirror-remote (default: bidirectional).
-# 'pull-only' downloads changes and never uploads the server's edits;
-# 'mirror-remote' also reverts any local change so the server is an exact copy.
+# 'pull-only': server edits are kept locally but never uploaded;
+# 'mirror-remote': server edits are undone, so the server is an exact copy.
 SYNC_MODE=bidirectional
 
 # Folders to leave out of sync, comma-separated — the same list as Obsidian's
