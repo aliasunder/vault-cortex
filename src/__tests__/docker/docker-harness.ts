@@ -153,13 +153,14 @@ const COUNT_SYNC_STATE_FILES_SCRIPT = `
   const stores = existsSync(syncRoot)
     ? readdirSync(syncRoot).map((vaultId) => join(syncRoot, vaultId, "state.db")).filter(existsSync)
     : []
-  const counts = stores.map((file) => {
+  const storeCounts = stores.map((file) => {
     const db = new DatabaseSync(file, { readOnly: true })
-    const { n } = db.prepare("SELECT COUNT(*) AS n FROM local_files").get()
+    const { count } = db.prepare("SELECT COUNT(*) AS count FROM local_files").get()
     db.close()
-    return n
+    return count
   })
-  console.log(counts.reduce((total, n) => total + n, 0))
+  const knownFiles = storeCounts.reduce((total, count) => total + count, 0)
+  console.log(knownFiles)
 `
 
 /** How many files the device's sync state (under `configDir` inside the

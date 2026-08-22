@@ -38,18 +38,21 @@ SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 # 0 when no store exists yet (fresh device). A store that exists but
 # cannot be read is a non-zero exit — the caller treats that as fatal
 # rather than assuming the device is fresh.
+# stdout is the return value: the caller captures it with $(...) and
+# compares it as an integer, so the only output is the bare number.
 known_sync_files() {
   set -- "$SYNC_STATE_ROOT"/*/state.db
   [ -e "$1" ] || { echo 0; return 0; }
   node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
-    const counts = process.argv.slice(1).map((file) => {
+    const storeCounts = process.argv.slice(1).map((file) => {
       const db = new DatabaseSync(file, { readOnly: true })
-      const { n } = db.prepare("SELECT COUNT(*) AS n FROM local_files").get()
+      const { count } = db.prepare("SELECT COUNT(*) AS count FROM local_files").get()
       db.close()
-      return n
+      return count
     })
-    console.log(counts.reduce((total, n) => total + n, 0))
+    const knownFiles = storeCounts.reduce((total, count) => total + count, 0)
+    console.log(knownFiles)
   ' "$@"
 }
 
