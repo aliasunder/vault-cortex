@@ -220,6 +220,9 @@ export const createOAuthProvider = ({
   const insertRevokedTokenStmt = db.prepare<[string, number]>(
     "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
   )
+  const selectRevokedTokenStmt = db.prepare<[string]>(
+    "SELECT 1 FROM revoked_tokens WHERE token = ?",
+  )
 
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
@@ -238,11 +241,15 @@ export const createOAuthProvider = ({
    *  purged here rather than on read: a row is only ever read when its
    *  own token is presented, so rows left by dormant clients — or made
    *  unreachable by a rotation — would otherwise stay forever. */
-  const saveRefreshToken = (
-    token: string,
-    clientId: string,
-    scopes: string[],
-  ): void => {
+  const saveRefreshToken = ({
+    token,
+    clientId,
+    scopes,
+  }: {
+    token: string
+    clientId: string
+    scopes: string[]
+  }): void => {
     const now = DateTime.now()
     deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
     insertRefreshTokenStmt.run(
@@ -275,7 +282,7 @@ export const createOAuthProvider = ({
   }
 
   const isRevoked = (token: string): boolean =>
-    !!db.prepare("SELECT 1 FROM revoked_tokens WHERE token = ?").get(token)
+    !!selectRevokedTokenStmt.get(token)
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
   // They appear unused locally but are called by mcpAuthRouter() and
@@ -345,7 +352,11 @@ export const createOAuthProvider = ({
       const scopes = stored.params.scopes ?? []
       const accessToken = issueAccessToken(stored.clientId, scopes)
       const refreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken(refreshToken, stored.clientId, scopes)
+      saveRefreshToken({
+        token: refreshToken,
+        clientId: stored.clientId,
+        scopes,
+      })
 
       oauthLogger.info("oauth_code_exchanged", {
         clientId: stored.clientId,
@@ -392,7 +403,11 @@ export const createOAuthProvider = ({
       }
       const accessToken = issueAccessToken(clientId, grantedScopes)
       const newRefreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken(newRefreshToken, clientId, grantedScopes)
+      saveRefreshToken({
+        token: newRefreshToken,
+        clientId,
+        scopes: grantedScopes,
+      })
 
       oauthLogger.info("oauth_token_refreshed", {
         clientId,
