@@ -124,7 +124,7 @@ The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server ([CLI reference →](./cli/)).
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)).
 
 **Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
 
