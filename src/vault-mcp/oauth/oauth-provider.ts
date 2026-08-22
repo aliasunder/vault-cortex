@@ -5,12 +5,14 @@
  * - Authorization code flow with PKCE
  * - JWT access tokens (HS256, verifiable by Lambda + Express)
  * - Backward-compatible static token verification (MCP_AUTH_TOKEN)
- * - SQLite persistence for refresh tokens + clients (survives restarts)
+ * - SQLite persistence for refresh tokens + clients (survives restarts);
+ *   refresh tokens are stored keyed by an HMAC under MCP_AUTH_TOKEN, so
+ *   rotating the token ends every session and the DB holds no usable token
  * - Consent page gated by the server's auth token
  */
 
 import Database from "better-sqlite3"
-import { randomUUID, randomBytes } from "node:crypto"
+import { createHmac, randomUUID, randomBytes } from "node:crypto"
 import { DateTime } from "luxon"
 import type { Response } from "express"
 import type {
@@ -59,7 +61,13 @@ type OAuthProviderOptions = {
   logger: Logger
 }
 
-const initDb = (dbPath: string): Database.Database => {
+// Schema version recorded in SQLite's user_version pragma. Version 1 is
+// the first schema whose refresh_tokens rows are keyed by HMAC; rows
+// written by an older version are raw tokens of the same length, so
+// they can only be retired by version, not by shape.
+const REFRESH_TOKEN_KEYED_SCHEMA_VERSION = 1
+
+const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL") // concurrent reads during writes
   db.exec(`
@@ -92,6 +100,26 @@ const initDb = (dbPath: string): Database.Database => {
     db.exec(
       "ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
     )
+  }
+  // Migration for DBs whose refresh_tokens rows are raw tokens: the keyed
+  // lookup can never match them, so clear them and record the version in
+  // the same transaction (user_version is transactional). Every OAuth
+  // client re-authorizes once through the consent page.
+  const schemaVersion = db.pragma("user_version", { simple: true })
+  const needsKeyedSchemaMigration =
+    typeof schemaVersion === "number" &&
+    schemaVersion < REFRESH_TOKEN_KEYED_SCHEMA_VERSION
+  if (needsKeyedSchemaMigration) {
+    const clearRawRefreshTokens = db.transaction((): number => {
+      const { changes } = db.prepare("DELETE FROM refresh_tokens").run()
+      db.pragma(`user_version = ${REFRESH_TOKEN_KEYED_SCHEMA_VERSION}`)
+      return changes
+    })
+    const rowsCleared = clearRawRefreshTokens()
+    logger.info("oauth_refresh_tokens_cleared", {
+      reason: "storage_key_upgrade",
+      rows: rowsCleared,
+    })
   }
   return db
 }
@@ -153,10 +181,40 @@ export const createOAuthProvider = ({
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
-  const db = initDb(dbPath)
+  const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
+
+  // Prefix that separates this HMAC from the JWT signature, which uses
+  // the same key (see jwt.ts).
+  const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
+
+  /** Storage key for a refresh token: an HMAC of the token under the
+   *  auth token. Rows are only reachable under the secret that wrote
+   *  them, so rotating MCP_AUTH_TOKEN ends every session, and a copied
+   *  DB holds no token a client could present. */
+  const refreshTokenStorageKey = (token: string): string =>
+    createHmac("sha256", authToken)
+      .update(REFRESH_TOKEN_KEY_LABEL + token)
+      .digest("hex")
+
+  const insertRefreshTokenStmt = db.prepare<[string, string, string, number]>(
+    "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+  )
+  const deleteExpiredRefreshTokensStmt = db.prepare<[number]>(
+    "DELETE FROM refresh_tokens WHERE expires_at < ?",
+  )
+  const selectRefreshTokenStmt = db.prepare<
+    [string],
+    { client_id: string; scopes: string; expires_at: number }
+  >("SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?")
+  const deleteRefreshTokenStmt = db.prepare<[string]>(
+    "DELETE FROM refresh_tokens WHERE token = ?",
+  )
+  const insertRevokedTokenStmt = db.prepare<[string, number]>(
+    "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
+  )
 
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
@@ -171,18 +229,22 @@ export const createOAuthProvider = ({
       authToken,
     )
 
+  /** Stores a refresh token under its storage key. Expired rows are
+   *  purged here rather than on read: a row is only ever read when its
+   *  own token is presented, so rows left by dormant clients — or made
+   *  unreachable by a rotation — would otherwise stay forever. */
   const saveRefreshToken = (
     token: string,
     clientId: string,
     scopes: string[],
   ): void => {
-    db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-    ).run(
-      token,
+    const now = DateTime.now()
+    deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
+    insertRefreshTokenStmt.run(
+      refreshTokenStorageKey(token),
       clientId,
       scopes.join(" "),
-      DateTime.now().plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
+      now.plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
     )
   }
 
@@ -190,21 +252,15 @@ export const createOAuthProvider = ({
    *  (consumed on read to prevent replay) AND time-bounded (rejected
    *  past expires_at). A successful refresh issues a new token whose
    *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
-   *  countdown, so active clients never expire. Expired rows are still
-   *  deleted on read so the table self-cleans. */
+   *  countdown, so active clients never expire. A token issued under a
+   *  different auth token derives a different key and is never found. */
   const consumeRefreshToken = (
     token: string,
   ): { clientId: string; scopes: string[] } | null => {
-    const row = db
-      .prepare<
-        [string],
-        { client_id: string; scopes: string; expires_at: number }
-      >(
-        "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
-      )
-      .get(token)
+    const storageKey = refreshTokenStorageKey(token)
+    const row = selectRefreshTokenStmt.get(storageKey)
     if (!row) return null
-    db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
+    deleteRefreshTokenStmt.run(storageKey)
     if (row.expires_at < DateTime.now().toUnixInteger()) return null
     return { clientId: row.client_id, scopes: row.scopes.split(" ") }
   }
@@ -372,16 +428,22 @@ export const createOAuthProvider = ({
       throw new InvalidTokenError("Token expired or invalid")
     },
 
+    /** RFC 7009: revoke whatever the client presents. A refresh token is
+     *  removed by its storage key; only a currently-valid access JWT is
+     *  added to the revocation list, so revoked_tokens never holds a
+     *  refresh token or an arbitrary string in plaintext. */
     async revokeToken(
       _client: OAuthClientInformationFull,
       request: OAuthTokenRevocationRequest,
     ): Promise<void> {
-      db.prepare(
-        "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-      ).run(request.token, DateTime.now().toUnixInteger())
-      db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(
-        request.token,
-      )
+      deleteRefreshTokenStmt.run(refreshTokenStorageKey(request.token))
+      const isValidAccessToken = verifyJwt(request.token, authToken) !== null
+      if (isValidAccessToken) {
+        insertRevokedTokenStmt.run(
+          request.token,
+          DateTime.now().toUnixInteger(),
+        )
+      }
       oauthLogger.info("oauth_token_revoked")
     },
   }

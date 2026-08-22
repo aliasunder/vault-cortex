@@ -9,12 +9,16 @@ import {
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { createHmac } from "node:crypto"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
-import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
+import type {
+  OAuthClientInformationFull,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -38,6 +42,69 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 }
 
 const AUTH_TOKEN = "test-static-token"
+const OTHER_AUTH_TOKEN = "rotated-static-token"
+
+// Mirrors the provider's storage-key derivation so tests can seed and
+// inspect rows without importing production as its own oracle.
+const refreshTokenKey = (token: string, secret = AUTH_TOKEN): string =>
+  createHmac("sha256", secret).update(`refresh-token:${token}`).digest("hex")
+
+const storedRefreshTokenKeys = (db: Database.Database): string[] =>
+  db
+    .prepare<[], { token: string }>(
+      "SELECT token FROM refresh_tokens ORDER BY token",
+    )
+    .all()
+    .map((refreshTokenRow) => refreshTokenRow.token)
+
+const storedRevokedTokens = (db: Database.Database): string[] =>
+  db
+    .prepare<[], { token: string }>(
+      "SELECT token FROM revoked_tokens ORDER BY token",
+    )
+    .all()
+    .map((revokedTokenRow) => revokedTokenRow.token)
+
+const schemaVersion = (db: Database.Database): unknown =>
+  db.pragma("user_version", { simple: true })
+
+const exchangeRefreshToken = (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+  refreshToken: string,
+): Promise<OAuthTokens> =>
+  oauth.provider.exchangeRefreshToken(client, refreshToken)
+
+// revokeToken is optional on the SDK's provider type; this provider
+// always implements it.
+const revokeToken = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+  token: string,
+): Promise<void> => {
+  if (!oauth.provider.revokeToken)
+    throw new Error("revokeToken not implemented")
+  await oauth.provider.revokeToken(client, { token })
+}
+
+/** Runs the real consent → code → token flow and returns the issued tokens. */
+const issueTokens = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+): Promise<OAuthTokens> => {
+  const requestId = await startAuthFlow(oauth, client)
+  const code = oauth.approveRequest(requestId, logger)
+  return oauth.provider.exchangeAuthorizationCode(client, code)
+}
+
+const issuedRefreshToken = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+): Promise<string> => {
+  const tokens = await issueTokens(oauth, client)
+  if (!tokens.refresh_token) throw new Error("no refresh token issued")
+  return tokens.refresh_token
+}
 
 const seedClient = (db: Database.Database): OAuthClientInformationFull => {
   const client = {
@@ -72,7 +139,7 @@ const seedRefreshToken = (
 ): void => {
   db.prepare(
     "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-  ).run(token, clientId, scopes.join(" "), expiresAt)
+  ).run(refreshTokenKey(token), clientId, scopes.join(" "), expiresAt)
 }
 
 describe("OAuth refresh token sliding expiry", () => {
@@ -146,10 +213,7 @@ describe("OAuth refresh token sliding expiry", () => {
       oauth.provider.exchangeRefreshToken!(client, "expired-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
 
-    const row = db
-      .prepare("SELECT * FROM refresh_tokens WHERE token = ?")
-      .get("expired-token")
-    expect(row).toBeUndefined()
+    expect(storedRefreshTokenKeys(db)).toEqual([])
   })
 
   it("rotates to a new token with a fresh 60-day window on use", async () => {
@@ -171,7 +235,7 @@ describe("OAuth refresh token sliding expiry", () => {
 
     const row = db
       .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
-      .get(newToken!) as { expires_at: number } | undefined
+      .get(refreshTokenKey(newToken!)) as { expires_at: number } | undefined
     expect(row).not.toBeUndefined()
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
@@ -233,8 +297,6 @@ describe("OAuth refresh token schema migration", () => {
         client_id TEXT NOT NULL,
         scopes TEXT NOT NULL
       );
-      INSERT INTO refresh_tokens (token, client_id, scopes)
-      VALUES ('legacy-token', 'legacy-client', 'vault');
     `)
     oldDb.close()
 
@@ -245,36 +307,87 @@ describe("OAuth refresh token schema migration", () => {
     })
 
     const db = new Database(dbPath)
-    try {
-      const columns = db
-        .prepare("SELECT name FROM pragma_table_info('refresh_tokens')")
-        .all() as { name: string }[]
-      expect(columns.map((column) => column.name)).toContain("expires_at")
-
-      const row = db
-        .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
-        .get("legacy-token") as { expires_at: number } | undefined
-      expect(row).toBeDefined()
-      expect(row!.expires_at).toBe(0) // DEFAULT 0 — treated as expired
-    } finally {
+    onTestFinished(() => {
       db.close()
-    }
+    })
+    const columns = db
+      .prepare<[], { name: string }>(
+        "SELECT name FROM pragma_table_info('refresh_tokens')",
+      )
+      .all()
+    expect(columns.map((column) => column.name)).toEqual([
+      "token",
+      "client_id",
+      "scopes",
+      "expires_at",
+    ])
   })
 
-  it("is idempotent — re-running on a migrated DB doesn't error", () => {
+  it("clears raw refresh tokens written before keyed storage and records schema version 1", () => {
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE refresh_tokens (
+        token TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `)
+    oldDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "legacy-token",
+        "legacy-client",
+        "vault",
+        DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      )
+    oldDb.close()
+
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
     })
 
-    expect(() =>
-      createOAuthProvider({
-        authToken: AUTH_TOKEN,
-        dbPath,
-        logger,
-      }),
-    ).not.toThrow()
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    expect(schemaVersion(db)).toBe(1)
+  })
+
+  it("keeps keyed refresh tokens when the provider is re-opened on a migrated DB", async () => {
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    const client = seedClient(db)
+    seedRefreshToken(
+      db,
+      "live-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const reopened = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("live-token")])
+    expect(schemaVersion(db)).toBe(1)
+    const tokens = await exchangeRefreshToken(reopened, client, "live-token")
+    expect(tokens.scope).toBe("vault")
   })
 })
 
@@ -611,3 +724,110 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth refresh token storage keyed by the auth token", () => {
+  const createKeyedStorageTest = async (): Promise<{
+    dbPath: string
+    oauth: OAuthProvider
+    db: Database.Database
+    client: OAuthClientInformationFull
+  }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-test-"))
+    const dbPath = join(dir, "oauth.db")
+    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    const db = new Database(dbPath)
+    onTestFinished(async () => {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    })
+    const client = seedClient(db)
+    return { dbPath, oauth, db, client }
+  }
+
+  it("stores an issued refresh token only under its HMAC key", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey(refreshToken)])
+  })
+
+  it("rejects a refresh token issued under a different auth token and leaves its row in place", async () => {
+    const { dbPath, oauth, db, client } = await createKeyedStorageTest()
+    const firstToken = await issuedRefreshToken(oauth, client)
+    const secondToken = await issuedRefreshToken(oauth, client)
+    const rotated = createOAuthProvider({
+      authToken: OTHER_AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+
+    await expect(
+      exchangeRefreshToken(rotated, client, firstToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+
+    expect(storedRefreshTokenKeys(db)).toEqual(
+      [refreshTokenKey(firstToken), refreshTokenKey(secondToken)].sort(),
+    )
+    const tokens = await exchangeRefreshToken(oauth, client, secondToken)
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("purges expired rows when a refresh token is issued", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "expired-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().minus({ seconds: 1 }).toUnixInteger(),
+    )
+    seedRefreshToken(
+      db,
+      "live-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const issued = await issuedRefreshToken(oauth, client)
+
+    expect(storedRefreshTokenKeys(db)).toEqual(
+      [refreshTokenKey("live-token"), refreshTokenKey(issued)].sort(),
+    )
+  })
+
+  it("revoking a refresh token removes its row without recording it in revoked_tokens", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await revokeToken(oauth, client, refreshToken)
+
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    expect(storedRevokedTokens(db)).toEqual([])
+    await expect(
+      exchangeRefreshToken(oauth, client, refreshToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+  })
+
+  it("revoking an access token records it in revoked_tokens and rejects it afterwards", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    expect(storedRevokedTokens(db)).toEqual([accessToken])
+    await expect(oauth.provider.verifyAccessToken(accessToken)).rejects.toThrow(
+      "Token has been revoked",
+    )
+  })
+
+  it("revoking an unknown string records nothing", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+
+    await revokeToken(oauth, client, "not-a-token")
+
+    expect(storedRevokedTokens(db)).toEqual([])
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+  })
+})
