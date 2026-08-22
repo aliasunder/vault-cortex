@@ -232,7 +232,8 @@ downtime.
   - Recent snapshot (Scenario B), `MCP_AUTH_TOKEN` unchanged: refresh tokens
     carry over and clients silently get new JWTs on their next refresh.
   - Snapshot from before refresh tokens were stored under their HMAC key:
-    the first boot clears the raw rows and each client re-auths once.
+    the first boot clears the raw rows and each client re-auths once — when
+    its access JWT expires, within 24 hours.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
     starts empty, so every client re-auths via the consent page on its next
     token refresh — minor inconvenience, no data loss.

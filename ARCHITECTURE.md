@@ -660,7 +660,8 @@ then redeploy both
 ([`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token)). Rotation ends every
 OAuth session:
 
-- existing JWTs signed with the old key become invalid immediately;
+- existing access JWTs, signed with the old key, fail verification
+  immediately (without a rotation they live for 24 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
 - each client goes back through the consent page on its next request.
