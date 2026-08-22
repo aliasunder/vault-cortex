@@ -80,6 +80,14 @@
 
 
 
+
+## [0.40.1] — 2026-08-22
+
+### Documentation
+
+- **readme:** Comparison table for the remote deployment paths; rules between top-level sections (#481)
+- Update CHANGELOG.md for v0.40.0
+
 ## [0.40.0] — 2026-08-22
 
 ### Features
