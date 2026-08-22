@@ -24,10 +24,11 @@ Curious how the container is put together?
 ## Prerequisites
 
 - A [Railway](https://railway.com) account on the **Hobby** plan or higher —
-  the trial plan caps volumes at 0.5 GB, which a typical vault plus its
-  search index overflows, and Hobby includes the 5 GB volume this template
-  uses. Upgrade **before** deploying: a volume keeps the size of the plan it
-  was created on. See
+  the trial plan caps volumes at 0.5 GB, and a volume keeps the size of the
+  plan it was created on. A typical vault plus its search index overflows
+  0.5 GB, and the only fix afterwards is deleting the volume and syncing the
+  whole vault again — so upgrade **before** deploying; Hobby includes the
+  5 GB volume this template uses. See
   [Railway's pricing](https://railway.com/pricing); a typical instance uses
   roughly 1–2 GB of memory.
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
@@ -72,17 +73,21 @@ docker run --rm -it --entrypoint get-sync-token \
 
 The button opens the template's page. Click **Deploy Now**, then
 **Configure** on the `vault-cortex` service card to open the form. Two of
-its fields are required and two are optional:
+its fields are required; the rest are optional:
 
-| Field                 | Value                                                                                                                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
-| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
-| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
+| Field                   | Value                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| `VAULT_NAME`            | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_PASSWORD`        | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
+| `OBSIDIAN_AUTH_TOKEN`   | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
+| `SYNC_EXCLUDED_FOLDERS` | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Leave empty to sync everything                                                                                             |
+| `SYNC_FILE_TYPES`       | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`. Leave empty to keep the Sync client's default                                                                                                        |
 
-Fill in the token, vault name, and timezone **before** the first deploy — a container
-that starts without the token or the vault name stops at Obsidian Sync setup.
+Fill in the token, vault name, timezone, and — for an encrypted vault — the
+vault password **before** the first deploy: a container that starts without
+the token, the vault name, or an encrypted vault's password stops at Obsidian
+Sync setup.
 
 Click **Deploy**. Railway creates the service and volume, pulls the image,
 and starts the first deploy. Everything else — the MCP token, the public
@@ -256,19 +261,22 @@ The template sets these; change them under the service's **Variables** tab
 | `SYNC_FILE_TYPES`                 | _(empty)_       | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default. |
 | `LOG_DIR`                         | derived         | Log files, kept 90 days on the volume — the platform's own log viewer keeps only the last 7 days on Hobby plans. Set `none` to keep logs in the platform viewer only.                     |
 
-The last five are the settings most worth changing on a hosted instance;
+`SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_EXCLUDED_FOLDERS`, and
+`SYNC_FILE_TYPES` are the settings most worth changing on a hosted instance;
 the template pre-fills them with the image defaults so you can edit them in
-place. Every other optional setting uses the same names as the remote
+place. `LOG_DIR` is not pre-filled — the container derives it at every start,
+and `none` is the only value worth setting by hand. Every other optional setting uses the same names as the remote
 quickstart's [Configuration table](../remote/#configuration) — add it as a
 new variable.
 
-Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
+Don't set `PUBLIC_URL` or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Railway's own address variable at every start.
 
 Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here:
 it sleeps a service only after ten minutes without outbound traffic, and the
-Obsidian Sync connection never goes quiet, so the container stays up and
-billed either way.
+Obsidian Sync connection keeps sending — with the default bidirectional sync
+the service never went idle in thirteen minutes with no requests at all — so
+the container stays up and billed either way.
 
 Volume size is changed from the volume's settings on the project canvas
 (Railway can grow a volume, never shrink it).

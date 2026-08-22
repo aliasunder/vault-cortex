@@ -241,13 +241,15 @@ tab (each change triggers a redeploy):
 | `SYNC_FILE_TYPES`       | _(empty)_       | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default. |
 | `LOG_DIR`               | derived         | Log files, kept 90 days on the disk — the platform's own log viewer keeps only the last 7 days on Hobby plans. Set `none` to keep logs in the platform viewer only.                       |
 
-The last five are the settings most worth changing on a hosted instance;
+`SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_EXCLUDED_FOLDERS`, and
+`SYNC_FILE_TYPES` are the settings most worth changing on a hosted instance;
 the Blueprint pre-fills them with the image defaults so you can edit them in
-place. Every other optional setting uses the same names as the remote
+place. `LOG_DIR` is not pre-filled — the container derives it at every start,
+and `none` is the only value worth setting by hand. Every other optional setting uses the same names as the remote
 quickstart's [Configuration table](../remote/#configuration) — add it as a
 new environment variable.
 
-Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
+Don't set `PUBLIC_URL` or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Render's own address variable at every start.
 
 Instance size and disk size are changed under **Settings** (Render can grow a

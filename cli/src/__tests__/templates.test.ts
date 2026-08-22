@@ -216,20 +216,38 @@ describe("hosted platform templates", () => {
      *  value cell of `_(optional input)_` is an empty value the deploy form
      *  lets the user fill; it maps to "". */
     const definitionTableValues = (): Map<string, string> => {
-      const guide = readRepoFile("CONTRIBUTING.md")
-      const tableRows = guide.matchAll(
+      const contributing = readRepoFile("CONTRIBUTING.md")
+      const sectionStart = contributing.indexOf("## Railway template")
+      if (sectionStart === -1) {
+        throw new Error("CONTRIBUTING.md has no '## Railway template' section")
+      }
+      const railwaySection = contributing.slice(sectionStart)
+      const tableRows = railwaySection.matchAll(
         /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(optional input\)_)\s*\|/gm,
       )
       return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
     }
 
-    it("records the same fixed and optional values as render.yaml", () => {
+    it("records the same fixed and optional values as render.yaml, plus Railway's own proxy-hop and health-window settings", () => {
       const tableValues = definitionTableValues()
-      const expectedValues = { ...HOSTED_FIXED_ENV, ...HOSTED_OPTIONAL_ENV }
+      const expectedValues = {
+        ...HOSTED_FIXED_ENV,
+        ...HOSTED_OPTIONAL_ENV,
+        TRUST_PROXY_HOPS: "2",
+        RAILWAY_HEALTHCHECK_TIMEOUT_SEC: "900",
+      }
       const recordedValues = Object.fromEntries(
         Object.keys(expectedValues).map((key) => [key, tableValues.get(key)]),
       )
       expect(recordedValues).toEqual(expectedValues)
+    })
+
+    it("leaves the boot-derived variables to init-derive-env", () => {
+      const tableValues = definitionTableValues()
+      const derivedKeysSet = DERIVED_AT_BOOT.filter((key) =>
+        tableValues.has(key),
+      )
+      expect(derivedKeysSet).toEqual([])
     })
   })
 })
