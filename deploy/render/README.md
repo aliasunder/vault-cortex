@@ -167,9 +167,7 @@ curl https://<name>.onrender.com/healthz
 # → {"ok":true}
 ```
 
-In Obsidian, **Settings → Sync → Devices** lists one new device named
-**vault-cortex**. In your MCP client, run a search — results come from your
-vault.
+In your MCP client, run a search — results come from your vault.
 
 ## Updating
 
@@ -190,8 +188,6 @@ All from the service page:
   everything on it stay. **Resume** picks up where it left off.
 - **Delete** — **Settings → Delete Service**. This deletes the disk too. Your
   vault in Obsidian Sync is untouched — the container only held a copy.
-  Remove the **vault-cortex** device from **Settings → Sync → Devices** in
-  Obsidian afterwards.
 
 ## Configuration
 
@@ -249,10 +245,11 @@ files and index that already reached the disk are reused, so the second
 attempt is much faster. For very large vaults, set `EMBEDDING_ENABLED=false`
 for the first deploy and remove it once the vault has synced.
 
-**A second `vault-cortex` device appeared in Obsidian Sync.** The container
-re-registered, which happens when the disk was replaced or the device state
-under `/persist/config` was removed. Delete the stale device in Obsidian;
-nothing else is needed.
+**The logs show a fresh Obsidian Sync login and a full vault download on a
+redeploy.** The container registered itself as a new device, which happens
+when the disk was replaced or the device state under `/persist/config` was
+removed. Nothing needs cleaning up — the old registration simply stops
+syncing.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the disk is empty

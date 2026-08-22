@@ -33,8 +33,9 @@ services:
         value: "8000"
       - key: STORAGE_ROOT
         value: /persist
-      # Name shown in Obsidian Sync's device list. Without it the device is
-      # registered under the container's random hostname.
+      # Name the container reports to Obsidian Sync — it labels the container's
+      # changes in the sync log. Without it the device is registered under the
+      # container's random hostname.
       - key: DEVICE_NAME
         value: vault-cortex
       # Cloudflare → Render load balancer → container: two proxy hops.

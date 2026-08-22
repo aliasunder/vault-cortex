@@ -176,9 +176,7 @@ curl https://<name>.up.railway.app/healthz
 # → {"ok":true}
 ```
 
-In Obsidian, **Settings → Sync → Devices** lists one new device named
-**vault-cortex**. In your MCP client, run a search — results come from your
-vault.
+In your MCP client, run a search — results come from your vault.
 
 ## Updating
 
@@ -207,8 +205,7 @@ All from the service page:
   volume and variables stay. **Redeploy** brings it back.
 - **Delete** — **Settings → Delete Service**, then delete the volume from the
   project canvas. Your vault in Obsidian Sync is untouched — the container
-  only held a copy. Remove the **vault-cortex** device from **Settings →
-  Sync → Devices** in Obsidian afterwards.
+  only held a copy.
 
 ## Configuration
 
@@ -273,10 +270,11 @@ upgrade. Upgrade to Hobby, delete the volume (**Settings → Volumes**), add a
 new one at `/persist`, then **Redeploy** — the container registers a fresh
 Sync device and downloads the vault again.
 
-**A second `vault-cortex` device appeared in Obsidian Sync.** The container
-re-registered, which happens when the volume was replaced or the device
-state under `/persist/config` was removed. Delete the stale device in
-Obsidian; nothing else is needed.
+**The logs show a fresh Obsidian Sync login and a full vault download on a
+redeploy.** The container registered itself as a new device, which happens
+when the volume was replaced or the device state under `/persist/config` was
+removed. Nothing needs cleaning up — the old registration simply stops
+syncing.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the volume is
