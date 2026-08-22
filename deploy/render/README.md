@@ -131,11 +131,10 @@ under **Environment**: `READONLY_MODE=true` removes every tool that writes
 to the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
 those tool groups entirely (see [Configuration](#configuration)).
 
-Rotating `MCP_AUTH_TOKEN` invalidates the access tokens issued under it;
-clients that still hold a refresh token reconnect on their own, so remove
-the server from a client you no longer trust rather than relying on
-rotation alone. The full attack-surface inventory is in
-[SECURITY.md](../../SECURITY.md).
+Rotating `MCP_AUTH_TOKEN` ends every session: access tokens issued under
+the old value stop working, stored refresh tokens become unusable, and each
+client goes back through the consent page on its next request. The full
+attack-surface inventory is in [SECURITY.md](../../SECURITY.md).
 
 ## First start
 
@@ -230,7 +229,7 @@ tab (each change triggers a redeploy):
 | `PORT`                  | `8000`          | The port the image listens on. Leave as is.                                                                                                                                               |
 | `DEVICE_NAME`           | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                                                              |
 | `TRUST_PROXY_HOPS`      | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                   |
-| `MCP_AUTH_TOKEN`        | generated       | Your MCP client's token. Change it here to rotate it.                                                                                                                                     |
+| `MCP_AUTH_TOKEN`        | generated       | Your MCP client's token. Change it here to rotate it — every connected client re-authorizes.                                                                                              |
 | `OBSIDIAN_AUTH_TOKEN`   | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                                                             |
 | `VAULT_NAME`            | yours           | The vault this container syncs.                                                                                                                                                           |
 | `VAULT_PASSWORD`        | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                                                    |

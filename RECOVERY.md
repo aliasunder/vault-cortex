@@ -228,14 +228,16 @@ downtime.
 - **Existing JWTs (24h)** keep working until expiry — `/mcp` validation
   is stateless HMAC signature checking. Clients hold these silently.
 - **Refresh tokens** are in `oauth.db` on the restored disk. If the
-  snapshot is recent (Scenario B), refresh tokens carry over and clients
-  silently get new JWTs on their next refresh cycle. If the DB is gone
-  (Scenario C), every client re-auths via the consent page on its next
-  token refresh — minor inconvenience, no data loss.
-- **`MCP_AUTH_TOKEN`** is the JWT signing HMAC key. It's in SST secrets
-  and gets redeployed to `/opt/vault-cortex/.env` on any fresh boot. If
-  you rotated it during the outage, all existing JWTs die immediately
-  and every client re-auths on their next call.
+  snapshot is recent (Scenario B) and `MCP_AUTH_TOKEN` is unchanged,
+  refresh tokens carry over and clients silently get new JWTs on their
+  next refresh cycle. If the DB is gone (Scenario C), every client
+  re-auths via the consent page on its next token refresh — minor
+  inconvenience, no data loss.
+- **`MCP_AUTH_TOKEN`** is the JWT signing HMAC key and the key under which
+  refresh tokens are stored. It's in SST secrets and gets redeployed to
+  `/opt/vault-cortex/.env` on any fresh boot. If you rotated it during
+  the outage, all existing JWTs die immediately, every stored refresh
+  token becomes unreachable, and every client re-auths on its next call.
 
 ## Verifying the seatbelts work
 

@@ -604,17 +604,21 @@ authorizer and Express can verify independently — no shared state needed.
 
 **Token storage:** Refresh tokens and registered clients are persisted in
 SQLite (`/data/oauth.db`) — survives container restarts, no re-authentication
-needed after deploys for active clients. Auth codes are in-memory (short-lived,
-10 minutes). Access tokens are JWTs (stateless, no storage needed). Revoked
-tokens are tracked in SQLite.
+needed after deploys for active clients. Each refresh token is stored under an
+HMAC of the token keyed by `MCP_AUTH_TOKEN`, never in plaintext: a row is only
+reachable under the auth token that wrote it, and a copied `oauth.db` holds no
+token a client could present. Auth codes are in-memory (short-lived, 10
+minutes). Access tokens are JWTs (stateless, no storage needed). Revoked access
+tokens are tracked in SQLite; a revoked refresh token is simply deleted.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
 client never sees expiry. A client dormant for >60 days is forced through the
 full OAuth flow on its next attempt. The schema column is `expires_at INTEGER
-NOT NULL`; rows past `expires_at` are deleted on read so the table self-cleans.
-This bounds the blast radius of a leaked refresh token without inconveniencing
-active sessions.
+NOT NULL`; rows past `expires_at` are purged each time a new refresh token is
+issued, so rows left by dormant clients or by a token rotation never
+accumulate. This bounds the blast radius of a leaked refresh token without
+inconveniencing active sessions.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
@@ -642,9 +646,10 @@ emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
 **Rotating `MCP_AUTH_TOKEN`:** Update the SST secret AND the Lightsail `.env`, then redeploy
-both. Existing JWTs signed with the old key become invalid immediately.
-Refresh tokens in SQLite are unaffected — clients silently get new JWTs
-signed with the new key on their next token refresh. Procedure:
+both. Rotation ends every OAuth session: existing JWTs signed with the old key
+become invalid immediately, and every stored refresh token becomes unreachable
+because rows are keyed under the old token. Each client goes back through the
+consent page on its next request. Procedure:
 [`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token).
 
 ### Optional hardening + customization
