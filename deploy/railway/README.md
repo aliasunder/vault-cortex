@@ -213,7 +213,10 @@ rebuilt.
   every few hours and redeploys when `:remote` changes; the container is
   down for under a minute while it restarts.
 
-Release notes: [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases).
+Before you redeploy, skim
+[GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each
+release lists what changed since the last one, and an entry marked
+**Breaking change** means a setting or behavior you rely on may have moved.
 
 ## Restart, stop, delete
 

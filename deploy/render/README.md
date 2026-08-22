@@ -197,7 +197,10 @@ reference**. Render pulls the current `:remote` image and restarts the
 container. Your vault and search index stay on the disk, so the update takes
 a minute or two — nothing is downloaded or rebuilt.
 
-Release notes: [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases).
+Before you redeploy, skim
+[GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each
+release lists what changed since the last one, and an entry marked
+**Breaking change** means a setting or behavior you rely on may have moved.
 
 ## Restart, stop, delete
 
