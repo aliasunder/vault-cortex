@@ -26,7 +26,10 @@ import type {
   OAuthTokens,
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { InvalidGrantError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
+import {
+  InvalidGrantError,
+  InvalidScopeError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { safeEqual } from "../../auth.js"
 import { signJwt, verifyJwt } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
@@ -206,9 +209,11 @@ export const createOAuthProvider = ({
     "DELETE FROM refresh_tokens WHERE expires_at < ?",
   )
   const selectRefreshTokenStmt = db.prepare<
-    [string],
-    { client_id: string; scopes: string; expires_at: number }
-  >("SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?")
+    [string, string],
+    { scopes: string; expires_at: number }
+  >(
+    "SELECT scopes, expires_at FROM refresh_tokens WHERE token = ? AND client_id = ?",
+  )
   const deleteRefreshTokenStmt = db.prepare<[string]>(
     "DELETE FROM refresh_tokens WHERE token = ?",
   )
@@ -254,15 +259,19 @@ export const createOAuthProvider = ({
    *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
    *  countdown, so active clients never expire. A token issued under a
    *  different auth token derives a different key and is never found. */
-  const consumeRefreshToken = (
-    token: string,
-  ): { clientId: string; scopes: string[] } | null => {
+  const consumeRefreshToken = ({
+    token,
+    clientId,
+  }: {
+    token: string
+    clientId: string
+  }): { scopes: string[] } | null => {
     const storageKey = refreshTokenStorageKey(token)
-    const row = selectRefreshTokenStmt.get(storageKey)
+    const row = selectRefreshTokenStmt.get(storageKey, clientId)
     if (!row) return null
     deleteRefreshTokenStmt.run(storageKey)
     if (row.expires_at < DateTime.now().toUnixInteger()) return null
-    return { clientId: row.client_id, scopes: row.scopes.split(" ") }
+    return { scopes: row.scopes.split(" ") }
   }
 
   const isRevoked = (token: string): boolean =>
@@ -351,27 +360,42 @@ export const createOAuthProvider = ({
       }
     },
 
+    /** RFC 6749 §6: the refresh token must have been issued to the
+     *  authenticated client, and a requested scope may narrow but never
+     *  widen the scope originally granted. */
     async exchangeRefreshToken(
-      _client: OAuthClientInformationFull,
+      client: OAuthClientInformationFull,
       refreshToken: string,
       scopes?: string[],
       _resource?: URL,
     ): Promise<OAuthTokens> {
-      const stored = consumeRefreshToken(refreshToken)
+      const clientId = client.client_id
+      const stored = consumeRefreshToken({ token: refreshToken, clientId })
       if (!stored) {
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "expired_or_invalid",
+          clientId,
         })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
       const grantedScopes = scopes ?? stored.scopes
-      const accessToken = issueAccessToken(stored.clientId, grantedScopes)
+      const requestedScopeWidens = grantedScopes.some(
+        (scope) => !stored.scopes.includes(scope),
+      )
+      if (requestedScopeWidens) {
+        oauthLogger.warn("oauth_token_refresh_failed", {
+          reason: "scope_exceeds_grant",
+          clientId,
+        })
+        throw new InvalidScopeError("Requested scope exceeds the granted scope")
+      }
+      const accessToken = issueAccessToken(clientId, grantedScopes)
       const newRefreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken(newRefreshToken, stored.clientId, grantedScopes)
+      saveRefreshToken(newRefreshToken, clientId, grantedScopes)
 
       oauthLogger.info("oauth_token_refreshed", {
-        clientId: stored.clientId,
+        clientId,
         scopes: grantedScopes,
       })
       return {

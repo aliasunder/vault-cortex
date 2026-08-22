@@ -822,6 +822,69 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     )
   })
 
+  it("rejects a refresh token presented by a client other than the one it was issued to and leaves its row in place", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+    const otherClient: OAuthClientInformationFull = {
+      ...client,
+      client_id: "other-client",
+    }
+
+    await expect(
+      exchangeRefreshToken(oauth, otherClient, refreshToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey(refreshToken)])
+    const tokens = await exchangeRefreshToken(oauth, client, refreshToken)
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("rejects a refresh that requests a scope outside the granted scope", async () => {
+    const { oauth, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+  })
+
+  it("issues the stored scope when a refresh requests none", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const tokens = await exchangeRefreshToken(oauth, client, "two-scope-token")
+
+    expect(tokens.scope).toBe("vault extra")
+  })
+
+  it("narrows the issued scope when a refresh requests a subset", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const tokens = await oauth.provider.exchangeRefreshToken(
+      client,
+      "two-scope-token",
+      ["vault"],
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
   it("revoking an unknown string records nothing", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
 
