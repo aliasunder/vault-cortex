@@ -373,7 +373,8 @@ export const createOAuthProvider = ({
 
     /** RFC 6749 §6: the refresh token must have been issued to the
      *  authenticated client, and a requested scope may narrow but never
-     *  widen the scope originally granted. */
+     *  widen the scope originally granted.
+     *  https://www.rfc-editor.org/rfc/rfc6749#section-6 */
     async exchangeRefreshToken(
       client: OAuthClientInformationFull,
       refreshToken: string,
@@ -390,7 +391,8 @@ export const createOAuthProvider = ({
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
-      // RFC 6749 §6: an omitted or empty scope means the stored scope.
+      // RFC 6749 §6: an omitted or empty scope means the stored scope
+      // (https://www.rfc-editor.org/rfc/rfc6749#section-6).
       // The SDK splits `scope=` into [""], so blank entries count as empty.
       const requestedScopes = (scopes ?? []).filter((scope) => scope !== "")
       const grantedScopes =
@@ -474,7 +476,8 @@ export const createOAuthProvider = ({
     /** RFC 7009: revoke whatever the client presents. A refresh token is
      *  removed by its storage key; only a currently-valid access JWT is
      *  added to the revocation list, so revoked_tokens never holds a
-     *  refresh token or an arbitrary string in plaintext. */
+     *  refresh token or an arbitrary string in plaintext.
+     *  https://www.rfc-editor.org/rfc/rfc7009 */
     async revokeToken(
       _client: OAuthClientInformationFull,
       request: OAuthTokenRevocationRequest,
