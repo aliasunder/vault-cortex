@@ -42,6 +42,21 @@ export default $config({
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
 
+    // ORIGIN_ACCESS_SERVICE_TOKEN=true: API Gateway presents a Cloudflare
+    // Access service token to the ORIGIN_URL host on every request, so an
+    // Access policy on that host can admit the gateway alone. Requires
+    // ORIGIN_URL and the OriginAccessClientId / OriginAccessClientSecret
+    // secrets.
+    const originAccessServiceToken = env("ORIGIN_ACCESS_SERVICE_TOKEN")
+      .default("false")
+      .asBool()
+    if (originAccessServiceToken && !originUrl) {
+      throw new Error(
+        "ORIGIN_ACCESS_SERVICE_TOKEN requires ORIGIN_URL — the service " +
+          "token is presented to the tunnel/proxy host, not the instance.",
+      )
+    }
+
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
     // SST only creates the API Gateway domain + mapping from an existing
@@ -95,6 +110,12 @@ export default $config({
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
+    const originAccessClientId = originAccessServiceToken
+      ? new sst.Secret("OriginAccessClientId")
+      : undefined
+    const originAccessClientSecret = originAccessServiceToken
+      ? new sst.Secret("OriginAccessClientSecret")
+      : undefined
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
@@ -315,6 +336,22 @@ export default $config({
         ? `${originUrl}${path}`
         : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
+    // Service-token headers on every integration. `overwrite:` so a
+    // client-supplied copy of either header is replaced, never joined.
+    const originAccessHeaders: sst.aws.ApiGatewayV2RouteArgs["transform"] =
+      originAccessClientId && originAccessClientSecret
+        ? {
+            integration: {
+              requestParameters: {
+                "overwrite:header.CF-Access-Client-Id":
+                  originAccessClientId.value,
+                "overwrite:header.CF-Access-Client-Secret":
+                  originAccessClientSecret.value,
+              },
+            },
+          }
+        : undefined
+
     // ── Open routes — no authorizer ──────────────────────────────
     // OAuth discovery/flow endpoints must be reachable unauthenticated
     // (MCP/OAuth spec). Express owns their logic — DCR, consent, token
@@ -328,19 +365,27 @@ export default $config({
       "/revoke",
       "/healthz",
     ]) {
-      api.routeUrl(`ANY ${path}`, target(path))
+      api.routeUrl(`ANY ${path}`, target(path), {
+        transform: originAccessHeaders,
+      })
     }
-    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"))
-    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"))
+    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"), {
+      transform: originAccessHeaders,
+    })
+    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"), {
+      transform: originAccessHeaders,
+    })
 
     // ── Protected routes — Lambda authorizer ─────────────────────
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
     // the bare root "/". You need both routes.
     api.routeUrl("ANY /{proxy+}", target("/{proxy}"), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
     api.routeUrl("ANY /", target(""), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
 
     // Deliberately NOT outputs: the Lightsail IP and the custom domain's
