@@ -23,7 +23,7 @@
 > This is an abbreviated version for Docker Hub. See the full README for quick-start guides, authentication details, and development instructions.
 
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Pair it with Obsidian Sync — one click on Render or Railway, or your own VPS — and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Run it on a remote server with Obsidian Sync, and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1. Deploy it with one click or self-host it; either way, the vault is always yours.
 
 
 ## What you get
