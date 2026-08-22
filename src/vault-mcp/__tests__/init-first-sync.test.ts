@@ -127,7 +127,8 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     writeSyncState(join(syncStateDir, "state.db"), options.knownSyncFiles)
   }
   if (options.secondStoreSyncFiles !== undefined) {
-    const secondStoreDir = join(dirname(syncStateDir), "other-vault-id")
+    // Sorts after "vault-id" so the glob hands it to the script last.
+    const secondStoreDir = join(dirname(syncStateDir), "vault-id-second")
     mkdirSync(secondStoreDir, { recursive: true })
     writeSyncState(
       join(secondStoreDir, "state.db"),
@@ -477,15 +478,30 @@ describe("init-first-sync gate script", () => {
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
   })
 
-  it("refuses to sync when only a second store records files and the vault is empty", () => {
-    // The guard reads every store under the sync root, not just the first
-    // match — a device that has registered more than one vault keeps a
-    // store per vault, and rows in any of them mean files were delivered.
+  // The guard reads every store under the sync root, not just the first or
+  // last match — a device that has registered more than one vault keeps a
+  // store per vault, and rows in any of them mean files were delivered.
+  it("refuses to sync when only the last of two stores records files and the vault is empty", () => {
     const run = runGateScript({
       syncOutcomes: [0],
       vaultName: "Test",
       knownSyncFiles: 0,
       secondStoreSyncFiles: 2,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
+  })
+
+  it("refuses to sync when only the first of two stores records files and the vault is empty", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 2,
+      secondStoreSyncFiles: 0,
     })
 
     expect(run.status).toBe(1)
