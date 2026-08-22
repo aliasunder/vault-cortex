@@ -534,13 +534,9 @@ Obsidian sync is powered by [obsidian-headless](https://obsidian.md/help/headles
 
 The hybrid search pipeline draws on patterns from [@tobi](https://github.com/tobi)'s [qmd](https://github.com/tobi/qmd) — RRF fusion with rank bonuses, position-aware score blending for cross-encoder reranking, content-hash gating, and heading-aware chunking.
 
----
-
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, code conventions, and PR guidelines.
-
----
 
 ## License
 
@@ -551,8 +547,6 @@ The `:remote` image **bundles** [`obsidian-headless`](https://github.com/obsidia
 (© Dynalist Inc. / Obsidian). It is installed from public npm at build time; the MIT license here
 does **not** cover it, and using it requires an active Obsidian Sync subscription. The `:latest`
 (local) image contains no proprietary components.
-
----
 
 ## Security
 
