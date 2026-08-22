@@ -49,6 +49,8 @@
 
 **Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
+---
+
 ## Quick Start
 
 ### Local (2 minutes — Docker + your vault folder)
@@ -89,35 +91,21 @@ docker compose up
 
 ### Remote (access from anywhere)
 
-Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Two ways to get there: one click on Render or Railway, or your own VPS. Either way the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your Obsidian Sync token, vault name, and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage for the vault and its index. On your own server the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
 
-**Which one?** Railway is the easier start: the template lands you in a configured project, the 5 GB volume is included on Hobby, and you pay for what the container uses — a personal vault usually comes in a little under Render's price, a busy one a little over. Render is a flat price for a fixed 2 GB instance; choose it if a predictable bill matters more than setup polish. Self-host if you already run a VPS or want full control.
+|                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+|                | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic) | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex) | **[CLI setup →](#self-hosted-your-own-vps)**                 |
+| **Account**    | [Railway](https://railway.com) on the Hobby plan or higher — the 5 GB volume is included                                                                                            | [Render](https://render.com) with a card on file                                                                                                        | A VPS with [Docker](https://docs.docker.com/engine/install/) |
+| **Cost**       | Usage-metered: typically $20–30 USD/mo for a personal vault — a little under Render for a quiet vault, a little over for a busy one                                                 | Flat: about $26 USD/mo for the Standard instance (2 GB) and 5 GB disk, billed by the second                                                             | Whatever your VPS costs                                      |
+| **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | A predictable bill matters more than setup polish                                                                                                       | You already run a server or want full control                |
+| **Guide**      | **[Railway guide →](./deploy/railway/)**                                                                                                                                            | **[Render guide →](./deploy/render/)**                                                                                                                  | **[Remote guide →](./deploy/remote/)**                       |
 
-#### One-click: Render
-
-Click the button, paste your Obsidian Sync token and vault name, and Render builds the rest: HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index.
-
-**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Render](https://render.com) account with a card on file — about $26 USD/mo for the Standard instance and 5 GB disk, billed by the second.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
-
-Render reads the Blueprint from this repo and asks for your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Render guide →](./deploy/render/)**
-
-#### One-click: Railway
-
-Same idea on Railway: button, token, vault name, and one persistent volume for your vault and index.
-
-**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $20–30 USD/mo for a personal vault.
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
-
-Railway opens the template; click **Deploy Now**, then **Configure** to enter your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Railway guide →](./deploy/railway/)**
+All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
 #### Self-hosted: your own VPS
 
-The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates.
-
-**Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
+The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 20.12 for the CLI itself; the server runs in Docker.
 
 ```bash
 # On your VPS:
@@ -144,8 +132,6 @@ docker compose up -d
 ```
 
 </details>
-
-**[Full remote guide →](./deploy/remote/)**
 
 ### Connect your MCP client
 
@@ -195,6 +181,8 @@ The "Add custom connector" dialog only accepts `https` URLs. With an `https` PUB
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
+---
+
 ## How It Works
 
 Everything runs in one Docker container, working directly with the `.md` files on disk:
@@ -221,6 +209,8 @@ graph LR
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams, and component breakdown.
 
+---
+
 ## Hybrid Search
 
 Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
@@ -234,6 +224,8 @@ Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCH
 All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.
+
+---
 
 ## Memory
 
@@ -251,6 +243,8 @@ The whole layer is optional — set `MEMORY_ENABLED=false` to hide the memory to
 
 See [ARCHITECTURE.md → Memory](./ARCHITECTURE.md#memory) for the recall pipeline, indexing model, auto-initialization, and opt-out behavior, and [templates/memory](./templates/memory/) for the file format, entry-policy convention, and starter templates.
 
+---
+
 ## Tasks
 
 Task metadata lives in plain markdown — scattered across files, encoded in emoji signifiers or inline fields, organized under Kanban headings. An agent answering "what's overdue?" would need to parse every file and understand your chosen format; completing a task on a Kanban board means knowing the board's lane structure, the date syntax, and which heading is the done lane.
@@ -262,6 +256,8 @@ The task layer handles this so agents don't have to:
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
+
+---
 
 ## Files
 
@@ -276,6 +272,8 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
 
 See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline and dispatch model.
+
+---
 
 ## Tools
 
@@ -312,6 +310,8 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 |                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts              |
 | **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
 
+---
+
 ## Prompts
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
@@ -325,6 +325,8 @@ Tools are model-driven — the assistant calls them. **Prompts** are workflows _
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
 > **Client support:** Prompts work in Claude Desktop (Chat and Cowork — via the **+** menu under your connector), Claude Code (slash commands), and OpenCode. Support in other clients (Cursor, Windsurf) varies — see the [MCP clients matrix](https://modelcontextprotocol.io/clients) for the latest.
+
+---
 
 ## Properties
 
@@ -343,6 +345,8 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+
+---
 
 ## Configuration
 
@@ -399,6 +403,8 @@ When the file isn't available — or you use the Periodic Notes plugin, whose se
 
 > **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
 
+---
+
 ## Data Integrity
 
 Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
@@ -411,6 +417,8 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 
 See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for the full attack-surface inventory.
+
+---
 
 ## Authentication
 
@@ -426,6 +434,8 @@ Two methods:
 OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate).
 
 See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
+
+---
 
 ## Deployment Options
 
@@ -460,6 +470,8 @@ Deployment templates built and maintained by the community — not tested here, 
 
 Built a deployment for another platform? Open a PR to add it here.
 
+---
+
 ## Development
 
 ```bash
@@ -489,6 +501,8 @@ npx @modelcontextprotocol/inspector
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup.
 
+---
+
 ## Companion: obsidian-vault skill
 
 The MCP server works on its own with any client. For agents that support [skills](https://github.com/vercel-labs/skills) (Claude Code, Cursor, Windsurf, Cline, and [70+ others](https://github.com/vercel-labs/skills#supported-agents)), the **obsidian-vault** skill adds deeper knowledge of Obsidian-flavored markdown — frontmatter conventions, callout syntax, and plugin-specific formats like Dataview, Tasks, and Kanban.
@@ -498,6 +512,8 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 ```
 
 [Skill source →](https://github.com/aliasunder/agent-skills/tree/main/skills/obsidian-vault)
+
+---
 
 ## Roadmap
 
@@ -509,6 +525,8 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 | **3a** | Task layer — vault-wide task index, structured queries, and one-call task updates (Tasks plugin emoji + Dataview formats) | Complete  |
 | **3b** | Memory recall — entry-granular retrieval across the memory layer's dated history                                          | Complete  |
 | **3c** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)                       | Exploring |
+
+---
 
 ## Acknowledgments
 
