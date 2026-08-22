@@ -390,9 +390,9 @@ export const createOAuthProvider = ({
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
-      // RFC 6749 §6: an omitted or empty scope means the stored scope
-      // (https://www.rfc-editor.org/rfc/rfc6749#section-6).
-      // The SDK splits `scope=` into [""], so blank entries count as empty.
+      // An omitted or empty scope means the stored scope (RFC 6749 §6, linked
+      // above). The SDK splits `scope=` into [""], so blank entries count
+      // as empty.
       const requestedScopes = (scopes ?? []).filter((scope) => scope !== "")
       const grantedScopes =
         requestedScopes.length > 0 ? requestedScopes : stored.scopes
