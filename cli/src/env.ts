@@ -50,6 +50,11 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 # divided evenly across the rendered pages. Fewer pages = higher quality each.
 MAX_PDF_RENDER_PAGES=5
 
+# Maximum number of OAuth clients the server will register (default: 1000).
+# Every MCP client registers itself once on first connect; the cap keeps the
+# OAuth database bounded if the /register rate limit is ever bypassed.
+MAX_OAUTH_CLIENTS=1000
+
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 
@@ -195,6 +200,11 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 # vault_read_file (default: 5). The per-page byte budget is MAX_IMAGE_OUTPUT_BYTES
 # divided evenly across the rendered pages. Fewer pages = higher quality each.
 MAX_PDF_RENDER_PAGES=5
+
+# Maximum number of OAuth clients the server will register (default: 1000).
+# Every MCP client registers itself once on first connect; the cap keeps the
+# OAuth database bounded if the /register rate limit is ever bypassed.
+MAX_OAUTH_CLIENTS=1000
 
 # Enable or disable the memory layer (default: true).
 # Set to false to hide memory tools and skip About Me/ creation.
