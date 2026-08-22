@@ -31,7 +31,11 @@ fi
 # config directory: $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db.
 # Its local_files table is the record the engine diffs against disk.
 # The guard sums that table across every store rather than resolving
-# <vaultId>: the image serves one vault, so any record belongs to it.
+# <vaultId>. The image serves one vault, so a second store exists only
+# after this device was registered against a different remote vault
+# (one deleted and re-created, or a manual sync-setup); counting its
+# rows too keeps the guard conservative, at the cost of stopping the
+# container until the device is re-registered.
 SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
 # Prints the number of files the sync state records as present locally;
