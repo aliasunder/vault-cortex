@@ -217,8 +217,8 @@ rebuilt.
 - **Automatically** — **Settings → Source → Configure auto updates**, pick
   **Update to the latest tag**, and choose a maintenance window (weekends,
   overnight, as soon as ready, or custom hours). Railway checks the image
-  every few hours and redeploys when `:remote` changes; the container is
-  down for under a minute while it restarts.
+  every few hours and redeploys when `:remote` changes; the restart takes
+  the same minute or two as a redeploy by hand.
 
 Before you redeploy, skim
 [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each

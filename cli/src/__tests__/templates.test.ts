@@ -228,11 +228,12 @@ describe("hosted platform templates", () => {
       return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
     }
 
-    it("records the same fixed and optional values as render.yaml, plus Railway's own proxy-hop and health-window settings", () => {
+    it("records the same fixed and optional values as render.yaml, plus the generated token and Railway's own proxy-hop and health-window settings", () => {
       const tableValues = definitionTableValues()
       const expectedValues = {
         ...HOSTED_FIXED_ENV,
         ...HOSTED_OPTIONAL_ENV,
+        MCP_AUTH_TOKEN: '${{secret(64, "0123456789abcdef")}}',
         TRUST_PROXY_HOPS: "2",
         RAILWAY_HEALTHCHECK_TIMEOUT_SEC: "900",
       }
