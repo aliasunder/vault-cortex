@@ -145,8 +145,8 @@ rotation alone. The full attack-surface inventory is in
 The first deploy takes longer than later ones. In order, the container logs
 in to Obsidian Sync, registers a device named **vault-cortex**, downloads your
 vault, builds the search index, and only then answers health checks and
-receives traffic. The template allows 15 minutes for this; a large vault can
-take most of it.
+receives traffic. A vault of a few thousand notes takes about three
+minutes; the template allows 15, and a large vault can take most of it.
 
 Watch the service's **Deployments → View logs**. Lines prefixed
 `[obsidian-sync]` are the Sync setup and download; `[vault-cortex]` lines
@@ -239,6 +239,11 @@ new variable.
 Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Railway's own address variable at every start.
 
+Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here:
+it sleeps a service only after ten minutes without outbound traffic, and the
+Obsidian Sync connection never goes quiet, so the container stays up and
+billed either way.
+
 Volume size is changed from the volume's settings on the project canvas
 (Railway can grow a volume, never shrink it).
 
@@ -251,9 +256,11 @@ Volume size is changed from the volume's settings on the project canvas
   under **Variables**, then **Redeploy**.
 - `login was rejected` — the token is stale. Run `get-sync-token` again,
   update `OBSIDIAN_AUTH_TOKEN`, then **Redeploy**.
-- `ob sync-setup failed` — the vault name doesn't match Obsidian Sync
-  exactly (it is case-sensitive), or the vault is end-to-end encrypted and
-  `VAULT_PASSWORD` is missing. Fix the variable, then **Redeploy**.
+- `Password not provided.` then `ob sync-setup failed` — the vault is
+  end-to-end encrypted and `VAULT_PASSWORD` is missing. Add it under
+  **Variables**, then **Redeploy**.
+- `ob sync-setup failed` on its own — the vault name doesn't match Obsidian
+  Sync exactly (it is case-sensitive). Fix `VAULT_NAME`, then **Redeploy**.
 - `VAULT_NAME is not set` — add it under **Variables**, then **Redeploy**.
 
 **The deploy timed out waiting for the health check.** The template allows

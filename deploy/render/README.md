@@ -137,8 +137,9 @@ rotation alone. The full attack-surface inventory is in
 The first deploy takes longer than later ones. In order, the container logs
 in to Obsidian Sync, registers a device named **vault-cortex**, downloads your
 vault, builds the search index, and only then answers health checks and
-receives traffic. Render allows up to 15 minutes for this; a large vault can
-take most of it.
+receives traffic. A vault of a few thousand notes takes two to three
+minutes; Render allows up to 15, and a large vault can take most of it.
+Until then the URL answers `502` — that is Render waiting, not a failure.
 
 Watch the **Logs** tab. Lines prefixed `[obsidian-sync]` are the Sync setup
 and download; `[vault-cortex]` lines show the storage layout and the public
@@ -236,9 +237,12 @@ disk, never shrink it).
   under **Environment**, then **Manual Deploy**.
 - `login was rejected` — the token is stale. Run `get-sync-token` again,
   update `OBSIDIAN_AUTH_TOKEN`, then **Manual Deploy**.
-- `ob sync-setup failed` — the vault name doesn't match Obsidian Sync
-  exactly (it is case-sensitive), or the vault is end-to-end encrypted and
-  `VAULT_PASSWORD` is missing. Fix the variable, then **Manual Deploy**.
+- `Password not provided.` then `ob sync-setup failed` — the vault is
+  end-to-end encrypted and `VAULT_PASSWORD` is missing. Add it under
+  **Environment**, then **Manual Deploy**.
+- `ob sync-setup failed` on its own — the vault name doesn't match Obsidian
+  Sync exactly (it is case-sensitive). Fix `VAULT_NAME`, then **Manual
+  Deploy**.
 - `VAULT_NAME is not set` — add it under **Environment**, then **Manual
   Deploy**.
 
