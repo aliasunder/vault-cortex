@@ -1,18 +1,23 @@
 # Render Quickstart (one-click)
 
 Run Vault Cortex on [Render](https://render.com) from a button — no server to
-manage. Render gives you HTTPS, restarts, and a log viewer; Obsidian Sync keeps
-your vault current; MCP tools work from Claude Desktop, Claude Code, claude.ai,
-or any MCP client.
+manage.
 
-What you end up with: a copy of your vault on Render, kept current by
-Obsidian Sync in both directions, that any MCP client can search, read, and
-write from anywhere — with HTTPS, restarts, and a generated access token
-handled for you. One disk holds the vault copy, the search index, and the
-Sync connection. Your notes' home stays Obsidian Sync and your own devices;
-delete the service and you lose only the copy. Prefer your own VPS? Use the
-[remote quickstart](../remote/) instead. Curious how the container is put
-together? [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
+What you end up with:
+
+- A copy of your vault on Render, kept current by Obsidian Sync in both
+  directions.
+- Any MCP client can search, read, and write it from anywhere.
+- HTTPS, restarts, and a generated access token, handled by Render.
+- One disk holding the vault copy, the search index, and the Sync
+  connection.
+
+Your notes' home stays Obsidian Sync and your own devices; delete the
+service and you lose only the copy.
+
+Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
+Curious how the container is put together?
+[ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
 **Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
