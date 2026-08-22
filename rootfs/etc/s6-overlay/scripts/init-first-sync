@@ -28,11 +28,10 @@ if ! cd "$VAULT_PATH"; then
 fi
 
 # obsidian-headless keeps one SQLite store per configured vault under its
-# config directory ($XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/ —
-# the obsidian_config volume under Compose, $STORAGE_ROOT/config in
-# single-volume mode). Its local_files table is what the engine diffs
-# against disk. Counting across every store is deliberately conservative:
-# the image serves one vault, so any record of local files belongs to it.
+# config directory: $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db.
+# Its local_files table is the record the engine diffs against disk.
+# The guard sums that table across every store rather than resolving
+# <vaultId>: the image serves one vault, so any record belongs to it.
 SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
 # Prints the number of files the sync state records as present locally;
