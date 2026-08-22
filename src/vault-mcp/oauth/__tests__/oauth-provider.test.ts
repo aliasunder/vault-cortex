@@ -359,6 +359,51 @@ describe("OAuth refresh token schema migration", () => {
     expect(schemaVersion(db)).toBe(1)
   })
 
+  it("logs oauth_refresh_tokens_cleared when clearing raw tokens", () => {
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE refresh_tokens (
+        token TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `)
+    oldDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "legacy-token",
+        "legacy-client",
+        "vault",
+        DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      )
+    oldDb.close()
+
+    const logs: LogCall[] = []
+    const testLogger = recordingLogger(logs)
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: testLogger,
+    })
+
+    const event = logs.find(
+      (log) => log.message === "oauth_refresh_tokens_cleared",
+    )
+    expect(event).toEqual(
+      expect.objectContaining({
+        level: "info",
+        message: "oauth_refresh_tokens_cleared",
+        data: expect.objectContaining({
+          reason: "storage_key_upgrade",
+          rows: 1,
+        }),
+      }),
+    )
+  })
+
   it("keeps keyed refresh tokens when the provider is re-opened on a migrated DB", async () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
@@ -851,6 +896,23 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Requested scope exceeds the granted scope")
   })
 
+  it("consumes the refresh token even when scope validation rejects", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    await expect(
+      exchangeRefreshToken(oauth, client, refreshToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+  })
+
   it("issues the stored scope when a refresh requests none", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     seedRefreshToken(
@@ -892,5 +954,46 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
     expect(storedRevokedTokens(db)).toEqual([])
     expect(storedRefreshTokenKeys(db)).toEqual([])
+  })
+
+  it("logs scope_exceeds_grant reason when a refresh widens scope", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-log-test-"))
+    const dbPath = join(dir, "oauth.db")
+    const logs: LogCall[] = []
+    const testLogger = recordingLogger(logs)
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: testLogger,
+    })
+    const db = new Database(dbPath)
+    onTestFinished(async () => {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    })
+    const client = seedClient(db)
+    const refreshToken = await issuedRefreshToken(oauth, client)
+    logs.length = 0
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+
+    const event = logs.find(
+      (log) => log.message === "oauth_token_refresh_failed",
+    )
+    expect(event).toEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "oauth_token_refresh_failed",
+        data: expect.objectContaining({
+          reason: "scope_exceeds_grant",
+          clientId: client.client_id,
+        }),
+      }),
+    )
   })
 })
