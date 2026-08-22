@@ -110,6 +110,8 @@ describe("buildRemoteEnv", () => {
     expect(lines).toContain("DEVICE_NAME=vault-cortex")
     expect(lines).toContain("CONFLICT_STRATEGY=merge")
     expect(lines).toContain("SYNC_MODE=bidirectional")
+    expect(lines).toContain("SYNC_EXCLUDED_FOLDERS=")
+    expect(lines).toContain("SYNC_FILE_TYPES=")
     expect(lines).toContain("PUID=1000")
   })
 

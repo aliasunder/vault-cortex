@@ -16,9 +16,9 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Run it on a remote server with Obsidian Sync, and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1. Deploy it with one click or self-host it; either way, the vault is always yours.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [Community Deployments](#community-deployments)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [One-click Deploy](#one-click-deploy) · [Community Deployments](#community-deployments)
 
 ## What you get
 
@@ -37,7 +37,7 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-- **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
+- **[Remote access](#remote-access-from-anywhere)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
@@ -87,7 +87,35 @@ docker compose up
 
 **[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
-### Remote (access from anywhere — Docker + Obsidian Sync)
+### Remote (access from anywhere)
+
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Two ways to get there: one click on Render or Railway, or your own VPS. Either way the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
+
+**Which one?** Railway is the easier start: the template lands you in a configured project, the 5 GB volume is included on Hobby, and you pay for what the container uses — a personal vault usually comes in a little under Render's price, a busy one a little over. Render is a flat price for a fixed 2 GB instance; choose it if a predictable bill matters more than setup polish. Self-host if you already run a VPS or want full control.
+
+#### One-click: Render
+
+Click the button, paste your Obsidian Sync token and vault name, and Render builds the rest: HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index.
+
+**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Render](https://render.com) account with a card on file — about $26 USD/mo for the Standard instance and 5 GB disk, billed by the second.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
+
+Render reads the Blueprint from this repo and asks for your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Render guide →](./deploy/render/)**
+
+#### One-click: Railway
+
+Same idea on Railway: button, token, vault name, and one persistent volume for your vault and index.
+
+**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $20–30 USD/mo for a personal vault.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+Railway opens the template; click **Deploy Now**, then **Configure** to enter your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Railway guide →](./deploy/railway/)**
+
+#### Self-hosted: your own VPS
+
+The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates.
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
@@ -96,7 +124,7 @@ docker compose up
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), and auth config, then starts the server ([CLI reference →](./cli/)).
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)).
 
 **Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
 
@@ -121,10 +149,11 @@ docker compose up -d
 
 ### Connect your MCP client
 
-| Setup      | Server URL                  |
-| ---------- | --------------------------- |
-| **Local**  | `http://localhost:8000/mcp` |
-| **Remote** | `<PUBLIC_URL>/mcp`          |
+| Setup                    | Server URL                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| **Local**                | `http://localhost:8000/mcp`                                                               |
+| **Remote (one-click)**   | `https://<host>/mcp` — `<host>` is the domain Render or Railway shows on the service page |
+| **Remote (self-hosted)** | `<PUBLIC_URL>/mcp`                                                                        |
 
 Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, OpenCode, or any other. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
 
@@ -317,16 +346,17 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Remote deployments have additional settings not included below (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](./deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](./deploy/remote/README.md#configuration).
 
 | Variable                    | Required?   | Default                                                                          | Description                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`            | Yes         | —                                                                                | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                                                                                                                                      |
 | `VAULT_PATH`                | Local only  | —                                                                                | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                                                                                                                                         |
-| `PUBLIC_URL`                | Remote only | —                                                                                | Public URL for OAuth discovery metadata. Filled in automatically on Render, Railway, and Fly.io (from `RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`) when left unset                                                                                                                                                        |
+| `PUBLIC_URL`                | Remote only | —                                                                                | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset                                                                                                                                                                                  |
 | `OBSIDIAN_AUTH_TOKEN`       | Remote only | —                                                                                | Obsidian Sync auth token — the CLI's [`get-sync-token`](./cli/#get-sync-token) captures it for you                                                                                                                                                                                                                                              |
 | `VAULT_NAME`                | Remote only | —                                                                                | Exact name of your Obsidian Sync vault (case-sensitive)                                                                                                                                                                                                                                                                                         |
-| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render, Fly.io). Mount the volume there and set this to the same path                                                                                   |
+| `VAULT_PASSWORD`            | Remote only | —                                                                                | End-to-end encryption password, if your vault has one. Leave empty otherwise.                                                                                                                                                                                                                                                                   |
+| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path                                                                                           |
 | `EMBEDDING_ENABLED`         | —           | `true`                                                                           | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                                                                                                           |
 | `RERANK_MODE`               | —           | `blended`                                                                        | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                              |
 | `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                                                                                                                                   |
@@ -399,21 +429,28 @@ See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth
 
 ## Deployment Options
 
-Local runs on your machine. Remote deployments run on a VPS — your vault is accessible even when your laptop is closed.
+Local runs on your machine. Remote deployments run on a VPS or a hosted container platform — your vault is accessible even when your laptop is closed.
 
-| Path          | What                                                              | Guide                                |
-| ------------- | ----------------------------------------------------------------- | ------------------------------------ |
-| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)   |
-| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/) |
-| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)           |
+Whichever path you pick, the server is replaceable and your vault isn't. Your notes are plain Markdown files, synced by Obsidian to every device you own; the container holds a copy and an index it can rebuild from scratch. Shut down the VPS, delete the Render or Railway service, switch hosts — the same files are still on your machine and in Obsidian Sync, readable by anything. That's the difference from an AI notebook whose real home is the vendor's database: here the host is a convenience, not a custodian.
+
+| Path                     | What                                                              | Guide                                                                         |
+| ------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Local**                | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)                                            |
+| **Remote · one-click**   | Render or Railway — one persistent volume, no server to manage    | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
+| **Remote · self-hosted** | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/)                                          |
+| **Remote · AWS (SST)**   | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)                                                    |
 
 The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
-All three paths run the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision (remote and AWS). One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
+Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision (one-click, self-hosted, and AWS). One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
-**Cost:** A remote setup needs a VPS and $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29/mo all-in.
+**Cost:** A remote setup needs a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29 USD/mo all-in.
+
+### One-click deploy
+
+Buttons and prerequisites are in [Quick Start → Remote](#remote-access-from-anywhere). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
 
 ### Community deployments
 

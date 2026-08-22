@@ -94,12 +94,16 @@ const BASE_ENV = {
 }
 
 /** Every `ob` call that a single boot makes, in order, for BASE_ENV.
- *  Only the sync-config flags whose env var is set are applied;
+ *  Sync-config flags whose env var is unset are skipped, except the folder
+ *  and file-type filters, which are always applied so an emptied variable
+ *  clears a stored value (an empty argument shows as a trailing space);
  *  SYNC_CONFIGS has a baked-in default. The stub appends "$*" per call. */
 const EXPECTED_BOOT_SEQUENCE = [
   "login",
   "sync-setup --vault ci-vault --device-name ci-device",
   "sync-config --device-name ci-device",
+  "sync-config --excluded-folders ",
+  "sync-config --file-types ",
   "sync-config --configs core-plugin-data,community-plugin-data",
   "sync",
   "sync --continuous",
@@ -219,7 +223,7 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
     expect(appliedIds).toBe("1000:1000\n")
   })
 
-  it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×2, sync, sync --continuous", async () => {
+  it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×4, sync, sync --continuous", async () => {
     const callLog = await readContainerFile({
       name,
       path: "/home/obsidian/.config/ob-calls.log",
@@ -606,6 +610,8 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
           "login",
           "sync-setup --vault ci-vault --device-name ci-device",
           "sync-config --device-name ci-device",
+          "sync-config --excluded-folders ",
+          "sync-config --file-types ",
           "sync-config --configs core-plugin-data,community-plugin-data",
           "sync",
           "sync",

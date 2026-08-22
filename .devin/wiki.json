@@ -10,11 +10,11 @@
   "pages": [
     {
       "title": "Overview",
-      "purpose": "What Vault Cortex is and does, drawn from the current README.md: an MCP server giving AI agents hybrid search, task management, structured memory, non-markdown file reading, and read/write access to an Obsidian vault, with three deployment modes. Summarize the README's value proposition as it stands at index time rather than a fixed capability list."
+      "purpose": "What Vault Cortex is and does, drawn from the current README.md: an MCP server giving AI agents hybrid search, task management, structured memory, non-markdown file reading, and read/write access to an Obsidian vault. The ways to run it are covered on the Deployment page. Summarize the README's value proposition as it stands at index time rather than a fixed capability list."
     },
     {
       "title": "Getting Started",
-      "purpose": "Quickstart paths from README.md and deploy/ — local Docker, remote with Obsidian Sync, AWS reference — plus MCP client configuration and the npx vault-cortex@latest init CLI as the fastest path."
+      "purpose": "Quickstart paths from README.md and deploy/: local Docker, one-click on Render or Railway, self-hosted on a VPS with Obsidian Sync, and the AWS reference deployment. Also covers MCP client configuration. The npx vault-cortex@latest init CLI is the fastest path for the local and VPS modes."
     },
     {
       "title": "CLI",
@@ -22,7 +22,7 @@
     },
     {
       "title": "Configuration Reference",
-      "purpose": "All environment variables as defined in config.ts and the .env.example files, the ServerConfig type, and how configuration differs across the three deployment modes. Enumerate the variables from the source at index time."
+      "purpose": "All environment variables as defined in config.ts and the .env.example files, the ServerConfig type, and how configuration differs across the deployment modes. Enumerate the variables from the source at index time."
     },
     {
       "title": "Architecture",
@@ -50,7 +50,7 @@
     },
     {
       "title": "Search and Indexing",
-      "purpose": "The SQLite FTS5 + sqlite-vec search system in search/: search-index.ts (factory, schema, write operations), search-queries.ts (query methods and the SearchQueryContext shape), hybrid-search.ts (the hybrid search pipeline), search-helpers.ts (pure transforms), fts-query.ts (FTS5 sanitization), rrf.ts (RRF fusion), reranker.ts (cross-encoder reranking and score blending), embedder.ts and chunker.ts (embedding pipeline), and file-watcher.ts (chokidar). Covers hybrid search and its FTS-only fallback, the memory-entry index, the non_md_files table, and the tasks table. Derive ranking details, models, and defaults from ARCHITECTURE.md's Hybrid Search section.",
+      "purpose": "The SQLite FTS5 + sqlite-vec search system in search/. Modules: search-index.ts (factory, schema, write operations); search-queries.ts (query methods and the SearchQueryContext shape); hybrid-search.ts (the hybrid search pipeline); search-helpers.ts (pure transforms); fts-query.ts (FTS5 sanitization); rrf.ts (RRF fusion); reranker.ts (cross-encoder reranking and score blending); embedder.ts and chunker.ts (embedding pipeline); file-watcher.ts (chokidar). Covers hybrid search and its FTS-only fallback, the memory-entry index, the non_md_files table, and the tasks table. Derive ranking details, models, and defaults from ARCHITECTURE.md's Hybrid Search section.",
       "parent": "Architecture"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "title": "Non-Markdown Files",
-      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read, browsed, and searched: asset-operations.ts as the use-case layer behind the file tools, the canvas.ts linearizer (JSON Canvas to readable markdown), the image byte-budget fitting utility (fit-image-to-byte-budget.ts), the pdfjs bootstrap (obsidian-markdown/pdf-engine.ts), PDF text extraction (obsidian-markdown/pdf.ts), and the file_content + file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
+      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read, browsed, and searched. Modules: asset-operations.ts (the use-case layer behind the file tools); canvas.ts (JSON Canvas to readable markdown); fit-image-to-byte-budget.ts (image byte-budget fitting); obsidian-markdown/pdf-engine.ts (the pdfjs bootstrap); obsidian-markdown/pdf.ts (PDF text extraction); the file_content and file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
       "parent": "Architecture"
     },
     {
@@ -79,12 +79,12 @@
     },
     {
       "title": "Prompt Reference",
-      "purpose": "The MCP prompts under mcp-core/prompts/ — vault-orientation, memory-review, daily-review — with prompt-definitions.ts as the orchestrator. Each assembles live vault data at invocation time and degrades to a valid fallback message rather than throwing.",
+      "purpose": "The MCP prompts under mcp-core/prompts/: vault-orientation, memory-review, and daily-review, with prompt-definitions.ts as the orchestrator. Each assembles live vault data at invocation time and degrades to a valid fallback message rather than throwing.",
       "parent": "MCP Interface"
     },
     {
       "title": "Deployment",
-      "purpose": "Parent page for the deployment modes, all running the image built from the one two-target Dockerfile: :latest is the MCP server alone (local), :remote bundles Obsidian Sync under s6-overlay supervision. Modes: local Docker, remote with Obsidian Sync, and the AWS reference deployment — quickstarts in deploy/, scaffolded by the CLI."
+      "purpose": "Parent page for the four ways to run the server: local Docker, one-click on Render or Railway, self-hosted on a VPS with Obsidian Sync, and the AWS reference deployment. Every mode runs an image from the single two-target Dockerfile. The :latest target is the MCP server alone, for local. The :remote target adds Obsidian Sync under s6-overlay supervision, for everything else. Quickstarts live in deploy/; the CLI scaffolds the local and VPS ones."
     },
     {
       "title": "Local Docker Deployment",
@@ -93,17 +93,22 @@
     },
     {
       "title": "Remote Deployment with Obsidian Sync",
-      "purpose": "The deploy/remote/ quickstart: the :remote image, where s6-overlay supervises the Obsidian Sync process and the MCP server (service definitions and init chain in rootfs/), with named Docker volumes. Requires an Obsidian Sync subscription and an HTTPS front. This is the deployment that enables mobile/remote access.",
+      "purpose": "The deploy/remote/ quickstart for a VPS: the :remote image with named Docker volumes, where s6-overlay supervises the Obsidian Sync process and the MCP server (service definitions and init chain in rootfs/). Requires an Obsidian Sync subscription and an HTTPS front. This is the self-hosted route to mobile and remote access; the one-click route is on the Hosted Platform Templates page.",
       "parent": "Deployment"
     },
     {
       "title": "AWS Reference Deployment",
-      "purpose": "The reference deployment provisioned by sst.config.ts: a Lightsail instance running the :remote image, API Gateway for TLS, and a path-aware Lambda authorizer, documented in DEPLOY.md. One worked option, not a requirement — Vault Cortex runs anywhere Docker does.",
+      "purpose": "The reference deployment provisioned by sst.config.ts and documented in DEPLOY.md: a Lightsail instance running the :remote image, API Gateway for TLS, and a path-aware Lambda authorizer. It is one worked option, not a requirement; Vault Cortex runs anywhere Docker does.",
+      "parent": "Deployment"
+    },
+    {
+      "title": "Hosted Platform Templates",
+      "purpose": "The one-click deployments of the :remote image on Render and Railway. Both run the image in single-volume mode: STORAGE_ROOT names the one mount and print-derived-env in rootfs/ derives PUBLIC_URL from the platform. Render deploys from render.yaml at the repo root, documented in deploy/render/. Railway deploys from a template built in its composer, whose definition is recorded in CONTRIBUTING.md. cli/src/__tests__/templates.test.ts pins render.yaml and the Railway definition table.",
       "parent": "Deployment"
     },
     {
       "title": "Container Image and Process Supervision",
-      "purpose": "The two-target Dockerfile building both images from one file — the local target (tini + the MCP server) and the remote target (s6-overlay supervising the obsidian-sync and MCP server processes) — plus the rootfs/ filesystem overlay (s6 service definitions and init chain), the lockfile-pinned obsidian-headless/ package, and runtime user handling (PUID/PGID). Derive base-image and version specifics from the Dockerfile at index time.",
+      "purpose": "The two-target Dockerfile that builds both images from one file. The local target is tini plus the MCP server. The remote target is s6-overlay supervising the obsidian-sync and MCP server processes. Also covers the rootfs/ filesystem overlay (s6 service definitions and init chain), the lockfile-pinned obsidian-headless/ package, and runtime user handling (PUID/PGID). Derive base-image and version specifics from the Dockerfile at index time.",
       "parent": "Deployment"
     },
     {
@@ -112,7 +117,7 @@
     },
     {
       "title": "Release and CI Pipeline",
-      "purpose": "The GitHub Actions workflows under .github/workflows/ — CI checks, server and CLI release automation, deployment workflows, security scanning, and registry publishing — plus the dev/ops helper scripts under scripts/. Enumerate the workflows and their triggers from the workflow files at index time; release conventions live in CONTRIBUTING.md.",
+      "purpose": "The GitHub Actions workflows under .github/workflows/: CI checks, server and CLI release automation, deployment workflows, security scanning, and registry publishing. Also the dev/ops helper scripts under scripts/. Enumerate the workflows and their triggers from the workflow files at index time; release conventions live in CONTRIBUTING.md.",
       "parent": "Development Guide"
     }
   ]

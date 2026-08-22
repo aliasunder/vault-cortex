@@ -142,14 +142,14 @@ docker run -d --name vault-cortex \
 </details>
 
 <details>
-<summary><strong>Single persistent volume</strong> (Railway, Render, Fly.io)</summary>
+<summary><strong>Single persistent volume</strong> (Railway, Render)</summary>
 
 Container hosting platforms that allow one volume per service can't attach
 the three mounts the Compose file and `docker run` command use. Mount the one
 volume anywhere and set `STORAGE_ROOT` to the same path — the container keeps
 the vault, the search index, Obsidian Sync state, and log files under that
 directory
-([how the paths are laid out →](../../ARCHITECTURE.md#container-startup)).
+([how the paths are laid out →](../../ARCHITECTURE.md#single-volume-layout)).
 
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same
@@ -173,12 +173,23 @@ docker run -d --name vault-cortex \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-On a hosting platform, set the same variables in the service's environment
-settings; restarts, health checks, and log rotation come from the platform,
-and `PUBLIC_URL` can be left unset — the container fills it in from the
-platform's own address variable (`RENDER_EXTERNAL_URL`,
-`RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`). Set `LOG_DIR=none` to keep logs
-in the platform's log viewer only.
+Render and Railway have ready-made setups that use this mode:
+[`deploy/render/`](../render/) and [`deploy/railway/`](../railway/).
+
+On another hosting platform, set the same variables in the service's
+environment settings. Restarts, health checks, and log rotation come from
+the platform. Three things to know:
+
+- **`PUBLIC_URL`** — on Render and Railway it can stay unset; the container
+  fills it in from the platform's own address variable
+  (`RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`). Elsewhere, set it.
+- **`LOG_DIR`** — left unset, the container keeps 90 days of log files on
+  the volume; the platform's own log viewer usually keeps only the last 7
+  days on hobby plans (Railway and Render both do). Set `LOG_DIR=none` to
+  keep logs in the platform viewer only.
+- **PID 1** — the platform must start the image's own entrypoint as the
+  container's first process; one that runs its own init in front of it
+  cannot start this image.
 
 </details>
 
@@ -228,7 +239,7 @@ HTTPS URL like:
 https://<id>.execute-api.<region>.amazonaws.com
 ```
 
-HTTP API pricing is $1.00 per million requests with a free tier of 1M
+HTTP API pricing is $1.00 USD per million requests with a free tier of 1M
 requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
@@ -500,22 +511,27 @@ with `docker run`, re-create the container as described in the
 Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
 required. These optional settings are worth knowing about:
 
-| Setting                  | Default                       | What it does                                                                                                                                              |
-| ------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TZ`                     | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                    |
-| `VAULT_PASSWORD`         | —                             | Set this if your vault has end-to-end encryption enabled                                                                                                  |
-| `EMBEDDING_ENABLED`      | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                                     |
-| `RERANK_MODE`            | `blended`                     | Set `none` to skip reranking for lower latency                                                                                                            |
-| `MEMORY_ENABLED`         | `true`                        | Set `false` to disable the structured memory layer                                                                                                        |
-| `FILE_TOOLS_ENABLED`     | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                         |
-| `READONLY_MODE`          | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                          |
-| `DISABLED_TOOLS`         | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                    |
-| `SYNC_CONFIGS`           | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                      |
-| `DAILY_NOTES_FOLDER`     | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                             |
-| `DAILY_NOTES_FORMAT`     | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                     |
-| `TRUST_PROXY_HOPS`       | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                        |
-| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front reports each visitor's IP in the RFC 7239 `Forwarded` header (e.g. AWS API Gateway)                               |
-| `STORAGE_ROOT`           | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)) |
+| Setting                  | Default                       | What it does                                                                                                                                                                              |
+| ------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                     | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                                                    |
+| `VAULT_PASSWORD`         | —                             | Set this if your vault has end-to-end encryption enabled                                                                                                                                  |
+| `EMBEDDING_ENABLED`      | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                                                                     |
+| `RERANK_MODE`            | `blended`                     | Set `none` to skip reranking for lower latency                                                                                                                                            |
+| `MEMORY_ENABLED`         | `true`                        | Set `false` to disable the structured memory layer                                                                                                                                        |
+| `FILE_TOOLS_ENABLED`     | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                                                         |
+| `READONLY_MODE`          | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                          |
+| `DISABLED_TOOLS`         | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                    |
+| `SYNC_CONFIGS`           | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                      |
+| `DEVICE_NAME`            | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                               |
+| `SYNC_MODE`              | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy).               |
+| `CONFLICT_STRATEGY`      | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                  |
+| `SYNC_EXCLUDED_FOLDERS`  | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                              |
+| `SYNC_FILE_TYPES`        | _(empty)_                     | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default. |
+| `DAILY_NOTES_FOLDER`     | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                                                             |
+| `DAILY_NOTES_FORMAT`     | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                                                     |
+| `TRUST_PROXY_HOPS`       | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                        |
+| `TRUST_FORWARDED_HEADER` | `false`                       | Set `true` only when the proxy in front reports each visitor's IP in the RFC 7239 `Forwarded` header (e.g. AWS API Gateway)                                                               |
+| `STORAGE_ROOT`           | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup))                                 |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.

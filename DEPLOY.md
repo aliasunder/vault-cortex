@@ -2,7 +2,7 @@
 
 Full cloud deployment using SST v4 for infrastructure-as-code. Provisions a Lightsail VM, API Gateway with Lambda authorizer, and CI/CD via GitHub Actions.
 
-For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)).
+For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine), [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)), or the hosted one-click guides under [`deploy/render/`](./deploy/render/) and [`deploy/railway/`](./deploy/railway/).
 
 **Contents** — [Prerequisites](#prerequisites) · [One-time setup](#one-time-setup) · [Deploy](#deploy) · [Verify](#verify) · [Monitoring](#monitoring) · [Commands](#command-reference) · [Updating](#updating-the-deployed-app) · [Teardown](#tearing-down) · [CI/CD](#cicd) · [Hardening](#hardening) · [Custom Domain](#custom-domain-optional) · [Troubleshooting](#troubleshooting)
 
@@ -185,7 +185,7 @@ Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 | `npm run docker:publish` | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                       |
 | `npm run lightsail:up`   | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist.  |
 | `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                       |
-| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24/mo Lightsail cost.               |
+| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost.           |
 
 All commands are idempotent and safe to run repeatedly.
 
@@ -338,6 +338,8 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                                                                              |
 | `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                                                                                     |
 | `SYNC_CONFIGS`              | Optional. Obsidian settings categories synced to the server, comma-separated (default: `core-plugin-data,community-plugin-data` — daily-notes settings and the Tasks plugin's format). Set `none` to disable. See [Daily notes](./README.md#daily-notes).                      |
+| `SYNC_EXCLUDED_FOLDERS`     | Optional. Folders to leave out of Obsidian Sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Unset syncs everything.                                                                                                                                |
+| `SYNC_FILE_TYPES`           | Optional. Attachment types Obsidian Sync delivers: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated. Unset keeps the Sync client's default.                                                                                                                    |
 | `DAILY_NOTES_FOLDER`        | Optional. Sets the daily notes folder (default: read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`). See [Daily notes](./README.md#daily-notes).                                                                                                |
 | `DAILY_NOTES_FORMAT`        | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                                          |
 | `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                                      |

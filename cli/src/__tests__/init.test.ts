@@ -395,6 +395,18 @@ describe("runInit interactive local flow", () => {
     expect(scripted.selectCalls).toEqual([
       {
         message: "How do you want to run Vault Cortex?",
+        options: [
+          {
+            value: "local",
+            label: "Local",
+            hint: "Docker on this machine, bind-mounted vault",
+          },
+          {
+            value: "remote",
+            label: "Remote",
+            hint: "VPS + Obsidian Sync, access from anywhere",
+          },
+        ],
         initialValue: "local",
       },
     ])
@@ -1255,7 +1267,11 @@ describe("runInit guided optional settings", () => {
 
     expect(exitCode).toBe(0)
     // --mode remote skips the mode select, so this is the flow's only select.
-    expect(scripted.selectCalls).toEqual([
+    // The option list itself is pinned in optional-settings.test.ts.
+    const selectsAsked = scripted.selectCalls.map(
+      ({ message, initialValue }) => ({ message, initialValue }),
+    )
+    expect(selectsAsked).toEqual([
       {
         message: "Obsidian Sync direction:",
         initialValue: "bidirectional",

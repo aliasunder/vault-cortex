@@ -26,11 +26,13 @@ const SCRIPT_PATH = resolve(
 )
 
 /** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
- *  test configures, every other subcommand succeeds. */
+ *  test configures, `sync-config` fails when its flag matches
+ *  `OB_SYNC_CONFIG_FAIL_FLAG`, every other invocation succeeds. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
 case "$1" in
   sync-setup) exit "$OB_SYNC_SETUP_EXIT" ;;
+  sync-config) [ "$2" = "$OB_SYNC_CONFIG_FAIL_FLAG" ] && exit 1; exit 0 ;;
   *) exit 0 ;;
 esac
 `
@@ -43,6 +45,12 @@ exec "$@"
 
 const DEFAULT_SYNC_CONFIGS_CALL =
   "sync-config --configs core-plugin-data,community-plugin-data"
+
+/** The folder and attachment filters are applied on every boot, empty meaning
+ *  "clear" — the stub logs `"$*"`, so an empty argument shows as a trailing
+ *  space. */
+const CLEAR_EXCLUDED_FOLDERS_CALL = "sync-config --excluded-folders "
+const CLEAR_FILE_TYPES_CALL = "sync-config --file-types "
 
 type SetupRun = {
   status: number | null
@@ -59,8 +67,12 @@ type SetupRunOptions = {
   configDirName?: string
   deviceName?: string
   syncConfigs?: string
+  syncExcludedFolders?: string
+  syncFileTypes?: string
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
+  /** The `ob sync-config` flag whose invocation fails (e.g. `--file-types`). */
+  syncConfigFailsFor?: string
 }
 
 const runSetupScript = (options: SetupRunOptions): SetupRun => {
@@ -87,6 +99,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
+      OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
       ...(options.vaultName === undefined
         ? {}
         : { VAULT_NAME: options.vaultName }),
@@ -102,6 +115,12 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       ...(options.syncConfigs === undefined
         ? {}
         : { SYNC_CONFIGS: options.syncConfigs }),
+      ...(options.syncExcludedFolders === undefined
+        ? {}
+        : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
+      ...(options.syncFileTypes === undefined
+        ? {}
+        : { SYNC_FILE_TYPES: options.syncFileTypes }),
     },
   })
 
@@ -147,6 +166,8 @@ describe("init-setup-vault script", () => {
     expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -172,6 +193,58 @@ describe("init-setup-vault script", () => {
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --device-name vault cortex box",
       "sync-config --device-name vault cortex box",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("warns and keeps going when a filter's sync-config call fails", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncFileTypes: "image,pdf",
+      syncConfigFailsFor: "--file-types",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] WARNING: ob sync-config --file-types 'image,pdf' failed — continuing without it.\n",
+    )
+    // The call after the failed one still runs.
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      "sync-config --file-types image,pdf",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("passes SYNC_EXCLUDED_FOLDERS and SYNC_FILE_TYPES to sync-config", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncExcludedFolders: "Daily Notes,Private",
+      syncFileTypes: "image,pdf",
+    })
+
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      "sync-config --excluded-folders Daily Notes,Private",
+      "sync-config --file-types image,pdf",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("clears a stored folder or file-type filter when its variable is empty", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncExcludedFolders: "",
+      syncFileTypes: "",
+    })
+
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -181,6 +254,8 @@ describe("init-setup-vault script", () => {
 
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       "sync-config --configs ",
     ])
   })
@@ -194,6 +269,8 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(0)
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --password s3cret",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -207,6 +284,8 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(0)
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --config-dir .obsidian-custom",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })

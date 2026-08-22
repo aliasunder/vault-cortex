@@ -9,7 +9,11 @@ export type ScriptedAnswer = string | boolean | string[]
 
 export type MultiselectCall = { message: string; options: SelectOption[] }
 export type ConfirmCall = { message: string; initialValue: boolean }
-export type SelectCall = { message: string; initialValue: string }
+export type SelectCall = {
+  message: string
+  options: SelectOption[]
+  initialValue: string
+}
 export type TextCall = {
   message: string
   defaultValue: string | undefined
@@ -104,8 +108,8 @@ export const createScriptedPrompts = (
     error: (message) => {
       errors.push(message)
     },
-    select: async (message, _options, initialValue) => {
-      selectCalls.push({ message, initialValue })
+    select: async (message, options, initialValue) => {
+      selectCalls.push({ message, options, initialValue })
       return nextStringAnswer(message)
     },
     multiselect: async (message, options) => {

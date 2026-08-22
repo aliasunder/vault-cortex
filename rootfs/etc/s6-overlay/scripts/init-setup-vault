@@ -74,10 +74,23 @@ apply_sync_config() {
   fi
 }
 
+# Settings with no stored default of their own are always applied, with an
+# empty value passed through: the Sync client stores these on the config
+# volume, so skipping an empty variable would keep a folder exclusion or
+# attachment filter from an earlier boot after the user cleared it. An
+# empty argument is the client's "clear" form (`ob sync-config --help`).
+apply_sync_config_or_clear() {
+  flag="$1"
+  value="$2"
+  if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
+    echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
+  fi
+}
+
 apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
-apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
-apply_sync_config --file-types "$FILE_TYPES"
+apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
+apply_sync_config_or_clear --file-types "${SYNC_FILE_TYPES:-}"
 apply_sync_config --mode "$SYNC_MODE"
 
 # Config-category sync defaults ON for the two categories the server

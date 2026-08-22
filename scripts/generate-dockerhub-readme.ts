@@ -32,7 +32,7 @@ const QUICKSTART_REDIRECT = [
   "",
   "## Quick Start",
   "",
-  `See the [full Quick Start guide](${GITHUB_REPO}#quick-start) for local setup (2 minutes with Docker), remote deployment with Obsidian Sync, and MCP client configuration.`,
+  `See the [full Quick Start guide](${GITHUB_REPO}#quick-start) for local setup (2 minutes with Docker), one-click hosting on Render or Railway, remote deployment with Obsidian Sync, and MCP client configuration.`,
   "",
 ]
 
@@ -71,7 +71,13 @@ const COMPACT_H2 = new Set([
 ])
 
 // Directories that need /tree/ instead of /blob/ in GitHub links
-const DIRECTORY_PATHS = ["deploy/local/", "deploy/remote/", "templates/memory/"]
+const DIRECTORY_PATHS = [
+  "deploy/local/",
+  "deploy/remote/",
+  "deploy/render/",
+  "deploy/railway/",
+  "templates/memory/",
+]
 
 const rewriteUrls = (line: string): string => {
   let result = line
