@@ -93,12 +93,17 @@ export type ContainerHandle = {
   cleanup: () => Promise<void>
 }
 
-/** Start a detached container from the image under test with the `ob` stub
- *  mounted over the real CLI. The returned cleanup removes the container
- *  together with its anonymous volumes (`rm -v`); named volumes passed in
- *  `volumes` are removed explicitly, since `rm -v` leaves those alone. A
- *  removal that fails throws, naming the container or volume, so a leak
- *  fails the hook instead of accumulating silently across local runs. */
+/** Start a detached container from the image under test with exactly one
+ *  file swapped: the `ob` stub is bind-mounted read-only over the real Sync
+ *  client's `cli.js`, so every `ob` call the init chain makes hits the stub
+ *  while the s6 chain, `init-first-sync`, and the volumes stay real. That
+ *  single mount is what lets the tier run without Sync credentials.
+ *
+ *  The returned cleanup removes the container together with its anonymous
+ *  volumes (`rm -v`); named volumes passed in `volumes` are removed
+ *  explicitly, since `rm -v` leaves those alone. A removal that fails
+ *  throws, naming the container or volume, so a leak fails the hook
+ *  instead of accumulating silently across local runs. */
 export const runContainer = async ({
   name,
   image,
@@ -111,8 +116,13 @@ export const runContainer = async ({
     `${key}=${value}`,
   ])
   const volumeArgs = volumes.flatMap((spec) => ["-v", spec])
+  // `127.0.0.1::<port>` leaves the host port to Docker; `publishedPort` reads
+  // it back, so parallel runs never collide on a fixed port.
   const publishArgs = publishPort ? ["-p", `127.0.0.1::${CONTAINER_PORT}`] : []
 
+  // `--pull=never`: only the image this run just built may boot. Without it,
+  // a missing local tag would pull the published `:remote` and the tier would
+  // silently test the released image instead of the branch.
   await dockerOrThrow([
     "run",
     "-d",
