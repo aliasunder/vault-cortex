@@ -1086,6 +1086,9 @@ re-verify each contract against the new source before merging:
 - The device's file record, which the deletion-storm guard reads:
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
   table `local_files`, loaded at engine startup and diffed against disk.
+- Files delivered by `sync --continuous` land in that same table: the
+  server-push handler feeds the download path, which writes each file's
+  row on completion. The stub's `sync-record` verb mirrors this.
 
 The remote-boot stub (`src/__tests__/docker/fixtures/ob`) mirrors these
 contracts, so a change in the CLI does not fail the tier by itself.
