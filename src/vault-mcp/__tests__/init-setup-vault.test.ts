@@ -44,6 +44,12 @@ exec "$@"
 const DEFAULT_SYNC_CONFIGS_CALL =
   "sync-config --configs core-plugin-data,community-plugin-data"
 
+/** The folder and attachment filters are applied on every boot, empty meaning
+ *  "clear" — the stub logs `"$*"`, so an empty argument shows as a trailing
+ *  space. */
+const CLEAR_EXCLUDED_FOLDERS_CALL = "sync-config --excluded-folders "
+const CLEAR_FILE_TYPES_CALL = "sync-config --file-types "
+
 type SetupRun = {
   status: number | null
   stdout: string
@@ -155,6 +161,8 @@ describe("init-setup-vault script", () => {
     expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -180,6 +188,8 @@ describe("init-setup-vault script", () => {
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --device-name vault cortex box",
       "sync-config --device-name vault cortex box",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -199,7 +209,7 @@ describe("init-setup-vault script", () => {
     ])
   })
 
-  it("skips the folder and file-type flags when their variables are empty", () => {
+  it("clears a stored folder or file-type filter when its variable is empty", () => {
     const run = runSetupScript({
       vaultName: "MyVault",
       syncExcludedFolders: "",
@@ -208,6 +218,8 @@ describe("init-setup-vault script", () => {
 
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -217,6 +229,8 @@ describe("init-setup-vault script", () => {
 
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       "sync-config --configs ",
     ])
   })
@@ -230,6 +244,8 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(0)
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --password s3cret",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -243,6 +259,8 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(0)
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault --config-dir .obsidian-custom",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
