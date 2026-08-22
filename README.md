@@ -37,7 +37,7 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-- **[Remote access](#hosted-one-click--no-server-to-manage)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
+- **[Remote access](#hosted-one-click-no-server-to-manage)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
@@ -441,7 +441,7 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 ### One-click deploy
 
-Buttons and prerequisites are in [Quick Start → Hosted](#hosted-one-click--no-server-to-manage). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
+Buttons and prerequisites are in [Quick Start → Hosted](#hosted-one-click-no-server-to-manage). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
 
 ### Community deployments
 
