@@ -84,7 +84,7 @@
     },
     {
       "title": "Deployment",
-      "purpose": "Parent page for the deployment modes, all running the image built from the one two-target Dockerfile: :latest is the MCP server alone (local), :remote bundles Obsidian Sync under s6-overlay supervision. Modes: local Docker, remote with Obsidian Sync, the AWS reference deployment, and hosted container platforms (Render, Railway) — quickstarts in deploy/, scaffolded by the CLI."
+      "purpose": "Parent page for the four ways to run the server: local Docker, one-click on Render or Railway, self-hosted on a VPS with Obsidian Sync, and the AWS reference deployment. Every mode runs an image from the single two-target Dockerfile. The :latest target is the MCP server alone, for local. The :remote target adds Obsidian Sync under s6-overlay supervision, for everything else. Quickstarts live in deploy/; the CLI scaffolds the local and VPS ones."
     },
     {
       "title": "Local Docker Deployment",
@@ -103,7 +103,7 @@
     },
     {
       "title": "Hosted Platform Templates",
-      "purpose": "The hosted one-click deployments of the :remote image in single-volume mode (STORAGE_ROOT, derived PUBLIC_URL — see print-derived-env in rootfs/): render.yaml at the repo root with deploy/render/, and the Railway template-composer definition recorded in deploy/railway/README.md. cli/src/__tests__/templates.test.ts pins render.yaml.",
+      "purpose": "The one-click deployments of the :remote image on Render and Railway. Both run the image in single-volume mode: STORAGE_ROOT names the one mount and print-derived-env in rootfs/ derives PUBLIC_URL from the platform. Render deploys from render.yaml at the repo root, documented in deploy/render/. Railway deploys from a template built in its composer, whose definition is recorded in deploy/railway/README.md. cli/src/__tests__/templates.test.ts pins render.yaml and the Railway definition table.",
       "parent": "Deployment"
     },
     {

@@ -784,11 +784,11 @@ script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
 tests run directly under `sh`.
 
 **Hosted platform templates.** Two templates run the `:remote` image in
-single-volume mode on container hosting platforms — each sets
-`STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex` (the
-platform's container hostname is random, so the Sync device name cannot fall
-back to it), and the platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL`
-to the derivation above:
+single-volume mode on container hosting platforms. Each sets
+`STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex`, and the
+platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL` to the derivation
+above. `DEVICE_NAME` is fixed because the platform's container hostname is
+random, so the Sync device name cannot fall back to it.
 
 - `render.yaml` (repo root — Render reads Blueprints only from there) backs
   the "Deploy to Render" button; guide in `deploy/render/`
