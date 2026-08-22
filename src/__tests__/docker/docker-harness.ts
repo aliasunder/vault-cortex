@@ -165,7 +165,7 @@ const COUNT_SYNC_STATE_FILES_SCRIPT = `
     : []
   const storeCounts = stores.map((file) => {
     const db = new DatabaseSync(file, { readOnly: true })
-    const { count } = db.prepare("SELECT COUNT(*) AS count FROM local_files").get()
+    const { count } = db.prepare("SELECT COUNT(*) AS count FROM local_files WHERE COALESCE(json_extract(data, ?), 0) = 0").get("$.folder")
     db.close()
     return count
   })

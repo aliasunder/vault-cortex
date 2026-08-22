@@ -51,7 +51,7 @@ record_local_files() {
     const db = new DatabaseSync(process.argv[1])
     db.exec("CREATE TABLE IF NOT EXISTS local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
     const insert = db.prepare("INSERT OR REPLACE INTO local_files VALUES (?, ?)")
-    for (const path of process.argv.slice(2)) insert.run(path, "{}")
+    for (const path of process.argv.slice(2)) insert.run(path, JSON.stringify({ folder: false }))
     db.close()
   ' "$state_dir/state.db" "$@"
 }

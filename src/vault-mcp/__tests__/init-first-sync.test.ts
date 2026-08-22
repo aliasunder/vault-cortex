@@ -75,6 +75,9 @@ type GateRunOptions = {
    *  (`obsidian-headless/sync/<vaultId>/state.db`, `local_files` table) —
    *  what a prior sync would have left behind. Omit for a fresh device. */
   knownSyncFiles?: number
+  /** Number of folder rows to record alongside the files — the engine keeps
+   *  a row per folder too, marked `"folder": true`. These must not count. */
+  knownSyncFolders?: number
   /** Number of files to record in a second store
    *  (`obsidian-headless/sync/<otherVaultId>/state.db`) — a device whose
    *  sync root holds more than one vault's state. Omit for one store. */
@@ -86,15 +89,27 @@ type GateRunOptions = {
   xdgConfigHome?: boolean
 }
 
-/** Mirror of the sync engine's local_files table, with one row per file. */
-const writeSyncState = (stateDbPath: string, knownFiles: number): void => {
+/** Mirror of the sync engine's local_files table: one row per file and one
+ *  per folder, each row's data carrying the engine's `folder` flag. */
+const writeSyncState = ({
+  stateDbPath,
+  knownFiles,
+  knownFolders = 0,
+}: {
+  stateDbPath: string
+  knownFiles: number
+  knownFolders?: number
+}): void => {
   const db = new DatabaseSync(stateDbPath)
   db.exec(
     "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)",
   )
   const insert = db.prepare("INSERT INTO local_files VALUES (?, ?)")
   for (let fileIndex = 0; fileIndex < knownFiles; fileIndex += 1) {
-    insert.run(`note-${fileIndex}.md`, "{}")
+    insert.run(`note-${fileIndex}.md`, JSON.stringify({ folder: false }))
+  }
+  for (let folderIndex = 0; folderIndex < knownFolders; folderIndex += 1) {
+    insert.run(`folder-${folderIndex}`, JSON.stringify({ folder: true }))
   }
   db.close()
 }
@@ -124,7 +139,13 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   }
   if (options.knownSyncFiles !== undefined) {
     mkdirSync(syncStateDir, { recursive: true })
-    writeSyncState(join(syncStateDir, "state.db"), options.knownSyncFiles)
+    writeSyncState({
+      stateDbPath: join(syncStateDir, "state.db"),
+      knownFiles: options.knownSyncFiles,
+      ...(options.knownSyncFolders === undefined
+        ? {}
+        : { knownFolders: options.knownSyncFolders }),
+    })
   }
   if (options.secondStoreSyncFiles !== undefined) {
     // Despite the "second" in its name, the glob lists this store first:
@@ -132,10 +153,10 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     // "-" < "/". The two-store specs cover both positions.
     const secondStoreDir = join(dirname(syncStateDir), "vault-id-second")
     mkdirSync(secondStoreDir, { recursive: true })
-    writeSyncState(
-      join(secondStoreDir, "state.db"),
-      options.secondStoreSyncFiles,
-    )
+    writeSyncState({
+      stateDbPath: join(secondStoreDir, "state.db"),
+      knownFiles: options.secondStoreSyncFiles,
+    })
   }
   if (options.corruptSyncState) {
     mkdirSync(syncStateDir, { recursive: true })
@@ -564,6 +585,37 @@ describe("init-first-sync gate script", () => {
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(1)
     expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("allows sync when the record holds only folder rows and the vault is empty", () => {
+    // Notes deleted by hand while the container ran: the engine dropped
+    // their rows, but the rows for the (now empty) folders stay. Those
+    // are not files the engine would push as deletions.
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 0,
+      knownSyncFolders: 4,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.stdout).toContain("[obsidian-sync] First sync complete.")
+  })
+
+  it("refuses to sync when file rows sit beside folder rows and the vault is empty", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 2,
+      knownSyncFolders: 4,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toContain(
+      "ERROR: The vault is empty but this device has previously synced.",
+    )
   })
 
   it("refuses to sync when the sync state exists but cannot be read", () => {

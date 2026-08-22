@@ -45,6 +45,12 @@ SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 # rather than assuming the device is fresh.
 # stdout is the return value: the caller captures it with $(...) and
 # compares it as an integer, so the only output is the bare number.
+#
+# local_files holds folders as well as files; each row's data JSON carries
+# "folder": true or false. Only file rows count: folder rows survive a
+# vault emptied of notes while the folders stay, and a deleted folder is
+# not what the guard protects against. A row whose data does not say
+# either way is counted, so an unexpected shape errs toward stopping.
 known_sync_files() {
   set -- "$SYNC_STATE_ROOT"/*/state.db
   [ -e "$1" ] || { echo 0; return 0; }
@@ -52,7 +58,9 @@ known_sync_files() {
     const { DatabaseSync } = require("node:sqlite")
     const storeCounts = process.argv.slice(1).map((file) => {
       const db = new DatabaseSync(file, { readOnly: true })
-      const { count } = db.prepare("SELECT COUNT(*) AS count FROM local_files").get()
+      const { count } = db
+        .prepare("SELECT COUNT(*) AS count FROM local_files WHERE COALESCE(json_extract(data, ?), 0) = 0")
+        .get("$.folder")
       db.close()
       return count
     })
