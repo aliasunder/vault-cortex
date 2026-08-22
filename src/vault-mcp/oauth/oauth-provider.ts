@@ -478,10 +478,12 @@ export const createOAuthProvider = ({
      *  refresh token or an arbitrary string in plaintext.
      *  https://www.rfc-editor.org/rfc/rfc7009 */
     async revokeToken(
-      _client: OAuthClientInformationFull,
+      client: OAuthClientInformationFull,
       request: OAuthTokenRevocationRequest,
     ): Promise<void> {
-      deleteRefreshTokenStmt.run(refreshTokenStorageKey(request.token))
+      const { changes: refreshTokensDeleted } = deleteRefreshTokenStmt.run(
+        refreshTokenStorageKey(request.token),
+      )
       const isValidAccessToken = verifyJwt(request.token, authToken) !== null
       if (isValidAccessToken) {
         insertRevokedTokenStmt.run(
@@ -489,7 +491,16 @@ export const createOAuthProvider = ({
           DateTime.now().toUnixInteger(),
         )
       }
-      oauthLogger.info("oauth_token_revoked")
+      // Logged from what the revoke matched, not the client's hint.
+      const revokedTokenType = (): string => {
+        if (isValidAccessToken) return "access_token"
+        if (refreshTokensDeleted > 0) return "refresh_token"
+        return "unknown"
+      }
+      oauthLogger.info("oauth_token_revoked", {
+        clientId: client.client_id,
+        tokenType: revokedTokenType(),
+      })
     },
   }
 

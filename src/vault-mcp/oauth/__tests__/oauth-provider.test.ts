@@ -701,17 +701,52 @@ describe("OAuth audit logging", () => {
     expect(event!.data.reason).toBe("expired_or_invalid")
   })
 
-  it("logs oauth_token_revoked on revocation", async () => {
+  it("logs oauth_token_revoked with the client and an unknown token type when nothing matched", async () => {
     const { logs, oauth, client } = await setupAuditTest()
 
-    await oauth.provider.revokeToken!(client, {
-      token: "some-token",
-      token_type_hint: "access_token",
-    })
+    await revokeToken(oauth, client, "some-token")
+
+    expect(logs.filter((log) => log.message === "oauth_token_revoked")).toEqual(
+      [
+        {
+          level: "info",
+          message: "oauth_token_revoked",
+          data: {
+            component: "oauth",
+            clientId: client.client_id,
+            tokenType: "unknown",
+          },
+        },
+      ],
+    )
+  })
+
+  it("logs tokenType refresh_token when a stored refresh token is revoked", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await revokeToken(oauth, client, refreshToken)
 
     const event = logs.find((log) => log.message === "oauth_token_revoked")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
+    expect(event?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      tokenType: "refresh_token",
+    })
+  })
+
+  it("logs tokenType access_token when a valid access JWT is revoked", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    const event = logs.find((log) => log.message === "oauth_token_revoked")
+    expect(event?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      tokenType: "access_token",
+    })
   })
 
   it("logs oauth_token_rejected when a revoked token is verified", async () => {

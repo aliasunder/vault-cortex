@@ -1329,14 +1329,17 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
     await before.cleanup()
 
-    const after = await startServer(port, {
+    // A fresh port: the first server's socket can linger after exit, and
+    // only the data directory needs to carry over.
+    const rotatedPort = await freePort()
+    const after = await startServer(rotatedPort, {
       MCP_AUTH_TOKEN: TOKEN_B,
       INDEX_DB_PATH: indexDbPath,
     })
     onTestFinished(() => after.cleanup())
 
     const rejected = await refresh({
-      port,
+      port: rotatedPort,
       client,
       refreshToken: rotatedTokens.refresh_token,
     })
@@ -1345,14 +1348,20 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       error: "invalid_grant",
       error_description: "Refresh token expired or invalid",
     })
-    expect(await mcpStatusWithBearer(port, rotatedTokens.access_token)).toBe(
-      401,
-    )
+    expect(
+      await mcpStatusWithBearer(rotatedPort, rotatedTokens.access_token),
+    ).toBe(401)
 
-    const reissued = await authorize({ port, client, authToken: TOKEN_B })
-    expect(await mcpStatusWithBearer(port, reissued.access_token)).toBe(200)
+    const reissued = await authorize({
+      port: rotatedPort,
+      client,
+      authToken: TOKEN_B,
+    })
+    expect(await mcpStatusWithBearer(rotatedPort, reissued.access_token)).toBe(
+      200,
+    )
     const refreshedAgain = await refresh({
-      port,
+      port: rotatedPort,
       client,
       refreshToken: reissued.refresh_token,
     })
