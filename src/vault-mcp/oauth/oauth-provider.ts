@@ -5,12 +5,14 @@
  * - Authorization code flow with PKCE
  * - JWT access tokens (HS256, verifiable by Lambda + Express)
  * - Backward-compatible static token verification (MCP_AUTH_TOKEN)
- * - SQLite persistence for refresh tokens + clients (survives restarts)
+ * - SQLite persistence for refresh tokens + clients (survives restarts);
+ *   refresh tokens are stored keyed by an HMAC under MCP_AUTH_TOKEN, so
+ *   rotating the token ends every session and the DB holds no usable token
  * - Consent page gated by the server's auth token
  */
 
 import Database from "better-sqlite3"
-import { randomUUID, randomBytes } from "node:crypto"
+import { createHmac, randomUUID, randomBytes } from "node:crypto"
 import { DateTime } from "luxon"
 import type { Response } from "express"
 import type {
@@ -24,7 +26,10 @@ import type {
   OAuthTokens,
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { InvalidGrantError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
+import {
+  InvalidGrantError,
+  InvalidScopeError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { safeEqual } from "../../auth.js"
 import { signJwt, verifyJwt } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
@@ -59,7 +64,13 @@ type OAuthProviderOptions = {
   logger: Logger
 }
 
-const initDb = (dbPath: string): Database.Database => {
+// Every stored refresh-token key starts with this prefix. Raw tokens
+// are bare hex, so the prefix is what tells a keyed row from one written
+// by a version that stored tokens in plaintext — including rows written
+// after a rollback to such a version.
+const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
+
+const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL") // concurrent reads during writes
   db.exec(`
@@ -93,21 +104,39 @@ const initDb = (dbPath: string): Database.Database => {
       "ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
     )
   }
+  // Rows whose key lacks the prefix hold raw tokens written by a version
+  // that stored them in plaintext; the keyed lookup can never match them,
+  // so clear them on every boot. Each affected client re-authorizes once
+  // through the consent page.
+  const { changes: rawRowsCleared } = db
+    .prepare("DELETE FROM refresh_tokens WHERE token NOT LIKE ?")
+    .run(`${REFRESH_TOKEN_KEY_PREFIX}%`)
+  if (rawRowsCleared > 0) {
+    logger.info("oauth_refresh_tokens_cleared", {
+      reason: "plaintext_rows",
+      rows: rawRowsCleared,
+    })
+  }
   return db
 }
 
 class SqliteClientsStore implements OAuthRegisteredClientsStore {
+  private readonly selectClientStmt: Database.Statement<
+    [string],
+    { data: string }
+  >
+
   constructor(
     private db: Database.Database,
     private logger: Logger,
-  ) {}
+  ) {
+    this.selectClientStmt = db.prepare(
+      "SELECT data FROM clients WHERE client_id = ?",
+    )
+  }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
-    const row = this.db
-      .prepare<unknown[], { data: string }>(
-        "SELECT data FROM clients WHERE client_id = ?",
-      )
-      .get(clientId)
+    const row = this.selectClientStmt.get(clientId)
     if (!row) return undefined
     const parsed: OAuthClientInformationFull = JSON.parse(row.data)
     return parsed
@@ -153,10 +182,47 @@ export const createOAuthProvider = ({
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
-  const db = initDb(dbPath)
+  const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
+
+  // Prefix that separates this HMAC from the JWT signature, which uses
+  // the same key (see jwt.ts).
+  const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
+
+  /** Storage key for a refresh token: an HMAC of the token under the
+   *  auth token. Rows are only reachable under the secret that wrote
+   *  them, so rotating MCP_AUTH_TOKEN ends every session, and a copied
+   *  DB holds no token a client could present. */
+  const refreshTokenStorageKey = (token: string): string => {
+    const digest = createHmac("sha256", authToken)
+      .update(REFRESH_TOKEN_KEY_LABEL + token)
+      .digest("hex")
+    return REFRESH_TOKEN_KEY_PREFIX + digest
+  }
+
+  const insertRefreshTokenStmt = db.prepare<[string, string, string, number]>(
+    "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+  )
+  const deleteExpiredRefreshTokensStmt = db.prepare<[number]>(
+    "DELETE FROM refresh_tokens WHERE expires_at < ?",
+  )
+  const selectRefreshTokenStmt = db.prepare<
+    [string, string],
+    { scopes: string; expires_at: number }
+  >(
+    "SELECT scopes, expires_at FROM refresh_tokens WHERE token = ? AND client_id = ?",
+  )
+  const deleteRefreshTokenStmt = db.prepare<[string]>(
+    "DELETE FROM refresh_tokens WHERE token = ?",
+  )
+  const insertRevokedTokenStmt = db.prepare<[string, number]>(
+    "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
+  )
+  const selectRevokedTokenStmt = db.prepare<[string]>(
+    "SELECT 1 FROM revoked_tokens WHERE token = ?",
+  )
 
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
@@ -171,18 +237,26 @@ export const createOAuthProvider = ({
       authToken,
     )
 
-  const saveRefreshToken = (
-    token: string,
-    clientId: string,
-    scopes: string[],
-  ): void => {
-    db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-    ).run(
-      token,
+  /** Stores a refresh token under its storage key. Expired rows are
+   *  purged here as well as on read: a row is only read when its own
+   *  token is presented, so rows left by dormant clients — or made
+   *  unreachable by a rotation — would otherwise stay forever. */
+  const saveRefreshToken = ({
+    token,
+    clientId,
+    scopes,
+  }: {
+    token: string
+    clientId: string
+    scopes: string[]
+  }): void => {
+    const now = DateTime.now()
+    deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
+    insertRefreshTokenStmt.run(
+      refreshTokenStorageKey(token),
       clientId,
       scopes.join(" "),
-      DateTime.now().plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
+      now.plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
     )
   }
 
@@ -190,27 +264,25 @@ export const createOAuthProvider = ({
    *  (consumed on read to prevent replay) AND time-bounded (rejected
    *  past expires_at). A successful refresh issues a new token whose
    *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
-   *  countdown, so active clients never expire. Expired rows are still
-   *  deleted on read so the table self-cleans. */
-  const consumeRefreshToken = (
-    token: string,
-  ): { clientId: string; scopes: string[] } | null => {
-    const row = db
-      .prepare<
-        [string],
-        { client_id: string; scopes: string; expires_at: number }
-      >(
-        "SELECT client_id, scopes, expires_at FROM refresh_tokens WHERE token = ?",
-      )
-      .get(token)
+   *  countdown, so active clients never expire. A token issued under a
+   *  different auth token derives a different key and is never found. */
+  const consumeRefreshToken = ({
+    token,
+    clientId,
+  }: {
+    token: string
+    clientId: string
+  }): { scopes: string[] } | null => {
+    const storageKey = refreshTokenStorageKey(token)
+    const row = selectRefreshTokenStmt.get(storageKey, clientId)
     if (!row) return null
-    db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(token)
+    deleteRefreshTokenStmt.run(storageKey)
     if (row.expires_at < DateTime.now().toUnixInteger()) return null
-    return { clientId: row.client_id, scopes: row.scopes.split(" ") }
+    return { scopes: row.scopes.split(" ") }
   }
 
   const isRevoked = (token: string): boolean =>
-    !!db.prepare("SELECT 1 FROM revoked_tokens WHERE token = ?").get(token)
+    !!selectRevokedTokenStmt.get(token)
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
   // They appear unused locally but are called by mcpAuthRouter() and
@@ -280,7 +352,11 @@ export const createOAuthProvider = ({
       const scopes = stored.params.scopes ?? []
       const accessToken = issueAccessToken(stored.clientId, scopes)
       const refreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken(refreshToken, stored.clientId, scopes)
+      saveRefreshToken({
+        token: refreshToken,
+        clientId: stored.clientId,
+        scopes,
+      })
 
       oauthLogger.info("oauth_code_exchanged", {
         clientId: stored.clientId,
@@ -295,27 +371,50 @@ export const createOAuthProvider = ({
       }
     },
 
+    /** RFC 6749 §6: the refresh token must have been issued to the
+     *  authenticated client, and a requested scope may narrow but never
+     *  widen the scope originally granted. */
     async exchangeRefreshToken(
-      _client: OAuthClientInformationFull,
+      client: OAuthClientInformationFull,
       refreshToken: string,
       scopes?: string[],
       _resource?: URL,
     ): Promise<OAuthTokens> {
-      const stored = consumeRefreshToken(refreshToken)
+      const clientId = client.client_id
+      const stored = consumeRefreshToken({ token: refreshToken, clientId })
       if (!stored) {
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "expired_or_invalid",
+          clientId,
         })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
 
-      const grantedScopes = scopes ?? stored.scopes
-      const accessToken = issueAccessToken(stored.clientId, grantedScopes)
+      // RFC 6749 §6: an omitted or empty scope means the stored scope.
+      // The SDK splits `scope=` into [""], so blank entries count as empty.
+      const requestedScopes = (scopes ?? []).filter((scope) => scope !== "")
+      const grantedScopes =
+        requestedScopes.length > 0 ? requestedScopes : stored.scopes
+      const requestedScopeWidens = grantedScopes.some(
+        (scope) => !stored.scopes.includes(scope),
+      )
+      if (requestedScopeWidens) {
+        oauthLogger.warn("oauth_token_refresh_failed", {
+          reason: "scope_exceeds_grant",
+          clientId,
+        })
+        throw new InvalidScopeError("Requested scope exceeds the granted scope")
+      }
+      const accessToken = issueAccessToken(clientId, grantedScopes)
       const newRefreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken(newRefreshToken, stored.clientId, grantedScopes)
+      saveRefreshToken({
+        token: newRefreshToken,
+        clientId,
+        scopes: grantedScopes,
+      })
 
       oauthLogger.info("oauth_token_refreshed", {
-        clientId: stored.clientId,
+        clientId,
         scopes: grantedScopes,
       })
       return {
@@ -372,16 +471,22 @@ export const createOAuthProvider = ({
       throw new InvalidTokenError("Token expired or invalid")
     },
 
+    /** RFC 7009: revoke whatever the client presents. A refresh token is
+     *  removed by its storage key; only a currently-valid access JWT is
+     *  added to the revocation list, so revoked_tokens never holds a
+     *  refresh token or an arbitrary string in plaintext. */
     async revokeToken(
       _client: OAuthClientInformationFull,
       request: OAuthTokenRevocationRequest,
     ): Promise<void> {
-      db.prepare(
-        "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-      ).run(request.token, DateTime.now().toUnixInteger())
-      db.prepare("DELETE FROM refresh_tokens WHERE token = ?").run(
-        request.token,
-      )
+      deleteRefreshTokenStmt.run(refreshTokenStorageKey(request.token))
+      const isValidAccessToken = verifyJwt(request.token, authToken) !== null
+      if (isValidAccessToken) {
+        insertRevokedTokenStmt.run(
+          request.token,
+          DateTime.now().toUnixInteger(),
+        )
+      }
       oauthLogger.info("oauth_token_revoked")
     },
   }

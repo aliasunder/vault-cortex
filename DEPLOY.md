@@ -404,6 +404,8 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
 
 ### Rotating `MCP_AUTH_TOKEN`
 
+Rotation ends every OAuth session — each connected client goes back through the consent page on its next request, and clients that use the token directly need the new value.
+
 The token must stay in sync across three places: the SST secret (`sst secret set McpAuthToken`), the GitHub repo secret, and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
 
 ```bash

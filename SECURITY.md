@@ -70,7 +70,9 @@ mechanism-level detail.
   configuration, where `SYNC_CONFIGS` syncs community plugin settings to
   the server whenever the desktop pushes them.
 - The search index and OAuth databases live outside the vault (the
-  default `/data` volume), so the file tools can't reach them.
+  default `/data` volume), so the file tools can't reach them. The OAuth
+  database stores refresh tokens keyed by an HMAC under `MCP_AUTH_TOKEN`,
+  so a copy of it holds no usable credential.
   Hidden-path blocking does not cover a database relocated into a
   _visible_ vault folder — there it is readable like any other vault
   file.
