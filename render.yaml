@@ -14,9 +14,9 @@ services:
     # dashboard after the first deploy.
     plan: standard
     # Render routes traffic only once this path answers. The server answers
-    # after the first Obsidian Sync and the search-index build finish, so the
-    # first deploy of a large vault takes a while (see the guide's
-    # Troubleshooting section).
+    # after the first Obsidian Sync and the search-index build finish: two to
+    # three minutes for a vault of a few thousand notes, up to Render's 15-minute
+    # limit for a large one (see the guide's First start section).
     healthCheckPath: /healthz
     # Image services redeploy from "Manual Deploy" in the dashboard; nothing
     # here deploys on git pushes.
