@@ -16,6 +16,7 @@ import { loadConfig } from "./config.js"
 import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
+import type { ForwardedHeaderTrust } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
@@ -24,11 +25,11 @@ import env from "env-var"
  *  so a client-supplied Forwarded header can't write a false IP into the
  *  error log. */
 export const createErrorMiddleware =
-  ({ trustForwardedHeader }: { trustForwardedHeader: boolean }) =>
+  (forwardedHeaderTrust: ForwardedHeaderTrust) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req, trustForwardedHeader),
+      clientIp: extractClientIp(req, forwardedHeaderTrust),
       method: req.method,
       path: req.path,
       error: `[${err.name}]: ${err.message}`,
@@ -104,6 +105,7 @@ const startServer = async (): Promise<void> => {
     windowsBindMount: config.windowsBindMount,
     trustProxyHops: config.trustProxyHops,
     trustForwardedHeader: config.trustForwardedHeader,
+    trustForwardedHops: config.trustForwardedHops,
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
@@ -150,7 +152,7 @@ const startServer = async (): Promise<void> => {
       serverUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
-      trustForwardedHeader: config.trustForwardedHeader,
+      forwardedHeaderTrust: config,
       logger,
     }),
   )
@@ -164,11 +166,7 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(
-    createErrorMiddleware({
-      trustForwardedHeader: config.trustForwardedHeader,
-    }),
-  )
+  app.use(createErrorMiddleware(config))
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument instead of throwing, so an unchecked callback

@@ -111,6 +111,13 @@ export type VaultConfig = Readonly<{
    *  false — the default — the header is ignored, since any client can
    *  send one. Set via TRUST_FORWARDED_HEADER. */
   trustForwardedHeader: boolean
+  /** How many trailing `for=` elements of the Forwarded header were
+   *  written by proxies the deployment controls — the client IP is the
+   *  element just before them. 1 (the default) when the proxy writing the
+   *  header talks to clients directly; 2 when a CDN fronts that proxy, so
+   *  the last element names the CDN. Only read when
+   *  TRUST_FORWARDED_HEADER is true. Set via TRUST_FORWARDED_HOPS. */
+  trustForwardedHops: number
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -300,6 +307,15 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
+  // Default 1: the proxy writing the Forwarded header appends its own
+  // peer as the last for= element, and with no CDN in front of it that
+  // peer is the client. 0 is rejected — it would select the element the
+  // client itself can append.
+  const trustForwardedHops = requireNonZero(
+    "TRUST_FORWARDED_HOPS",
+    envVar.from(env).get("TRUST_FORWARDED_HOPS").default("1").asIntPositive(),
+  )
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
@@ -307,6 +323,7 @@ export const loadConfig = (
     disabledTools,
     trustProxyHops,
     trustForwardedHeader,
+    trustForwardedHops,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,

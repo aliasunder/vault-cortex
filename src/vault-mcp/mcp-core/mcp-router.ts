@@ -133,7 +133,7 @@ export const createMcpRouter = ({
 
   router.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHeader)
+    const clientIp = extractClientIp(req, config)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
 
     const existingTransport = sessionId ? transports.get(sessionId) : undefined
@@ -249,7 +249,7 @@ export const createMcpRouter = ({
   // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
   router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHeader)
+    const clientIp = extractClientIp(req, config)
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
     logger.info("mcp_response", {
       sessionId,
@@ -265,7 +265,7 @@ export const createMcpRouter = ({
 
   router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHeader)
+    const clientIp = extractClientIp(req, config)
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
     const transport = sessionId ? transports.get(sessionId) : undefined
     if (!sessionId || !transport) {

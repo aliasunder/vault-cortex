@@ -685,6 +685,30 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("TRUST_FORWARDED_HOPS", () => {
+    it("defaults to 1 when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trustForwardedHops).toBe(1)
+    })
+
+    it("accepts a custom positive integer", () => {
+      const config = loadConfig({ TRUST_FORWARDED_HOPS: "2" })
+      expect(config.trustForwardedHops).toBe(2)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects hop count %s", (value) => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
+      )
+    })
+  })
+
   describe("TRUST_FORWARDED_HEADER", () => {
     it("defaults to false when unset", () => {
       const config = loadConfig(EMPTY_ENV)

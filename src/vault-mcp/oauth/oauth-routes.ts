@@ -6,6 +6,7 @@ import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual } from "../../auth.js"
+import type { ForwardedHeaderTrust } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -15,10 +16,11 @@ type OAuthRoutesOptions = {
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
-  /** Whether the RFC 7239 Forwarded header is trusted for client-IP
-   *  extraction (rate limiting + logs) — from TRUST_FORWARDED_HEADER; only
-   *  set where a known edge proxy (API Gateway) sets or appends it. */
-  trustForwardedHeader: boolean
+  /** Whether — and how far from its end — the RFC 7239 Forwarded header
+   *  is read for the client IP (rate limiting + logs); from
+   *  TRUST_FORWARDED_HEADER and TRUST_FORWARDED_HOPS. Only trusted where a
+   *  known edge proxy (API Gateway) sets or appends it. */
+  forwardedHeaderTrust: ForwardedHeaderTrust
   logger: Logger
 }
 
@@ -27,7 +29,7 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
-  trustForwardedHeader,
+  forwardedHeaderTrust,
   logger,
 }: OAuthRoutesOptions): Router => {
   const routeLogger = logger.child({ component: "oauth-routes" })
@@ -51,7 +53,7 @@ export const createOAuthRoutes = ({
     // the library default (req.ip) would merge every client into a single
     // gateway-egress bucket. Elsewhere req.ip, governed by the server's
     // trust-proxy hop count, is the key.
-    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHeader),
+    keyGenerator: (req: Request) => extractClientIp(req, forwardedHeaderTrust),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
@@ -65,7 +67,7 @@ export const createOAuthRoutes = ({
         URL.parse(req.originalUrl, "http://localhost")?.pathname ??
         req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
-        clientIp: extractClientIp(req, trustForwardedHeader),
+        clientIp: extractClientIp(req, forwardedHeaderTrust),
         path: requestPath,
       })
       res.status(options.statusCode).send(options.message)
@@ -123,7 +125,7 @@ export const createOAuthRoutes = ({
         res.status(400).send("Invalid form submission.")
         return
       }
-      const clientIp = extractClientIp(req, trustForwardedHeader)
+      const clientIp = extractClientIp(req, forwardedHeaderTrust)
       const pending = getPendingRequest(
         request_id,
         routeLogger.child({ clientIp, requestId: request_id }),

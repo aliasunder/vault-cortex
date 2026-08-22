@@ -831,6 +831,65 @@ describe("TRUST_FORWARDED_HEADER=true", () => {
   })
 })
 
+// ── TRUST_FORWARDED_HEADER=true + TRUST_FORWARDED_HOPS=2 ───────
+
+// A CDN in front of the header-writing proxy makes the last for= the
+// CDN's address; the client is the element before it.
+describe("TRUST_FORWARDED_HOPS=2", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = await freePort()
+    const server = await startServer(port, {
+      TRUST_FORWARDED_HEADER: "true",
+      TRUST_FORWARDED_HOPS: "2",
+    })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (forwarded: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json", forwarded },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("buckets the /register rate limit by the for= element before the last", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("for=198.51.100.1, for=172.69.0.1")
+      expect(response.status).toBe(201)
+    }
+    // Same client behind a different CDN edge — same bucket.
+    const sixthSameClient = await register("for=198.51.100.1, for=172.69.0.2")
+    expect(sixthSameClient.status).toBe(429)
+    // Different client behind the same CDN edge — fresh bucket.
+    const firstOtherClient = await register("for=198.51.100.2, for=172.69.0.1")
+    expect(firstOtherClient.status).toBe(201)
+  })
+
+  it("ignores a client-supplied prefix ahead of the two trusted elements", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register(
+        "for=203.0.113.99, for=198.51.100.4, for=172.69.0.1",
+      )
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("for=198.51.100.4, for=172.69.0.1")
+    expect(sixth.status).toBe(429)
+  })
+})
+
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────
 
 describe("READONLY_MODE=true", () => {
