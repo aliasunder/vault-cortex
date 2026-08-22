@@ -137,7 +137,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Remote deployments have additional settings not included below (`SYNC_CONFIGS`, `SYNC_MODE`, …) — see the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
 | --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -146,6 +146,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
 | `OBSIDIAN_AUTH_TOKEN` | Remote only | — | Obsidian Sync auth token — the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/#get-sync-token) captures it for you |
 | `VAULT_NAME` | Remote only | — | Exact name of your Obsidian Sync vault (case-sensitive) |
+| `VAULT_PASSWORD` | Remote only | — | End-to-end encryption password, if your vault has one. Leave empty otherwise. |
 | `STORAGE_ROOT` | — | — | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
