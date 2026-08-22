@@ -131,6 +131,10 @@ src/
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
       server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
+    docker/                            # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
+      docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
+      remote-image-boot.test.ts        #   s6 init chain end-to-end against the built :remote image, ob stubbed
+      fixtures/ob                      #   POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
   functions/
     authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
@@ -910,13 +914,18 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
   boot chain for the `:remote` target, not TypeScript modules, and
   vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
-  `rootfs/`. Their specs live in
+  `rootfs/`. Their tests live in
   `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`), run the real
+  `print-derived-env.test.ts`). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
-  include for them.
+  include for them. Whole-image behaviour (the init chain's ordering,
+  the `container_environment` files the chain publishes, the volume
+  layout, and the checks that stop the container) belongs in the
+  remote-boot test suite (`src/__tests__/docker/`, see "Remote image
+  boot tests — when to add"); the branches inside one script stay in
+  that script's test file.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected).
@@ -1023,6 +1032,40 @@ from `npm test`).
 - Prompt branching logic — unit tests cover via scripted answers.
 - Docker interaction — unit tests inject `DockerRunner` stubs.
 
+### Remote image boot tests — when to add
+
+Remote image boot tests (`src/__tests__/docker/`) boot the built
+`:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
+They catch what a single script's test file cannot: the ordering of
+init scripts, the `container_environment` files the init chain
+writes, the volume layout, and the checks that stop the container
+on bad state. Run via `npm run test:remote-boot` (builds the image,
+then runs a separate vitest config excluded from `npm test`).
+
+Tests in a `describe` block share one booted container. Two places boot
+more often, because each scenario sets a different environment or
+expects a different exit outcome: every guard scenario boots inside its
+own `it()`, and the failing-sync block boots once per sub-`describe`
+(memory on, memory off).
+
+**Always add:**
+
+- New init script or ordering change → extend the expected `ob` call
+  sequence.
+- New variable that `init-derive-env` writes → assert its
+  `container_environment` file.
+- New safety check that stops the container → a guard-scenario test
+  asserting the ERROR line.
+- New Sync failure mode → a new stub switch (like
+  `OB_STUB_SYNC_FAIL=1`).
+
+**Never add:**
+
+- Branch logic inside one script — that script's test file covers it.
+- Server tool behaviour — the integration test suite covers it.
+- Anything needing real Obsidian Sync — that stays a manual test
+  deploy.
+
 ## SST conventions
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
@@ -1042,6 +1085,39 @@ you've run `npx sst deploy` (or `sst dev`) once for your stage.
 
 If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 (or `sst dev`) to regenerate `sst-env.d.ts`.
+
+## Upgrading obsidian-headless
+
+The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)
+covers usage, not internals, so the `:remote` init chain depends on
+behaviour observed in the pinned `cli.js`. Treat every bump
+of `obsidian-headless/package.json` as a potential regression and
+re-verify each contract against the new source before merging:
+
+- Verbs and flags the scripts call: `login`, `sync-config`, `sync`,
+  `sync --continuous`, and `sync-setup --vault --device-name`.
+- `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
+  directory before transferring anything. `vault_has_content` in
+  `init-first-sync` therefore treats an `.obsidian/` folder that holds
+  nothing but `.sync.lock` as an empty vault.
+- The device's file record is
+  `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
+  table `local_files`. The deletion-storm guard reads this table. The
+  engine loads it at startup and compares it against the files on disk.
+- Files delivered by `sync --continuous` are recorded in that same
+  table as they arrive, and a file deleted locally has its row removed.
+  The stub's `sync-record` and `sync-forget` verbs mirror the two.
+
+The remote-boot tests never run the real CLI — they run the stub
+(`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
+above. So if a new CLI version behaves differently, the tests still pass,
+because the stub still behaves the old way. After updating the pinned
+version:
+
+1. Update the stub to match the new behaviour.
+2. Run the remote-boot tests and the init-script tests.
+3. Boot the new image once against real Obsidian Sync and confirm the
+   first sync, the guard's file count, and continuous sync in the logs.
 
 ## Operational docs
 

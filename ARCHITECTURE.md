@@ -723,12 +723,22 @@ process has spawned. Two mechanisms with distinct jobs:
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
 - **`init-first-sync` gates vault state.** Three outcomes, checked in order:
-  1. **Deletion-storm guard** (before sync runs): a sentinel on the config
-     volume records that a prior sync completed. If the sentinel exists but
-     the vault is empty (no visible files — dotfiles like `.obsidian/`
-     excluded), the container refuses to start.
+  1. **Deletion-storm guard** (before sync runs): the container refuses to
+     start when the Sync client's file record lists files but the vault has
+     no content.
+     - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
+       config volume. At startup, the client pushes every recorded file
+       that is missing from disk as a deletion.
+     - Content is a regular file: any file at any depth with no dot-named
+       path component, or any file inside `.obsidian/` except under the
+       client's own `.sync.lock/`.
+     - Empty folders do not count, so a wipe that deletes files but keeps
+       the folder tree still reads as empty. Dotfiles outside `.obsidian/`
+       are not synced and do not count either.
+     - A record that exists but cannot be read also stops the container.
+     - No record means a fresh device, which downloads without deleting.
   2. **Sync succeeds**: the first sync runs to completion before any service
-     starts. The sentinel is written for subsequent boots.
+     starts.
   3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
      real files (memory layer enabled, memory folder absent). Warn-and-continue
      when the memory folder is present or memory is disabled — the server
@@ -758,8 +768,8 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
   variable for per-user config, `~/.config` when unset; obsidian-headless
   keeps its Sync login and device registration under
   `$XDG_CONFIG_HOME/obsidian-headless/`, and `init-setup-user` /
-  `init-first-sync` keep the `.applied-ids` record and the deletion-storm
-  sentinel beside it
+  `init-first-sync` read the `.applied-ids` record and the Sync client's
+  own state there
 
 Derivation never overrides a variable that is already set to a non-empty
 value. `LOG_DIR=none` turns log files off; the sentinel exists because every
