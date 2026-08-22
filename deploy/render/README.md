@@ -63,20 +63,21 @@ docker run --rm -it --entrypoint get-sync-token \
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
 Render asks for a card first if your workspace has none on file, then reads
-the Blueprint and asks for a **Blueprint Name** (any name) and three values
+the Blueprint and asks for a **Blueprint Name** (any name) and four values
 before it creates anything:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
 | `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill the token and vault name in **before** the first deploy — a container
-that starts without either stops at Obsidian Sync setup. If your vault uses end-to-end
-encryption, the first deploy stops there too; add
-`VAULT_PASSWORD` under the service's **Environment** tab and click **Manual
-Deploy** (see [Troubleshooting](#troubleshooting)).
+Fill the token, vault name, and (for an encrypted vault) password in
+**before** the first deploy — a container that starts without them stops at
+Obsidian Sync setup. A value you missed is added later under the service's
+**Environment** tab, followed by **Manual Deploy** (see
+[Troubleshooting](#troubleshooting)).
 
 Click **Deploy Blueprint**. Render creates the service and disk, pulls the
 image, and starts the first deploy. Everything else — the MCP token, the public URL, the
@@ -198,11 +199,12 @@ tab (each change triggers a redeploy):
 | --------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `STORAGE_ROOT`        | `/persist`      | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                            |
 | `PORT`                | `8000`          | The port the image listens on. Leave as is.                                                                                                             |
-| `DEVICE_NAME`         | `vault-cortex`  | The device name Obsidian Sync shows for this container.                                                                                                 |
+| `DEVICE_NAME`         | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                            |
 | `TRUST_PROXY_HOPS`    | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits. |
 | `MCP_AUTH_TOKEN`      | generated       | Your MCP client's token. Change it here to rotate it.                                                                                                   |
 | `OBSIDIAN_AUTH_TOKEN` | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                           |
 | `VAULT_NAME`          | yours           | The vault this container syncs.                                                                                                                         |
+| `VAULT_PASSWORD`      | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                  |
 | `TZ`                  | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                       |
 | `MEMORY_ENABLED`      | `true`          | The About Me/ memory layer and its tools. Set `false` to hide them and skip creating the folder.                                                        |
 | `EMBEDDING_ENABLED`   | `true`          | Semantic search. Set `false` to skip the models and use keyword search only — the container fits in much less memory.                                   |
@@ -212,10 +214,9 @@ tab (each change triggers a redeploy):
 
 The last five are the settings most worth changing on a hosted instance;
 the Blueprint pre-fills them with the image defaults so you can edit them in
-place. `VAULT_PASSWORD` (end-to-end-encrypted vaults only) and every other
-optional setting use the same names as the remote quickstart's
-[Configuration table](../remote/#configuration) — add it as a new
-environment variable.
+place. Every other optional setting uses the same names as the remote
+quickstart's [Configuration table](../remote/#configuration) — add it as a
+new environment variable.
 
 Don't set `PUBLIC_URL`, `LOG_DIR`, or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Render's own address variable at every start.

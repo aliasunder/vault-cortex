@@ -156,7 +156,7 @@ describe("hosted platform templates", () => {
       expect(blueprint.services[0].healthCheckPath).toBe("/healthz")
     })
 
-    it("generates MCP_AUTH_TOKEN and prompts for the Sync token, vault name, and timezone", () => {
+    it("generates MCP_AUTH_TOKEN and prompts for the Sync token, vault name, vault password, and timezone", () => {
       const envVars = renderEnvVarsByKey(readRenderBlueprint())
       expect(envVars.get("MCP_AUTH_TOKEN")).toEqual({
         key: "MCP_AUTH_TOKEN",
@@ -168,6 +168,10 @@ describe("hosted platform templates", () => {
       })
       expect(envVars.get("VAULT_NAME")).toEqual({
         key: "VAULT_NAME",
+        sync: false,
+      })
+      expect(envVars.get("VAULT_PASSWORD")).toEqual({
+        key: "VAULT_PASSWORD",
         sync: false,
       })
       expect(envVars.get("TZ")).toEqual({ key: "TZ", sync: false })

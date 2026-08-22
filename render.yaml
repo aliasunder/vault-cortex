@@ -52,6 +52,9 @@ services:
       # Your vault's name, exactly as shown in Obsidian Sync.
       - key: VAULT_NAME
         sync: false
+      # Only for end-to-end-encrypted vaults; leave empty otherwise.
+      - key: VAULT_PASSWORD
+        sync: false
       # Your timezone as an IANA name (America/Toronto) — decides what "today"
       # means for daily notes, task due dates, and memory timestamps. Leave
       # empty for UTC. List: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List
