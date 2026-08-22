@@ -5,12 +5,14 @@ to manage. Railway gives you HTTPS, restarts, and a log viewer; Obsidian Sync
 keeps your vault current; MCP tools work from Claude Desktop, Claude Code,
 claude.ai, or any MCP client.
 
-The button deploys the `vault-cortex:remote` image — Obsidian Sync and the
-MCP server supervised together in **one container** — from a published
-Railway template, with one persistent volume holding your vault, the search
-index, and Obsidian Sync's device state
-([how the container is put together →](../../ARCHITECTURE.md#container-startup)).
-Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
+What you end up with: a copy of your vault on Railway, kept current by
+Obsidian Sync in both directions, that any MCP client can search, read, and
+write from anywhere — with HTTPS, restarts, and a generated access token
+handled for you. One volume holds the vault copy, the search index, and the
+Sync connection. Your notes' home stays Obsidian Sync and your own devices;
+delete the service and you lose only the copy. Prefer your own VPS? Use the
+[remote quickstart](../remote/) instead. Curious how the container is put
+together? [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
 **Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting) · [Template definition](#template-definition-maintainers)
 
@@ -102,8 +104,7 @@ Railway's edge and is checked by the server before any vault data moves:
   lacks a valid token. OAuth clients get one through the consent page (full
   OAuth 2.1 with PKCE and refresh-token rotation); scripts send
   `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
-  endpoints are rate-limited per visitor address — `TRUST_PROXY_HOPS=2` is
-  what lets the server see that address through Railway's proxies.
+  endpoints are rate-limited per visitor address.
 - **Encrypted at rest.** The volume holding your vault, index, and Sync
   device state is encrypted by Railway
   ([Trust Center](https://trust.railway.com)).

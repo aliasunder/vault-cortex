@@ -16,7 +16,7 @@
 
 </div>
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Deploy on a VPS with Obsidian Sync and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Pair it with Obsidian Sync — one click on Render or Railway, or your own VPS — and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1.
 
 **Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Config](#configuration) · [Daily Notes](#daily-notes) · [Data Integrity](#data-integrity) · [Auth](#authentication) · [Deployment](#deployment-options) · [One-click Deploy](#one-click-deploy) · [Community Deployments](#community-deployments)
 
@@ -37,7 +37,7 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-- **[Remote access](#deployment-options)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. Deploy on a VPS with Obsidian Sync for access from anywhere.
+- **[Remote access](#hosted-one-click--no-server-to-manage)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
@@ -87,6 +87,26 @@ docker compose up
 
 **[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
+### Hosted (one click — no server to manage)
+
+Click a button, paste your Obsidian Sync token and vault name, and the platform builds the rest: HTTPS, restarts, a generated MCP token, and one persistent volume for your vault and index. The server is replaceable; your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices, and the container only holds a copy.
+
+#### Render
+
+**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Render](https://render.com) account with a card on file — about $26 USD/mo for the Standard instance and 5 GB disk, billed by the second.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
+
+Render reads the Blueprint from this repo and asks for your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Render guide →](./deploy/render/)**
+
+#### Railway
+
+**Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $18–45 USD/mo for a personal vault.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+Railway opens the template; click **Deploy Now**, then **Configure** to enter your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Railway guide →](./deploy/railway/)**
+
 ### Remote (access from anywhere — Docker + Obsidian Sync)
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
@@ -121,10 +141,11 @@ docker compose up -d
 
 ### Connect your MCP client
 
-| Setup      | Server URL                  |
-| ---------- | --------------------------- |
-| **Local**  | `http://localhost:8000/mcp` |
-| **Remote** | `<PUBLIC_URL>/mcp`          |
+| Setup      | Server URL                                                               |
+| ---------- | ------------------------------------------------------------------------ |
+| **Local**  | `http://localhost:8000/mcp`                                              |
+| **Hosted** | `https://<name>.onrender.com/mcp` or `https://<name>.up.railway.app/mcp` |
+| **Remote** | `<PUBLIC_URL>/mcp`                                                       |
 
 Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, OpenCode, or any other. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
 
@@ -420,13 +441,7 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 ### One-click deploy
 
-Run the `:remote` image on a hosted platform without managing a server. Each guide walks through the deploy, where to find your URL and token, and how to update.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
-
-- **Render** — button, from the [`render.yaml`](./render.yaml) Blueprint at the repo root. Guide: [`deploy/render/`](./deploy/render/)
-- **Railway** — button, from a published template. Guide: [`deploy/railway/`](./deploy/railway/)
+Buttons and prerequisites are in [Quick Start → Hosted](#hosted-one-click--no-server-to-manage). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
 
 ### Community deployments
 
