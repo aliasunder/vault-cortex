@@ -37,7 +37,7 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
-- **[Remote access](#hosted-one-click-no-server-to-manage)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
+- **[Remote access](#remote-access-from-anywhere)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
@@ -87,11 +87,13 @@ docker compose up
 
 **[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
-### Hosted (one click — no server to manage)
+### Remote (access from anywhere)
 
-Click a button, paste your Obsidian Sync token and vault name, and the platform builds the rest: HTTPS, restarts, a generated MCP token, and one persistent volume for your vault and index. The server is replaceable; your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices, and the container only holds a copy.
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. Two ways to get there: one click on Render or Railway, or your own VPS. Either way the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
-#### Render
+#### One-click: Render
+
+Click the button, paste your Obsidian Sync token and vault name, and Render builds the rest: HTTPS, restarts, a generated MCP token, and one persistent disk for your vault and index.
 
 **Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Render](https://render.com) account with a card on file — about $26 USD/mo for the Standard instance and 5 GB disk, billed by the second.
 
@@ -99,7 +101,9 @@ Click a button, paste your Obsidian Sync token and vault name, and the platform 
 
 Render reads the Blueprint from this repo and asks for your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Render guide →](./deploy/render/)**
 
-#### Railway
+#### One-click: Railway
+
+Same idea on Railway: button, token, vault name, and one persistent volume for your vault and index.
 
 **Prerequisites:** an [Obsidian Sync](https://obsidian.md/sync) subscription and a [Railway](https://railway.com) account on the Hobby plan or higher — usage-metered, typically $18–45 USD/mo for a personal vault.
 
@@ -107,7 +111,7 @@ Render reads the Blueprint from this repo and asks for your Sync token, vault na
 
 Railway opens the template; click **Deploy Now**, then **Configure** to enter your Sync token, vault name, timezone, and — for an encrypted vault — the vault password. **[Railway guide →](./deploy/railway/)**
 
-### Remote (access from anywhere — Docker + Obsidian Sync)
+#### Self-hosted: your own VPS
 
 **Prerequisites:** a VPS with [Docker](https://docs.docker.com/engine/install/) (or a Docker-compatible runtime), an [Obsidian Sync](https://obsidian.md/sync) subscription, and Node.js >= 20.12 (only for the CLI — the server itself runs in Docker).
 
@@ -141,11 +145,11 @@ docker compose up -d
 
 ### Connect your MCP client
 
-| Setup      | Server URL                                                               |
-| ---------- | ------------------------------------------------------------------------ |
-| **Local**  | `http://localhost:8000/mcp`                                              |
-| **Hosted** | `https://<name>.onrender.com/mcp` or `https://<name>.up.railway.app/mcp` |
-| **Remote** | `<PUBLIC_URL>/mcp`                                                       |
+| Setup                    | Server URL                                                               |
+| ------------------------ | ------------------------------------------------------------------------ |
+| **Local**                | `http://localhost:8000/mcp`                                              |
+| **Remote (one-click)**   | `https://<name>.onrender.com/mcp` or `https://<name>.up.railway.app/mcp` |
+| **Remote (self-hosted)** | `<PUBLIC_URL>/mcp`                                                       |
 
 Add the server URL in any MCP client — Claude Code, Claude Desktop, Cursor, OpenCode, or any other. OAuth clients open a consent page in your browser — approve with your token, and the client handles token renewal from then on. Clients without OAuth (MCP Inspector, scripts) send the token directly as an `Authorization: Bearer` header.
 
@@ -424,12 +428,12 @@ Local runs on your machine. Remote deployments run on a VPS or a hosted containe
 
 Whichever path you pick, the server is replaceable and your vault isn't. Your notes are plain Markdown files, synced by Obsidian to every device you own; the container holds a copy and an index it can rebuild from scratch. Shut down the VPS, delete the Render or Railway service, switch hosts — the same files are still on your machine and in Obsidian Sync, readable by anything. That's the difference from an AI notebook whose real home is the vendor's database: here the host is a convenience, not a custodian.
 
-| Path          | What                                                              | Guide                                                                         |
-| ------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **Local**     | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)                                            |
-| **Remote**    | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/)                                          |
-| **AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)                                                    |
-| **Hosted**    | Render or Railway — one persistent volume, no server to manage    | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
+| Path                     | What                                                              | Guide                                                                         |
+| ------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Local**                | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)                                            |
+| **Remote · one-click**   | Render or Railway — one persistent volume, no server to manage    | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
+| **Remote · self-hosted** | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/)                                          |
+| **Remote · AWS (SST)**   | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)                                                    |
 
 The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
@@ -441,7 +445,7 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 ### One-click deploy
 
-Buttons and prerequisites are in [Quick Start → Hosted](#hosted-one-click-no-server-to-manage). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
+Buttons and prerequisites are in [Quick Start → Remote](#remote-access-from-anywhere). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
 
 ### Community deployments
 
