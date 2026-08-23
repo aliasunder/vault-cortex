@@ -638,9 +638,9 @@ describe("loadConfig", () => {
   })
 
   describe("MAX_OAUTH_CLIENTS", () => {
-    it("defaults to 1000 when unset", () => {
+    it("defaults to 100 when unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.maxOauthClients).toBe(1000)
+      expect(config.maxOauthClients).toBe(100)
     })
 
     it("accepts a custom positive integer", () => {

@@ -309,7 +309,7 @@ export const loadConfig = (
   // client registers itself once, and a zero cap would block all of them.
   const maxOauthClients = requireNonZero(
     "MAX_OAUTH_CLIENTS",
-    envVar.from(env).get("MAX_OAUTH_CLIENTS").default("1000").asIntPositive(),
+    envVar.from(env).get("MAX_OAUTH_CLIENTS").default("100").asIntPositive(),
   )
 
   return Object.freeze({

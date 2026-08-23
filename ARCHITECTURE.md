@@ -656,7 +656,7 @@ emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
 **Client registration cap:** the rate limiter is the only control between an
-anonymous request and a `/register` write, so `MAX_OAUTH_CLIENTS` (default 1000) bounds the `clients` table independently:
+anonymous request and a `/register` write, so `MAX_OAUTH_CLIENTS` (default 100) bounds the `clients` table independently:
 
 - Count and insert run in one SQLite transaction — a burst cannot overshoot
   the cap
