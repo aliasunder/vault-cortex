@@ -580,7 +580,7 @@ Together:
 >
 > - **A tunnel hostname that admits any client** lets anyone reaching it directly write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until it admits only the gateway. Steps 5–7 below close it with an Access service token before the gateway routes through it; step 10 sets the values.
 > - **Other frontends** (Caddy, nginx) can enforce the same check: `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
-> - **`0` is coarser but never attacker-controlled** — every visitor shares the gateway's bucket, and nothing a client sends can change that.
+> - **With `0`, every visitor shares one rate-limit bucket** (the gateway's address), but no visitor can pick their bucket — nothing a client sends changes it.
 > - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Close that hostname with `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys) before setting `2`. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
