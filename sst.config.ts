@@ -76,13 +76,6 @@ export default $config({
 
     // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
     // default execute-api hostname, so the custom domain is the only way in.
-    // Required before TRUST_FORWARDED_HOPS=2 when a CDN fronts the custom
-    // domain — a request on the default hostname skips the CDN and carries
-    // one fewer trusted Forwarded element. Every client must already use the
-    // custom domain; the default URL stops working at this deploy.
-    //
-    // Compared as a string, like the other optional vars here: CI passes an
-    // unset repo Variable as "", which asBool() rejects.
     const disableExecuteApiEndpoint =
       env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
     if (disableExecuteApiEndpoint && !customDomain) {
