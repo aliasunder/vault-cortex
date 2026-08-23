@@ -57,7 +57,7 @@ services:
       #     admits any client
       #   Gateway → tunnel that admits only      2                 1                     the visitor
       #     the gateway
-      #   CDN → gateway's custom domain, and     as above          2                     the visitor
+      #   CDN → gateway's custom domain, and     2                 2                     the visitor
       #     the CDN is the only way in
       #     (DISABLE_EXECUTE_API_ENDPOINT=true)
       #
@@ -74,10 +74,6 @@ services:
       # then the host passes any client-written Forwarded header through,
       # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
       # 0.
-      #
-      # In the "CDN" row, "as above" means: keep the TRUST_PROXY_HOPS value
-      # from the row that describes what sits between the CDN and this
-      # container, and set TRUST_FORWARDED_HOPS to 2.
       #
       # Port 8000 is open to the internet. With the default settings (the
       # "API Gateway" row), anyone can send a fake Forwarded header straight

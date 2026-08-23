@@ -123,17 +123,13 @@ PORT=8000
 #     (Caddy, nginx, Cloudflare Tunnel)
 #   A proxy that reports visitors in       1                 1                     the visitor (Forwarded)
 #     Forwarded (e.g. AWS API Gateway)
-#   A CDN in front of that proxy, and      as above          2                     the visitor (Forwarded)
+#   A CDN in front of that proxy, and      1                 2                     the visitor (Forwarded)
 #     the CDN is the only way to reach it
 #
 # When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
 # and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
 # when that header is ignored or absent. Faked headers from visitors are
 # ignored in every row — only the counted proxies are trusted.
-#
-# In the "CDN" row, "as above" means: keep the TRUST_PROXY_HOPS value from
-# the row that describes the proxy behind the CDN, and set
-# TRUST_FORWARDED_HOPS to 2.
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HOPS=0
 
@@ -267,17 +263,13 @@ PORT=8000
 #     (Caddy, nginx, Cloudflare Tunnel)
 #   A proxy that reports visitors in       1                 1                     the visitor (Forwarded)
 #     Forwarded (e.g. AWS API Gateway)
-#   A CDN in front of that proxy, and      as above          2                     the visitor (Forwarded)
+#   A CDN in front of that proxy, and      1                 2                     the visitor (Forwarded)
 #     the CDN is the only way to reach it
 #
 # When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
 # and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
 # when that header is ignored or absent. Faked headers from visitors are
 # ignored in every row — only the counted proxies are trusted.
-#
-# In the "CDN" row, "as above" means: keep the TRUST_PROXY_HOPS value from
-# the row that describes the proxy behind the CDN, and set
-# TRUST_FORWARDED_HOPS to 2.
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HOPS=0
 

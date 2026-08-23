@@ -574,14 +574,14 @@ Together:
 > | Gateway → tunnel/proxy that admits any client                                                                | `2`                | `0`                    | the gateway's address |
 > | Gateway → tunnel/proxy that admits only the gateway                                                          | `2`                | `1`                    | the visitor           |
 > | Gateway → a frontend that cannot check headers (Tailscale Funnel)                                            | `2`                | `0`                    | the gateway's address |
-> | A proxied Cloudflare record in front of the gateway's custom domain, and `DISABLE_EXECUTE_API_ENDPOINT=true` | as above           | `2`                    | the visitor           |
+> | A proxied Cloudflare record in front of the gateway's custom domain, and `DISABLE_EXECUTE_API_ENDPOINT=true` | `2`                | `2`                    | the visitor           |
 >
 > Where the client IP is the visitor, it comes from `Forwarded` and `TRUST_PROXY_HOPS` is not consulted. On the `0` rows the header is ignored and the client IP is whatever `TRUST_PROXY_HOPS` resolves from `X-Forwarded-For` — the gateway's own address, never the visitor, because the gateway sends no `X-Forwarded-For`.
 >
 > - **A tunnel hostname that admits any client** lets anyone reaching it directly write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until it admits only the gateway. Steps 5–7 below close it with an Access service token before the gateway routes through it; step 10 sets the values.
 > - **Other frontends** (Caddy, nginx) can enforce the same check: `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
 > - **`0` is coarser but never attacker-controlled** — every visitor shares the gateway's bucket, and nothing a client sends can change that.
-> - **`2` needs the CDN to be the only way in.** In that row, "as above" means: keep the `TRUST_PROXY_HOPS` value from the row that describes what sits between the CDN and the instance. Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Close that hostname with `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys) before setting `2`. A CDN that passes client headers through unchanged cannot use `2`.
+> - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Close that hostname with `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys) before setting `2`. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
 
