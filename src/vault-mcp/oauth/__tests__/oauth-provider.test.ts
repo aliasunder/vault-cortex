@@ -122,10 +122,14 @@ const seedClient = (db: Database.Database): OAuthClientInformationFull => {
   return client
 }
 
-const seedRevokedToken = (db: Database.Database, token: string): void => {
+const seedRevokedToken = (
+  db: Database.Database,
+  token: string,
+  revokedAt = DateTime.now().toUnixInteger(),
+): void => {
   db.prepare(
     "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-  ).run(token, DateTime.now().toUnixInteger())
+  ).run(token, revokedAt)
 }
 
 const seedRefreshToken = (
@@ -357,11 +361,7 @@ describe("OAuth refresh token schema migration", () => {
   })
 
   it("clears raw refresh tokens written after a rollback beside keyed rows it keeps", async () => {
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     const db = new Database(dbPath)
     onTestFinished(() => {
       db.close()
@@ -482,11 +482,7 @@ describe("verifyAccessToken", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
     dbPath = join(dir, "oauth.db")
-    oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     db = new Database(dbPath)
   })
 
@@ -852,11 +848,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
   }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-test-"))
     const dbPath = join(dir, "oauth.db")
-    const oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     const db = new Database(dbPath)
     onTestFinished(async () => {
       db.close()
@@ -932,18 +924,15 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
-  it("purges revoked_tokens rows older than the access-token lifetime at boot and on revoke", async () => {
-    const { oauth, db, client, dbPath } = await createKeyedStorageTest()
-    const seedRevokedToken = (token: string, revokedAt: number): void => {
-      db.prepare(
-        "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-      ).run(token, revokedAt)
-    }
+  it("purges revoked_tokens rows older than the access-token lifetime at boot", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
     seedRevokedToken(
+      db,
       "revoked-25h-ago",
       DateTime.now().minus({ hours: 25 }).toUnixInteger(),
     )
     seedRevokedToken(
+      db,
       "revoked-23h-ago",
       DateTime.now().minus({ hours: 23 }).toUnixInteger(),
     )
@@ -951,12 +940,24 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
 
     expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+  })
 
+  it("purges revoked_tokens rows older than the access-token lifetime on revocation", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    // Seeded after the boot in createKeyedStorageTest, so only the
+    // revocation below can purge them.
     seedRevokedToken(
+      db,
       "revoked-26h-ago",
       DateTime.now().minus({ hours: 26 }).toUnixInteger(),
     )
+    seedRevokedToken(
+      db,
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
     const { access_token: accessToken } = await issueTokens(oauth, client)
+
     await revokeToken(oauth, client, accessToken)
 
     expect(storedRevokedTokens(db)).toEqual(
@@ -1151,7 +1152,6 @@ describe("OAuth tokenless client sweep", () => {
   const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
 
   const createSweepTest = async (): Promise<{
-    dir: string
     dbPath: string
     logs: LogCall[]
   }> => {
@@ -1159,15 +1159,11 @@ describe("OAuth tokenless client sweep", () => {
     const dbPath = join(dir, "oauth.db")
     // A first boot creates the schema so clients can be seeded before the
     // boot under test.
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
     onTestFinished(async () => {
       await rm(dir, { recursive: true, force: true })
     })
-    return { dir, dbPath, logs: [] }
+    return { dbPath, logs: [] }
   }
 
   const openDb = (dbPath: string): Database.Database => {
@@ -1255,11 +1251,7 @@ describe("OAuth tokenless client sweep", () => {
       SIXTY_DAYS_AHEAD,
     )
 
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
 
     expect(registeredClientIds(db)).toEqual(["rotated-client"])
   })
