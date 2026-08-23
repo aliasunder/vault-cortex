@@ -32,23 +32,27 @@ const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 /**
  * RFC 7239 §6 node value: a bracketed IPv6 address (`[2001:db8::17]`) or
  * an IPv4 address / obfuscated identifier, either followed by an optional
- * `:port`. Group 1 is the IPv6 address without its brackets; group 2 is the
+ * `:port`. `ipv6` captures the address without its brackets; `ipv4` the
  * unbracketed form. A value with more than one colon and no brackets is
  * not a node (a bare IPv6 from a non-compliant proxy) and does not match.
  * The regex is the floor here: `URL.parse` keeps the brackets on an IPv6
  * hostname.
  */
-const FORWARDED_NODE = /^(?:\[([^\]]+)\]|([^:]+))(?::[^:]*)?$/
+const FORWARDED_NODE = /^(?:\[(?<ipv6>[^\]]+)\]|(?<ipv4>[^:]+))(?::[^:]*)?$/
 
 /**
  * The address part of an RFC 7239 node: brackets and port stripped, so an
  * IPv6 visitor keys the rate limiter and logs the same way an IPv4 visitor
- * does. A value that is not a well-formed node (a bare unbracketed IPv6
- * from a non-compliant proxy) is returned unchanged.
+ * does. A value that is not a well-formed node is returned unchanged.
  */
 const forwardedNodeAddress = (forValue: string): string => {
-  const match = FORWARDED_NODE.exec(forValue)
-  return match?.[1] ?? match?.[2] ?? forValue
+  const node = FORWARDED_NODE.exec(forValue)?.groups
+  if (!node) return forValue
+  // "[2001:db8::17]:4711" → "2001:db8::17"
+  if (node.ipv6) return node.ipv6
+  // "203.0.113.7:4711" → "203.0.113.7"
+  if (node.ipv4) return node.ipv4
+  return forValue
 }
 
 /**
