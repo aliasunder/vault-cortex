@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  onTestFinished,
+} from "vitest"
+import { createHash, randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -787,5 +795,229 @@ describe("OAuth protected resource metadata", () => {
       )
       expect(response.status).toBe(200)
     }
+  })
+})
+
+describe("OAuth refresh over HTTP", () => {
+  type RegisteredClient = { client_id: string; client_secret: string }
+  type IssuedTokens = { access_token: string; refresh_token: string }
+
+  const isRegisteredClient = (value: unknown): value is RegisteredClient =>
+    typeof value === "object" &&
+    value !== null &&
+    "client_id" in value &&
+    "client_secret" in value
+
+  const isIssuedTokens = (value: unknown): value is IssuedTokens =>
+    typeof value === "object" &&
+    value !== null &&
+    "access_token" in value &&
+    "refresh_token" in value
+
+  const base64Url = (buffer: Buffer): string =>
+    buffer
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
+
+  const createRefreshTest = async (): Promise<{ baseUrl: string }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"))
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      trustForwardedHeader: true,
+      logger,
+    })
+    const app = express()
+    app.use(router)
+    const server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    onTestFinished(async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { baseUrl: `http://localhost:${getListeningPort(server)}` }
+  }
+
+  // Each registration carries its own Forwarded address so two clients in one
+  // test don't share a rate-limit bucket.
+  const registerClient = async (
+    baseUrl: string,
+    forwardedClientIp: string,
+  ): Promise<RegisteredClient> => {
+    const response = await fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        forwarded: `for=${forwardedClientIp}`,
+      },
+      body: JSON.stringify({
+        client_name: "refresh-test",
+        redirect_uris: [REDIRECT_URI],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+    expect(response.status).toBe(201)
+    const registered: unknown = await response.json()
+    if (!isRegisteredClient(registered)) throw new Error("malformed client")
+    return registered
+  }
+
+  /** Consent page → approve → PKCE code exchange, all over HTTP. */
+  const issueTokens = async (
+    baseUrl: string,
+    client: RegisteredClient,
+    forwardedClientIp: string,
+  ): Promise<IssuedTokens> => {
+    const verifier = base64Url(randomBytes(32))
+    const challenge = base64Url(createHash("sha256").update(verifier).digest())
+    const authorizeUrl = new URL(`${baseUrl}/authorize`)
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: REDIRECT_URI,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: "vault",
+    }).toString()
+    const consentHtml = await (
+      await fetch(authorizeUrl, {
+        headers: { forwarded: `for=${forwardedClientIp}` },
+      })
+    ).text()
+    const requestId = REQUEST_ID_PATTERN.exec(consentHtml)?.[1]
+    if (!requestId) throw new Error("consent page carried no request_id")
+    const decision = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        forwarded: `for=${forwardedClientIp}`,
+      },
+      body: new URLSearchParams({
+        request_id: requestId,
+        token: AUTH_TOKEN,
+        action: "approve",
+      }),
+      redirect: "manual",
+    })
+    const location = decision.headers.get("location")
+    const code = location ? new URL(location).searchParams.get("code") : null
+    if (!code) throw new Error(`consent did not redirect with a code`)
+    const tokenResponse = await fetch(`${baseUrl}/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        forwarded: `for=${forwardedClientIp}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: verifier,
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        redirect_uri: REDIRECT_URI,
+      }),
+    })
+    expect(tokenResponse.status).toBe(200)
+    const issued: unknown = await tokenResponse.json()
+    if (!isIssuedTokens(issued)) throw new Error("malformed token response")
+    return issued
+  }
+
+  const refresh = ({
+    baseUrl,
+    client,
+    refreshToken,
+    scope,
+    forwardedClientIp,
+  }: {
+    baseUrl: string
+    client: RegisteredClient
+    refreshToken: string
+    scope?: string
+    forwardedClientIp: string
+  }): Promise<globalThis.Response> =>
+    fetch(`${baseUrl}/token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        forwarded: `for=${forwardedClientIp}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        ...(scope === undefined ? {} : { scope }),
+      }),
+    })
+
+  it("rejects a refresh token presented by a different client with invalid_grant", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const owner = await registerClient(baseUrl, "203.0.113.1")
+    const other = await registerClient(baseUrl, "203.0.113.2")
+    const issued = await issueTokens(baseUrl, owner, "203.0.113.1")
+
+    const response = await refresh({
+      baseUrl,
+      client: other,
+      refreshToken: issued.refresh_token,
+      forwardedClientIp: "203.0.113.2",
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Refresh token expired or invalid",
+    })
+    const stillValid = await refresh({
+      baseUrl,
+      client: owner,
+      refreshToken: issued.refresh_token,
+      forwardedClientIp: "203.0.113.1",
+    })
+    expect(stillValid.status).toBe(200)
+  })
+
+  it("rejects a refresh that widens the scope with invalid_scope and consumes the token", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const owner = await registerClient(baseUrl, "203.0.113.3")
+    const issued = await issueTokens(baseUrl, owner, "203.0.113.3")
+
+    const response = await refresh({
+      baseUrl,
+      client: owner,
+      refreshToken: issued.refresh_token,
+      scope: "vault admin",
+      forwardedClientIp: "203.0.113.3",
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: "invalid_scope",
+      error_description: "Requested scope exceeds the granted scope",
+    })
+    const consumed = await refresh({
+      baseUrl,
+      client: owner,
+      refreshToken: issued.refresh_token,
+      forwardedClientIp: "203.0.113.3",
+    })
+    expect(consumed.status).toBe(400)
+    expect(await consumed.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Refresh token expired or invalid",
+    })
   })
 })
