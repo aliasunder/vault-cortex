@@ -57,9 +57,12 @@ services:
       #
       # "Locked" = ORIGIN_ACCESS_SERVICE_TOKEN + the Access policy (DEPLOY.md
       # "Port 8000 Hardening", steps 5–10); an unlocked tunnel host passes any
-      # client-written Forwarded header through. Anything reaching port 8000
-      # directly can claim any identity — same section, before relying on
-      # the defaults.
+      # client-written Forwarded header through.
+      #
+      # Port 8000 is bound publicly below. A request that skips the gateway
+      # and hits it directly can send any Forwarded header, so the default
+      # row only identifies visitors correctly once direct access is closed
+      # (MCP_PORT_CIDRS=none, or ORIGIN_URL — both in "Port 8000 Hardening").
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
