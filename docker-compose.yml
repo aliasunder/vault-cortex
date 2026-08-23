@@ -73,8 +73,11 @@ services:
       # policy is in place (DEPLOY.md "Port 8000 Hardening", steps 5–10). Until
       # then the host passes any client-written Forwarded header through,
       # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
-      # 0. The CDN row adds to whichever row above describes the path behind
-      # the CDN.
+      # 0.
+      #
+      # In the "CDN" row, "as above" means: keep the TRUST_PROXY_HOPS value
+      # from the row that describes what sits between the CDN and this
+      # container, and set TRUST_FORWARDED_HOPS to 2.
       #
       # Port 8000 is open to the internet, so with the default settings
       # (the "API Gateway" row) anyone can send a fake Forwarded header
