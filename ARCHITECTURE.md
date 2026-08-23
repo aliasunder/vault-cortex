@@ -616,7 +616,9 @@ authorizer and Express can verify independently — no shared state needed.
 - **Auth codes** — in-memory, short-lived (10 minutes).
 - **Access tokens** — JWTs; stateless, no storage.
 - **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
-  refresh token is simply deleted.
+  refresh token is simply deleted. A revoked JWT outlives its revocation by at
+  most the access-token lifetime, so rows older than that are purged at boot
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
@@ -654,6 +656,21 @@ client-IP key derived from the deployment's explicit proxy-trust config:
 direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
+
+**Registrations that never consented:** every MCP client registers itself
+through `/register` on first connect, and some register more than once per
+connect, so the `clients` table would grow with rows no client ever uses.
+A registration older than a week that holds no unexpired refresh token is
+deleted at boot and before each new registration, logged as `oauth_clients_swept`:
+
+- Consent mints a refresh token within minutes, so such a row never
+  finished consent or had its last token expire
+- A swept client that still presents its `client_id` gets `invalid_client`
+  and registers again
+- Refresh-token rows made unreachable by a rotation stay until they expire,
+  so a rotation does not sweep the clients that were active before it
+- The per-IP `/register` rate limit bounds how fast rows can appear and the
+  sweep bounds how long they stay
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both
