@@ -107,12 +107,15 @@ export type VaultConfig = Readonly<{
   trustProxyHops: number
   /** How many entries from the end of the RFC 7239 Forwarded header's
    *  `for=` list (https://www.rfc-editor.org/rfc/rfc7239) to reach the
-   *  client IP used for rate limiting and request logs. 0 (the default)
-   *  ignores the header — any client can send one, so it is only safe to
-   *  read when the proxy connecting to this server writes it (e.g. AWS
-   *  API Gateway). That proxy appends its peer last: 1 when it talks to
-   *  clients directly; 2 when a CDN fronts it, so the last element names
-   *  the CDN. Set via TRUST_FORWARDED_HOPS. */
+   *  client IP used for rate limiting and request logs. Any client can
+   *  send this header, so it is only safe to read when the proxy
+   *  connecting to this server writes it (e.g. AWS API Gateway).
+   *
+   *  - `0` (default) — ignore the header.
+   *  - `1` — the proxy's appended peer is the client.
+   *  - `2` — a CDN fronts the proxy, so the last element names the CDN.
+   *
+   *  Set via TRUST_FORWARDED_HOPS. */
   trustForwardedHops: number
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over

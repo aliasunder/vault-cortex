@@ -55,11 +55,14 @@ const forwardedClientIpBehindHops = (
  * `trustForwardedHops` is how many trailing `for=` elements of the RFC 7239
  * Forwarded header (https://www.rfc-editor.org/rfc/rfc7239) were written by
  * proxies the deployment controls — the same shape as Express's `trust
- * proxy` hop count for X-Forwarded-For. 0 ignores the header entirely: any
- * client can send one, so it is only safe to read when the proxy connecting
- * to this server writes it. With one trusted proxy its appended peer is the
- * client (1); with a CDN in front of that proxy the peer is the CDN and the
- * client is the element before (2).
+ * proxy` hop count for X-Forwarded-For. Any client can send a `Forwarded`
+ * header, so it is only safe to read when the proxy connecting to this
+ * server writes it.
+ *
+ * - `0` — ignore the header entirely.
+ * - `1` — one trusted proxy; its appended peer is the client.
+ * - `2` — a CDN fronts the proxy; the peer is the CDN and the client is
+ *   the element before it.
  */
 export const extractClientIp = (
   req: Pick<Request, "headers" | "ip">,
