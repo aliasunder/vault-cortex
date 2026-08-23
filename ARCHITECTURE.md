@@ -658,8 +658,8 @@ before returning the 429.
 **Registrations that never consented:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
-A registration older than a week that holds no refresh token is deleted at
-boot and before each new registration, logged as `oauth_clients_swept`:
+A registration older than a week that holds no unexpired refresh token is
+deleted at boot and before each new registration, logged as `oauth_clients_swept`:
 
 - Consent mints a refresh token within minutes, so such a row never
   finished consent or had its last token expire
