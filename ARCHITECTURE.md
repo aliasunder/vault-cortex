@@ -669,8 +669,9 @@ boot and before each new registration, logged as `oauth_clients_swept`:
   so a rotation does not sweep the clients that were active before it
 - The per-IP `/register` rate limit bounds how fast rows can appear and the
   sweep bounds how long they stay, so the table is bounded in time without a
-  row cap — a cap would let one address under the limit fill it and refuse
-  the owner's next client
+  row cap
+- A row cap would let one address under the rate limit fill it and lock the
+  owner out of adding the next client
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both
