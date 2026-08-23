@@ -43,23 +43,23 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
-      # API Gateway is the immediate upstream: its RFC 7239 Forwarded claim
-      # (https://www.rfc-editor.org/rfc/rfc7239) is the client identity for
-      # rate limiting. The gateway sends no X-Forwarded-For, so the Forwarded
-      # header is the only carrier of the client IP.
+      # Client IP for OAuth rate limiting and request logs. The gateway reports
+      # the visitor only in the RFC 7239 Forwarded header
+      # (https://www.rfc-editor.org/rfc/rfc7239) and sends no X-Forwarded-For,
+      # so TRUST_FORWARDED_HOPS is what finds the visitor; TRUST_PROXY_HOPS
+      # only sizes the req.ip fallback.
       #
-      # Traffic that reaches this port directly (bypassing the gateway) can
-      # claim any Forwarded identity — see DEPLOY.md "Port 8000 Hardening"
-      # before relying on these defaults.
+      #   What sits in front of this container      PROXY_HOPS  FORWARDED_HOPS
+      #   API Gateway (default)                     1           1
+      #   Gateway → tunnel (ORIGIN_URL), unlocked   2           0
+      #   Gateway → tunnel, locked to the gateway   2           1
+      #   CDN → gateway's custom domain, CDN only   same        2
       #
-      # With ORIGIN_URL (a tunnel/proxy BETWEEN the gateway and this
-      # container): set TRUST_PROXY_HOPS=2, and keep TRUST_FORWARDED_HOPS=1
-      # only once the tunnel host admits the gateway alone
-      # (ORIGIN_ACCESS_SERVICE_TOKEN + the Access policy, DEPLOY.md steps
-      # 5–10) — until then set it to 0.
-      #
-      # With a CDN in front of the gateway's custom domain, set
-      # TRUST_FORWARDED_HOPS=2 instead.
+      # "Locked" = ORIGIN_ACCESS_SERVICE_TOKEN + the Access policy (DEPLOY.md
+      # "Port 8000 Hardening", steps 5–10); an unlocked tunnel host passes any
+      # client-written Forwarded header through. Anything reaching port 8000
+      # directly can claim any identity — same section, before relying on
+      # the defaults.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}

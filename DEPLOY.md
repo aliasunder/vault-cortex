@@ -563,22 +563,20 @@ Together:
 - `MCP_PORT_CIDRS=none` blocks the direct path
 - `ORIGIN_ACCESS_SERVICE_TOKEN=true` lets the alternative path admit the gateway alone
 
-> **Client-IP trust with ORIGIN_URL:** this setup puts two proxies between clients and the container (API Gateway, then the tunnel/proxy). API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so the instance settings are:
+> **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sizes the `req.ip` fallback. Pick the row that matches the instance:
 >
-> - `TRUST_FORWARDED_HOPS=1` — the `Forwarded` header is the only carrier of the visitor's IP.
-> - `TRUST_PROXY_HOPS=2` — one hop per proxy, for the `req.ip` fallback.
-> - `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** that domain is the only way into the gateway. The gateway then lists the Cloudflare edge last and the visitor before it. This works because Cloudflare appends the visitor to `X-Forwarded-For` rather than passing a client-written header through, so anything a client sends lands further left. A CDN that passes client headers through unchanged cannot use `2`.
+> | What sits in front of the instance                                                                          | `TRUST_PROXY_HOPS` | `TRUST_FORWARDED_HOPS` |
+> | ----------------------------------------------------------------------------------------------------------- | ------------------ | ---------------------- |
+> | API Gateway directly (no `ORIGIN_URL`)                                                                      | `1`                | `1`                    |
+> | Gateway → tunnel/proxy, **unlocked**                                                                        | `2`                | `0`                    |
+> | Gateway → tunnel/proxy, **locked** to the gateway                                                           | `2`                | `1`                    |
+> | Gateway → a frontend that cannot check headers (Tailscale Funnel)                                           | `2`                | `0`                    |
+> | A proxied Cloudflare record in front of the gateway's custom domain, and that domain is the **only** way in | as above           | `2`                    |
 >
->   While the gateway's default `execute-api` hostname is still reachable, a request on it has only one gateway-written element, and the gateway folds a client-supplied `X-Forwarded-For` into the elements before it — `2` would read an attacker's value there. Keep `1` until the default hostname is closed.
->
-> Trusting `Forwarded` is safe only once the tunnel hostname admits the gateway alone; otherwise anyone reaching the tunnel hostname directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket. Steps 5–7 of the Cloudflare Tunnel example lock the hostname with an Access service token before the gateway routes through it; step 10 then sets these values.
->
-> **Other frontends** (Caddy, nginx): the same lock works without Cloudflare Access. `ORIGIN_ACCESS_SERVICE_TOKEN=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request regardless of the target, so configure the proxy to reject requests that don't carry your two values:
->
-> - Caddy: a `header` matcher on `handle`
-> - nginx: an `if` on `$http_cf_access_client_secret`
->
-> A frontend that cannot check headers (Tailscale Funnel) gets `TRUST_FORWARDED_HOPS=0` instead: the header is ignored, nothing can be forged, and rate limiting keys on the gateway's own address — coarser, never attacker-controlled. `TRUST_FORWARDED_HOPS=0` with `TRUST_PROXY_HOPS=2` does **not** recover the visitor: the gateway sends no `X-Forwarded-For`.
+> - **Locked** means the tunnel hostname admits the gateway alone. Otherwise anyone reaching it directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until the lock exists. Steps 5–7 below lock it with an Access service token before the gateway routes through it; step 10 sets the values.
+> - **Other frontends** (Caddy, nginx) can enforce the same lock: `ORIGIN_ACCESS_SERVICE_TOKEN=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
+> - **`0` keys on the gateway's own address** — coarser, never attacker-controlled. `TRUST_PROXY_HOPS=2` alone does **not** recover the visitor: the gateway sends no `X-Forwarded-For`.
+> - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Keep `1` until that hostname is closed. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
 
