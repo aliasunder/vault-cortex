@@ -44,17 +44,22 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
       # API Gateway is the immediate upstream: its RFC 7239 Forwarded claim
-      # (https://www.rfc-editor.org/rfc/rfc7239) is
-      # the client identity for rate limiting. Traffic that reaches this port
-      # directly (bypassing the gateway) can claim any Forwarded identity —
-      # see DEPLOY.md "Port 8000 Hardening" before relying on these defaults.
-      # With ORIGIN_URL (a tunnel/proxy BETWEEN the gateway and this container)
-      # set TRUST_PROXY_HOPS=2, and keep TRUST_FORWARDED_HOPS=1 only once the
-      # tunnel host admits the gateway alone (ORIGIN_ACCESS_SERVICE_TOKEN +
-      # the Access policy, DEPLOY.md steps 5–10) — until then set it to 0. The
-      # gateway sends no X-Forwarded-For, so the Forwarded header is the only
-      # carrier of the client IP. With a CDN in front of the gateway's custom
-      # domain, set TRUST_FORWARDED_HOPS=2 instead.
+      # (https://www.rfc-editor.org/rfc/rfc7239) is the client identity for
+      # rate limiting. The gateway sends no X-Forwarded-For, so the Forwarded
+      # header is the only carrier of the client IP.
+      #
+      # Traffic that reaches this port directly (bypassing the gateway) can
+      # claim any Forwarded identity — see DEPLOY.md "Port 8000 Hardening"
+      # before relying on these defaults.
+      #
+      # With ORIGIN_URL (a tunnel/proxy BETWEEN the gateway and this
+      # container): set TRUST_PROXY_HOPS=2, and keep TRUST_FORWARDED_HOPS=1
+      # only once the tunnel host admits the gateway alone
+      # (ORIGIN_ACCESS_SERVICE_TOKEN + the Access policy, DEPLOY.md steps
+      # 5–10) — until then set it to 0.
+      #
+      # With a CDN in front of the gateway's custom domain, set
+      # TRUST_FORWARDED_HOPS=2 instead.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
