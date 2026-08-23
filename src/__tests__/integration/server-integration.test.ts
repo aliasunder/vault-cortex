@@ -14,6 +14,8 @@ import { createHash, randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -1366,5 +1368,41 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       refreshToken: reissued.refresh_token,
     })
     expect(refreshedAgain.status).toBe(200)
+  }, 60_000)
+
+  it("sweeps a week-old registration that never consented so a full cap admits a new client", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const indexDbPath = join(dataDir, "search.db")
+    const capOfOne = { MAX_OAUTH_CLIENTS: "1", INDEX_DB_PATH: indexDbPath }
+    const port = await freePort()
+
+    const before = await startServer(port, capOfOne)
+    const stale = await registerClient(port)
+    await before.cleanup()
+
+    // Backdate the registration past the sweep's one-week age on disk; the
+    // client never consented, so it holds no refresh token.
+    const oauthDb = new Database(join(dataDir, "oauth.db"))
+    oauthDb
+      .prepare(
+        "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
+      )
+      .run(DateTime.now().minus({ days: 8 }).toUnixInteger(), stale.client_id)
+
+    const rebootedPort = await freePort()
+    const after = await startServer(rebootedPort, capOfOne)
+    onTestFinished(() => after.cleanup())
+
+    const fresh = await registerClient(rebootedPort)
+
+    const registeredClientIds = oauthDb
+      .prepare<[], { client_id: string }>("SELECT client_id FROM clients")
+      .all()
+      .map((clientRow) => clientRow.client_id)
+    oauthDb.close()
+    expect(registeredClientIds).toEqual([fresh.client_id])
   }, 60_000)
 })

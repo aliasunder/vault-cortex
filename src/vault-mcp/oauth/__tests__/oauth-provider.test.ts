@@ -1382,15 +1382,13 @@ describe("OAuth tokenless client sweep", () => {
   it("sweeps before counting so a stale registration does not consume the cap", async () => {
     const { dbPath } = await createSweepTest(1)
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
       maxClients: 1,
       logger,
     })
-    // The boot sweep removed the seeded row; re-seed so the registration
-    // itself has to make room.
+    // Seeded after the boot so the registration itself has to make room.
     seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
     const { clientsStore } = oauth.provider
     if (!clientsStore.registerClient) {
